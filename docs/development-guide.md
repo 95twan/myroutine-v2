@@ -51,6 +51,7 @@
 | 메트릭 | Micrometer(actuator 기본) → Prometheus → Grafana | |
 | 보일러플레이트 | Lombok (제한적, §5.1) | |
 | ID | `uuid-creator` (UUIDv7) | |
+| 객체 저장소 | MinIO(로컬, S3 호환) + AWS SDK for Java v2 (`s3`) | 상품 이미지 presigned URL 업로드 (로드맵 1-10, 2026-10-02 승인) |
 
 > **신규 학습 범위는 ELK, Prometheus/Grafana, k6로 한정한다.** Flyway, Spring Modulith(verify 테스트만), Testcontainers는 학습 부담이 거의 없어 포함한다. 그 외 도구(분산 트레이싱, ShedLock, WireMock, ArchUnit)는 이미 아는 방식으로 대체했다(ADR-010).
 
@@ -95,7 +96,7 @@
 
 | 기능 | 활용 |
 |---|---|
-| 가상 스레드 + `synchronized` 고정(pinning) 해소 (JEP 491, Java 24+) | Stage 2-3 가상 스레드 실험. Java 21 시절의 pinning 문제 없이 비교 가능 |
+| 가상 스레드 + `synchronized` 고정(pinning) 해소 (JEP 491, Java 24+) | Stage 2-1 가상 스레드 실험. Java 21 시절의 pinning 문제 없이 비교 가능 |
 | Scoped Values (JEP 506, 정식) | 요청 컨텍스트(memberId 등) 전달 실험 [선택] |
 | Compact Object Headers (JEP 519) | Stage 2 메모리·GC 실험 옵션 (`-XX:+UseCompactObjectHeaders`) |
 | record 패턴, switch 패턴 매칭, sealed | `PgResult` 같은 결과 타입 분기 (§8.2) |
@@ -119,7 +120,6 @@ myroutine-v2/
     │   │   ├── product/
     │   │   ├── order/
     │   │   ├── payment/
-    │   │   ├── wallet/
     │   │   ├── settlement/
     │   │   ├── review/
     │   │   ├── search/
@@ -171,7 +171,7 @@ notification, search처럼 비즈니스 규칙이 적은 모듈은 `domain`을 �
 ```java
 // src/main/java/com/myroutine/order/package-info.java
 @org.springframework.modulith.ApplicationModule(
-    allowedDependencies = {"common", "product::api", "wallet::api", "payment::api", "shop::api", "member::api"}
+    allowedDependencies = {"common", "product::api", "payment::api", "shop::api", "member::api"}
 )
 package com.myroutine.order;
 
@@ -190,7 +190,8 @@ package com.myroutine.common;
 // product/api/ProductApi.java — 다른 모듈이 보는 계약
 public interface ProductApi {
     List<ProductForCheckout> getForCheckout(Collection<UUID> productIds);
-    void reserve(UUID orderId, List<ReserveItem> items);           // 멱등: 같은 orderId 재호출 시 무시
+    List<ProductForCheckout> getPurchasable(Collection<UUID> productIds);   // 판매 중이 아니면 예외
+    void reserve(UUID orderId, List<ReserveItem> items, Instant expiresAt);   // 멱등: 같은 orderId 재호출 시 무시
     void commitReservation(UUID orderId);
     void releaseReservation(UUID orderId, ReleaseReason reason);
     void restore(UUID orderId, UUID productId, int quantity, UUID refundId);  // 멱등: refundId
@@ -277,7 +278,6 @@ public class OrderLine {
 | `Refund` | - | 주문과 별도 애그리거트 (독립적인 진행 상태) |
 | `Subscription` | - | `SubscriptionCycle`은 별도 애그리거트 (회차가 계속 쌓임) |
 | `Product` | `ProductImage` | `Stock`은 별도 (갱신 빈도·경합이 다름) |
-| `Wallet` | - | `LedgerEntry`, `WalletHold`는 별도 테이블이지만 wallet 서비스 안에서 같은 트랜잭션으로만 변경 |
 | `Payment` | `PaymentCancel` | |
 
 규칙
@@ -319,7 +319,7 @@ public enum OrderLineStatus {
 
     public OrderLineStatus transitTo(OrderLineStatus to) {
         if (!ALLOWED.getOrDefault(this, Set.of()).contains(to)) {
-            throw new InvalidStateTransitionException(this, to);
+            throw new BusinessException(CommonErrorCode.INVALID_STATE_TRANSITION);
         }
         return to;
     }
@@ -378,7 +378,7 @@ public class ConfirmPaymentService {
     }
 }
 ```
-- `@Transactional` 메서드 안에서 `RestClient`, 메일, OpenAI, S3, ES를 호출하지 않는다.
+- `@Transactional` 메서드 안에서 `RestClient`, 메일, OpenAI, MinIO(S3), ES를 호출하지 않는다.
 - 같은 클래스의 `@Transactional` 메서드를 `this.method()`로 호출하면 프록시를 거치지 않아 트랜잭션이 적용되지 않는다. `TransactionTemplate`을 쓰거나 별도 빈으로 분리한다.
 - 트랜잭션 전파는 기본(REQUIRED)만 쓴다. `REQUIRES_NEW`가 필요해 보이면 설계를 다시 보고, 쓴다면 이유를 주석으로 남긴다.
 
@@ -485,7 +485,7 @@ class OrderLineConfirmedConsumer {
 | 잔액처럼 한 행에 연산 여러 개 | `SELECT ... FOR UPDATE` | 지갑 |
 | 같은 회원의 연속 요청 직렬화 | `pg_advisory_xact_lock(hashtext(:key))` (트랜잭션 끝나면 해제) | 가게 개설·폐업 |
 | 스케줄 작업 중복 실행 방지 | 전용 커넥션에서 `pg_try_advisory_lock` → 작업 → `pg_advisory_unlock` (세션 레벨) | 만료 잡, 대사 잡, Outbox 릴레이, 정산 |
-| 중복 처리 방지 (최후 방어선) | UNIQUE 제약 + `INSERT ... ON CONFLICT DO NOTHING` | 원장, 정산 item, processed_message |
+| 중복 처리 방지 (최후 방어선) | UNIQUE 제약 + `INSERT ... ON CONFLICT DO NOTHING` | 재고 이력, 정산 item, processed_message |
 | 여러 행을 잠글 때 | **항상 같은 순서**(ID 오름차순) | 여러 상품 예약 |
 
 주의
@@ -497,7 +497,7 @@ class OrderLineConfirmedConsumer {
 ```java
 // common
 public interface ErrorCode { String code(); HttpStatus status(); String message(); }
-public class BusinessException extends RuntimeException { private final ErrorCode errorCode; ... }
+public class BusinessException extends RuntimeException { private final ErrorCode errorCode; private final Map<String, Object> details; ... }
 
 // 모듈별
 public enum OrderErrorCode implements ErrorCode {
@@ -512,6 +512,38 @@ public enum OrderErrorCode implements ErrorCode {
 - 에러 코드는 [07-api-spec.md](02-design/07-api-spec.md)에 등록한다.
 - 예외를 삼키지 않는다. `catch (Exception e) { log.error(...) }`로 끝내는 코드는 리뷰에서 반려한다(ORD-05).
 
+**응답 규격 (`common.error.ErrorResponse`)**
+```java
+public record ErrorResponse(String code, String message, String traceId, Map<String, Object> details) {
+    static ErrorResponse of(ErrorCode errorCode, Map<String, Object> details) { ... }   // traceId는 MDC에서
+}
+```
+- `traceId`는 새로 만들지 않는다. `TraceIdFilter`가 MDC에 넣은 `traceId`를 꺼내 쓴다(§14.1). 그래야 응답 헤더 `X-Request-Id`와 같고 로그와도 같다.
+- `details`는 없으면 빈 객체(`{}`)다. 검증 실패는 `{필드명: 메시지}`, 그 외는 코드별로 정한다(예: `OUT_OF_STOCK` → `{productIds: [...]}`).
+- `message`는 사용자에게 보여줘도 되는 문구만 쓴다. SQL·클래스명·스택트레이스를 넣지 않는다.
+
+**`GlobalExceptionHandler` 변환표**
+| 예외 | HTTP | code | details | 로그 |
+|---|---|---|---|---|
+| `BusinessException` | `errorCode.status()` | `errorCode.code()` | `e.getDetails()` | WARN |
+| `MethodArgumentNotValidException` (`@Valid` 실패) | 400 | `INVALID_REQUEST` | `{필드명: 메시지}` | WARN |
+| `HandlerMethodValidationException` (쿼리 파라미터 검증 실패, 1-7) | 400 | `INVALID_REQUEST` | `{}` | WARN |
+| `HttpMessageNotReadableException` (JSON 오류) | 400 | `INVALID_REQUEST` | `{}` | WARN |
+| `NoResourceFoundException` | 404 | `NOT_FOUND` | `{}` | WARN |
+| `HttpRequestMethodNotSupportedException` | 405 | `METHOD_NOT_ALLOWED` | `{}` | WARN |
+| `OptimisticLockingFailureException` | 409 | `CONFLICT_RETRY` | `{}` | WARN |
+| `MethodArgumentTypeMismatchException`, `MissingServletRequestParameterException` | 400 | `INVALID_REQUEST` | `{파라미터명: 메시지}` | WARN |
+| `DataIntegrityViolationException` + unique 위반(SQLState `23505`) | 409 | `DUPLICATE_RESOURCE` | 없음 | WARN |
+| `DataIntegrityViolationException` + 그 외 | 500 | `INTERNAL_ERROR` | 없음 | ERROR + 스택트레이스 |
+| 그 외 `Exception` | 500 | `INTERNAL_ERROR` | 없음 | ERROR + 스택트레이스 |
+
+- 중복은 서비스가 먼저 조회해서 구체적인 코드(`MEMBER_EMAIL_DUPLICATED` 등)로 막는다. DB unique 제약까지 오는 것은 동시 요청 경합뿐이라 어떤 제약이든 409 `DUPLICATE_RESOURCE` 하나로 응답한다.
+- 응답 `message`는 항상 `ErrorCode.message()`다. 예외 메시지를 응답에 넣지 않는다.
+- 상태 전이 실패는 `new BusinessException(CommonErrorCode.INVALID_STATE_TRANSITION)`(409).
+- 단계별 상세 규격은 [로드맵 1-3](03-roadmap/part1-foundation.md)이 기준이다.
+
+**유틸 클래스**: `Ids`처럼 인스턴스를 만들지 않는 클래스는 `final` + private 생성자로 둔다.
+
 ## 12. 네이밍
 | 대상 | 규칙 | 예 |
 |---|---|---|
@@ -521,7 +553,7 @@ public enum OrderErrorCode implements ErrorCode {
 | 이벤트 | `{명사}{과거분사}Event` | `ShopClosedEvent` |
 | 예외 | `BusinessException` + `{모듈}ErrorCode` | |
 | 테이블·컬럼 | snake_case, 테이블은 단수(예약어면 복수 `orders`) | `order_line` |
-| 제약·인덱스 | `pk_`, `uk_{table}_{cols}`, `ck_{table}_{rule}`, `idx_{table}_{cols}` | `uk_ledger_entry_type_ref` |
+| 제약·인덱스 | `pk_`, `uk_{table}_{cols}`, `ck_{table}_{rule}`, `idx_{table}_{cols}` | `uk_stock_movement_type_ref` |
 | 테스트 메서드 | 한글 `@DisplayName` + 영문 메서드명 | `@DisplayName("배송 중인 품목은 취소할 수 없다")` |
 
 ## 13. 테스트
@@ -544,7 +576,8 @@ void cancel_shipped_line_fails() {
     OrderLine line = OrderLineFixture.shipped();
 
     assertThatThrownBy(line::cancel)
-        .isInstanceOf(InvalidStateTransitionException.class);
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode").isEqualTo(CommonErrorCode.INVALID_STATE_TRANSITION);
 }
 ```
 - given-when-then 순서로 쓰고, 픽스처는 `XxxFixture`로 모은다.
@@ -692,7 +725,7 @@ void no_oversell() throws Exception {
 
 ### 13.6 필수 테스트
 - 모든 상태 enum: 허용·금지 전이 전체 (파라미터화 테스트)
-- 모든 금액 계산: 경계값(0원, 전액 예치금, 전액 PG, 부분 환불 누적)
+- 모든 금액 계산: 경계값(최소 금액, 부분 환불 누적, 누적 취소 = 승인액)
 - 모든 consumer: 같은 이벤트 2번 → 결과 1번
 - 모든 변경 API: 다른 회원이 호출 → 403/404 (INV-11)
 - 모듈 경계 verify 테스트
@@ -701,18 +734,18 @@ void no_oversell() throws Exception {
 
 ### 14.1 traceId 전파 (ADR-010)
 ```java
-// common: 요청마다 traceId를 만들어 MDC에 넣는다
+// common.web: 요청마다 traceId를 만들어 MDC에 넣는다 (TraceIds도 같은 패키지)
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class TraceIdFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws ServletException, IOException {
-        String traceId = Optional.ofNullable(req.getHeader("X-Request-Id")).orElseGet(TraceIds::newId);
-        MDC.put("traceId", traceId);
-        res.setHeader("X-Request-Id", traceId);
+        String traceId = TraceIds.newId();   // 항상 서버가 만든다 (클라이언트 헤더를 이어 쓰는 것은 로드맵 1-3의 제안)
+        MDC.put(TraceIds.MDC_KEY, traceId);
+        res.setHeader(TraceIds.HEADER, traceId);
         try { chain.doFilter(req, res); }
-        finally { MDC.clear(); }
+        finally { MDC.remove(TraceIds.MDC_KEY); }
     }
 }
 ```
@@ -743,14 +776,14 @@ Kibana에서 `traceId:"..."`로 검색하면 한 요청의 HTTP → DB → Kafka
 ## 16. Git·PR
 > 상세 규칙은 [Git 정책](git-policy.md)이 기준이다. 아래는 요약.
 
-- 브랜치: Git Flow — `main`(릴리스), `develop`(통합, 기본 브랜치), `feature/{단계ID}-{요약}` (예: `feature/2-4-checkout`). feature → develop은 squash merge.
+- 브랜치: Git Flow — `main`(릴리스), `develop`(통합, 기본 브랜치), `feature/{단계ID}-{요약}` (예: `feature/2-2-checkout`). feature → develop은 squash merge.
 - 커밋 메시지: `{type}: {무엇을} ({왜})`, type은 `feat, fix, refactor, test, docs, chore`. 관련 없는 변경을 한 커밋에 섞지 않는다.
 - PR은 티켓 하나 단위로 올리고, 본문에 다음을 쓴다.
   1. 티켓 ID와 수용 기준 체크
   2. 변경 요약과 설계 문서와 다르게 구현한 부분(있으면 이유)
   3. 테스트 결과(실행한 테스트, 필수 시나리오 체크)
   4. 리뷰어가 특히 봐줬으면 하는 곳
-- **리뷰 요청**: "2-4 리뷰해줘"와 함께 브랜치명(`feature/2-4-checkout`) 또는 PR 번호를 알려준다. §18 체크리스트로 리뷰하고, 지적 사항과 질문을 심각도순으로 돌려준다.
+- **리뷰 요청**: "2-2 리뷰해줘"와 함께 브랜치명(`feature/2-2-checkout`) 또는 PR 번호를 알려준다. §18 체크리스트로 리뷰하고, 지적 사항과 질문을 심각도순으로 돌려준다.
 
 ## 17. 모듈 하나를 만드는 순서
 1. 티켓의 수용 기준과 관련 설계(ERD, 상태머신, 시퀀스, API)를 다시 읽는다.
@@ -795,8 +828,8 @@ Kibana에서 `traceId:"..."`로 검색하면 한 요청의 HTTP → DB → Kafka
 | AFTER_COMMIT fire-and-forget 발행 | Outbox | ORD-09, SHOP-05 |
 | 타임아웃을 실패로 단정 | UNKNOWN + 대사 | PAY-01, ORD-10 |
 | 선택 후 트랜잭션 종료 → 그다음 처리 | 상태값 선점(PROCESSING + 리스) | PAY-03 |
-| 중복 요청에 unique 예외를 그대로 반환 | 기존 결과를 멱등 응답 | WAL-01 |
-| DB 락을 잡은 채 외부 송금 | 선차감 커밋 → 호출 → 확정/보상 | WAL-02 |
+| 중복 요청에 unique 예외를 그대로 반환 | 기존 결과를 멱등 응답 (`@Idempotent`, 비즈니스 키) | WAL-01 |
+| DB 락을 잡은 채 외부 송금 | 트랜잭션 밖에서 멱등 키로 호출 → 결과 기록 (정산 지급) | WAL-02 |
 | `final` 없는 필드 + `@RequiredArgsConstructor` | 의존성 필드는 모두 `private final` | SUP-01 |
 | consumer마다 다른 ack 설정 | 공통 설정 하나 | SUP-02 |
 | 트랜잭션 안에서 unique 위반 catch 후 계속 | `ON CONFLICT DO NOTHING` | SUP-05 |

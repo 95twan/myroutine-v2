@@ -38,13 +38,13 @@ gitGraph
 
 ## 2. 브랜치 이름
 ```
-feature/{단계ID}-{짧은-설명}     feature/2-4-checkout
+feature/{단계ID}-{짧은-설명}     feature/2-2-checkout
 hotfix/{짧은-설명}              hotfix/jwt-expiry-check
 docs/{짧은-설명}                docs/adr-011-cache        (문서만 바꿀 때)
 ```
 - 단계ID는 [로드맵](03-roadmap/README.md)의 번호(`Part-단계`)다.
 - 영어 소문자와 하이픈만 쓴다.
-- 한 단계가 커서 PR을 나누면 `feature/2-11a-cancel-line`, `feature/2-11b-refund-recovery`처럼 알파벳을 붙인다.
+- 한 단계가 커서 PR을 나누면 `feature/2-8a-cancel-line`, `feature/2-8b-refund-recovery`처럼 알파벳을 붙인다.
 
 ## 3. 커밋 메시지
 
@@ -60,25 +60,25 @@ Refs: {단계ID}
 | 요소 | 규칙 |
 |---|---|
 | type | `feat` 기능, `fix` 버그 수정, `refactor` 동작 변화 없는 구조 개선, `test` 테스트만, `docs` 문서, `chore` 설정·의존성, `ci` CI, `perf` 성능 개선(Stage 2) |
-| scope | 모듈명(`member`, `shop`, `product`, `order`, `payment`, `wallet`, `settlement`, `review`, `search`, `recommendation`, `notification`, `common`) 또는 `infra`, `docs` |
+| scope | 모듈명(`member`, `shop`, `product`, `order`, `payment`, `settlement`, `review`, `search`, `recommendation`, `notification`, `common`) 또는 `infra`, `docs` |
 | 제목 | 한국어, 50자 이내, 마침표 없음. "무엇을 했다"가 드러나게 (`추가`, `수정`, `제거`) |
 | 본문 | 선택. 왜 바꿨는지, 고려한 대안, 주의점. 한 줄 72자 내외 |
-| Refs | 로드맵 단계ID, 관련 결함·ADR (`Refs: 2-11, ORD-04, ADR-004`) |
+| Refs | 로드맵 단계ID, 관련 결함·ADR (`Refs: 2-8, ORD-04, ADR-004`) |
 
 ### 3.2 예시
 ```
-feat(order): 체크아웃 - 예치금 전액 결제
+feat(order): 체크아웃 - 주문 생성과 재고 예약
 
-주문 3단 구조(주문-가게주문-품목)로 생성하고, 재고 예약과 예치금 보류를
+주문 3단 구조(주문-가게주문-품목)로 생성하고, 주문 저장과 재고 예약을
 하나의 트랜잭션으로 묶었다. 가격은 클라이언트 값이 아니라 상품 모듈에서
 조회한 서버 가격으로 확정한다 (As-Is ORD-01 재발 방지).
 
-Refs: 2-4, ADR-004
+Refs: 2-2, ADR-004
 ```
 ```
-fix(wallet): 같은 주문으로 보류를 다시 요청하면 예외 대신 기존 결과 반환
+fix(product): 같은 주문으로 재고 예약을 다시 요청하면 예외 대신 무시
 
-Refs: 2-2, WAL-01
+Refs: 1-9, WAL-01
 ```
 ```
 perf(order): 주문 목록 조회에 커버링 인덱스와 keyset 페이징 적용
@@ -97,19 +97,19 @@ Refs: S2-M2
 
 ### 4.1 흐름
 ```
-1. develop 최신화 후 브랜치 생성       git switch develop && git pull && git switch -c feature/2-4-checkout
+1. develop 최신화 후 브랜치 생성       git switch develop && git pull && git switch -c feature/2-2-checkout
 2. 작업·커밋
 3. PR 전 develop 변경 반영              git fetch origin && git rebase origin/develop
 4. 셀프 체크리스트 확인 (4.3)
-5. push 후 PR 생성 (base: develop)      git push -u origin feature/2-4-checkout
-6. CI 통과 확인 → Claude에게 리뷰 요청  "2-4 리뷰해줘" + 브랜치명 또는 PR 번호
+5. push 후 PR 생성 (base: develop)      git push -u origin feature/2-2-checkout
+6. CI 통과 확인 → Claude에게 리뷰 요청  "2-2 리뷰해줘" + 브랜치명 또는 PR 번호
 7. 리뷰 반영은 새 커밋으로 추가          (리뷰 중에는 force push 하지 않는다 → 무엇을 고쳤는지 보이게)
 8. 승인되면 squash merge, 브랜치 삭제
 ```
 
 ### 4.2 기준
 - **단계 하나 = PR 하나.** 변경이 테스트 제외 500줄을 넘으면 나눌 수 있는지 먼저 검토한다.
-- PR 제목: `feat(order): 체크아웃 - 예치금 전액 결제 (2-4)`
+- PR 제목: `feat(order): 체크아웃 - 주문 생성과 재고 예약 (2-2)`
 - CI(빌드 + 전체 테스트)가 통과하지 않은 PR은 리뷰를 요청하지 않는다.
 - 설계와 다르게 구현했으면 PR 본문의 "설계와 다른 점"에 적는다. 문서(설계·ADR·README·가이드) 반영은 **리뷰 때 Claude가 같은 브랜치에 직접 수정**하고, 사용자가 확인 후 `docs:` 커밋으로 추가한다.
 
@@ -117,7 +117,7 @@ Refs: S2-M2
 `.github/pull_request_template.md`로 저장한다.
 ```markdown
 ## 단계
-- 로드맵: (예: 2-4 체크아웃 - 예치금 전액 결제)
+- 로드맵: (예: 2-2 체크아웃)
 
 ## 무엇을 / 왜
 -
