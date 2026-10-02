@@ -10,7 +10,7 @@
 1. `settlement` 모듈을 따로 두고 정산 데이터(`settlement_item`, `settlement`)를 소유한다.
 2. 정산 대상은 `order-line-confirmed` 이벤트로 적재한다(`order_line_id` UK로 멱등). 주문 데이터를 직접 읽지 않는다.
 3. 배치는 **가게 ID keyset 순회**로 한다. 가게별 한 트랜잭션에서 `settlement` INSERT(UK shop_id+기간) + 미정산 item에 `settlement_id` 할당 + 할당된 행 기준으로 합계를 계산한다.
-4. 지급(wallet 입금)은 정산 트랜잭션과 분리하고, 원장 unique로 멱등하게 한다. 실패하면 PAYOUT_FAILED로 두고 다음 실행에서 재시도한다.
+4. 지급은 정산 트랜잭션과 분리한다. 지급 연동(`PayoutGateway`, 은행 송금 Mock)을 **트랜잭션 밖에서** 멱등 키 = settlementId로 호출하고 결과를 기록한다. 실패하면 PAYOUT_FAILED로 두고 다음 실행에서 재시도한다. (2026-10-02: 예치금 제거로 wallet 입금 → 지급 Mock으로 변경)
 5. Spring Batch 없이 시작한다. 100만 건 10분 목표를 못 맞추면 가게 범위 파티셔닝 병렬 처리를 도입한다(그때 Spring Batch Partitioner 검토).
 
 ## 고려한 대안

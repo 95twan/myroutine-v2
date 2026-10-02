@@ -1,5 +1,7 @@
 # 04. 상태머신
 
+> 2026-10-02: 예치금 제거 — 주문은 항상 PG 결제를 거친다(즉시 PAID 경로 삭제), 환불은 PG 부분취소만, 예치금 보류·출금 상태머신 삭제.
+
 원칙
 - 모든 전이는 **허용된 이전 상태에서만** 일어난다. 구현은 `UPDATE ... SET status = :to WHERE id = :id AND status = :from`(CAS) 또는 `version` 낙관적 락으로 한다.
 - 반영된 행 수가 0이면 이미 처리됐거나(멱등 성공) 다른 흐름이 먼저 전이한 것(경합)이다. 둘을 구분해 응답한다.
@@ -11,8 +13,7 @@
 
 ```mermaid
 stateDiagram-v2
-  [*] --> PENDING_PAYMENT: 체크아웃 (재고 예약 + 예치금 보류)
-  [*] --> PAID: 체크아웃, PG 금액 0원 (즉시 확정)
+  [*] --> PENDING_PAYMENT: 체크아웃 (재고 예약)
   PENDING_PAYMENT --> PAYMENT_IN_PROGRESS: 결제 승인 요청 시작 (CAS)
   PENDING_PAYMENT --> EXPIRED: 만료 스윕 (expires_at 경과)
   PENDING_PAYMENT --> PAYMENT_FAILED: 사용자 결제 취소·실패 통지
@@ -26,8 +27,8 @@ stateDiagram-v2
 
 | 전이 | 함께 일어나는 일 (같은 로컬 트랜잭션) |
 |---|---|
-| → PAID | 재고 예약 COMMITTED, 예치금 보류 CAPTURED, 가게주문·품목 PAID, outbox `order-paid` |
-| → EXPIRED / PAYMENT_FAILED | 재고 예약 RELEASED·EXPIRED, 예치금 보류 RELEASED, 품목 CANCELLED |
+| → PAID | 재고 예약 COMMITTED, 가게주문·품목 PAID, outbox `order-paid` |
+| → EXPIRED / PAYMENT_FAILED | 재고 예약 RELEASED·EXPIRED, 가게주문·품목 CANCELLED |
 
 핵심 규칙
 - **PG 승인은 우리 서버가 confirm API를 호출할 때만 일어난다.** 만료 스윕은 `PENDING_PAYMENT`만 대상으로 하므로, 승인 요청이 진행 중인 주문(`PAYMENT_IN_PROGRESS`)은 만료되지 않는다 → "만료됐는데 승인됨" 경합을 상태 전이로 차단한다.
@@ -39,7 +40,9 @@ stateDiagram-v2
 
 ```mermaid
 stateDiagram-v2
-  [*] --> PAID: 주문 결제 완료
+  [*] --> PENDING: 체크아웃 (주문과 함께 생성)
+  PENDING --> PAID: 주문 결제 완료
+  PENDING --> CANCELLED: 주문 만료·결제 실패
   PAID --> SHIPPED: 판매자 발송 (송장 입력)
   PAID --> CANCELLED: 모든 품목 취소
   SHIPPED --> DELIVERED: 판매자 배송완료 처리
@@ -78,18 +81,17 @@ stateDiagram-v2
   [*] --> REQUESTED: 취소·반품 요청
   REQUESTED --> APPROVED: 구매자 취소(자동) / 판매자 반품 승인
   REQUESTED --> REJECTED: 판매자 반품 거절
-  APPROVED --> PG_CANCELLED: PG 부분취소 성공 (pg_amount > 0)
-  APPROVED --> COMPLETED: pg_amount = 0
-  PG_CANCELLED --> COMPLETED: 예치금 복원 + 재고 복구 + 품목 상태
+  APPROVED --> PG_CANCELLED: PG 부분취소 성공
+  PG_CANCELLED --> COMPLETED: 재고 복구 + 품목 상태
   APPROVED --> FAILED: PG 취소 명확한 실패 (운영 알림)
   APPROVED --> APPROVED: PG 취소 결과 불확실 → 대사
+  FAILED --> APPROVED: 관리자 재시도 (운영 API, 로드맵 7-3)
   COMPLETED --> [*]
   REJECTED --> [*]
-  FAILED --> [*]
 ```
-- 금액 배분(POL-08): `pg_amount = min(환불액, 주문 PG 승인액 - PG 누적 취소액)`, `wallet_amount = 환불액 - pg_amount`.
+- 환불액 = 품목 금액 - 이미 환불된 금액. 전액 PG 부분취소다(POL-08). 주문별 누적 취소액 ≤ 승인액(INV-06)은 payment의 CHECK와 주문 행 잠금으로 지킨다.
 - PG 부분취소는 `payment_cancel.idempotency_key = refundId`로 호출해 재시도해도 1회만 취소된다.
-- COMPLETED 전이 트랜잭션: wallet `refund(refId=refundId)`(원장 unique로 멱등) + product `restore(orderId, productId, refId=refundId)`(movement unique로 멱등) + `order_line.refunded_amount` 증가 + 품목 CANCELLED/RETURNED + outbox `order-line-refunded`.
+- COMPLETED 전이 트랜잭션: product `restore(orderId, productId, refId=refundId)`(movement unique로 멱등) + `order_line.refunded_amount` 증가 + 품목 CANCELLED/RETURNED + outbox `order-line-refunded`.
 
 ## 5. 결제 (payment.status)
 
@@ -106,10 +108,10 @@ stateDiagram-v2
   APPROVED --> CANCELLED: 전액취소
   PARTIAL_CANCELLED --> CANCELLED: 누적 취소액 = 승인액
 ```
-- 대사 백오프: 10초, 30초, 1분, 5분 ... 최대 24시간. `reconcile_attempts`가 임계치를 넘으면 운영 알림(메트릭 `payment_unknown_total`).
+- 대사는 1분 주기 잡이 매번 다시 조회한다(백오프는 선택 사항). `reconcile_attempts`가 임계치를 넘으면 운영 알림(메트릭 `payment_unknown_count`).
 - PG 호출 전에 `IN_PROGRESS` 행을 **먼저 커밋**한다 → 호출 도중 앱이 죽어도 대사 대상이 남는다.
 
-## 6. 재고 예약 / 예치금 보류
+## 6. 재고 예약
 
 ```mermaid
 stateDiagram-v2
@@ -119,27 +121,19 @@ stateDiagram-v2
     HELD --> RELEASED: 주문 결제 실패
     HELD --> EXPIRED: 주문 만료
   }
-  state "예치금 보류" as H {
-    [*] --> HELD2: 보류
-    HELD2 --> CAPTURED: 주문 PAID
-    HELD2 --> RELEASED2: 주문 만료·실패
-  }
 ```
-(HELD2·RELEASED2는 다이어그램 표기상 구분, 실제 값은 HELD·RELEASED)
 
-## 7. 출금 (withdrawal.status)
+## 7. 정산 지급 (settlement.status)
 
 ```mermaid
 stateDiagram-v2
-  [*] --> REQUESTED: 출금 요청 (잔액 차감 + 원장 WITHDRAWAL, 커밋)
-  REQUESTED --> PROCESSING: 송금 호출 시작
-  PROCESSING --> COMPLETED: 송금 성공
-  PROCESSING --> FAILED: 송금 명확한 실패 → 원장 WITHDRAWAL_REVERT (복원)
-  PROCESSING --> UNKNOWN: 결과 불확실
-  UNKNOWN --> COMPLETED: 은행 조회
-  UNKNOWN --> FAILED: 은행 조회 → 복원
+  [*] --> CALCULATED: 정산 계산 (가게·기간당 1건)
+  CALCULATED --> PAID: 지급 Mock 성공
+  CALCULATED --> PAYOUT_FAILED: 지급 실패
+  PAYOUT_FAILED --> PAID: 다음 실행에서 재시도 성공
+  PAYOUT_FAILED --> PAYOUT_FAILED: 재시도 실패
 ```
-- 잔액을 **먼저 차감·커밋한 뒤** 외부를 호출한다(WAL-02 대응: 락을 잡은 채 외부 호출 금지). 실패하면 보상으로 복원한다.
+- 지급 호출은 트랜잭션 밖에서 하고 멱등 키는 settlementId다. 호출 후 기록 전에 죽어도 같은 키로 다시 부르면 한 번만 지급된다(As-Is WAL-02 교훈).
 
 ## 8. 구독 / 구독 회차
 
@@ -160,17 +154,15 @@ stateDiagram-v2
 
 ```mermaid
 stateDiagram-v2
-  [*] --> SCHEDULED: 실행일 도래
-  SCHEDULED --> ORDERED: 주문 생성 (멱등키 = cycleId:attempt)
+  [*] --> ORDERED: 실행일 (회차 INSERT + 주문 생성, 한 트랜잭션)
+  [*] --> SKIPPED: 재고 부족·판매 중지
   ORDERED --> PAID: 빌링 결제 성공
-  ORDERED --> FAILED: 결제 실패 (attempt 증가)
-  FAILED --> SCHEDULED: 다음 날 재시도 (attempt < 3)
-  SCHEDULED --> SKIPPED: 재고 부족 / 구독 PAUSED
+  ORDERED --> FAILED: 결제 실패 (다음 날 새 회차로 재시도, 연속 실패 3회면 구독 SUSPENDED)
   PAID --> [*]
   SKIPPED --> [*]
-  FAILED --> [*]: 3회 실패 → 구독 SUSPENDED
+  FAILED --> [*]
 ```
-- **INV-08 구체화**: 회차 1개당 PAID 주문은 최대 1건. 실패한 시도의 주문은 PAYMENT_FAILED로 남는다. 회차 처리 시작 시 `subscription_cycle` 행을 CAS로 선점한다.
+- **INV-08 구체화**: 회차(구독 × 날짜) 1개당 주문은 1건. 회차 INSERT(unique)와 주문 생성을 한 트랜잭션에 넣어 같은 날 두 번 실행돼도 주문이 하나다.
 - 회차 적용가: `pending_effective_date <= run_date`면 `pending_unit_price`를 적용하고 `unit_price`로 승격한다(POL-03·11).
 - 재고 부족은 결제 실패로 세지 않고 SKIPPED 처리 후 알린다 [제안].
 

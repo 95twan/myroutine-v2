@@ -8,7 +8,7 @@ flowchart TB
   subgraph App["myroutine-app (Spring Boot 4.x, Java 25)"]
     direction TB
     MEM[member] ~~~ SHOP[shop] ~~~ PRD[product]
-    ORD[order] ~~~ PAY[payment] ~~~ WAL[wallet]
+    ORD[order] ~~~ PAY[payment]
     STL[settlement] ~~~ REV[review] ~~~ SRC[search]
     REC[recommendation] ~~~ NTF[notification]
     COM[common: outbox, inbox, idempotency, error, security]
@@ -34,10 +34,9 @@ As-Is 대비 제거: Eureka, Config Server, API Gateway(Stage 3에서 도입), R
 |---|---|---|
 | member | 가입·로그인(OAuth), 이메일 인증, 토큰·세션, 회원 정보, 제재, 문의 | `member` |
 | shop | 가게 개설·수정·폐업, 판매자 소유권 확인 | `shop` |
-| product | 상품, 이미지, 가격 이력, 재고, 재고 예약 | `product` |
+| product | 상품, 이미지(MinIO 업로드 URL 발급·등록), 가격 이력, 재고, 재고 예약 | `product` (+ MinIO 버킷) |
 | order | 장바구니, 체크아웃, 주문·가게주문·품목, 취소·반품·환불 오케스트레이션, 구독·회차 | `orders` |
-| payment | PG 승인·취소·조회, 빌링키, 대사, 예치금 충전 결제 | `payment` |
-| wallet | 예치금 잔액·보류·원장, 출금(계좌 송금) | `wallet` |
+| payment | PG 승인·취소·조회, 빌링키, 대사 | `payment` |
 | settlement | 정산 대상 적재, 월 정산, 판매자 지급 | `settlement` |
 | review | 리뷰, 평점 통계, 좋아요, 월간 LLM 요약 | `review` |
 | search | ES 상품 색인(프로젝션), 검색·자동완성 | (ES) |
@@ -52,18 +51,21 @@ As-Is 대비 제거: Eureka, Config Server, API Gateway(Stage 3에서 도입), R
 ```mermaid
 flowchart LR
   ORD[order] -->|조회·예약| PRD[product]
-  ORD -->|보류·확정·복원| WAL[wallet]
   ORD -->|승인·취소| PAY[payment]
   ORD -->|가게 상태| SHOP[shop]
   ORD -->|배송지 조회| MEM[member]
-  PAY -->|충전 입금| WAL
-  STL[settlement] -->|정산금 입금| WAL
+  STL[settlement] -->|정산금 지급| PO[지급 Mock<br/>PayoutGateway]
+  STL -->|가게 주인 조회| SHOP
+  NTF[notification] -->|수신자 연락처| MEM
+  NTF -->|가게 주인 조회| SHOP
   PRD -->|소유권| SHOP
   MEM -->|활성 가게 수 재조회| SHOP
   REV -->|구매확정 여부| ORD
   REC -->|상품 정보| PRD
+  SRC[search] -->|재색인용 상품 목록| PRD
 ```
 실선은 **동기 호출(모듈 API)**. 그 외 연결은 모두 Kafka 이벤트([05-events.md](05-events.md)).
+- 의존 역전 구현(호출이 아니라 인터페이스 구현): order → `shop.api.ShopClosePrecondition`, order·settlement → `member.api.WithdrawalPrecondition`. member는 shop을 참조하므로 shop은 member를 참조하지 않는다(가게 조건은 member가 `ShopApi`로 직접 확인).
 
 규칙
 1. 다른 모듈은 `{module}.api` 패키지(인터페이스 + DTO)만 참조한다. `domain`, `infrastructure`는 외부 비공개.
@@ -84,16 +86,23 @@ com.myroutine
 │   └── web            # REST 컨트롤러, 요청/응답 DTO
 ├── shop ...
 └── common
-    ├── outbox / inbox / idempotency
-    ├── error          # ErrorCode, BusinessException, GlobalExceptionHandler
+    ├── outbox / inbox # Outbox 발행·릴레이, 멱등 소비 (Part 3)
+    ├── mail           # MailSender 포트
+    ├── crypto         # AES-GCM (빌링키)
+    ├── storage        # ObjectStorage 포트 (MinIO/S3), ImageUrls
+    ├── config         # Clock, JPA Auditing, WebMvc, 스케줄링 설정
+    ├── idempotency    # @Idempotent, 멱등 키 저장소·AOP
+    ├── job            # JobLock(세션 advisory lock), JobRunner
+    ├── error          # ErrorCode, BusinessException, ErrorResponse, GlobalExceptionHandler
+    ├── web            # TraceIdFilter, TraceIds, Cursor (요청 단위 횡단 관심사)
     ├── security       # JWT, 인증 필터, @CurrentMember
-    └── model          # Money, 공통 ID 생성기
+    └── model          # Money, Ids(UUIDv7), BaseTimeEntity
 ```
 
 ## 5. 횡단 설계
 
 ### 5.1 인증·인가 (ADR-006)
-- Access JWT(15분, 클레임: memberId, roles, tokenVersion), Refresh는 Redis 세션(기기별, 교체·재사용 탐지).
+- Access JWT(15분, 클레임: memberId, role, tokenVersion, sessionId), Refresh는 Redis 세션(기기별, 교체·재사용 탐지).
 - 판매자 기능은 **역할이 아니라 소유권으로 인가**한다(`shop.memberId == 요청자`). SELLER 역할은 UI 노출용이라, 역할 반영이 늦어도 기능은 막히지 않는다.
 - 제재·탈퇴·로그아웃 전체 시 `tokenVersion`을 증가시킨다. 필터가 Redis에 캐시한 현재 버전과 비교해 즉시 무효화한다.
 
@@ -103,7 +112,7 @@ com.myroutine
 
 ### 5.3 멱등 API
 - 생성·결제 계열 POST는 `Idempotency-Key` 헤더를 받는다. `common.idempotency_key`(key, memberId, requestHash, status, response)에 결과를 저장하고 재요청에는 같은 응답을 돌려준다.
-- 대상: 상품 등록, 체크아웃, 결제 승인, 충전, 출금, 취소·반품 요청.
+- 대상: 가게 개설, 상품 등록, 재고 조정, 체크아웃, 결제 승인, 구독 신청, 취소·반품 요청.
 
 ### 5.4 스케줄 작업
 다중 인스턴스 중복 실행은 **Postgres 세션 레벨 advisory lock**으로 막는다(별도 라이브러리 없음). Stage 2에서 인스턴스를 여러 개 띄울 것을 전제한다.
@@ -114,8 +123,8 @@ com.myroutine
 
 | 작업 | 주기 | 모듈 |
 |---|---|---|
-| 재고 예약·주문 만료 | 1분 | order (product·wallet API 호출) |
-| 결제 대사 | 1분 (결과미확정 결제 대상) | order(주문 결제: PaymentApi.reconcile 호출), payment(충전: wallet 직접 반영) |
+| 재고 예약·주문 만료 | 1분 | order (product API 호출) |
+| 결제 대사 | 1분 (결과미확정 결제 대상) | order (PaymentApi.queryOutcome 호출) |
 | 자동 구매확정 | 1시간 | order |
 | 구독 회차 실행 | 매일 06:00 | order |
 | 정산 | 매월 5일 03:00 | settlement |
