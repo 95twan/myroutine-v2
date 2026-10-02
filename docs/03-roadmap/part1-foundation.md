@@ -44,7 +44,7 @@
 3. start.spring.io에서 생성한다.
    - Gradle - Groovy, Java 25, Spring Boot 4.x 최신 GA, Group `com.myroutine`, Artifact `myroutine`
    - **Package name을 `com.myroutine`으로 직접 고친다.** 자동으로 채워지는 `com.myroutine.myroutine`을 그대로 두면 안 된다. Spring Modulith는 메인 클래스 패키지의 바로 아래 패키지(`com.myroutine.member` 등)를 모듈로 인식한다
-   - 생성된 메인 클래스 `MyroutineApplication`은 `MyRoutineApplication`으로 이름을 바꾼다(문서 표기와 맞춤, 선택)
+   - 생성된 메인 클래스 `MyroutineApplication`은 `MyRoutineApplication`으로 이름을 바꾼다 (문서 표기와 맞춤, 선택)
    - 의존성: Spring Web, Spring Data JPA, Validation, PostgreSQL Driver, Flyway Migration, Lombok, Spring Boot Actuator, Testcontainers
    - Security는 1-3에서 추가한다(지금 넣으면 모든 API가 막혀서 헷갈린다).
 4. `build.gradle`에 Java toolchain 25를 고정하고 `./gradlew build`가 통과하는지 본다.
@@ -57,8 +57,8 @@
    - `.env.example`: 환경변수 이름만, `.gitignore`: [Git 정책 §8](../git-policy.md)
 7. 첫 Flyway 마이그레이션 `src/main/resources/db/migration/common/V{yyyyMMddHHmm}__common_init.sql`: `CREATE SCHEMA IF NOT EXISTS common;`
    - Flyway는 `classpath:db/migration` 아래 하위 폴더까지 읽는다. 모듈별 폴더를 쓸 수 있다.
-8. 개발 가이드 §1.1의 서드파티 호환성 표에 **지금 쓰는 라이브러리의 실제 버전**을 적는다(나머지는 등장할 때 채운다).
-9. README에 실행 방법(인프라 → 앱 → 헬스체크)을 3줄로 적는다.
+8. (Claude) 개발 가이드 §1.1의 확정 버전 표에 실제 버전을 기록한다(나머지는 등장할 때 채운다).
+9. (Claude) README에 실행 방법(인프라 → 앱 → 헬스체크)을 적는다.
 
 **완료 확인**
 ```bash
@@ -101,7 +101,7 @@ curl -s localhost:8081/actuator/health          # {"status":"UP"}
 3. 테이블 정리 유틸: 각 테스트 후 `flyway_schema_history`를 뺀 모든 테이블을 TRUNCATE. 통합 테스트에 `@Transactional`을 붙이지 않는 대신 이걸로 격리한다.
 4. 샘플 통합 테스트: 앱이 뜨고 `common` schema가 있는지 확인
 5. `.github/workflows/ci.yml`: develop·main 대상 PR과 push에서 실행. Java 25(temurin) 설정, Gradle 캐시, `./gradlew build`
-6. `.github/pull_request_template.md` ([Git 정책 §4.3](../git-policy.md))
+6. (Claude) `.github/pull_request_template.md` ([Git 정책 §4.3](../git-policy.md))
 7. GitHub 보호 규칙에서 CI 체크를 필수로 지정
 
 **완료 확인**
