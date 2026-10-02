@@ -44,7 +44,7 @@
 3. start.spring.io에서 생성한다.
    - Gradle - Groovy, Java 25, Spring Boot 4.x 최신 GA, Group `com.myroutine`, Artifact `myroutine`
    - **Package name을 `com.myroutine`으로 직접 고친다.** 자동으로 채워지는 `com.myroutine.myroutine`을 그대로 두면 안 된다. Spring Modulith는 메인 클래스 패키지의 바로 아래 패키지(`com.myroutine.member` 등)를 모듈로 인식한다
-   - 생성된 메인 클래스 `MyroutineApplication`은 `MyRoutineApplication`으로 이름을 바꾼다(문서 표기와 맞춤, 선택)
+   - 생성된 메인 클래스 `MyroutineApplication`은 `MyRoutineApplication`으로 이름을 바꾼다 (문서 표기와 맞춤, 선택)
    - 의존성: Spring Web, Spring Data JPA, Validation, PostgreSQL Driver, Flyway Migration, Lombok, Spring Boot Actuator, Testcontainers
    - Security는 1-3에서 추가한다(지금 넣으면 모든 API가 막혀서 헷갈린다).
 4. `build.gradle`에 Java toolchain 25를 고정하고 `./gradlew build`가 통과하는지 본다.
