@@ -97,7 +97,7 @@ curl -s localhost:8081/actuator/health          # {"status":"UP"}
 
 **할 일**
 1. `src/test/.../support/IntegrationTestSupport.java`: Postgres 컨테이너를 **static 블록에서 한 번만** 시작하는 싱글턴(개발 가이드 §13.3). Kafka·Redis는 나중에 추가한다.
-2. `application-test.yml`
+2. `application-test.yaml`
 3. 테이블 정리 유틸: 각 테스트 후 `flyway_schema_history`를 뺀 모든 테이블을 TRUNCATE. 통합 테스트에 `@Transactional`을 붙이지 않는 대신 이걸로 격리한다.
 4. 샘플 통합 테스트: 앱이 뜨고 `common` schema가 있는지 확인
 5. `.github/workflows/ci.yml`: develop·main 대상 PR과 push에서 실행. Java 25(temurin) 설정, Gradle 캐시, `./gradlew build`
