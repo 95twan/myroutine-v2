@@ -16,3 +16,5 @@ management:
 
 myroutine:
   business-zone: Asia/Seoul
+
+logging.pattern.level: "%5p [%X{traceId:-}]"
