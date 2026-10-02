@@ -71,6 +71,26 @@
 
 **서드파티 호환성은 착수 시 확인한다** (첫 티켓의 수용 기준): Spring AI, springdoc-openapi, Spring Modulith, Testcontainers(2.x는 모듈·패키지명 변경), QueryDSL 포크, logstash-logback-encoder. 호환 버전이 없는 라이브러리는 대안을 찾고 이 표에 기록한다.
 
+**확정 버전** (1-1 기준, `./gradlew dependencies`로 확인. 새 라이브러리는 등장하는 단계에서 추가한다)
+
+| 구성 | 버전 | 비고 |
+|---|---|---|
+| JDK (Gradle toolchain) | Temurin 25.0.4 | 시스템 기본 JDK와 무관하게 toolchain이 25를 사용. IntelliJ 프로젝트 SDK도 25로 맞춘다 |
+| Gradle Wrapper | 9.7.1 | |
+| Spring Boot | 4.1.1 | `io.spring.dependency-management` 1.1.7 |
+| Spring Framework | 7.0.9 | |
+| Hibernate ORM | 7.4.5.Final | |
+| Flyway | 12.4.0 | `spring-boot-starter-flyway` + `flyway-database-postgresql` |
+| PostgreSQL JDBC | 42.7.13 | DB 이미지 `pgvector/pgvector:pg17` |
+| HikariCP | 7.0.2 | |
+| Jackson | 3.1.5 (`tools.jackson`) | |
+| Lombok | 1.18.46 | JDK 25 지원. 빌드 시 `sun.misc.Unsafe` 경고가 나오지만 동작에는 문제없음 |
+| Testcontainers | 2.0.5 | 모듈명 `testcontainers-postgresql`, 패키지 `org.testcontainers.postgresql` |
+| JUnit Jupiter | 6.0.3 | |
+| Spring Modulith | (1-6에서 추가) | |
+| jjwt | (1-4에서 추가) | |
+| Spring AI, springdoc-openapi, spring-kafka, logstash-logback-encoder | (등장 단계에서 추가) | |
+
 **Java 25에서 활용할 것**
 
 | 기능 | 활용 |
@@ -307,7 +327,24 @@ public enum OrderLineStatus {
 ```
 - 전이표는 [04-state-machines.md](02-design/04-state-machines.md)와 1:1로 일치해야 한다. 상태머신 문서가 정답이고, 단위 테스트로 모든 허용·금지 전이를 검증한다.
 
-### 5.5 도메인 예외
+### 5.5 시간과 시간대
+**시각(언제 일어났나)과 업무 달력(몇 월 며칠인가)을 나눠서 다룬다.**
+
+| 구분 | 예 | Java 타입 | 기준 |
+|---|---|---|---|
+| 시각 | `created_at`, `paid_at`, `expires_at`, 토큰 만료 | **`Instant`** | UTC. DB 컬럼은 `timestamptz` |
+| 날짜·업무 규칙 | 구독 실행일, 정산 기간("전월"), "매일 06:00", "배송완료 후 7일" | `LocalDate`, `ZonedDateTime` | **업무 시간대 `Asia/Seoul`을 명시**해서 계산 |
+
+규칙
+- `application.yaml`(공통)에 `spring.jpa.properties.hibernate.jdbc.time_zone: UTC`를 둔다. **local 프로필에만 두지 않는다** — 환경마다 시간이 다르게 저장되는 것을 막기 위해서다.
+- 업무 시간대는 설정(`myroutine.business-zone: Asia/Seoul`)으로 받아 한 곳에서만 쓴다.
+- 현재 시각은 **`Clock` 빈으로만** 얻는다(`Instant.now(clock)`). `LocalDateTime.now()`, `new Date()`처럼 JVM 기본 시간대에 기대는 코드는 금지한다. 테스트에서는 `Clock`을 바꿔 "15분 뒤", "7일 뒤"를 흉내 낸다.
+- 엔티티의 시각 필드에 `LocalDateTime`을 쓰지 않는다. `timestamptz` 컬럼에 `LocalDateTime`을 넣으면 JDBC 세션 시간대로 해석되어 환경마다 저장값이 달라진다.
+- 업무 날짜로 바꿀 때는 시간대를 명시한다: `instant.atZone(businessZone).toLocalDate()`.
+- `@Scheduled`의 cron에는 `zone`을 명시한다: `@Scheduled(cron = "0 0 6 * * *", zone = "Asia/Seoul")`.
+- API는 `Instant`를 ISO-8601 UTC(`2026-10-02T06:00:00Z`)로 내보낸다. 한국 시간 표시는 클라이언트가 한다.
+
+### 5.6 도메인 예외
 도메인 규칙 위반은 `BusinessException`(+ 모듈별 `ErrorCode`)으로 던진다. 도메인에서 HTTP 상태를 직접 다루지 않고, ErrorCode가 매핑을 가진다(§11).
 
 ## 6. 애플리케이션 서비스 작성법
@@ -704,7 +741,7 @@ Kibana에서 `traceId:"..."`로 검색하면 한 요청의 HTTP → DB → Kafka
 6. 컨트롤러 + API 테스트 (검증, 인가, 에러 응답)
 7. 이벤트 발행·소비 + 멱등 테스트
 8. 동시성·시나리오 테스트 (해당 티켓의 필수 목록)
-9. 문서 갱신 (설계와 달라진 부분, 에러 코드, 메트릭)
+9. 설계와 달라진 부분을 PR 본문에 정리 (문서 갱신 — 설계, 에러 코드, 메트릭, README — 은 리뷰 때 Claude가 한다)
 10. PR → 리뷰 → 반영 → 머지
 
 ## 18. 리뷰 체크리스트
