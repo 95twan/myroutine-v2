@@ -6,19 +6,19 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.List;
 
 @ActiveProfiles("test")
 @SpringBootTest
-public class IntegrationTestSupport {
+public abstract class IntegrationTestSupport {
 
     @Autowired
     JdbcTemplate jdbc;
 
     @ServiceConnection
-    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("pgvector/pgvector:pg17");
+    static final PostgreSQLContainer postgres = new PostgreSQLContainer("pgvector/pgvector:pg17");
 
     static {   // 싱글턴: JVM 전체에서 한 번만 띄워 모든 테스트 클래스가 공유
         postgres.start();
