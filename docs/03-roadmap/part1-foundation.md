@@ -155,6 +155,7 @@ curl -s localhost:8081/actuator/health          # {"status":"UP"}
 6. **member.web** `AuthController`
    - `SignupRequest`: `@Email`, 비밀번호 규칙(POL-18: 8~64자, 영문·숫자 포함), 닉네임 길이
    - 응답은 `{memberId}` (토큰은 1-4에서 추가)
+7. **테이블 정리 유틸 검증** (1-2에서 이월): `IntegrationTestSupport`의 `@AfterEach` TRUNCATE는 1-2 시점에 테이블이 없어 비어 있는 목록 경로만 실행됐다. `member` 테이블이 생기는 이 단계에서 실제로 비워지는지 테스트로 확인한다.
 
 **완료 확인**
 - 단위 테스트
@@ -167,6 +168,7 @@ curl -s localhost:8081/actuator/health          # {"status":"UP"}
   - [ ] 잘못된 이메일·짧은 비밀번호 → 400 `INVALID_REQUEST`, `details`에 필드별 메시지
   - [ ] 응답 헤더 `X-Request-Id`와 에러 본문 `traceId`가 같다
   - [ ] 예상 못 한 예외 → 500, 메시지에 내부 정보(SQL, 클래스명)가 없다
+  - [ ] 테이블 정리 유틸(1-2에서 이월): 한 테스트에서 가입한 회원이 다음 테스트에서 보이지 않는다 (`member` 테이블 TRUNCATE 동작, `flyway_schema_history`는 남아 있다)
 ```bash
 curl -i -X POST localhost:8080/api/auth/signup -H 'Content-Type: application/json' \
   -d '{"email":"buyer@test.com","password":"pass1234","nickname":"buyer","name":"김구매"}'

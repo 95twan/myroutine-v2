@@ -551,20 +551,40 @@ void cancel_shipped_line_fails() {
 
 ### 13.3 통합 테스트 베이스
 ```java
+@ActiveProfiles("test")
 @SpringBootTest
 public abstract class IntegrationTestSupport {
+    @Autowired
+    JdbcTemplate jdbc;
+
     @ServiceConnection
-    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("pgvector/pgvector:pg17");
-    @ServiceConnection
-    static final KafkaContainer kafka = new KafkaContainer("apache/kafka:3.8.0");   // org.testcontainers.kafka
-    @ServiceConnection(name = "redis")
-    static final GenericContainer<?> redis = new GenericContainer<>("redis:7").withExposedPorts(6379);
+    static final PostgreSQLContainer postgres = new PostgreSQLContainer("pgvector/pgvector:pg17");
+    // Kafka·Redis는 해당 단계에서 필요해지는 단계에서 추가한다.
+    // @ServiceConnection static final KafkaContainer kafka = new KafkaContainer("apache/kafka:3.8.0");   // org.testcontainers.kafka
+    // @ServiceConnection(name = "redis") static final GenericContainer<?> redis = new GenericContainer<>("redis:7").withExposedPorts(6379);
 
     static {   // 싱글턴: JVM 전체에서 한 번만 띄워 모든 테스트 클래스가 공유
-        Startables.deepStart(postgres, kafka, redis).join();
+        postgres.start();   // 컨테이너가 여러 개가 되면 Startables.deepStart(postgres, kafka, redis).join()
+    }
+
+    @AfterEach
+    void truncateAllTables() {   // flyway_schema_history를 뺀 모든 스키마의 테이블을 비운다
+        List<String> tables = jdbc.queryForList(
+                "SELECT schemaname || '.' || tablename FROM pg_tables "
+                        + "WHERE schemaname NOT IN ('pg_catalog', 'information_schema') "
+                        + "AND tablename <> 'flyway_schema_history'",
+                String.class);
+        if (tables.isEmpty()) {
+            return;   // 빈 목록으로 TRUNCATE를 실행하면 문법 오류
+        }
+        jdbc.execute("TRUNCATE TABLE " + String.join(", ", tables) + " RESTART IDENTITY CASCADE");
     }
 }
 ```
+- `@ActiveProfiles("test")`가 없으면 `application-test.yaml`이 로드되지 않는다. datasource는 `@ServiceConnection`이 주입하므로 test 프로필에 적지 않는다.
+- Testcontainers 2.x에서 Postgres 컨테이너는 `org.testcontainers.postgresql.PostgreSQLContainer`(제네릭 없음)를 쓴다. 구 `org.testcontainers.containers.PostgreSQLContainer<?>`는 deprecated다.
+- Spring Initializr가 만든 `TestcontainersConfiguration`·`TestMyRoutineApplication`은 이 베이스와 역할이 겹쳐 삭제했다. 컨테이너 정의는 이 클래스 한 곳에만 둔다.
+- 정리 쿼리는 스키마를 붙여 조회한다(`common` 등 `public`이 아닌 스키마가 있다). 테이블이 생기기 전에는 이 경로가 실행되지 않으므로, 첫 테이블이 생기는 단계(1-3)에서 실제로 비워지는지 확인한다.
 - `@Testcontainers` + `@Container`를 쓰면 테스트 클래스마다 컨테이너가 재시작된다. 위처럼 static 블록에서 직접 시작하는 싱글턴 패턴으로 공유한다(속도). 종료는 Testcontainers의 Ryuk이 처리한다.
 - 컨텍스트 캐시를 깨지 않도록 `@MockitoBean`(Boot 3.4+, 구 `@MockBean`) 남용을 피한다. 필요하면 테스트용 설정 클래스로 Fake 빈을 공통화한다.
 - 통합 테스트에 `@Transactional`을 붙이지 않는다. 테스트가 끝나면 롤백돼서 **커밋 이후 동작(Outbox 발행, AFTER_COMMIT, 실제 락)**이 검증되지 않는다. 테이블 정리는 `@AfterEach`에서 TRUNCATE로 한다.
