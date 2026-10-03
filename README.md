@@ -17,6 +17,8 @@ Java 25 · Spring Boot 4.1 · Spring Data JPA (Hibernate 7) · PostgreSQL 17 (pg
 ```bash
 # 1. 환경변수 파일 준비 (값은 로컬용으로 채운다. .env.local은 커밋하지 않는다)
 cp .env.example .env.local
+# JWT_SECRET은 비워 두면 앱이 시작되지 않는다. 32바이트 이상 Base64 값으로 채운다
+#   openssl rand -base64 32
 
 # 2. 인프라 실행 (Postgres)
 docker compose --env-file .env.local -f docker/docker-compose.yml up -d
