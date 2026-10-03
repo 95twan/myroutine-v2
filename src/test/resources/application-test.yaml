@@ -2,3 +2,6 @@ logging:
   level:
     org.hibernate.SQL: DEBUG   # 필요할 때만. 기본은 조용하게
     org.testcontainers: INFO   # 컨테이너 시작 로그가 1번만 찍히는지 확인할 때 보임
+myroutine:
+  jwt:
+    secret: 8kZ3yF1vN6tE9aB2qX4mP7rL0cI8eG5wJ1vN6tE9aB0=
