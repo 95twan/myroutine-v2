@@ -1,5 +1,6 @@
 package com.myroutine.member.domain;
 
+import com.myroutine.common.error.BusinessException;
 import com.myroutine.common.model.BaseTimeEntity;
 import com.myroutine.common.model.Ids;
 import jakarta.persistence.*;
@@ -61,5 +62,13 @@ public class Member extends BaseTimeEntity {
         member.status = MemberStatus.ACTIVE;
         member.role = MemberRole.USER;
         return member;
+    }
+
+    public void verifyCanLogin() {
+        if (status == MemberStatus.BANNED) {
+            throw new BusinessException(MemberErrorCode.MEMBER_BANNED);
+        } else if (status == MemberStatus.WITHDRAWN) {
+            throw new BusinessException(MemberErrorCode.LOGIN_FAILED);
+        }
     }
 }

@@ -3,7 +3,9 @@ package com.myroutine.member.web;
 import com.jayway.jsonpath.JsonPath;
 import com.myroutine.member.domain.Member;
 import com.myroutine.member.domain.MemberRepository;
+import com.myroutine.member.domain.MemberStatus;
 import com.myroutine.support.IntegrationTestSupport;
+import com.myroutine.support.TestFixtures;
 import lombok.RequiredArgsConstructor;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.RepeatedTest;
@@ -39,13 +41,15 @@ class AuthControllerTest extends IntegrationTestSupport {
     private final MemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
     private final JdbcTemplate jdbcTemplate;
+    private final TestFixtures testFixtures;
 
     @Autowired
-    public AuthControllerTest(MockMvc mockMvc, MemberRepository memberRepository, PasswordEncoder passwordEncoder, JdbcTemplate jdbcTemplate) {
+    public AuthControllerTest(MockMvc mockMvc, MemberRepository memberRepository, PasswordEncoder passwordEncoder, JdbcTemplate jdbcTemplate, TestFixtures testFixtures) {
         this.mockMvc = mockMvc;
         this.memberRepository = memberRepository;
         this.passwordEncoder = passwordEncoder;
         this.jdbcTemplate = jdbcTemplate;
+        this.testFixtures = testFixtures;
     }
 
 
@@ -78,8 +82,8 @@ class AuthControllerTest extends IntegrationTestSupport {
         // Given
         SignupRequest request1 = new SignupRequest("test@test.com", "1111aaaa", "nick1", "name1");
         mockMvc.perform(post("/api/auth/signup")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request1)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request1)))
                 .andExpect(status().isCreated());
 
         SignupRequest request2 = new SignupRequest("TEST@test.com", "2222bbbb", "nick2", "name2");
@@ -99,8 +103,8 @@ class AuthControllerTest extends IntegrationTestSupport {
         String nickname = "nick";
         SignupRequest request1 = new SignupRequest("test1@test.com", "1111aaaa", nickname, "name1");
         mockMvc.perform(post("/api/auth/signup")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request1)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request1)))
                 .andExpect(status().isCreated());
 
         SignupRequest request2 = new SignupRequest("test2@test.com", "2222bbbb", nickname, "name2");
@@ -202,6 +206,7 @@ class AuthControllerTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("예상치 못한 에러는 INTERNAL_ERROR 예외가 발생한다.")
     void unexpectedError() throws Exception {
         // Given
 
@@ -213,5 +218,112 @@ class AuthControllerTest extends IntegrationTestSupport {
 
         String body = result.getResponse().getContentAsString();
         assertThat(body).doesNotContain("SELECT", "IllegalStateException");
+    }
+
+    @Test
+    @DisplayName("회원 가입하면 accessToken, tokenType(Bearer), expiresIn(3600)을 응답한다.")
+    void signUpReturnsAccessToken() throws Exception {
+        // Given
+        String password = "password123";
+        SignupRequest request = new SignupRequest("test@test.com", password, "nick", "name");
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.memberId").exists())
+                .andExpect(jsonPath("$.accessToken").exists())
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.expiresIn").value(3600));
+    }
+
+    @Test
+    @DisplayName("로그인으로 받은 토큰으로 내 정보를 조회한다.")
+    void loginThenGetMe() throws Exception {
+        // Given
+        String email = "test@test.com";
+        testFixtures.signup(email);
+        LoginRequest request = new LoginRequest(email, "pass1234");
+
+        // When & Then
+        MvcResult result = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        String accessToken = JsonPath.read(body, "$.accessToken");
+
+        mockMvc.perform(get("/api/members/me")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("로그인을 실패한다. (비밀번호 불일치)")
+    void loginWithWrongPassword() throws Exception {
+        // Given
+        String email = "test@test.com";
+        testFixtures.signup(email);
+        LoginRequest request = new LoginRequest(email, "pass1111");
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("LOGIN_FAILED"))
+                .andExpect(jsonPath("$.message").value("이메일 또는 비밀번호가 올바르지 않습니다."));
+    }
+
+    @Test
+    @DisplayName("로그인을 실패한다. (존재하지 않는 이메일)")
+    void loginWithUnknownEmail() throws Exception {
+        // Given
+        LoginRequest request = new LoginRequest("unknown@test.com", "pass1111");
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("LOGIN_FAILED"))
+                .andExpect(jsonPath("$.message").value("이메일 또는 비밀번호가 올바르지 않습니다."));
+    }
+
+    @Test
+    @DisplayName("로그인을 실패한다. (제재 회원)")
+    void loginWithBannedMember() throws Exception {
+        // Given
+        String email = "test@test.com";
+        UUID memberId = testFixtures.signup(email);
+        LoginRequest request = new LoginRequest(email, "pass1234");
+        testFixtures.changeStatus(memberId, MemberStatus.BANNED.name());
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("MEMBER_BANNED"));
+    }
+
+    @Test
+    @DisplayName("제재 회원이라도 비밀번호가 틀리면 LOGIN_FAILED를 준다.")
+    void loginWithBannedMemberAndWrongPassword() throws Exception {
+        // Given
+        String email = "test@test.com";
+        UUID memberId = testFixtures.signup(email);
+        LoginRequest request = new LoginRequest(email, "wrongPassword");
+        testFixtures.changeStatus(memberId, MemberStatus.BANNED.name());
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("LOGIN_FAILED"));
     }
 }

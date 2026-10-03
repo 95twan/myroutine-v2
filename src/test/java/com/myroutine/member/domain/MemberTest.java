@@ -1,9 +1,11 @@
 package com.myroutine.member.domain;
 
+import com.myroutine.common.error.BusinessException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class MemberTest {
@@ -22,5 +24,41 @@ class MemberTest {
         assertThat(result.getRole()).isEqualTo(MemberRole.USER);
         assertThat(result.getStatus()).isEqualTo(MemberStatus.ACTIVE);
         assertThat(result.getId()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("ACTIVE 회원은 로그인 검증을 통과한다.")
+    void verify_can_login_active_does_not_throw() {
+        // Given
+        Member activeMember = Member.signUp("test@test.com", "pass1234", "test", "테스트");
+
+        // When & Then
+        assertThatCode(activeMember::verifyCanLogin).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("BANNED 회원은 MEMBER_BANNED 예외가 발생한다.")
+    void verify_can_login_banned_throws_member_banned() {
+        // Given
+        Member bannedMember = Member.signUp("test@test.com", "pass1234", "test", "테스트");
+        ReflectionTestUtils.setField(bannedMember, "status", MemberStatus.BANNED);
+
+        // When & Then
+        assertThatThrownBy(bannedMember::verifyCanLogin)
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(MemberErrorCode.MEMBER_BANNED));
+    }
+
+    @Test
+    @DisplayName("WITHDRAWN 회원은 LOGIN_FAILED 예외가 발생한다.")
+    void verify_can_login_withdrawn_throws_login_failed() {
+        // Given
+        Member withdrawnMember = Member.signUp("test@test.com", "pass1234", "test", "테스트");
+        ReflectionTestUtils.setField(withdrawnMember, "status", MemberStatus.WITHDRAWN);
+
+        // When & Then
+        assertThatThrownBy(withdrawnMember::verifyCanLogin)
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(MemberErrorCode.LOGIN_FAILED));
     }
 }

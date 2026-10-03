@@ -5,9 +5,17 @@ import com.myroutine.member.application.SignupResult;
 import java.util.UUID;
 
 public record SignupResponse(
-        UUID memberId
+        UUID memberId,
+        String accessToken,
+        String tokenType,
+        long expiresIn
 ) {
     public static SignupResponse from(SignupResult signupResult) {
-        return new SignupResponse(signupResult.memberId());
+        return new SignupResponse(
+                signupResult.memberId(),
+                signupResult.token().accessToken(),
+                "Bearer",
+                signupResult.token().expiresInSeconds()
+        );
     }
 }
