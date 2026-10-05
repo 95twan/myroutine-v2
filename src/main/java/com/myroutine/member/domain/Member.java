@@ -71,4 +71,16 @@ public class Member extends BaseTimeEntity {
             throw new BusinessException(MemberErrorCode.LOGIN_FAILED);
         }
     }
+
+    public void changeProfile(String nickname, String name, String phone) {
+        if (nickname != null) {
+            this.nickname = nickname;
+        }
+        if (name != null) {
+            this.name = name;
+        }
+        if (phone != null) {
+            this.phone = phone;
+        }
+    }
 }
