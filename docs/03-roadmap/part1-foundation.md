@@ -1,6 +1,7 @@
 # Part 1. 뼈대와 첫 기능
 
-> 버전 0.5 · 2026-10-02 · **덜어내기**: `InvalidStateTransitionException`·`UniqueConstraintMapping`·`@CurrentMember` 리졸버·traceId 헤더 수용·토큰 만료 코드 구분을 제거하고, 미리 만들던 컬럼(이메일 인증·토큰 버전·탈퇴 시각)은 쓰는 단계로 미뤘다. 회원 역할은 jsonb 목록 → 단일 `role` 컬럼. 꼭 필요하지 않은 테스트·장치는 각 단계의 "제안"으로 옮겼다
+> 버전 0.6 · 2026-10-06 · **1-6 `requireActiveShops` 구체화**: 중복 ID·빈 입력·문제 ID 수집 방식·`details.shopIds` 형식을 명시했다(1-6 리뷰에서 규격이 모호해 구현이 갈린 부분). 1-6 `ShopControllerTest` 완료 확인에 **수정 성공(null 유지)** 케이스를 추가했다(`Shop.update`의 null 유지 규칙이 규격에 있는데 검증하는 테스트가 없었다). `UpdateShopRequest`는 빈 문자열·공백만 있는 값을 400으로 거르도록 명시했다(수정 때만 빈 이름이 저장되던 문제)
+> 0.5 · 2026-10-02 · **덜어내기**: `InvalidStateTransitionException`·`UniqueConstraintMapping`·`@CurrentMember` 리졸버·traceId 헤더 수용·토큰 만료 코드 구분을 제거하고, 미리 만들던 컬럼(이메일 인증·토큰 버전·탈퇴 시각)은 쓰는 단계로 미뤘다. 회원 역할은 jsonb 목록 → 단일 `role` 컬럼. 꼭 필요하지 않은 테스트·장치는 각 단계의 "제안"으로 옮겼다
 > 0.4 · 1-10 상품 이미지 업로드(presigned URL + MinIO) 추가, 예치금 제거에 따른 Part 2 번호 변경 반영
 > 0.3 · 1-3~1-9를 이 문서만 보고 개발할 수 있게 구체화(공통 규칙, 구현 규격, 테스트 클래스·케이스 명시)
 
@@ -853,6 +854,12 @@ public record ShopInfo(UUID shopId, UUID ownerId, String name) {}
 ```
 - 구현 `ShopApiImpl`은 `shop.application`에 **package-private** 클래스로 둔다(`@Service @RequiredArgsConstructor class ShopApiImpl implements ShopApi`), 메서드는 `@Transactional(readOnly = true)`.
 - 검사 실패 시 shop의 에러 코드로 예외를 던진다. 그래서 product는 shop의 에러 코드를 몰라도 된다.
+- `requireActiveShops` 규칙
+  - 호출하는 쪽(주문 품목·구독 상품에서 가게 ID를 뽑는 곳)은 같은 가게 ID를 여러 번 넘길 수 있다. **중복을 제거한 뒤** 처리하고, 반환도 가게당 하나다.
+  - 입력이 비어 있으면 빈 리스트를 반환한다(빈 주문 같은 검증은 호출하는 쪽 책임).
+  - 반환 순서는 보장하지 않는다(`IN` 조회에 정렬이 없다). 호출하는 쪽은 `shopId`로 찾아 쓴다.
+  - `findAllByIdIn`으로 한 번에 조회한 뒤, **조회되지 않은 ID**와 **ACTIVE가 아닌 ID**를 모두 모은다. 첫 번째 문제에서 바로 던지지 않는다.
+  - 문제 ID가 하나라도 있으면 `BusinessException(SHOP_NOT_ACTIVE, Map.of("shopIds", 문제 ID 목록))`을 던진다. 값은 UUID 리스트이고, 응답 JSON에서는 배열이다.
 
 **6) shop.application**
 
@@ -875,7 +882,9 @@ public record ShopInfo(UUID shopId, UUID ownerId, String name) {}
 | `PATCH /api/shops/{id}` | 소유자 | `UpdateShopRequest` | 200 `MyShopResponse` |
 
 - `OpenShopRequest`: `name @NotBlank @Size(max=50)`, `businessNumber @NotBlank @Pattern(regexp="^\\d{10}$")`, `email @NotBlank @Email @Size(max=255)`, `phone @NotBlank @Pattern(regexp="^[0-9-]{9,20}$")`, `address @NotBlank @Size(max=255)`
-- `UpdateShopRequest`: businessNumber를 뺀 같은 필드, `@NotBlank` 없음
+- `UpdateShopRequest`: businessNumber를 뺀 같은 필드. 각 필드는 `null`(변경 없음)이거나 값이 있어야 한다. **빈 문자열·공백만 있는 문자열은 400 `INVALID_REQUEST`**(그대로 저장되면 이름이 빈 값이 되어 개설 때의 `@NotBlank`와 어긋난다).
+  - `@NotBlank`는 `null`도 막으므로 쓰지 않는다. `name`·`email`·`address`에 `@Pattern(regexp = ".*\\S.*")`를 더해 공백만 있는 값을 거른다(`null`은 통과). `phone`은 기존 `@Pattern`이 이미 빈 문자열을 거른다.
+  - 이 정규식은 `""`·`" "`을 거르고 `"a"`·`" a "`는 통과시킨다. 줄바꿈이 들어간 값(`"a\nb"`)도 거절된다(가게 이름·이메일·주소에 줄바꿈은 허용하지 않는다).
 - `SecurityConfig`: `GET /api/shops/*`를 공개로 열되 **`/api/shops/me`를 먼저 인증 필요로 선언**한다(순서대로 매칭되므로 `/me`가 `*`에 먼저 걸리면 공개가 된다).
 ```java
 .requestMatchers("/api/shops/me").authenticated()
@@ -889,8 +898,8 @@ public record ShopInfo(UUID shopId, UUID ownerId, String name) {}
 | `ModularityTest` | [ ] 통과 / [ ] **일부러 shop에서 `member.domain.Member`를 import → verify 실패 확인** (커밋하지 않고 PR에 결과 기록) |
 | `shop/domain/ShopStatusTest` | [ ] 4개 조합 파라미터화 |
 | `shop/domain/ShopTest` | [ ] `open` → ACTIVE, id 생성 / [ ] `verifyOwner` 다른 회원 → `FORBIDDEN` (CLOSED 상태는 폐업 기능 전이라 만들 수 없으므로 아래 통합 테스트에서 확인) |
-| `shop/web/ShopControllerTest` | [ ] 개설 → 201, 내 가게 목록에 보임 / [ ] 토큰 없이 `GET /api/shops/{id}` → 200 / [ ] 토큰 없이 `GET /api/shops/me` → 401 / [ ] 다른 회원이 PATCH → 403 `FORBIDDEN` / [ ] 사업자번호 중복 → 409 / [ ] CLOSED 가게(JDBC로 상태 변경) PATCH → 422 `SHOP_NOT_ACTIVE` / [ ] 사업자번호 9자리 → 400 |
-| `shop/application/ShopApiImplTest` | [ ] `verifyOwnerOfActiveShop`: 없는 가게 404 / 남의 가게 403 / CLOSED 422 / 정상 통과 / [ ] `requireActiveShops`: 모두 ACTIVE면 전부 반환, 하나라도 CLOSED·없음이면 `SHOP_NOT_ACTIVE`이고 `details.shopIds`에 그 ID |
+| `shop/web/ShopControllerTest` | [ ] 개설 → 201, 내 가게 목록에 보임 / [ ] 토큰 없이 `GET /api/shops/{id}` → 200 / [ ] 토큰 없이 `GET /api/shops/me` → 401 / [ ] 소유자가 일부 필드(예: `name`)만 PATCH → 200, 보낸 필드만 바뀌고 나머지는 유지(`null`은 유지 규칙) / [ ] `name`을 빈 문자열로 PATCH → 400 `INVALID_REQUEST` / [ ] 다른 회원이 PATCH → 403 `FORBIDDEN` / [ ] 사업자번호 중복 → 409 / [ ] CLOSED 가게(JDBC로 상태 변경) PATCH → 422 `SHOP_NOT_ACTIVE` / [ ] 사업자번호 9자리 → 400 |
+| `shop/application/ShopApiImplTest` | [ ] `verifyOwnerOfActiveShop`: 없는 가게 404 / 남의 가게 403 / CLOSED 422 / 정상 통과 / [ ] `requireActiveShops`: 모두 ACTIVE면 전부 반환 / CLOSED 하나 → `SHOP_NOT_ACTIVE`, `details.shopIds`에 그 ID / **없는 ID 하나(나머지는 ACTIVE)** → 같은 에러, `details.shopIds`에 그 ID / CLOSED와 없음이 섞이면 둘 다 `details.shopIds`에 / 중복 ID를 넘겨도 반환은 가게당 하나 / 빈 입력 → 빈 리스트 |
 
 **제안 (선택)**
 - 낙관적 락 충돌을 결정적으로 재현하는 테스트: 바깥 `TransactionTemplate`에서 가게를 읽고, 안쪽 `PROPAGATION_REQUIRES_NEW` 트랜잭션이 같은 가게를 먼저 수정·커밋한 뒤 바깥에서 수정·커밋 → `ObjectOptimisticLockingFailureException`
@@ -1431,3 +1440,33 @@ curl -s -X POST localhost:8080/api/shops/$SHOP/products/$PRODUCT/images/presigne
 ## Part 1 완료
 - [ ] develop → main PR(merge commit), 태그 `v0.1.0`, GitHub Release에 완료 단계와 동시성 테스트 결과 요약
 - [ ] Part 2 문서를 다시 읽고, Part 1에서 배운 점을 반영해 다듬는다(필요하면 Claude에게 요청)
+
+---
+
+## 수정 사항 (1-6 리뷰에서 발견)
+
+> 2026-10-06 · "null은 유지" 방식의 부분 수정 API는 `@NotBlank`를 쓸 수 없어서(`null`도 막는다), `@Size(max)`만으로는 **빈 문자열이 통과해 `NOT NULL` 컬럼에 빈 값이 저장**된다. 1-6(가게 수정)은 규격에 반영했고(`UpdateShopRequest`), 이미 끝난 1-5의 두 수정 API에도 같은 정책을 적용한다. 구현은 사용자가 직접 한다.
+
+**공통 규칙**: 수정 요청의 각 필드는 `null`(변경 없음)이거나 값이 있어야 한다. 빈 문자열·공백만 있는 문자열은 400 `INVALID_REQUEST`.
+
+| 대상 | 현재 검증 | 빈 값이 통과하는 필드 | 수정 방향 |
+|---|---|---|---|
+| `PATCH /api/members/me` (`ChangeProfileRequest`) | `nickname @Size(min=2,max=20)`, `name @Size(min=1,max=50)`, `phone @Pattern` | `""`은 `min`으로 이미 막힌다. **공백만 있는 값**(`nickname = "  "`, `name = " "`)은 통과한다 | `nickname`·`name`에 `@Pattern(regexp = ".*\\S.*")`를 더한다. `phone`은 패턴이 이미 거른다 |
+| `PATCH /api/members/me/addresses/{id}` (`UpdateAddressRequest`) | `recipient @Size(max=50)`, `address1 @Size(max=200)` 등 | `recipient`·`address1`은 `""`도 통과한다(둘 다 `NOT NULL` 컬럼). `phone`·`zipcode`는 패턴이 이미 거른다 | `recipient`·`address1`에 같은 `@Pattern`을 더한다 |
+| `address2` (같은 요청) | `@Size(max=200)` | 컬럼이 NULL 허용(선택 입력)이라 `""`이 통과해 `NULL`과 `""` 두 값으로 저장된다 | **비우기를 허용하고 `NULL`로 통일한다.** 아래 "address2 규칙" 참고 |
+
+**address2 규칙** (선택 입력이라 다른 필드와 다르다)
+- 수정 요청: 생략·`null`은 변경 없음(기존과 같다). `""`은 **"비움"**으로 보고 `NULL`로 저장한다. 공백만 있는 값(`"  "`)은 400 `INVALID_REQUEST`. 검증은 `@Pattern(regexp = "^$|.*\\S.*")`(빈 문자열이거나 공백이 아닌 문자를 포함)로 한다.
+- 변환 위치: `null`이 "변경 없음"이라서 `null`로 비울 수 없으므로, `MemberAddress.update`가 `""`을 받으면 `address2`를 `null`로 저장한다(`null`이면 건드리지 않는다).
+- 등록 요청(`AddressRequest`)에서 `address2`가 `""`이어도 `NULL`로 저장해, 저장 값을 `NULL` 하나로 통일한다.
+
+**테스트(완료 확인에 추가)**
+
+| 테스트 클래스 | 케이스 |
+|---|---|
+| `member/web/MemberControllerTest` | [ ] `name`을 공백만 있는 값으로 PATCH → 400 `INVALID_REQUEST` |
+| `member/web/MemberAddressControllerTest` | [ ] `recipient`를 빈 문자열로 PATCH → 400 `INVALID_REQUEST` / [ ] `address2`를 `""`로 PATCH → 200, 응답 `address2`가 `null` / [ ] `address2`를 생략하고 PATCH → 기존 값 유지 / [ ] `address2`를 공백만 있는 값으로 PATCH → 400 / [ ] 등록 때 `address2: ""` → 목록 조회 시 `null` |
+
+**리뷰 때 물어볼 것**
+- `@NotBlank` 대신 `@Pattern`을 쓰는 이유는? `@NotBlank`를 수정 요청에 쓰면 무엇이 달라지나?
+- "null은 유지"와 "값을 비운다"를 한 요청 형식으로 구분할 수 있나? (`address2`는 `""`를 "비움"으로 약속해서 구분한다. 이 약속의 대가는?)
