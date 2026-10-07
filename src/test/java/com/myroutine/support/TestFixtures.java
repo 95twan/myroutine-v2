@@ -1,6 +1,9 @@
 package com.myroutine.support;
 
 import com.myroutine.member.application.*;
+import com.myroutine.product.application.RegisterProductCommand;
+import com.myroutine.product.application.RegisterProductService;
+import com.myroutine.product.domain.ProductCategory;
 import com.myroutine.shop.application.OpenShopCommand;
 import com.myroutine.shop.application.OpenShopService;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +18,7 @@ public class TestFixtures {
 
     private final SignupService signupService;
     private final OpenShopService openShopService;
+    private final RegisterProductService registerProductService;
     private final LoginService loginService;
     private final JdbcTemplate jdbcTemplate;
 
@@ -64,5 +68,33 @@ public class TestFixtures {
 
     public String login(String email) {
         return loginService.login(new LoginCommand(email, "pass1234")).accessToken();
+    }
+
+    public UUID registerProduct(UUID memberId, UUID shopId, ProductCategory category, int initialStock) {
+        RegisterProductCommand command = new RegisterProductCommand(
+                "product",
+                "description",
+                category,
+                10000,
+                initialStock,
+                false
+        );
+        return registerProductService.register(memberId, shopId, command);
+    }
+
+    public UUID registerProduct(UUID memberId, UUID shopId) {
+        RegisterProductCommand command = new RegisterProductCommand(
+                "product",
+                "description",
+                ProductCategory.ETC,
+                10000,
+                10,
+                false
+        );
+        return registerProductService.register(memberId, shopId, command);
+    }
+
+    public void hideProduct(UUID productId) {
+        jdbcTemplate.update("UPDATE product.product SET status = 'HIDDEN' WHERE id = ?", productId);
     }
 }

@@ -5,3 +5,8 @@ logging:
 myroutine:
   jwt:
     secret: 8kZ3yF1vN6tE9aB2qX4mP7rL0cI8eG5wJ1vN6tE9aB0=
+spring:
+  jpa:
+    properties:
+      hibernate:
+        generate_statistics: true
