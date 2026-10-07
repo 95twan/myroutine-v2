@@ -767,11 +767,12 @@ Kibana에서 `traceId:"..."`로 검색하면 한 요청의 HTTP → DB → Kafka
 - 비즈니스 메트릭 이름은 `{도메인}_{대상}_{단위}`로 하고 [ADR-010](adr/ADR-010-observability.md)의 목록을 따른다. 새 메트릭은 그 목록에 추가한다.
 
 ## 15. 설정·보안
-- 프로필: `local`(docker-compose), `test`(Testcontainers), `prod`.
+- 프로필: `local`(docker-compose), `test`(Testcontainers), `prod`(Proxmox VM 운영 환경 연습, ADR-011).
 - 시크릿(JWT 키, Toss 시크릿 키, OAuth 시크릿, OpenAI·AWS 키)은 환경변수로만 받는다. `.env`는 gitignore하고 `.env.example`에 키 이름만 둔다(MEM-01).
 - 설정값은 `@ConfigurationProperties` + `@Validated` record로 묶는다. `@Value` 문자열을 여기저기 흩뿌리지 않는다.
 - CORS 허용 origin은 설정으로 명시한다. `*`를 쓰지 않는다(MEM-04).
-- actuator는 별도 관리 포트로 열고 외부에 노출하지 않는다(MEM-05).
+- actuator는 별도 관리 포트로 열고 외부에 노출하지 않는다(MEM-05). 운영 compose에서도 관리 포트(8081)는 호스트에 publish하지 않는다.
+- 배포(ADR-011): 이미지는 **커밋 sha 태그**로만 배포한다(`latest` 금지). 운영 `.env`는 VM에만 두고 리포·GitHub Secrets·이미지에 넣지 않는다. `self-hosted` 러너를 쓰는 job은 `pull_request` 이벤트에서 실행되지 않게 한다(public 리포). 외부에서 달라지는 주소(CORS 오리진, 저장소 endpoint·공개 URL)는 환경변수로 받는다.
 
 ## 16. Git·PR
 > 상세 규칙은 [Git 정책](git-policy.md)이 기준이다. 아래는 요약.

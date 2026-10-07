@@ -1,6 +1,6 @@
 # Phase 3. 구현 로드맵
 
-> 버전 0.4 · 2026-10-02 · 예치금 제거(Part 2를 10단계로 다시 번호 매김), 1-10 상품 이미지 추가 / 0.3 · Part 1~7을 "다른 문서를 보지 않고 로드맵만으로 개발할 수 있는" 수준으로 구체화 · 근거: [01-requirements](../01-requirements/README.md), [02-design](../02-design/README.md), [개발 가이드](../development-guide.md), [Git 정책](../git-policy.md)
+> 버전 0.5 · 2026-10-07 · Part 1에 1-11(운영 환경 연습: VM 배포·자동 CD) 추가 / 0.4 · 2026-10-02 · 예치금 제거(Part 2를 10단계로 다시 번호 매김), 1-10 상품 이미지 추가 / 0.3 · Part 1~7을 "다른 문서를 보지 않고 로드맵만으로 개발할 수 있는" 수준으로 구체화 · 근거: [01-requirements](../01-requirements/README.md), [02-design](../02-design/README.md), [개발 가이드](../development-guide.md), [Git 정책](../git-policy.md)
 
 ## 1. 이 로드맵을 읽는 법
 
@@ -41,7 +41,7 @@ flowchart TB
 
 | Part | 문서 | 단계 | 끝나면 할 수 있는 것 |
 |---|---|---|---|
-| 1 | [뼈대와 첫 기능](part1-foundation.md) | 10 | 가입·로그인하고, 가게를 열고, 상품(이미지 포함)을 올리고, 재고를 동시성 문제 없이 예약한다 |
+| 1 | [뼈대와 첫 기능](part1-foundation.md) | 11 | 가입·로그인하고, 가게를 열고, 상품(이미지 포함)을 올리고, 재고를 동시성 문제 없이 예약한다. 머지하면 VM에 자동 배포된다 |
 | 2 | [주문과 돈](part2-order-money.md) | 10 | 여러 가게 상품을 카드(Toss)로 결제하고, 배송·취소·구매확정까지 간다 |
 | 3 | [이벤트](part3-events.md) | 6 | 후속 작업(역할 변경, 정산, 알림)이 비동기로 안전하게 처리된다 |
 | 4 | [인증 완성](part4-auth.md) | 4 | OAuth 로그인, 이메일 인증, 토큰 탈취 대응, 즉시 차단 |
@@ -64,6 +64,7 @@ flowchart TB
 | 1-8 | - | 상태 전이 규칙, 낙관적 락(`@Version`), 조건부 UPDATE |
 | 1-9 | - | 재고 예약, **동시성 테스트** |
 | 1-10 | **MinIO**(S3 호환), AWS SDK S3 | presigned URL 업로드, 외부 저장소 호출은 트랜잭션 밖 |
+| 1-11 | Proxmox VM, Docker Compose 배포, GHCR, **GitHub Actions self-hosted runner** | 자동 CD, sha 태그 이미지, 헬스체크·자동 롤백, public 리포의 러너 보안 |
 | 2-1 | - | upsert(`ON CONFLICT DO UPDATE`), 배치 조회 |
 | 2-2 | - | 애그리거트, 여러 모듈을 하나의 트랜잭션으로, **멱등 API** |
 | 2-3 | Toss API, 가짜 PG 서버(JDK HttpServer) | 외부 API 결과 3분류(성공/실패/불확실), 타임아웃 |
@@ -102,5 +103,7 @@ flowchart TB
 | OPEN-06 | 정산 수수료의 원 단위 미만은? | 내림 | 3-4 |
 | OPEN-07 | 정산 대기 금액이 있는 판매자가 탈퇴하면? | 불가 | 3-6 |
 
-## 6. Stage 2·3
-Stage 1(Part 1~7)이 끝나면 측정 결과를 보고 작성한다. 개요는 [01-architecture-evolution](../02-design/01-architecture-evolution.md).
+## 6. Stage 1.5·2·3
+**Stage 1.5(k3s 전환·무중단 배포)**는 Stage 1 완료 후, Stage 2 시작 전에 한다([ADR-012](../adr/ADR-012-kubernetes-zero-downtime.md), 단계 K-1~K-5). 착수 전에 로드맵 문서로 구체화한다.
+
+Stage 2·3은 Stage 1(Part 1~7)이 끝나면 측정 결과를 보고 작성한다. 개요는 [01-architecture-evolution](../02-design/01-architecture-evolution.md).

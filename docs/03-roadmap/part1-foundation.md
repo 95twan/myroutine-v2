@@ -1,12 +1,13 @@
 # Part 1. 뼈대와 첫 기능
 
-> 버전 0.6 · 2026-10-06 · **1-6 `requireActiveShops` 구체화**: 중복 ID·빈 입력·문제 ID 수집 방식·`details.shopIds` 형식을 명시했다(1-6 리뷰에서 규격이 모호해 구현이 갈린 부분). 1-6 `ShopControllerTest` 완료 확인에 **수정 성공(null 유지)** 케이스를 추가했다(`Shop.update`의 null 유지 규칙이 규격에 있는데 검증하는 테스트가 없었다). `UpdateShopRequest`는 빈 문자열·공백만 있는 값을 400으로 거르도록 명시했다(수정 때만 빈 이름이 저장되던 문제)
+> 버전 0.7 · 2026-10-07 · **1-11 운영 환경 연습(VM 배포·자동 CD) 추가**: Proxmox VM + Docker Compose, GitHub Actions self-hosted runner, sha 태그 이미지·자동 롤백. 근거 [ADR-011](../adr/ADR-011-ops-practice-environment.md). 외부 접속(Cloudflare)은 보류. Part 1 릴리스(`v0.1.0`)는 1-11 완료 후
+> 0.6 · 2026-10-06 · **1-6 `requireActiveShops` 구체화**: 중복 ID·빈 입력·문제 ID 수집 방식·`details.shopIds` 형식을 명시했다(1-6 리뷰에서 규격이 모호해 구현이 갈린 부분). 1-6 `ShopControllerTest` 완료 확인에 **수정 성공(null 유지)** 케이스를 추가했다(`Shop.update`의 null 유지 규칙이 규격에 있는데 검증하는 테스트가 없었다). `UpdateShopRequest`는 빈 문자열·공백만 있는 값을 400으로 거르도록 명시했다(수정 때만 빈 이름이 저장되던 문제)
 > 0.5 · 2026-10-02 · **덜어내기**: `InvalidStateTransitionException`·`UniqueConstraintMapping`·`@CurrentMember` 리졸버·traceId 헤더 수용·토큰 만료 코드 구분을 제거하고, 미리 만들던 컬럼(이메일 인증·토큰 버전·탈퇴 시각)은 쓰는 단계로 미뤘다. 회원 역할은 jsonb 목록 → 단일 `role` 컬럼. 꼭 필요하지 않은 테스트·장치는 각 단계의 "제안"으로 옮겼다
 > 0.4 · 1-10 상품 이미지 업로드(presigned URL + MinIO) 추가, 예치금 제거에 따른 Part 2 번호 변경 반영
 > 0.3 · 1-3~1-9를 이 문서만 보고 개발할 수 있게 구체화(공통 규칙, 구현 규격, 테스트 클래스·케이스 명시)
 
 > **끝나면**: 이메일로 가입·로그인하고, 가게를 열고, 상품(이미지 포함)을 올리고, 재고를 동시성 문제 없이 예약할 수 있다.
-> **인프라**: Postgres (Docker), 1-10부터 MinIO. Kafka·Redis는 아직 없다.
+> **인프라**: Postgres (Docker), 1-10부터 MinIO, 1-11부터 Proxmox VM에 자동 배포. Kafka·Redis는 아직 없다.
 > **릴리스**: Part 1 완료 시 develop → main, 태그 `v0.1.0`
 
 | 단계 | 제목 | 크기 |
@@ -21,6 +22,7 @@
 | 1-8 | 상품 수정 · 상태 변경 · 재고 증감 | M |
 | 1-9 | 재고 예약과 동시성 테스트 | M |
 | 1-10 | 상품 이미지 업로드 (presigned URL + MinIO) | M |
+| 1-11 | 운영 환경 연습: VM 배포와 자동 CD | L |
 
 크기: S(1일 이내) · M(2~3일) · L(4~5일)
 
@@ -1437,8 +1439,107 @@ curl -s -X POST localhost:8080/api/shops/$SHOP/products/$PRODUCT/images/presigne
 
 ---
 
+## 1-11. 운영 환경 연습: VM 배포와 자동 CD (L)
+
+> 결정과 대안은 [ADR-011](../adr/ADR-011-ops-practice-environment.md). 여기에는 구현 규격과 완료 확인만 둔다.
+
+**목표**
+- `develop`에 머지하면 **CI 통과 후 Proxmox VM에 자동 배포**된다.
+- 배포가 실패하면(앱이 안 뜨거나 헬스체크 실패) **직전 버전으로 자동 복구**된다. 원하는 버전을 수동으로 다시 배포할 수도 있다.
+- LAN 안의 다른 PC에서 Part 1의 기능(가입 → 로그인 → 가게 → 상품 → 이미지 업로드)이 동작한다.
+
+**왜 지금**: Postgres(1-1)와 MinIO(1-10)까지 있어 "최소 풀스택"이 갖춰졌다. 여기서 배포 파이프라인을 만들어 두면 Kafka(Part 3)·Redis(Part 4)·ES(Part 6)는 compose에 서비스를 추가하는 것만으로 같은 파이프라인에 올라탄다. 늦추면 환경 차이 문제(접속 주소, 시크릿 주입)를 한꺼번에 만난다.
+
+**새로 등장**
+
+| 개념·도구 | 한 줄 설명 | 더 읽을 곳 |
+|---|---|---|
+| Dockerfile (멀티 스테이지) | 빌드용 이미지에서 jar를 만들고, 실행용 작은 이미지에는 jar만 복사한다 | |
+| GHCR | GitHub의 컨테이너 이미지 저장소. 이미지에 커밋 sha를 태그로 붙여 **같은 태그는 항상 같은 내용**이 되게 한다 | |
+| **self-hosted runner** (새로 배우는 도구) | 내 VM에 설치하는 Actions 실행기. VM이 GitHub에 먼저 접속해 job을 받아가므로 포트를 열 필요가 없다 | ADR-011 §3 |
+| GitHub Environment | 배포 job이 쓰는 환경 이름(`ops`). 배포할 수 있는 브랜치를 제한한다 | |
+| 헬스체크 + 롤백 | 배포 직후 앱이 정상인지 확인하고, 아니면 직전 이미지로 되돌린다 | |
+
+> **왜 public 리포에서 self-hosted runner가 위험한가**: 누구나 포크해서 PR을 올릴 수 있고, 그 PR의 워크플로가 **내 VM에서** 실행되면 외부 코드가 집 네트워크 안에서 돈다. 그래서 배포 job은 `pull_request`로 실행되지 않게 하고 브랜치를 제한한다.
+
+**정책 (이 단계에서 정함)**
+- 배포 대상: `develop` push. 트리거는 CI 성공 이후(`workflow_run`)와 수동(`workflow_dispatch`, 입력 `sha`). `main` 릴리스(태그)는 배포와 별개다.
+- 이미지: `ghcr.io/{owner}/myroutine:{전체 sha}`. 배포는 항상 **sha 태그**로 한다(`latest`로 배포하지 않는다 — 어떤 버전이 떠 있는지 모호해지고 롤백이 안 된다).
+- 프로필: 기존 `prod`를 쓴다(새 이름을 만들지 않는다). 이 VM이 `prod` 설정의 대상이다.
+- 시크릿: VM의 `/opt/myroutine/.env`(사람이 한 번 만든다). 리포·GitHub Secrets·이미지에 넣지 않는다. 키 이름 목록은 `.env.ops.example`에 둔다.
+- 노출: 앱(8080)과 MinIO API(9000)만 LAN에 연다. **Postgres·actuator 관리 포트(8081)·MinIO 콘솔은 호스트에 publish하지 않는다.**
+- 롤백: 이미지만 되돌린다. Flyway는 되돌리지 않으므로 **파괴적 마이그레이션(컬럼 삭제·이름 변경)은 한 번의 배포에 넣지 않는다** (ADR-011 §7).
+- 외부 접속은 이 단계에 없다(ADR-011 "보류").
+
+### 할 일
+
+**0) VM 준비 (사용자, Claude가 `docs/ops/vm-setup.md`를 먼저 써 준다)**
+- Proxmox에 Ubuntu Server VM 생성(RAM 약 20GB, vCPU는 호스트 여유에 맞춰), 고정 IP(DHCP 예약), Docker Engine + compose 플러그인 설치
+- 전용 사용자(비root, docker 그룹)로 GitHub Actions runner를 설치하고 **systemd 서비스**로 등록, 러너 라벨 `ops`
+- `/opt/myroutine/.env` 작성(권한 600), 배포 상태 파일 경로 `/opt/myroutine/deployed-sha`
+
+**1) 앱 이미지**
+- `docker/Dockerfile`: 멀티 스테이지(Java 25 temurin). 실행 이미지는 JRE, **비root 사용자**, `bootJar` 결과만 복사. `.dockerignore`로 `.git`·`build`·`.env*` 제외
+- 이미지에 설정값·시크릿을 굽지 않는다(전부 환경변수)
+
+**2) 운영 compose** — `docker/docker-compose.ops.yml` (로컬 `docker-compose.yml`과 분리)
+
+| 서비스 | 규격 |
+|---|---|
+| `app` | `image: ghcr.io/{owner}/myroutine:${IMAGE_TAG}`, `env_file: /opt/myroutine/.env`, `SPRING_PROFILES_ACTIVE=prod`, 포트 `8080:8080`, `restart: unless-stopped`, `depends_on: postgres(service_healthy)`, 헬스체크(관리 포트 8081의 `/actuator/health` — 확인 필요: JRE 이미지에는 curl이 없을 수 있다. 쓸 수 있는 도구로 정한다) |
+| `postgres` | 로컬과 같은 이미지·버전, named volume, **호스트 포트 없음**, `pg_isready` 헬스체크 |
+| `minio` | 로컬과 같은 이미지, named volume, API 포트 `9000:9000`(LAN), 콘솔은 publish하지 않는다 |
+
+- Part 3 이후 인프라가 늘어나면 이 파일에 서비스를 추가한다. 관측 스택은 `profiles: ["observability"]`로 분리한다([아키텍처 §6](../02-design/02-architecture-stage1.md)).
+
+**3) 운영 설정** — `application-prod.yaml` + `.env`
+- 외부에서 달라지는 값은 모두 환경변수: DB 접속 정보, JWT 키, MinIO 계정, `STORAGE_ENDPOINT`, `STORAGE_PUBLIC_BASE_URL`, `CORS_ALLOWED_ORIGINS`
+- ⚠ **presigned URL의 호스트는 `STORAGE_ENDPOINT`로 서명된다.** 컨테이너 내부 주소(`http://minio:9000`)로 두면 클라이언트가 받은 업로드 URL을 열 수 없다. 운영에서는 `STORAGE_ENDPOINT=http://{VM LAN IP}:9000`, `STORAGE_PUBLIC_BASE_URL=http://{VM LAN IP}:9000/myroutine`로 둔다(앱도 같은 주소로 MinIO에 접근한다).
+- **CORS**: 지금까지 없었다. `myroutine.web.cors-allowed-origins`(`@ConfigurationProperties` + `@Validated`, 비어 있으면 허용 없음)를 만들고 Security에 연결한다. `*`는 쓰지 않는다(NFR-SEC-04, 개발 가이드 §15). 프론트가 어디서 뜨든 이 설정만 바꾸면 된다.
+
+**4) 배포 스크립트** — `scripts/deploy.sh {sha}`
+1. 현재 `deployed-sha`를 `PREV`로 읽는다(없으면 첫 배포)
+2. `IMAGE_TAG={sha} docker compose -f docker/docker-compose.ops.yml up -d --wait`(확인 필요: `--wait`가 헬스체크 통과까지 기다리는 버전인지)
+3. 성공하면 `deployed-sha`를 `{sha}`로 갱신, 이후 `scripts/smoke.sh`(health UP + 상품 목록 200) 실행
+4. 실패하면 `PREV`로 다시 `up -d`, 종료 코드 1(Actions가 빨간불)
+
+**5) 워크플로** — `.github/workflows/cd.yml`
+- `build-image` job: `ubuntu-latest`. checkout(대상 sha) → GHCR 로그인(`GITHUB_TOKEN`, 권한 `packages: write`) → 이미지 빌드·push(`:{sha}`)
+- `deploy` job: `runs-on: [self-hosted, ops]`, `needs: build-image`, `environment: ops`, **`pull_request` 이벤트에서는 실행되지 않음**. GHCR 로그인(`packages: read`) → `scripts/deploy.sh {sha}`
+- `concurrency: { group: deploy, cancel-in-progress: false }`: 배포가 겹치지 않게 한다
+- 저장소 설정: Environment `ops`의 배포 브랜치를 `develop`·`main`으로 제한, 외부 기여자 워크플로는 승인 후 실행(확인 필요: 설정 이름)
+
+**6) 문서 (Claude)**: `docs/ops/vm-setup.md`(VM 준비 절차), 7-5의 README에 "운영 환경과 배포 흐름" 절 포함
+
+### 완료 확인
+
+| 확인 | 방법 |
+|---|---|
+| [ ] 머지 → 자동 배포 | develop에 머지 → Actions에서 CI 후 CD가 순서대로 성공 → VM에서 `docker compose ps`의 앱 이미지 태그 = 머지 sha |
+| [ ] 풀스택 동작 | **LAN의 다른 PC**에서 `curl`로 가입 → 로그인 → 가게 → 상품 → presigned URL 발급 → **그 URL로 PUT** → 등록 → 이미지 URL GET 200 |
+| [ ] 노출 제한 | 다른 PC에서 `nc -vz {VM IP} 5432`, `8081`, `9001` 모두 실패 / `8080`, `9000`은 성공 |
+| [ ] 자동 롤백 | 일부러 부팅이 실패하는 커밋(예: 필수 환경변수 누락)을 머지 → 헬스체크 실패 → Actions 빨간불 → 앱은 직전 sha로 계속 응답, `deployed-sha` 그대로 (확인 후 되돌림, PR에 로그) |
+| [ ] 수동 배포 | `workflow_dispatch`에 이전 sha 입력 → 그 버전으로 교체 |
+| [ ] 마이그레이션 | 마이그레이션이 든 배포 후 `flyway_schema_history`에 새 버전이 있다 |
+| [ ] 포크 PR 안전 | `pull_request`로 실행되는 워크플로에 `self-hosted` job이 없다(파일 점검) + Environment 배포 브랜치 제한 설정 스크린샷 |
+| [ ] 시크릿 | `git ls-files`·GitHub Secrets·`docker history`에 운영 `.env` 값이 없다 |
+| [ ] 재부팅 복구 | VM 재부팅 후 러너 서비스와 compose가 사람 개입 없이 올라온다 |
+| [ ] 러너 권한 | 러너 서비스가 root가 아닌 전용 사용자로 돈다 |
+
+**제안 (선택)**
+- 배포 결과(성공·실패, sha)를 Actions Job Summary에 남기기 — Part 7에서 배포 이력을 보기 쉬워진다
+
+**리뷰 때 물어볼 것**
+- public 리포에서 self-hosted runner가 위험한 이유는? 어떤 설정이 그걸 막나? 그래도 남는 위험은?
+- 이미지를 `latest`가 아니라 sha로 배포하는 이유는? 롤백이 어떻게 달라지나?
+- 새 버전이 마이그레이션을 포함하고 헬스체크에 실패해 이미지가 롤백되면, DB는 어떤 상태인가? 이전 앱은 그 DB에서 동작하나?
+- presigned URL의 호스트를 컨테이너 내부 주소로 두면 무슨 일이 생기나?
+- 시크릿을 GitHub Secrets 대신 VM 파일에 둔 이유와 대가는?
+
+---
+
 ## Part 1 완료
-- [ ] develop → main PR(merge commit), 태그 `v0.1.0`, GitHub Release에 완료 단계와 동시성 테스트 결과 요약
+- [ ] develop → main PR(merge commit), 태그 `v0.1.0`, GitHub Release에 완료 단계와 동시성 테스트 결과 요약, **배포 환경에서 돌려본 결과(1-11 완료 확인)** 링크
 - [ ] Part 2 문서를 다시 읽고, Part 1에서 배운 점을 반영해 다듬는다(필요하면 Claude에게 요청)
 
 ---

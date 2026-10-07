@@ -165,6 +165,8 @@ Refs: S2-M2
 | Stage 3 MSA 전환 | `v2.0.0` | |
 | main 긴급 수정 | PATCH 증가 (`v0.3.1`) | hotfix 브랜치 |
 
+> 릴리스(태그)와 **배포는 별개**다. 배포는 `develop` push마다 VM에 자동으로 이뤄진다([ADR-011](adr/ADR-011-ops-practice-environment.md), 로드맵 1-11).
+
 Release 노트에는 완료한 단계 목록, 주요 설계 결정(ADR), 알려진 한계를 쓴다. 이력서 링크로 쓸 수 있게 정리한다.
 
 ## 8. 커밋하지 않는 것
