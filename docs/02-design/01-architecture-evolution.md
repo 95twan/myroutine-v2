@@ -5,7 +5,7 @@
 
 ```mermaid
 flowchart LR
-  S1["Stage 1<br/>모듈러 모놀리스 MVP"] --> S2["Stage 2<br/>측정 기반 성능 개선<br/>(튜닝 → 캐시 → 레플리카 → 파티셔닝 → 샤딩 실험)"]
+  S1["Stage 1<br/>모듈러 모놀리스 MVP"] --> S15["Stage 1.5<br/>k3s 전환·무중단 배포"] --> S2["Stage 2<br/>측정 기반 성능 개선<br/>(튜닝 → 캐시 → 레플리카 → 파티셔닝 → 샤딩 실험)"]
   S2 --> S3["Stage 3<br/>MSA 전환<br/>(Strangler Fig)"]
 ```
 
@@ -27,6 +27,12 @@ flowchart LR
 - 팀 MSA 프로젝트의 결함 54건 분석 → 모듈러 모놀리스로 재설계한 근거(ADR)
 - PG 결제의 결과 불확실성 처리: 결과미확정 상태 + 대사 잡 → INV-02 보장
 - 정합성 불변식 11개를 자동화 테스트로 검증
+
+## Stage 1.5. Kubernetes(k3s) 전환과 무중단 배포
+> 결정: [ADR-012](../adr/ADR-012-kubernetes-zero-downtime.md) (2026-10-07). Stage 1 완료 후, Stage 2 시작 전.
+
+**목표**: compose 배포를 k3s 단일 노드로 옮기고, k6 부하 중 롤링 배포에서 5xx 0건을 증명한다. Stage 2의 측정을 최종 배포 환경에서 하기 위해 Stage 2 앞에 둔다.
+**산출물**: compose 대비 배포 중 에러율·단절 시간 비교, 무중단 조건(probe·graceful shutdown·PDB·스키마 호환) 정리. 한계(단일 노드)도 함께 기록한다.
 
 ## Stage 2. 측정 기반 성능 개선
 **진입 조건**: Stage 1 완료 + 대용량 시드 데이터 + k6 Baseline 측정.
@@ -73,5 +79,6 @@ flowchart LR
 | 단계 | 문서 |
 |---|---|
 | Stage 1 | 이 폴더(02-design), ADR, 테스트 시나리오 |
+| Stage 1.5 | ADR-012, 매니페스트, 배포 비교 리포트 |
 | Stage 2 | `docs/perf/` 측정 리포트(환경·스크립트·전후 수치), 튜닝 기록 |
 | Stage 3 | 전환 설계서, Saga 설계, 장애 주입 리포트 |

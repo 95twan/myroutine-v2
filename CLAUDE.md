@@ -18,7 +18,7 @@
 - 사용자가 직접 개발해서 면접에서 모든 코드를 설명할 수 있게 하는 것이 목적이다. "대신 짜주는" 방향으로 흐르지 않게 한다.
 
 ## 3. 기술 범위 제약
-- **새로 학습할 기술은 ELK, Prometheus/Grafana, k6로 한정한다.** Flyway, Spring Modulith(`verify()` 테스트만), Testcontainers는 학습 부담이 거의 없어 허용됐다. MinIO + AWS SDK S3(상품 이미지 presigned URL, 로드맵 1-10)는 2026-10-02 사용자가 승인했다.
+- **새로 학습할 기술은 ELK, Prometheus/Grafana, k6로 한정한다.** Flyway, Spring Modulith(`verify()` 테스트만), Testcontainers는 학습 부담이 거의 없어 허용됐다. MinIO + AWS SDK S3(상품 이미지 presigned URL, 로드맵 1-10)는 2026-10-02, GitHub Actions self-hosted runner(Proxmox VM 자동 배포, 로드맵 1-11, [ADR-011](docs/adr/ADR-011-ops-practice-environment.md))는 2026-10-07 사용자가 승인했다. Cloudflare Tunnel·도메인은 보류. **최종 목표로 Kubernetes(k3s) 무중단 배포**를 사용자가 밝혔다(2026-10-07). 시기는 **Stage 1 완료 후 Stage 2 시작 전**(Stage 1.5, [ADR-012](docs/adr/ADR-012-kubernetes-zero-downtime.md))으로 정했다. 세부는 착수 전에 확정하며, 그 전에는 새 도구로 취급해 학습 비용과 대안을 제시한다.
 - 그 외 도구는 사용자가 아는 방식으로 대체했다: 분산 트레이싱 → traceId + MDC + ELK, ShedLock → Postgres 세션 advisory lock, WireMock → JDK HttpServer 가짜 서버, ArchUnit → 코드 리뷰.
 - 새 라이브러리·도구가 필요해 보이면 **학습 비용과 이미 아는 대안을 함께 제시**하고 사용자 결정을 받는다.
 - 스택: Java 25, Spring Boot 4.x 최신 GA, Gradle(Groovy), PostgreSQL 17 + pgvector, Redis, Kafka, Elasticsearch, MinIO(S3 호환), Toss Payments. 예치금(지갑)은 2026-10-02에 제거했다(결제는 Toss 단일 수단).
@@ -29,7 +29,7 @@
 | `docs/00-as-is/` | 원 프로젝트 분석, 결함 54건 (재설계 근거) |
 | `docs/01-requirements/` | 요구사항, 정책(POL), 불변식(INV) |
 | `docs/02-design/` | 아키텍처 진화, Stage 1 구조, ERD, 상태머신, 이벤트, 시퀀스, API |
-| `docs/adr/` | 설계 결정 기록 ADR-001~010 |
+| `docs/adr/` | 설계 결정 기록 ADR-001~012 |
 | `docs/development-guide.md` | 코딩 규칙 + **리뷰 기준(§18 체크리스트, §19 금지 패턴)** |
 | `docs/git-policy.md` | Git Flow, 커밋·PR 규칙 |
 | `docs/03-roadmap/` | Part 1~7 단계별 구현 로드맵, 미결 정책 OPEN-xx |

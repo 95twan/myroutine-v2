@@ -228,10 +228,11 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 **목표**: 리포만 보고 프로젝트를 이해하고 실행할 수 있다. 이력서에 쓸 근거가 정리된다.
 
 ### 할 일
-1. (Claude) README: 소개, 아키텍처 다이어그램, 실행 방법(인프라 → 앱 → 관측 스택), 문서 안내, 핵심 설계 요약(정합성·동시성), 테스트로 증명한 것 목록
+1. (Claude) README: 소개, 아키텍처 다이어그램, 실행 방법(인프라 → 앱 → 관측 스택), 운영 환경(VM)과 배포 흐름([ADR-011](../adr/ADR-011-ops-practice-environment.md)), 문서 안내, 핵심 설계 요약(정합성·동시성), 테스트로 증명한 것 목록
 2. (사용자 작성, Claude 리뷰) `docs/retrospectives/stage1.md`: 설계와 달라진 점과 이유, 리뷰에서 반복된 지적, 어려웠던 점, 다시 한다면
 3. (사용자 작성, Claude 리뷰) 이력서 bullet 초안 — 문장마다 근거 링크(테스트 클래스, ADR, 수치)
 4. (Claude 초안, 사용자 확정) Stage 2 준비: 시드 데이터 규모·생성 방식, k6 시나리오 목록(NFR-PERF-01~06) → Stage 2 로드맵 문서
 5. develop → main, 태그 `v1.0.0`
+6. (Claude 초안, 사용자 확정) Stage 1.5 준비: [ADR-012](../adr/ADR-012-kubernetes-zero-downtime.md)의 "확인 필요"·미정 항목(노드 수, 상태 서비스 위치)을 확정하고 K-1~K-5 로드맵 문서로 구체화. Stage 2 Baseline은 그 이후 k3s 환경에서 측정한다
 
 **리뷰 때 물어볼 것**: 이력서 문장마다 근거(테스트, 문서, 수치)가 있는가?
