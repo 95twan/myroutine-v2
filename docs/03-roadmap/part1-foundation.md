@@ -948,17 +948,20 @@ public record Money(long amount) implements Comparable<Money> { ... }
 ```
 - `static final Money ZERO`, `static Money of(long amount)`
 - compact 생성자: `amount < 0`이면 `IllegalArgumentException`
-- `plus(Money)` → `Math.addExact`, `minus(Money)` → 결과가 음수면 생성자에서 예외, `times(int quantity)` → `Math.multiplyExact` (오버플로 시 `ArithmeticException`)
-- `isGreaterThan(Money)`, `compareTo`
+- `Money plus(Money)` → `Math.addExact`, `Money minus(Money)` → 결과가 음수면 생성자에서 예외, `Money times(int quantity)` → `Math.multiplyExact` (오버플로 시 `ArithmeticException`). 세 메서드 모두 자기 자신을 바꾸지 않고 새 `Money`를 반환한다(불변)
+- `boolean isGreaterThan(Money)`, `int compareTo(Money)`
+- 예외를 `BusinessException`이 아닌 표준 예외(`IllegalArgumentException`·`ArithmeticException`)로 던지는 이유: 사용자 입력 오류는 web 검증이 먼저 400으로 막는다. `Money`까지 잘못된 값이 왔다면 비즈니스 규칙 위반이 아니라 프로그래밍 오류이므로, 잡지 않고 500으로 드러나게 한다. `common.model`이 `ErrorCode`에 의존하지 않게 하는 효과도 있다.
 - `MoneyConverter`: `@Converter(autoApply = true) public class MoneyConverter implements AttributeConverter<Money, Long>` — null은 null로
 
 **2) common.web — 커서**
 
 | 클래스 | 규격 |
 |---|---|
-| `Cursor` | `public record Cursor(Instant createdAt, UUID id)`. `String encode()` → `createdAt.toString() + "|" + id`를 Base64 URL-safe(패딩 없음)로. `static Cursor decode(String value)` → 해석 실패 시 `BusinessException(INVALID_REQUEST)` |
+| `Cursor` | `public record Cursor(Instant createdAt, UUID id)`. `String encode()` → `createdAt.toString() + "\|" + id`를 Base64 URL-safe(패딩 없음)로. `static Cursor decode(String value)` → 해석 실패 시 `BusinessException(INVALID_REQUEST)` |
 | `CursorPage<T>` | `public record CursorPage<T>(List<T> items, String nextCursor)` — 마지막 페이지면 `nextCursor = null` |
 
+- `decode`의 실패 지점은 네 곳이며 모두 같은 `BusinessException(INVALID_REQUEST)`로 바꿔 던진다: ① Base64 디코드 실패(`IllegalArgumentException`) ② `\|`로 나눈 조각이 정확히 2개가 아님(예외가 저절로 나지 않으므로 길이를 직접 검사) ③ `Instant.parse` 실패(`DateTimeParseException`) ④ `UUID.fromString` 실패(`IllegalArgumentException`). `catch (Exception)`처럼 넓게 잡지 않고 위 예외 종류만 잡는다(NPE 같은 실제 버그를 400으로 덮지 않기 위해). 깨진 커서는 클라이언트 입력 오류(400)이므로 원인 예외는 넘기지 않고(`BusinessException`에 cause 생성자가 없다), 응답 메시지에도 내부 사정을 쓰지 않는다.
+- `null`·빈 커서는 `decode`에 넘기지 않는다. 커서가 없으면 서비스가 첫 페이지 쿼리를 부른다.
 - 다음 페이지가 있는지는 `size + 1`개를 조회해서 판단한다. `size + 1`번째가 있으면 `size`개만 내려주고, `size`번째 항목으로 커서를 만든다.
 
 **3) 마이그레이션** — `db/migration/product/V{...}__product_create_product.sql` (`CREATE SCHEMA IF NOT EXISTS product;`, 네 테이블을 한 파일에)
@@ -1002,48 +1005,55 @@ public record Money(long amount) implements Comparable<Money> { ... }
 | product_id | uuid | X | `fk_stock_movement_product` |
 | type | varchar(20) | X | `ck_stock_movement_type`: `IN ('RECEIVE','ADJUST','RESERVE','RELEASE','COMMIT','RESTORE')` |
 | quantity | int | X | 증감량(부호 포함) |
-| ref_type | varchar(30) | X | `PRODUCT_REGISTER`, `ADJUSTMENT`, `ORDER`, `REFUND` |
+| ref_type | varchar(30) | X | `ck_stock_movement_ref_type`: `IN ('PRODUCT_REGISTER','ADJUSTMENT','ORDER','REFUND')` (이후 Part에서 값이 늘면 그 단계의 마이그레이션에서 CHECK를 고쳐 만든다) |
 | ref_id | uuid | X | |
 | reason | varchar(200) | O | 조정 사유 (1-8) |
 | created_at | timestamptz | X | |
 
 - unique `uk_stock_movement_type_ref (type, ref_type, ref_id, product_id)`
 
-**4) product.domain**
+**4-1) product.domain**
 
 | 클래스 | 규격 |
 |---|---|
 | `ProductStatus` | `ON_SALE, HIDDEN, DISCONTINUED`. 전이 `ON_SALE → {HIDDEN, DISCONTINUED}`, `HIDDEN → {ON_SALE, DISCONTINUED}`, `DISCONTINUED → {}` |
 | `ProductCategory` | 위 정책의 6개 |
 | `StockMovementType` | `RECEIVE, ADJUST, RESERVE, RELEASE, COMMIT, RESTORE` |
+| `StockRefType` | `PRODUCT_REGISTER, ADJUSTMENT, ORDER, REFUND` (`stock_movement.ref_type`. DB의 `ck_stock_movement_ref_type`과 값이 같아야 한다) |
 | `ProductErrorCode` | `PRODUCT_NOT_FOUND` (1-8·1-9에서 추가) |
 | `Product` | `@Entity @Table(name = "product", schema = "product")`, `extends BaseTimeEntity`. `Money price`(컨버터 자동 적용), `@Version Long version`. `static Product register(UUID shopId, String name, String description, ProductCategory category, Money price, boolean subscribable)` → ON_SALE. `boolean isVisibleToPublic()` → HIDDEN이 아니면 true |
 | `Stock` | `@Entity @Table(name = "stock", schema = "product")`, `extends BaseTimeEntity`. `@Id UUID productId`, `int available, reserved, sold, received`. **읽기 전용**: `save()`를 쓰지 않고 아래 native 쿼리로만 쓴다(그래서 `@Version`이 없다). `boolean inStock()` → `available > 0` |
-| `ProductRepository` | `Product save(Product p)`, `Optional<Product> findById(UUID id)`, `Optional<Product> findByIdAndShopId(UUID id, UUID shopId)` + 아래 목록 쿼리 |
-| `StockRepository` | `Optional<Stock> findById(UUID productId)` + 아래 native 쿼리 |
+| `ProductListRow` | 목록 조회 결과용 record(필드는 아래 4-2 목록 쿼리 참고). 엔티티가 아니다 |
+| `ProductRepository` | **순수 인터페이스**(Spring Data 어노테이션 없음, 가이드 §8.1). `Product save(Product p)`, `Optional<Product> findById(UUID id)`, `List<ProductListRow> findPublicFirstPage(...)`·`findPublicNextPage(...)`·`findByShopFirstPage(...)`·`findByShopNextPage(...)` (파라미터는 4-2 목록 쿼리) |
+| `StockRepository` | **순수 인터페이스**. `Optional<Stock> findById(UUID productId)`, `int insertStock(UUID productId, int quantity, Instant now)`, `int insertMovement(UUID id, UUID productId, String type, int quantity, String refType, UUID refId, String reason, Instant now)` |
 
-`StockRepository` native 쿼리 (모두 `@Modifying @Query(nativeQuery = true, ...)`, 반환 `int`)
+**4-2) product.infrastructure** — `JpaProductRepository`, `JpaStockRepository`
+- 구조는 1-6과 같다: `public interface JpaProductRepository extends JpaRepository<Product, UUID>, ProductRepository`, `public interface JpaStockRepository extends JpaRepository<Stock, UUID>, StockRepository`.
+- `@Query`·`@Modifying`·`@Param` 같은 Spring Data 어노테이션과 native 쿼리는 **여기에만** 둔다. `domain`은 Spring Data에 의존하지 않는다(개발 가이드 §8.1, 의존 방향 `domain ← infrastructure`).
+- 1-8·1-9에서 `StockRepository`에 추가되는 쿼리도 같은 방식으로 `JpaStockRepository`에 구현한다.
+
+`JpaStockRepository` native 쿼리 (모두 `@Modifying @Query(nativeQuery = true, ...)`, 반환 `int`)
 - `insertStock(UUID productId, int quantity, Instant now)`: `INSERT INTO product.stock (product_id, available, reserved, sold, received, created_at, updated_at) VALUES (:productId, :quantity, 0, 0, :quantity, :now, :now)`
 - `insertMovement(UUID id, UUID productId, String type, int quantity, String refType, UUID refId, String reason, Instant now)`: `INSERT INTO product.stock_movement (...) VALUES (...) ON CONFLICT ON CONSTRAINT uk_stock_movement_type_ref DO NOTHING` — 반환값 1 = 새로 기록, 0 = 이미 있음
-- type은 `StockMovementType.name()`을 넘긴다. `now`는 서비스에서 `Instant.now(clock)`
+- type은 `StockMovementType.name()`, refType은 `StockRefType.name()`을 넘긴다(문자열 리터럴을 직접 쓰지 않는다 — 오타를 컴파일 때 잡기 위해). `now`는 서비스에서 `Instant.now(clock)`
 
-목록 쿼리 (`ProductRepository`, JPQL)
-- 조회 결과용 record `ProductListRow(UUID id, UUID shopId, String name, ProductCategory category, Money price, ProductStatus status, String thumbnailKey, Instant createdAt, int available, int reserved, int sold, int received)` — `product.domain`에 둔다
+목록 쿼리 (`JpaProductRepository`, JPQL — `@Query("...")`만 쓰고 `nativeQuery`·`@Modifying`은 쓰지 않는다. 반환은 모두 `List<ProductListRow>`)
+- 조회 결과용 record `ProductListRow(UUID id, UUID shopId, String name, ProductCategory category, Money price, ProductStatus status, String thumbnailKey, Instant createdAt, int available, int reserved, int sold, int received)` — `product.domain`에 둔다. `select new`의 인자는 이 순서·타입 그대로(앞 8개 `p.`, 뒤 4개 `s.`)
 - JPQL에서 `Product`와 `Stock`은 연관관계가 없으므로 `join Stock s on s.productId = p.id`(엔티티 조인)로 묶고, `select new com.myroutine.product.domain.ProductListRow(...)`로 받는다. 한 번의 쿼리로 재고까지 가져온다(N+1 방지)
 - 공개 목록: `findPublicFirstPage(ProductStatus status, ProductCategory category, Limit limit)`, `findPublicNextPage(ProductStatus status, ProductCategory category, Instant cursorCreatedAt, UUID cursorId, Limit limit)`
   - 조건: `p.status = :status and (:category is null or p.category = :category)`, 다음 페이지는 추가로 `and (p.createdAt < :cursorCreatedAt or (p.createdAt = :cursorCreatedAt and p.id < :cursorId))`
   - 정렬: `order by p.createdAt desc, p.id desc`
   - `status`는 항상 `ProductStatus.ON_SALE`을 파라미터로 넘긴다(쿼리에 문자열로 쓰지 않음)
 - 판매자 목록: `findByShopFirstPage(UUID shopId, Limit limit)`, `findByShopNextPage(UUID shopId, Instant cursorCreatedAt, UUID cursorId, Limit limit)` — 상태 조건 없음
-- `org.springframework.data.domain.Limit`는 메서드 파라미터로 넘기면 LIMIT가 적용된다.
-- 확인 필요: `(:category is null or ...)`가 Hibernate 7 + Postgres에서 null 파라미터 타입 문제 없이 동작하는지. 실패하면 카테고리 있음/없음으로 메서드를 나눈다.
+- `org.springframework.data.domain.Limit`는 메서드 파라미터로 넘기면 LIMIT가 적용된다(JPQL 문자열에 `limit`을 쓰지 않는다). 호출하는 쪽은 `Limit.of(size + 1)`.
+- 확인함(1-7 구현): `(:category is null or ...)`는 Hibernate 7 + Postgres에서 카테고리를 생략한 호출(null)과 지정한 호출 모두 정상 동작한다. 메서드를 나눌 필요 없다.
 
 **5) product.application**
 
 | 클래스 | 메서드 |
 |---|---|
 | `RegisterProductService` | 의존성 `ShopApi`, `ProductRepository`, `StockRepository`, `Clock`. `@Transactional UUID register(UUID memberId, UUID shopId, RegisterProductCommand command)` |
-| `ProductQueryService` | `@Transactional(readOnly = true)`: `CursorPage<ProductSummaryResult> getPublicProducts(ProductCategory category, String cursor, int size)` / `ProductDetailResult getProduct(UUID productId)` / `CursorPage<SellerProductResult> getShopProducts(UUID memberId, UUID shopId, String cursor, int size)` |
+| `ProductQueryService` | 의존성 `ShopApi`(`getShopProducts`의 소유자 확인용), `ProductRepository`, `StockRepository`. `@Transactional(readOnly = true)`: `CursorPage<ProductSummaryResult> getPublicProducts(ProductCategory category, String cursor, int size)` / `ProductDetailResult getProduct(UUID productId)` / `CursorPage<SellerProductResult> getShopProducts(UUID memberId, UUID shopId, String cursor, int size)` |
 | `RegisterProductCommand` | `record (String name, String description, ProductCategory category, long price, int initialStock, boolean subscribable)` |
 | `ProductSummaryResult` | `record (UUID id, UUID shopId, String name, ProductCategory category, long price, String thumbnailKey, boolean inStock, Instant createdAt)` |
 | `ProductDetailResult` | `record (UUID id, UUID shopId, String name, String description, ProductCategory category, long price, ProductStatus status, boolean subscribable, String thumbnailKey, boolean inStock, Instant createdAt)` |
@@ -1053,23 +1063,30 @@ public record Money(long amount) implements Comparable<Money> { ... }
 1. `shopApi.verifyOwnerOfActiveShop(shopId, memberId)`
 2. `Product.register(...)` → `productRepository.save`
 3. `stockRepository.insertStock(productId, initialStock, now)`
-4. `stockRepository.insertMovement(Ids.newId(), productId, "RECEIVE", initialStock, "PRODUCT_REGISTER", productId, null, now)`
+4. `stockRepository.insertMovement(Ids.newId(), productId, StockMovementType.RECEIVE.name(), initialStock, StockRefType.PRODUCT_REGISTER.name(), productId, null, now)`
 - 3·4 중 하나라도 실패하면 2도 롤백된다(As-Is CAT-04).
 
-`getProduct`: 없거나 `!isVisibleToPublic()`이면 `PRODUCT_NOT_FOUND`. 재고는 `stockRepository.findById`.
-`getShopProducts`: 먼저 `shopApi.verifyOwner(shopId, memberId)`.
+`getProduct`: 없거나 `!isVisibleToPublic()`이면 `PRODUCT_NOT_FOUND`. 재고는 `stockRepository.findById`. 재고가 없으면 `IllegalStateException`을 던진다(500). 등록이 상품·재고를 한 트랜잭션으로 저장하므로 재고 없는 상품은 불변식이 깨진 상황이지 클라이언트 오류가 아니다. 그래서 `STOCK_NOT_FOUND` 같은 에러 코드를 만들지 않고, `inStock = false`로 조용히 넘기지도 않는다.
+`getShopProducts`: 먼저 `shopApi.verifyOwner(shopId, memberId)`. 이후 페이징은 아래 `getPublicProducts`와 같고, 쿼리만 `findByShopFirstPage`·`findByShopNextPage`를 쓴다.
 
-**6) product.web**
+`getPublicProducts` / `getShopProducts` 페이징 순서
+1. 첫 페이지 판단: `cursor == null || cursor.isBlank()`면 첫 페이지다. `?cursor=`는 `null`이 아니라 `""`로 바인딩되므로 둘 다 "커서 없음"으로 본다. 이때만 `Cursor.decode`를 건너뛴다.
+2. 쿼리 선택: 커서 없음 → `findPublicFirstPage(ProductStatus.ON_SALE, category, Limit.of(size + 1))`, 커서 있음 → `Cursor.decode(cursor)`로 `(createdAt, id)`를 복원해 `findPublicNextPage(ProductStatus.ON_SALE, category, c.createdAt(), c.id(), Limit.of(size + 1))`. `status`는 항상 `ON_SALE`을 파라미터로 넘긴다.
+3. 다음 페이지 판단: 받은 `List<ProductListRow>`가 `size`보다 많으면 다음 페이지가 있다. `size`개만 남기고, **`size`번째 행**의 `createdAt`·`id`로 `new Cursor(...).encode()`를 만들어 `nextCursor`에 넣는다. 없으면 `nextCursor = null`.
+4. 변환: 남긴 행을 Result로 바꾼다. `price`는 `Money.amount()`로 꺼내고, `inStock`은 `available > 0`(`Stock.inStock()`과 같은 규칙).
+5. `new CursorPage<>(items, nextCursor)`를 반환한다. 두 목록의 `size + 1` 처리·커서 생성이 겹치므로 공통 메서드로 뽑을지는 구현 때 정한다.
 
-| API | 권한 | 요청 | 응답 |
-|---|---|---|---|
-| `POST /api/shops/{shopId}/products` | 소유자 | `RegisterProductRequest` | 201 `ProductIdResponse(UUID productId)` |
-| `GET /api/products?category=&cursor=&size=` | **공개** | size 기본 20, `@Min(1) @Max(50)` | 200 `CursorPage<ProductSummaryResponse>` |
-| `GET /api/products/{id}` | **공개** | | 200 `ProductDetailResponse` |
-| `GET /api/shops/{shopId}/products?cursor=&size=` | 소유자 | | 200 `CursorPage<SellerProductResponse>` |
+**6) product.web** — 컨트롤러 2개: 공개 조회용 `ProductController`(`/api/products`)와 판매자용 `SellerProductController`(`/api/shops/{shopId}/products`). 1-8의 수정·재고 조정 API는 `SellerProductController`에 추가한다.
+
+| 컨트롤러 | API | 권한 | 요청 | 응답 |
+|---|---|---|---|---|
+| `SellerProductController` | `POST /api/shops/{shopId}/products` | 소유자 | `RegisterProductRequest` | 201 `ProductIdResponse(UUID productId)` |
+| `ProductController` | `GET /api/products?category=&cursor=&size=` | **공개** | size 기본 20, `@Min(1) @Max(50)` | 200 `CursorPage<ProductSummaryResponse>` |
+| `ProductController` | `GET /api/products/{id}` | **공개** | | 200 `ProductDetailResponse` |
+| `SellerProductController` | `GET /api/shops/{shopId}/products?cursor=&size=` | 소유자 | size 규칙은 공개 목록과 같다 | 200 `CursorPage<SellerProductResponse>` |
 
 - `RegisterProductRequest`: `name @NotBlank @Size(max=100)`, `description @NotNull @Size(max=5000)`, `category @NotNull ProductCategory`, `price @NotNull @Min(1) @Max(100_000_000) Long`, `initialStock @NotNull @Min(0) @Max(1_000_000) Integer`, `subscribable boolean`
-- 쿼리 파라미터 검증(`@Min`, `@Max`)을 쓰려면 컨트롤러에 `@Validated`를 붙인다. 위반 시 예외는 `HandlerMethodValidationException`이므로 `GlobalExceptionHandler`에 **400 `INVALID_REQUEST`** 한 줄을 추가한다(확인 필요: Spring 7에서 쿼리 파라미터 검증 실패 예외 타입).
+- 쿼리 파라미터 검증(`@Min`, `@Max`)은 컨트롤러 메서드 파라미터에 붙이기만 하고, **컨트롤러 클래스에는 `@Validated`를 붙이지 않는다.** 클래스에 `@Validated`가 있으면 AOP 프록시 검증이 먼저 동작해 `jakarta.validation.ConstraintViolationException`이 던져지고(`GlobalExceptionHandler`에 핸들러가 없어 500), Spring MVC 내장 검증이 던지는 `HandlerMethodValidationException`이 나오지 않는다(1-7 구현 중 `size=0` 테스트에서 확인). 내장 검증의 위반 예외는 `HandlerMethodValidationException`이므로 `GlobalExceptionHandler`에 **400 `INVALID_REQUEST`** 핸들러를 추가한다(`@Validated`를 뺀 컨트롤러에서 Spring 7이 이 예외를 던지는 것을 1-7 구현에서 확인했다). `details`에는 다른 검증 핸들러와 같게 **파라미터명 → 검증 메시지**를 담는다(예: `{"size": "1 이상이어야 합니다"}`). 파라미터 이름·메시지는 `e.getValueResults()`의 `getMethodParameter().getParameterName()`과 `getResolvableErrors()`로 꺼낸다(확인함).
 - 응답 record는 Result 필드를 그대로 옮긴다(`ProductSummaryResponse` 등).
 - `SecurityConfig`: `.requestMatchers(HttpMethod.GET, "/api/products", "/api/products/*").permitAll()`
 - `product/package-info.java`: `@ApplicationModule(allowedDependencies = {"common", "shop::api"})`
@@ -1079,18 +1096,24 @@ public record Money(long amount) implements Comparable<Money> { ... }
 | 테스트 클래스 | 케이스 |
 |---|---|
 | `common/model/MoneyTest` | [ ] 음수 생성 불가 / [ ] `minus` 결과 음수 → 예외 / [ ] `times` 오버플로 → `ArithmeticException` / [ ] `plus`·`times` 정상값 |
-| `common/web/CursorTest` | [ ] encode → decode 왕복 시 같은 값 / [ ] 깨진 문자열 decode → `INVALID_REQUEST` |
-| `product/web/ProductControllerTest` | 아래 |
+| `common/web/CursorTest` | [ ] encode → decode 왕복 시 같은 값 / [ ] 실패 지점별 decode → `INVALID_REQUEST` (Base64가 아닌 문자열 / 구분자 없음 / 구분자 2개 이상 / 시각 형식 오류 / UUID 형식 오류) |
+| `product/web/ProductControllerTest` | 아래 (공개 조회) |
+| `product/web/SellerProductControllerTest` | 아래 (등록·판매자 목록) |
 
-`ProductControllerTest`
+`SellerProductControllerTest`
 - [ ] 등록 → 201, `product` 1건, `stock`(available = received = 초기 재고) 1건, `stock_movement`(RECEIVE) 1건
 - [ ] 남의 가게에 등록 → 403, CLOSED 가게 → 422 `SHOP_NOT_ACTIVE`, 없는 가게 → 404 `SHOP_NOT_FOUND`
 - [ ] 가격 0 → 400
-- [ ] 커서 페이징: 상품 5개, size 2로 첫 페이지 → 새 상품 1개 추가 → 이어서 끝까지 조회 → 처음 5개가 중복·누락 없이 정확히 한 번씩 나온다
+- [ ] 판매자 목록: 남의 가게 → 403, CLOSED 가게 소유자는 조회 가능
+- [ ] 판매자 목록 `size=0`, `size=51` → 400 `INVALID_REQUEST`, `details`에 `size` 키가 있다 (공개 목록과 같은 규칙. 컨트롤러 클래스에 `@Validated`가 남아 있으면 500이 된다)
+
+`ProductControllerTest`
+- [ ] `size=0`, `size=51` → 400 `INVALID_REQUEST`, `details`에 `size` 키가 있다 (쿼리 파라미터 검증 예외가 500이 아니라 400으로 매핑되는지 확인. 실패하면 실제 예외 타입을 로그로 확인해 `GlobalExceptionHandler`와 위 6)의 "확인 필요"를 고친다)
+- [ ] 커서 페이징: 상품 5개, size 2로 첫 페이지 → 새 상품 1개 추가 → 이어서 끝까지 조회 → 처음 5개가 중복·누락 없이 정확히 한 번씩 나오고, 모아 둔 순서가 등록 순서의 역순(최신순)이다. 순서가 가끔 깨지면 `created_at` 동률이 원인이므로 JDBC로 `created_at`을 서로 다르게 덮어써서 결정적으로 만든다
 - [ ] HIDDEN 상품(JDBC로 상태 변경)은 목록에 없고 상세 404
+- [ ] 상세 조회 응답에 `status`(`ON_SALE`)와 `inStock`(초기 재고가 있으면 true)이 내려온다
 - [ ] 카테고리 필터
 - [ ] **N+1 없음**: 상품 3개일 때와 10개일 때 목록 조회의 SQL 실행 수가 같다. `application-test.yaml`에 `spring.jpa.properties.hibernate.generate_statistics: true`, 테스트에서 `entityManagerFactory.unwrap(SessionFactory.class).getStatistics()`를 `clear()` 후 요청하고 `getPrepareStatementCount()` 비교
-- [ ] 판매자 목록: 남의 가게 → 403, CLOSED 가게 소유자는 조회 가능
 
 **제안 (선택)**
 - 재고 저장 실패 시 상품도 롤백되는지 증명하는 테스트(`@MockitoSpyBean StockRepository`로 `insertStock`이 예외를 던지게) — 원 프로젝트에서 상품·재고가 따로 저장되던 결함(CAT-04)의 반증
@@ -1147,7 +1170,7 @@ public record Money(long amount) implements Comparable<Money> { ... }
 | `PriceChange` | `record (Money oldPrice, Money newPrice)` |
 | `Product.update(String name, String description, ProductCategory category, Money price, Boolean subscribable)` | DISCONTINUED면 `BusinessException(PRODUCT_DISCONTINUED)`. null은 유지. 반환 `Optional<PriceChange>` — 가격이 실제로 바뀐 경우에만 값이 있다 |
 | `Product.changeStatus(ProductStatus to)` | `status = status.transitTo(to)` |
-| `ProductRepository` | native `insertPriceHistory(UUID id, UUID productId, long oldPrice, long newPrice, Instant now)` (`changed_at`, `created_at` 모두 now) |
+| `ProductRepository` | `Optional<Product> findByIdAndShopId(UUID id, UUID shopId)` 추가(1-7에서 옮김: 1-7에는 쓰는 곳이 없다. 아래 공통 앞단과 1-10 이미지 등록·삭제가 쓴다), native `insertPriceHistory(UUID id, UUID productId, long oldPrice, long newPrice, Instant now)` (`changed_at`, `created_at` 모두 now) |
 | `StockRepository` | `adjust`, `findProductIdsWithBrokenBalance` 추가 (아래) |
 
 ```sql
@@ -1176,10 +1199,10 @@ SELECT product_id FROM product.stock WHERE available + reserved + sold <> receiv
 `adjust`
 1. 앞단 검사
 2. `stockRepository.adjust(productId, delta, now)` → 0이면 `BusinessException(OUT_OF_STOCK)` (수량은 바뀌지 않았다)
-3. `insertMovement(Ids.newId(), productId, "ADJUST", delta, "ADJUSTMENT", Ids.newId(), reason, now)`
+3. `insertMovement(Ids.newId(), productId, StockMovementType.ADJUST.name(), delta, StockRefType.ADJUSTMENT.name(), Ids.newId(), reason, now)`
 4. `stockRepository.findById(productId)`로 다시 읽어 `StockResult` 반환 — `adjust`가 native UPDATE라 1차 캐시와 무관하게 DB 값을 읽도록 이 메서드 안에서 `Stock`을 미리 조회하지 않는다
 
-**4) product.web** — `SellerProductController` (`/api/shops/{shopId}/products`)
+**4) product.web** — `SellerProductController` (`/api/shops/{shopId}/products`, 1-7에서 만든 클래스에 아래 API를 추가한다)
 
 | API | 요청 | 응답 |
 |---|---|---|
@@ -1188,7 +1211,6 @@ SELECT product_id FROM product.stock WHERE available + reserved + sold <> receiv
 | `POST /api/shops/{shopId}/products/{id}/stock-adjustments` | `AdjustStockRequest(@NotNull @Min(-1_000_000) @Max(1_000_000) Integer delta, @NotBlank @Size(max=200) String reason)` | 200 `StockResponse` |
 
 - delta = 0 검사: `AdjustStockRequest`에 `@AssertTrue(message = "변경 수량은 0이 아니어야 합니다.") boolean isDeltaNonZero()` → 400의 `details.deltaNonZero`
-- 1-7의 등록·판매자 목록 API도 이 컨트롤러로 옮겨도 된다(선택).
 
 ### 완료 확인
 
@@ -1196,7 +1218,7 @@ SELECT product_id FROM product.stock WHERE available + reserved + sold <> receiv
 |---|---|
 | `product/domain/ProductStatusTest` | [ ] 9개 조합 파라미터화 |
 | `product/domain/ProductTest` | [ ] 가격 변경 → `PriceChange` 반환 / [ ] 같은 가격·이름만 변경 → `Optional.empty()` / [ ] DISCONTINUED에서 update → `PRODUCT_DISCONTINUED` |
-| `product/web/SellerProductControllerTest` | [ ] 가격 변경 → `price_history` 1건(old·new 확인) / [ ] 이름만 변경 → 이력 없음 / [ ] DISCONTINUED 상품 수정 → 409 / [ ] DISCONTINUED → ON_SALE → 409 `INVALID_STATE_TRANSITION` / [ ] 재고 -5(가용 3) → 422 `OUT_OF_STOCK`, 수량 변화 없음, 이력 없음 / [ ] delta 0 → 400 / [ ] 다른 회원의 가게 ID로 접근 → 403 `FORBIDDEN` / [ ] 내 가게 ID + 다른 가게의 상품 ID → 404 `PRODUCT_NOT_FOUND` |
+| `product/web/SellerProductControllerTest` (1-7에서 만든 클래스에 추가) | [ ] 가격 변경 → `price_history` 1건(old·new 확인) / [ ] 이름만 변경 → 이력 없음 / [ ] DISCONTINUED 상품 수정 → 409 / [ ] DISCONTINUED → ON_SALE → 409 `INVALID_STATE_TRANSITION` / [ ] 재고 -5(가용 3) → 422 `OUT_OF_STOCK`, 수량 변화 없음, 이력 없음 / [ ] delta 0 → 400 / [ ] 다른 회원의 가게 ID로 접근 → 403 `FORBIDDEN` / [ ] 내 가게 ID + 다른 가게의 상품 ID → 404 `PRODUCT_NOT_FOUND` |
 | `product/application/StockAdjustmentConcurrencyTest` | [ ] **동시에 +1 입고 100건**(서비스 직접 호출, 스레드 풀 + latch) → received·available이 정확히 +100, ADJUST 이력 100건, `findProductIdsWithBrokenBalance()` 빈 목록 |
 
 **리뷰 때 물어볼 것**
@@ -1289,19 +1311,19 @@ native 쿼리 (반환 `int`, 모두 `updated_at = :now` 포함)
 3. 상품을 모두 조회. 없거나 ON_SALE이 아닌 상품이 있으면 `BusinessException(PRODUCT_NOT_ON_SALE, Map.of("productIds", 그 ID 목록))`
 4. items를 **productId 오름차순**(`Comparator.comparing(ReserveItem::productId)`)으로 정렬
 5. 상품마다 `stockRepository.reserve(...)` → 0이면 `BusinessException(OUT_OF_STOCK, Map.of("productIds", List.of(productId)))` — 예외가 트랜잭션을 롤백하므로 앞에서 줄인 재고도 되돌아간다
-6. 상품마다 `insertReservation(Ids.newId(), ...)`, `insertMovement(..., "RESERVE", q, "ORDER", orderId, null, now)`
+6. 상품마다 `insertReservation(Ids.newId(), ...)`, `insertMovement(..., StockMovementType.RESERVE.name(), q, StockRefType.ORDER.name(), orderId, null, now)`
 - 같은 orderId로 **동시에** 두 번 호출되면 둘 다 2번을 통과할 수 있다. 늦은 쪽은 `uk_stock_reservation_order_product` 위반으로 실패하고 전체가 롤백된다(재고는 한 번만 줄어든다).
 
 `commitReservation` (`@Transactional`)
 1. `findAllByOrderIdAndStatusOrderByProductIdAsc(orderId, HELD)`
-2. 각 예약: `transit(id, HELD, COMMITTED)` → 1이면 `stockRepository.commit(...)`(0이면 `IllegalStateException` — 불변식이 깨진 상황) + `insertMovement(..., "COMMIT", q, "ORDER", orderId, ...)` / 0이면 건너뜀(이미 처리됨)
+2. 각 예약: `transit(id, HELD, COMMITTED)` → 1이면 `stockRepository.commit(...)`(0이면 `IllegalStateException` — 불변식이 깨진 상황) + `insertMovement(..., StockMovementType.COMMIT.name(), q, StockRefType.ORDER.name(), orderId, ...)` / 0이면 건너뜀(이미 처리됨)
 
-`releaseReservation` (`@Transactional`): commit과 같은 구조. 전이 대상은 `reason`에 따라 RELEASED 또는 EXPIRED, 재고는 `release`, 이력 `"RELEASE"`. HELD만 대상이므로 COMMITTED 예약은 건드리지 않는다.
+`releaseReservation` (`@Transactional`): commit과 같은 구조. 전이 대상은 `reason`에 따라 RELEASED 또는 EXPIRED, 재고는 `release`, 이력 `insertMovement(..., StockMovementType.RELEASE.name(), q, StockRefType.ORDER.name(), orderId, null, now)`. HELD만 대상이므로 COMMITTED 예약은 건드리지 않는다.
 
 `restore` (`@Transactional`)
 1. `findByOrderIdAndProductId` → 없거나 COMMITTED가 아니면 `BusinessException(INVALID_STATE_TRANSITION)`
 2. `quantity`가 0 이하이거나 예약 수량보다 크면 `IllegalArgumentException`
-3. `insertMovement(..., "RESTORE", quantity, "REFUND", refundId, ...)` → **0이면 `return`**(같은 refundId로 이미 복구함)
+3. `insertMovement(..., StockMovementType.RESTORE.name(), quantity, StockRefType.REFUND.name(), refundId, ...)` → **0이면 `return`**(같은 refundId로 이미 복구함)
 4. `stockRepository.restore(...)` → 0이면 `IllegalStateException`
 - 이력 INSERT를 먼저 하는 이유: unique 제약이 "이 환불로 복구했는가"의 기록이자 잠금 역할을 한다.
 
@@ -1379,7 +1401,9 @@ native 쿼리 (반환 `int`, 모두 `updated_at = :now` 포함)
 - `application.yaml`: `myroutine.storage.endpoint: ${STORAGE_ENDPOINT:http://localhost:9000}`, `region: us-east-1`, `access-key: ${MINIO_ROOT_USER}`, `secret-key: ${MINIO_ROOT_PASSWORD}`, `bucket: myroutine`, `public-base-url: ${STORAGE_PUBLIC_BASE_URL:http://localhost:9000/myroutine}`, `upload-url-ttl: 10m`, `max-upload-bytes: 5242880`
 - **외부 호출 규칙**: presign은 네트워크 호출이 없지만, `head`·`delete`·버킷 관리는 네트워크 호출이다 → `@Transactional` 안에서 부르지 않는다
 
-**3) 마이그레이션** — `db/migration/product/V{...}__product_add_product_image_unique.sql`: `ALTER TABLE product.product_image ADD CONSTRAINT uk_product_image_object_key UNIQUE (object_key)` (1-7의 마이그레이션 파일은 고치지 않는다)
+**3) 마이그레이션** — `db/migration/product/V{...}__product_add_product_image_constraints.sql` (1-7의 마이그레이션 파일은 고치지 않는다)
+- `ALTER TABLE product.product_image ADD CONSTRAINT uk_product_image_object_key UNIQUE (object_key)`
+- `CREATE INDEX idx_product_image_product_id ON product.product_image (product_id)` — PostgreSQL은 FK 컬럼에 인덱스를 자동으로 만들지 않는다. 상세 조회가 `product_id`로 이미지를 읽으므로(`@EntityGraph`) 없으면 상품이 늘수록 `product_image` 전체를 훑는다.
 
 **4) product.domain** — `ProductImage`는 `Product` 애그리거트의 자식이다(1-7 공통 규칙의 예외: 같은 애그리거트 안이라 `@OneToMany`를 쓴다)
 
@@ -1399,7 +1423,7 @@ native 쿼리 (반환 `int`, 모두 `updated_at = :now` 포함)
 | 메서드 | 순서 |
 |---|---|
 | `UploadUrlResult issueUploadUrl(UUID memberId, UUID shopId, UUID productId, String contentType, long contentLength)` | `shopApi.verifyOwnerOfActiveShop` → (읽기 트랜잭션) 상품이 이 가게 것인지, DISCONTINUED 아닌지, 10장 미만인지 → 형식·크기 검사(위반 `INVALID_REQUEST`) → `key = objectKeyPrefix(productId) + Ids.newId() + "." + 확장자` → `storage.presignPut(key, contentType, contentLength)` → `UploadUrlResult(String uploadUrl, Map<String,String> headers, String objectKey, Instant expiresAt)` |
-| `ImageResult register(UUID memberId, UUID shopId, UUID productId, String objectKey)` | `verifyOwnerOfActiveShop` → 키가 `objectKeyPrefix(productId)`로 시작하고 `^products/[0-9a-f-]{36}/[0-9a-f-]{36}\.(jpg|png|webp)$`에 맞지 않으면 `INVALID_REQUEST` → **트랜잭션 밖에서** `storage.head(objectKey)` → 없으면 `IMAGE_NOT_UPLOADED` / 크기 초과·허용 외 형식이면 `storage.delete` 후 `INVALID_REQUEST` → 트랜잭션: `findByIdAndShopId` → `product.addImage(objectKey)` → `ImageResult(UUID imageId, String url, int sortOrder)` |
+| `ImageResult register(UUID memberId, UUID shopId, UUID productId, String objectKey)` | `verifyOwnerOfActiveShop` → 키가 `objectKeyPrefix(productId)`로 시작하고 `^products/[0-9a-f-]{36}/[0-9a-f-]{36}\.(jpg\|png\|webp)$`에 맞지 않으면 `INVALID_REQUEST` → **트랜잭션 밖에서** `storage.head(objectKey)` → 없으면 `IMAGE_NOT_UPLOADED` / 크기 초과·허용 외 형식이면 `storage.delete` 후 `INVALID_REQUEST` → 트랜잭션: `findByIdAndShopId` → `product.addImage(objectKey)` → `ImageResult(UUID imageId, String url, int sortOrder)` |
 | `void delete(UUID memberId, UUID shopId, UUID productId, UUID imageId)` | `verifyOwnerOfActiveShop` → 트랜잭션: `key = product.removeImage(imageId)` → 커밋 후 **트랜잭션 밖에서** `storage.delete(key)` (실패하면 `log.warn`만 — DB에서는 이미 빠졌고, 남은 객체는 위 한계와 같음) |
 
 **6) product.web** — `ProductImageController` (`/api/shops/{shopId}/products/{productId}/images`)

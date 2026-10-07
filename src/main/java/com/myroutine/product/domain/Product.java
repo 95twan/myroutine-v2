@@ -1,0 +1,68 @@
+package com.myroutine.product.domain;
+
+import com.myroutine.common.model.BaseTimeEntity;
+import com.myroutine.common.model.Ids;
+import com.myroutine.common.model.Money;
+import jakarta.persistence.*;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+
+import java.util.UUID;
+
+@Entity
+@Table(name = "product", schema = "product")
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@Getter
+public class Product extends BaseTimeEntity {
+
+    @Id
+    @Column(name = "id", nullable = false)
+    private UUID id;
+
+    @Column(name = "shop_id", nullable = false)
+    private UUID shopId;
+
+    @Column(name = "name", nullable = false)
+    private String name;
+
+    @Column(name = "description", nullable = false)
+    private String description;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "category", nullable = false)
+    private ProductCategory category;
+
+    @Column(name = "price", nullable = false)
+    private Money price;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false)
+    private ProductStatus status;
+
+    @Column(name = "subscribable", nullable = false)
+    private boolean subscribable;
+
+    @Column(name = "thumbnail_key")
+    private String thumbnailKey;
+
+    @Version
+    private Long version;
+
+    public static Product register(UUID shopId, String name, String description, ProductCategory category, Money price, boolean subscribable) {
+        Product product = new Product();
+        product.id = Ids.newId();
+        product.shopId = shopId;
+        product.name = name;
+        product.description = description;
+        product.category = category;
+        product.price = price;
+        product.status = ProductStatus.ON_SALE;
+        product.subscribable = subscribable;
+        return product;
+    }
+
+    public boolean isVisibleToPublic() {
+        return status != ProductStatus.HIDDEN;
+    }
+}

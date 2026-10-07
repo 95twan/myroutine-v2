@@ -12,6 +12,7 @@ import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -69,6 +70,20 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleMissingRequestParameterException(MissingServletRequestParameterException e) {
         ErrorCode errorCode = CommonErrorCode.INVALID_REQUEST;
         ErrorResponse response = ErrorResponse.of(errorCode, Map.of(e.getParameterName(), "필수 값입니다."));
+        log.warn("{}", response);
+        return ResponseEntity.status(errorCode.status()).body(response);
+    }
+
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<ErrorResponse> handleHandlerMethodValidationException(HandlerMethodValidationException e) {
+        ErrorCode errorCode = CommonErrorCode.INVALID_REQUEST;
+        Map<String, Object> details = e.getValueResults().stream()
+                .collect(Collectors.toMap(
+                        r -> r.getMethodParameter().getParameterName(),
+                        r -> Optional.ofNullable(r.getResolvableErrors().getFirst().getDefaultMessage()).orElse("올바르지 않은 값입니다."),
+                        (existing, replacement) -> existing
+                ));
+        ErrorResponse response = ErrorResponse.of(errorCode, details);
         log.warn("{}", response);
         return ResponseEntity.status(errorCode.status()).body(response);
     }
