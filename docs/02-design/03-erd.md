@@ -139,7 +139,7 @@ erDiagram
     uuid product_id FK
     varchar type "RECEIVE, ADJUST, RESERVE, RELEASE, COMMIT, RESTORE"
     int quantity
-    varchar ref_type
+    varchar ref_type "PRODUCT_REGISTER, ADJUSTMENT, ORDER, REFUND"
     uuid ref_id "UK(type, ref_type, ref_id, product_id)"
     varchar reason "조정 사유 (ADJUST만)"
   }
