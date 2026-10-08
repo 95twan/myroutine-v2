@@ -1,6 +1,7 @@
 # Part 1. 뼈대와 첫 기능
 
-> 버전 0.7 · 2026-10-07 · **1-11 운영 환경 연습(VM 배포·자동 CD) 추가**: Proxmox VM + Docker Compose, GitHub Actions self-hosted runner, sha 태그 이미지·자동 롤백. 근거 [ADR-011](../adr/ADR-011-ops-practice-environment.md). 외부 접속(Cloudflare)은 보류. Part 1 릴리스(`v0.1.0`)는 1-11 완료 후
+> 버전 0.8 · 2026-10-08 · **1-8 구현 위치·쿼리 구체화**: `Product.update` 동작 규칙, `insertPriceHistory`·`adjust`·`findProductIdsWithBrokenBalance`가 놓일 계층(domain 시그니처 ↔ infrastructure 쿼리)과 native 쿼리 SQL을 1-7 방식에 맞춰 명시했다(1-7에서 이미 선언된 `findByIdAndShopId` 반영)
+> 0.7 · 2026-10-07 · **1-11 운영 환경 연습(VM 배포·자동 CD) 추가**: Proxmox VM + Docker Compose, GitHub Actions self-hosted runner, sha 태그 이미지·자동 롤백. 근거 [ADR-011](../adr/ADR-011-ops-practice-environment.md). 외부 접속(Cloudflare)은 보류. Part 1 릴리스(`v0.1.0`)는 1-11 완료 후
 > 0.6 · 2026-10-06 · **1-6 `requireActiveShops` 구체화**: 중복 ID·빈 입력·문제 ID 수집 방식·`details.shopIds` 형식을 명시했다(1-6 리뷰에서 규격이 모호해 구현이 갈린 부분). 1-6 `ShopControllerTest` 완료 확인에 **수정 성공(null 유지)** 케이스를 추가했다(`Shop.update`의 null 유지 규칙이 규격에 있는데 검증하는 테스트가 없었다). `UpdateShopRequest`는 빈 문자열·공백만 있는 값을 400으로 거르도록 명시했다(수정 때만 빈 이름이 저장되던 문제)
 > 0.5 · 2026-10-02 · **덜어내기**: `InvalidStateTransitionException`·`UniqueConstraintMapping`·`@CurrentMember` 리졸버·traceId 헤더 수용·토큰 만료 코드 구분을 제거하고, 미리 만들던 컬럼(이메일 인증·토큰 버전·탈퇴 시각)은 쓰는 단계로 미뤘다. 회원 역할은 jsonb 목록 → 단일 `role` 컬럼. 꼭 필요하지 않은 테스트·장치는 각 단계의 "제안"으로 옮겼다
 > 0.4 · 1-10 상품 이미지 업로드(presigned URL + MinIO) 추가, 예치금 제거에 따른 Part 2 번호 변경 반영
@@ -1168,12 +1169,24 @@ public record Money(long amount) implements Comparable<Money> { ... }
 |---|---|
 | `ProductErrorCode` | `PRODUCT_DISCONTINUED`, `OUT_OF_STOCK` 추가 |
 | `PriceChange` | `record (Money oldPrice, Money newPrice)` |
-| `Product.update(String name, String description, ProductCategory category, Money price, Boolean subscribable)` | DISCONTINUED면 `BusinessException(PRODUCT_DISCONTINUED)`. null은 유지. 반환 `Optional<PriceChange>` — 가격이 실제로 바뀐 경우에만 값이 있다 |
+| `Product.update(String name, String description, ProductCategory category, Money price, Boolean subscribable)` | 1) **맨 앞에서** DISCONTINUED면 `BusinessException(PRODUCT_DISCONTINUED)` — 던지기 전에 어떤 필드도 바꾸지 않는다. 2) 인자가 null인 필드는 기존 값 유지. 3) 가격은 `price != null`이고 현재 가격과 값이 다를 때만 `new PriceChange(현재 가격, 새 가격)`을 만들고 반영한다. 4) 반환 `Optional<PriceChange>` — 가격이 실제로 바뀐 경우에만 값이 있다(같은 가격·가격 null·이름만 변경은 `Optional.empty()`). 가격 이력 저장은 엔티티가 아니라 `UpdateProductService`가 한다 |
 | `Product.changeStatus(ProductStatus to)` | `status = status.transitTo(to)` |
-| `ProductRepository` | `Optional<Product> findByIdAndShopId(UUID id, UUID shopId)` 추가(1-7에서 옮김: 1-7에는 쓰는 곳이 없다. 아래 공통 앞단과 1-10 이미지 등록·삭제가 쓴다), native `insertPriceHistory(UUID id, UUID productId, long oldPrice, long newPrice, Instant now)` (`changed_at`, `created_at` 모두 now) |
-| `StockRepository` | `adjust`, `findProductIdsWithBrokenBalance` 추가 (아래) |
+| `ProductRepository` (**순수 인터페이스**, Spring Data 어노테이션 없음) | `Optional<Product> findByIdAndShopId(UUID id, UUID shopId)`(1-7에서 이미 선언했다면 건너뛴다. 아래 공통 앞단과 1-10 이미지 등록·삭제가 쓴다), `int insertPriceHistory(UUID id, UUID productId, long oldPrice, long newPrice, Instant now)` — `changed_at`, `created_at` 모두 `now` |
+| `StockRepository` (**순수 인터페이스**) | `int adjust(UUID productId, int delta, Instant now)`, `List<UUID> findProductIdsWithBrokenBalance()` 추가 |
+
+**구현 위치 (infrastructure)** — 1-7의 `insertStock`·`insertMovement`와 같은 방식이다. 시그니처는 `domain` 인터페이스에, `@Modifying @Query(nativeQuery = true, ...)`는 `JpaProductRepository`·`JpaStockRepository`에만 둔다. `PriceHistory` 엔티티는 만들지 않는다(쓰기 전용이고 조회 API가 없다).
+
+| 구현체 | 메서드 | 비고 |
+|---|---|---|
+| `JpaProductRepository` | `insertPriceHistory` | 아래 INSERT. 가격이 바뀔 때마다 한 건씩 쌓으므로 `ON CONFLICT`는 쓰지 않는다. 반환 1 |
+| `JpaStockRepository` | `adjust` | 아래 UPDATE. 반환 0 = 재고 부족 |
+| `JpaStockRepository` | `findProductIdsWithBrokenBalance` | 아래 SELECT(`nativeQuery = true`, `@Modifying` 없음) |
 
 ```sql
+-- insertPriceHistory(UUID id, UUID productId, long oldPrice, long newPrice, Instant now): 반환 1
+INSERT INTO product.price_history (id, product_id, old_price, new_price, changed_at, created_at)
+VALUES (:id, :productId, :oldPrice, :newPrice, :now, :now)
+
 -- adjust(UUID productId, int delta, Instant now): 반환 행 수 0이면 재고 부족
 UPDATE product.stock
    SET available = available + :delta, received = received + :delta, updated_at = :now
@@ -1182,6 +1195,8 @@ UPDATE product.stock
 -- findProductIdsWithBrokenBalance(): List<UUID>, CHECK가 있으니 평소엔 0건
 SELECT product_id FROM product.stock WHERE available + reserved + sold <> received
 ```
+
+- `adjust`는 native UPDATE라 영속성 컨텍스트를 거치지 않는다. 같은 트랜잭션에서 `Stock`을 UPDATE 전에 읽어 두면 1차 캐시에 이전 값이 남는다. 그래서 서비스는 UPDATE 전에 `Stock`을 읽지 않고, UPDATE 뒤의 `findById`가 첫 조회가 되게 한다(아래 `adjust` 4단계).
 
 **3) product.application**
 
@@ -1200,13 +1215,13 @@ SELECT product_id FROM product.stock WHERE available + reserved + sold <> receiv
 1. 앞단 검사
 2. `stockRepository.adjust(productId, delta, now)` → 0이면 `BusinessException(OUT_OF_STOCK)` (수량은 바뀌지 않았다)
 3. `insertMovement(Ids.newId(), productId, StockMovementType.ADJUST.name(), delta, StockRefType.ADJUSTMENT.name(), Ids.newId(), reason, now)`
-4. `stockRepository.findById(productId)`로 다시 읽어 `StockResult` 반환 — `adjust`가 native UPDATE라 1차 캐시와 무관하게 DB 값을 읽도록 이 메서드 안에서 `Stock`을 미리 조회하지 않는다
+4. `stockRepository.findById(productId)`로 읽어 `StockResult` 반환 — 이 메서드에서 `Stock`을 읽는 건 이 조회가 처음이어야 한다. `adjust`가 native UPDATE라 영속성 컨텍스트를 갱신하지 않으므로, UPDATE 전에 `Stock`을 조회하면 이 조회가 캐시의 이전 값을 돌려준다
 
 **4) product.web** — `SellerProductController` (`/api/shops/{shopId}/products`, 1-7에서 만든 클래스에 아래 API를 추가한다)
 
 | API | 요청 | 응답 |
 |---|---|---|
-| `PATCH /api/shops/{shopId}/products/{id}` | `UpdateProductRequest` (1-7 등록 요청과 같은 검증, `@NotNull`·`@NotBlank` 없음, initialStock 없음) | 200 `ProductDetailResponse` |
+| `PATCH /api/shops/{shopId}/products/{id}` | `UpdateProductRequest` (1-7 등록 요청과 같은 검증, `@NotNull`·`@NotBlank` 없음, initialStock 없음. `subscribable`은 `Boolean`(원시 `boolean`이면 생략 시 `false`로 덮어쓴다). **`name`은 `@Pattern(regexp = ".*\\S.*")`로 빈 문자열·공백만 있는 값을 400** — 수정 요청 공통 규칙, 문서 하단 "수정 사항" 참고) | 200 `ProductDetailResponse` |
 | `PATCH /api/shops/{shopId}/products/{id}/status` | `ChangeProductStatusRequest(@NotNull ProductStatus status)` | 200 `ProductDetailResponse` |
 | `POST /api/shops/{shopId}/products/{id}/stock-adjustments` | `AdjustStockRequest(@NotNull @Min(-1_000_000) @Max(1_000_000) Integer delta, @NotBlank @Size(max=200) String reason)` | 200 `StockResponse` |
 
