@@ -1,5 +1,6 @@
 package com.myroutine.product.domain;
 
+import com.myroutine.common.error.BusinessException;
 import com.myroutine.common.model.BaseTimeEntity;
 import com.myroutine.common.model.Ids;
 import com.myroutine.common.model.Money;
@@ -8,6 +9,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.util.Optional;
 import java.util.UUID;
 
 @Entity
@@ -64,5 +66,33 @@ public class Product extends BaseTimeEntity {
 
     public boolean isVisibleToPublic() {
         return status != ProductStatus.HIDDEN;
+    }
+
+    public Optional<PriceChange> update(String name, String description, ProductCategory category, Money price, Boolean subscribable) {
+        if (this.status == ProductStatus.DISCONTINUED) {
+            throw new BusinessException(ProductErrorCode.PRODUCT_DISCONTINUED);
+        }
+        if (name != null) {
+            this.name = name;
+        }
+        if (description != null) {
+            this.description = description;
+        }
+        if (category != null) {
+            this.category = category;
+        }
+        PriceChange priceChange = null;
+        if (price != null && !this.price.equals(price)) {
+            priceChange = new PriceChange(this.price, price);
+            this.price = price;
+        }
+        if (subscribable != null) {
+            this.subscribable = subscribable;
+        }
+        return Optional.ofNullable(priceChange);
+    }
+
+    public void changeStatus(ProductStatus to) {
+        this.status = this.status.transitTo(to);
     }
 }
