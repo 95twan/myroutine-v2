@@ -97,4 +97,9 @@ public class TestFixtures {
     public void hideProduct(UUID productId) {
         jdbcTemplate.update("UPDATE product.product SET status = 'HIDDEN' WHERE id = ?", productId);
     }
+
+    public void discontinueProduct(UUID productId) {
+        jdbcTemplate.update("UPDATE product.product SET status = 'DISCONTINUED' WHERE id = ?", productId);
+    }
+
 }

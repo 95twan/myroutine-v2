@@ -3,6 +3,7 @@ package com.myroutine.product.infrastructure;
 import com.myroutine.product.domain.*;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.Instant;
@@ -49,4 +50,14 @@ public interface JpaProductRepository extends JpaRepository<Product, UUID>, Prod
                    order by p.createdAt desc, p.id desc
             """)
     List<ProductListRow> findByShopNextPage(UUID shopId, Instant cursorCreatedAt, UUID cursorId, Limit limit);
+
+    @Modifying
+    @Query(
+            nativeQuery = true,
+            value = """
+                           insert into product.price_history (id, product_id, old_price, new_price, changed_at, created_at)
+                           values (:id, :productId, :oldPrice, :newPrice, :now, :now)
+                    """
+    )
+    int insertPriceHistory(UUID id, UUID productId, long oldPrice, long newPrice, Instant now);
 }

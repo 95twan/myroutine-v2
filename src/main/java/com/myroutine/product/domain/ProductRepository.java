@@ -12,6 +12,8 @@ public interface ProductRepository {
 
     Optional<Product> findById(UUID id);
 
+    Optional<Product> findByIdAndShopId(UUID id, UUID shopId);
+
     List<ProductListRow> findPublicFirstPage(ProductStatus status, ProductCategory category, Limit limit);
 
     List<ProductListRow> findPublicNextPage(ProductStatus status, ProductCategory category, Instant cursorCreatedAt, UUID cursorId, Limit limit);
@@ -19,4 +21,6 @@ public interface ProductRepository {
     List<ProductListRow> findByShopFirstPage(UUID shopId, Limit limit);
 
     List<ProductListRow> findByShopNextPage(UUID shopId, Instant cursorCreatedAt, UUID cursorId, Limit limit);
+
+    int insertPriceHistory(UUID id, UUID productId, long oldPrice, long newPrice, Instant now);
 }

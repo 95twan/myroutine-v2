@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 public interface JpaStockRepository extends JpaRepository<Stock, UUID>, StockRepository {
@@ -30,4 +31,25 @@ public interface JpaStockRepository extends JpaRepository<Stock, UUID>, StockRep
                     """
     )
     int insertMovement(UUID id, UUID productId, String type, int quantity, String refType, UUID refId, String reason, Instant now);
+
+    @Modifying
+    @Query(
+            nativeQuery = true,
+            value = """
+                    UPDATE product.stock
+                    SET available = available + :delta, received = received + :delta, updated_at = :now
+                    WHERE product_id = :productId AND available + :delta >= 0
+                    """
+    )
+    int adjust(UUID productId, int delta, Instant now);
+
+    @Query(
+            nativeQuery = true,
+            value = """
+                    SELECT product_id
+                    FROM product.stock
+                    WHERE available + reserved + sold <> received
+                    """
+    )
+    List<UUID> findProductIdsWithBrokenBalance();
 }
