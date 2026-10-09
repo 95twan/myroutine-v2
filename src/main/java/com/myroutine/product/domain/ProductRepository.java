@@ -11,7 +11,7 @@ import java.util.UUID;
 public interface ProductRepository {
     Product save(Product product);
 
-    Optional<Product> findById(UUID id);
+    Optional<Product> findDetailById(UUID id);
 
     Optional<Product> findByIdAndShopId(UUID id, UUID shopId);
 

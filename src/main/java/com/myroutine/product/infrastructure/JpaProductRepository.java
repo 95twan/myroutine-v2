@@ -2,6 +2,7 @@ package com.myroutine.product.infrastructure;
 
 import com.myroutine.product.domain.*;
 import org.springframework.data.domain.Limit;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -9,9 +10,14 @@ import org.springframework.data.jpa.repository.Query;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface JpaProductRepository extends JpaRepository<Product, UUID>, ProductRepository {
+
+    @EntityGraph(attributePaths = "images")
+    Optional<Product> findDetailById(UUID id);
+
     @Query("""
                     select new com.myroutine.product.domain.ProductListRow(p.id, p.shopId, p.name, p.category, p.price, p.status, p.thumbnailKey, p.createdAt, s.available, s.reserved, s.sold, s.received)
                     from Product p

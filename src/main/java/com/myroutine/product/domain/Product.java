@@ -9,6 +9,8 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -50,6 +52,13 @@ public class Product extends BaseTimeEntity {
 
     @Version
     private Long version;
+
+    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
+    @JoinColumn(name = "product_id", nullable = false, updatable = false)
+    @OrderBy("sortOrder")
+    private List<ProductImage> images = new ArrayList<>();
+
+    public static final int MAX_IMAGES = 10;
 
     public static Product register(UUID shopId, String name, String description, ProductCategory category, Money price, boolean subscribable) {
         Product product = new Product();
@@ -94,5 +103,44 @@ public class Product extends BaseTimeEntity {
 
     public void changeStatus(ProductStatus to) {
         this.status = this.status.transitTo(to);
+    }
+
+    public ProductImage addImage(String objectKey) {
+        if (this.status == ProductStatus.DISCONTINUED) {
+            throw new BusinessException(ProductErrorCode.PRODUCT_DISCONTINUED);
+        }
+        if (this.images.size() >= MAX_IMAGES) {
+            throw new BusinessException(ProductErrorCode.PRODUCT_IMAGE_LIMIT_EXCEEDED);
+        }
+
+        int sortOrder;
+        if (images.isEmpty()) {
+            sortOrder = 0;
+            this.thumbnailKey = objectKey;
+        } else {
+            sortOrder = images.getLast().getSortOrder() + 1;
+        }
+        ProductImage image = ProductImage.of(objectKey, sortOrder);
+        this.images.add(image);
+        return image;
+    }
+
+    public String removeImage(UUID imageId) {
+        if (this.status == ProductStatus.DISCONTINUED) {
+            throw new BusinessException(ProductErrorCode.PRODUCT_DISCONTINUED);
+        }
+        ProductImage image = this.images.stream()
+                .filter(i -> i.getId().equals(imageId))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(ProductErrorCode.PRODUCT_IMAGE_NOT_FOUND));
+        this.images.remove(image);
+
+        this.thumbnailKey = this.images.isEmpty() ? null : this.images.getFirst().getObjectKey();
+
+        return image.getObjectKey();
+    }
+
+    public static String objectKeyPrefix(UUID productId) {
+        return "products/" + productId + "/";
     }
 }

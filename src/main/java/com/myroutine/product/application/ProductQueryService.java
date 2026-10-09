@@ -49,7 +49,7 @@ public class ProductQueryService {
 
     @Transactional(readOnly = true)
     public ProductDetailResult getProduct(UUID productId) {
-        Product product = productRepository.findById(productId).orElseThrow(
+        Product product = productRepository.findDetailById(productId).orElseThrow(
                 () -> new BusinessException(ProductErrorCode.PRODUCT_NOT_FOUND)
         );
         if (!product.isVisibleToPublic()) {

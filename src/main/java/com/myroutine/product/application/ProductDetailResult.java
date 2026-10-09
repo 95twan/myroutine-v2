@@ -6,6 +6,7 @@ import com.myroutine.product.domain.ProductStatus;
 import com.myroutine.product.domain.Stock;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 public record ProductDetailResult(
@@ -18,6 +19,7 @@ public record ProductDetailResult(
         ProductStatus status,
         boolean subscribable,
         String thumbnailKey,
+        List<ImageResult> images,
         boolean inStock,
         Instant createdAt
 ) {
@@ -32,6 +34,7 @@ public record ProductDetailResult(
                 product.getStatus(),
                 product.isSubscribable(),
                 product.getThumbnailKey(),
+                product.getImages().stream().map(ImageResult::from).toList(),
                 stock.inStock(),
                 product.getCreatedAt()
         );
