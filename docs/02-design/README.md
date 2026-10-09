@@ -13,7 +13,7 @@
 | [06-sequences.md](06-sequences.md) | 체크아웃, 결제 승인·대사, 만료, 취소, 구독 회차, 정산, 가게, 상품 이미지 업로드, 인증 |
 | [07-api-spec.md](07-api-spec.md) | 공통 규약, 에러 코드, 엔드포인트 목록, 핵심 API 계약 |
 | [08-stock-design-evolution.md](08-stock-design-evolution.md) | 재고 설계의 진화: 가장 단순한 구조 → 조건부 UPDATE → 예약 → CAS → 이력 → 데드락 회피, 면접 Q&A |
-| [../adr/](../adr/) | 설계 결정 기록 10건 |
+| [../adr/](../adr/) | 설계 결정 기록 12건 (005는 폐기) |
 
 ## 핵심 결정 요약
 | ADR | 결정 | As-Is 결함 대응 |
@@ -28,6 +28,8 @@
 | [008](../adr/ADR-008-inventory-reservation.md) | 재고 4분할 조건부 UPDATE + 예약 + 이력, 대안은 Stage 2 측정 | CAT-01·06 |
 | [009](../adr/ADR-009-settlement.md) | settlement 모듈, 이벤트 적재, keyset + 품목 할당 배치 | BAT-01·02·03 |
 | [010](../adr/ADR-010-observability.md) | ELK(로그·traceId) + Prometheus/Grafana(메트릭), 정합성 비즈니스 메트릭 | INF-02 |
+| [011](../adr/ADR-011-ops-practice-environment.md) | 운영 연습: Proxmox VM 1대 + Docker Compose, self-hosted runner로 develop 머지 시 자동 배포·롤백 | - |
+| [012](../adr/ADR-012-kubernetes-zero-downtime.md) | Stage 1.5: k3s 단일 노드로 옮기고 롤링 배포 무중단 증명 (세부는 착수 전 확정) | - |
 
 ## 불변식 → 설계 장치 매핑
 | 불변식 | 보장 장치 |

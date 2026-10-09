@@ -1,6 +1,7 @@
 # Part 7. 관측 · 운영 · 마무리
 
-> 버전 0.4 · 2026-10-02 · 예치금 제거: 원장 점검 → 재고 대조 점검, E2E 시나리오에서 예치금 삭제
+> 버전 0.5 · 2026-10-09 · **버전 확인·운영 환경 반영**: logstash-logback-encoder `9.0`(Jackson 3·Logback 1.5 기반), ELK·Prometheus·Grafana 이미지 태그를 확인해 고정, Spring Boot가 Kafka 클라이언트 지표를 자동 등록하는 것을 확인, 1-11 운영 VM에서는 Prometheus가 `app:8081`을 긁도록 적었다
+> 0.4 · 2026-10-02 · 예치금 제거: 원장 점검 → 재고 대조 점검, E2E 시나리오에서 예치금 삭제
 > 0.3 · 이 문서만 보고 개발할 수 있게 구체화(로그 필드, 메트릭 목록과 계산식, 운영 API, E2E 시나리오)
 
 > **끝나면**: 로그(Kibana)와 메트릭(Grafana)으로 시스템을 보고, 정합성 문제가 생기면 알림이 오고, 운영 API로 처리할 수 있다. 전체 시나리오가 E2E 테스트로 증명되고, Stage 1이 `v1.0.0`으로 릴리스된다.
@@ -39,7 +40,7 @@
 ### 할 일
 
 **1) 의존성·설정**
-- `net.logstash.logback:logstash-logback-encoder:{버전}` (확인 필요: Boot 4/Logback 버전 호환)
+- `implementation 'net.logstash.logback:logstash-logback-encoder:9.0'` — 2026-10-09 Maven Central 최신. 9.0의 pom은 `tools.jackson.core:jackson-databind`(Jackson 3)와 `logback-core` 1.5.x에 의존해 Boot 4.1.1(Jackson 3.1.5, Logback 1.5.38)과 맞는다. Boot BOM이 관리하지 않아 버전을 적는다
 - `src/main/resources/logback-spring.xml`: `<springProfile name="elk">`에 `LogstashTcpSocketAppender`(destination `${LOGSTASH_HOST:-localhost}:5000`, `LogstashEncoder`), 그 외에는 Boot 기본 콘솔. 콘솔 패턴은 1-3의 `logging.pattern.level` 유지
 - JSON 필드: `@timestamp`, `level`, `logger_name`, `message`, `stack_trace`, MDC 전부(`traceId`, `memberId`, `orderId`, `job`, `eventId`), `app: myroutine`
 
@@ -54,7 +55,7 @@
 
 **3) docker**
 - `docker/logstash/pipeline/logstash.conf`: `input { tcp { port => 5000 codec => json_lines } }` → `output { elasticsearch { hosts => ["http://elasticsearch:9200"] index => "logs-myroutine-%{+YYYY.MM.dd}" } }`
-- compose: `logstash`(5000), `kibana`(5601) — 이미지 버전은 ES와 같은 버전
+- compose: `docker.elastic.co/logstash/logstash:9.4.8`(5000), `docker.elastic.co/kibana/kibana:9.4.8`(5601) — ES(6-2)와 같은 버전
 - Kibana: 데이터 뷰 `logs-myroutine-*`, 저장 검색 3개 — "traceId로 흐름 보기"(`traceId : "..."`, 시간 오름차순, 열 level·logger·message·job), "ERROR만", "결제 UNKNOWN"(`message : "UNKNOWN" and logger_name : *payment*`) → `docker/kibana/saved-objects.ndjson`로 내보내기
 
 **4) 민감정보 점검**: 아래 테스트로 확인하고, 걸리면 로그 문장을 고친다
@@ -111,9 +112,12 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 - 불일치 상품마다 `log.error`, 개수를 Gauge에. (INV-03·04)
 
 **4) Prometheus·Grafana**
-- `docker/prometheus/prometheus.yml`: scrape 15초, 대상 `host.docker.internal:8081` (앱은 호스트에서 실행), path `/actuator/prometheus`
+- 이미지: `prom/prometheus:v3.15.0`, `grafana/grafana:13.2.3`(2026-10-09 Docker Hub의 최신 안정 태그)
+- `docker/prometheus/prometheus.yml`: scrape 15초, path `/actuator/prometheus`, 대상은 환경마다 다르다
+  - 로컬(앱은 IDE·`bootRun`으로 호스트에서 실행): `host.docker.internal:8081` — Docker Desktop(macOS)에서는 그대로 된다. Linux에서 호스트의 앱을 긁으려면 prometheus 서비스에 `extra_hosts: ["host.docker.internal:host-gateway"]`가 필요하다
+  - 운영 VM(1-11 `docker-compose.ops.yml`의 `observability` 프로필): 앱도 컨테이너이므로 `app:8081`(관리 포트는 호스트에 publish하지 않지만 같은 compose 네트워크에서는 닿는다). 파일을 둘로 두거나(`prometheus.yml`, `prometheus.ops.yml`) 대상만 바꾼다
 - `docker/grafana/provisioning/datasources/prometheus.yml`, `dashboards/*.json` 3개
-  - **서비스 개요**: 요청률·에러율·p95(`http_server_requests_seconds`), JVM 힙, HikariCP 활성 커넥션, Kafka consumer lag(확인 필요: spring-kafka가 내보내는 지표 이름)
+  - **서비스 개요**: 요청률·에러율·p95(`http_server_requests_seconds`), JVM 힙, HikariCP 활성 커넥션, Kafka consumer lag — Boot 4.1.1은 Kafka consumer·producer 팩토리에 Micrometer 리스너(`MicrometerConsumerListener`)를 자동으로 붙인다(jar로 확인). Kafka 클라이언트 지표 `records-lag-max`가 Prometheus에서는 `kafka_consumer_fetch_manager_records_lag_max`로 보일 것으로 예상한다(확인 필요: `/actuator/prometheus` 출력에서 `lag`로 검색해 실제 이름을 쓴다)
   - **결제·정합성**: `payment_unknown_*`, `saga_stuck_count`, `stock_balance_mismatch_count`, `pg_call_seconds` p95·결과별 비율, `stock_reservation_expired_total` 증가율
   - **Kafka·Outbox**: `outbox_*`, `kafka_dlt_records_total`
 - `docker/grafana/provisioning/alerting/rules.yml` (Grafana 알림 규칙을 파일로)
@@ -195,7 +199,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 | 메서드 | SQL 요지 | INV |
 |---|---|---|
 | `orderAmounts()` | 주문마다 `total_amount = Σ line_amount`, PAID 주문은 `payment.amount = total_amount` | INV-01 |
-| `paymentsReflected()` | `APPROVED` 이상인 ORDER 결제의 주문이 PAID이거나, 결제가 CANCELLED(보상)·주문 PAYMENT_FAILED | INV-02 |
+| `paymentsReflected()` | `APPROVED`·`PARTIAL_CANCELLED`·`CANCELLED`인 결제의 주문이 PAID이거나, 결제가 CANCELLED(보상)이고 주문이 PAYMENT_FAILED | INV-02 |
 | `stockBalance()` | `available + reserved + sold = received`, 모두 ≥ 0, 7-2 재고 대조 쿼리 결과 0건 | INV-03·04 |
 | `refundLimits()` | `refunded_amount ≤ line_amount`, `cancelled_amount ≤ amount`, 주문별 COMPLETED 환불 합 ≤ 주문 총액 | INV-06 |
 | `settlementOnce()` | CONFIRMED 품목마다 `settlement_item` 정확히 1행(consumer가 따라잡은 뒤), 정산된 item은 정산 1건에만 | INV-07 |

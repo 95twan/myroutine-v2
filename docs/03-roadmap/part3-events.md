@@ -1,6 +1,7 @@
 # Part 3. 이벤트
 
-> 버전 0.5 · 2026-10-02 · **덜어내기**: 가게 개설·폐업 advisory lock 제거(재조회로 충분), 폐업 이벤트의 남은 가게 수 필드 제거, 재시도 간격은 고정값으로(백오프는 제안), 회원 역할은 단일 `role`
+> 버전 0.6 · 2026-10-09 · **사실 확인·정합**: Kafka 이미지 태그(`apache/kafka:4.2.2`)·Boot 4 스타터 이름·`CommonErrorHandler` 자동 연결을 확인해 확정, 테스트 컨테이너 기동에 1-10의 MinIO 포함, 정산 테이블에 빠져 있던 `payout_reference` 컬럼과 `markPaid` 인자 통일, Part 2에서 제안으로 옮긴 `FailPaymentService` 잔재 제거
+> 0.5 · 2026-10-02 · **덜어내기**: 가게 개설·폐업 advisory lock 제거(재조회로 충분), 폐업 이벤트의 남은 가게 수 필드 제거, 재시도 간격은 고정값으로(백오프는 제안), 회원 역할은 단일 `role`
 > 0.4 · 2026-10-02 · 예치금 제거: 정산 지급은 `PayoutGateway`(은행 송금 Mock), 충전 이벤트·지갑 탈퇴 조건 삭제
 > 0.3 · 이 문서만 보고 개발할 수 있게 구체화
 
@@ -90,8 +91,8 @@
 ### 할 일
 
 **1) 인프라**
-- `docker/docker-compose.yml`에 Kafka 추가: 이미지 `apache/kafka`(KRaft 단일 브로커, 확인 필요: 최신 안정 태그를 정해 고정), 포트 `127.0.0.1:9092:9092`
-- 의존성(확인 필요: Boot 4 스타터 이름): `implementation 'org.springframework.boot:spring-boot-starter-kafka'`, 테스트 `org.testcontainers:testcontainers-kafka`
+- `docker/docker-compose.yml`에 Kafka 추가: 이미지 `apache/kafka:4.2.2`(KRaft 단일 브로커. 2026-10-09 Docker Hub의 4.2 줄 최신 패치 — Boot 4.1.1이 관리하는 kafka-clients가 4.2.1이라 같은 줄로 맞췄다. 4.3.x도 있다), 포트 `127.0.0.1:9092:9092`. 1-11 운영 compose에도 같은 태그로 추가한다. 운영에서는 앱이 컨테이너라 브로커가 광고하는 주소(advertised listeners)가 `localhost`면 붙지 못한다 — 서비스 이름(`kafka:9092`)으로 광고하게 설정한다(환경변수 이름은 이미지 문서에서 확인 필요)
+- 의존성: `implementation 'org.springframework.boot:spring-boot-starter-kafka'`(Boot 4.1.1에 있다, 2026-10-09 Maven Central 확인. 3.x처럼 `spring-kafka`를 직접 넣지 않는다), 테스트 `testImplementation 'org.testcontainers:testcontainers-kafka'`(버전은 Boot가 import하는 Testcontainers BOM 2.0.5가 관리)
 - `application.yaml`
 ```yaml
 spring:
@@ -115,7 +116,7 @@ spring:
       ack-mode: record
 ```
 - `delivery.timeout.ms`를 줄인 이유: 기본값(2분)이면 릴레이가 "실패"로 기록한 뒤에도 프로듀서가 뒤에서 계속 재전송해 늦게 도착할 수 있다. 줄여도 중복은 생길 수 있으므로 consumer 멱등이 전제다.
-- `IntegrationTestSupport`: `@ServiceConnection static final KafkaContainer kafka = new KafkaContainer("apache/kafka:{같은 태그}")`(패키지 `org.testcontainers.kafka`), static 블록을 `Startables.deepStart(postgres, kafka).join()`으로
+- `IntegrationTestSupport`: `@ServiceConnection static final KafkaContainer kafka = new KafkaContainer("apache/kafka:4.2.2")`(패키지 `org.testcontainers.kafka`), static 블록의 `postgres.start()`(1-10 이후 `minio.start()`도)를 `Startables.deepStart(postgres, minio, kafka).join()`(`org.testcontainers.lifecycle.Startables`, 컨테이너를 병렬로 띄운다)으로 바꾼다
 
 **2) common.outbox**
 
@@ -233,7 +234,7 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
   - `DeadLetterPublishingRecoverer(template, (record, ex) -> new TopicPartition(record.topic() + ".dlt", record.partition()))`
   - `new DefaultErrorHandler(recoverer, new ExponentialBackOff(1000, 2.0))`에 최대 재시도 3번(`backOff.setMaxAttempts(3)`)
   - `errorHandler.addNotRetryableExceptions(JacksonException.class, IllegalArgumentException.class, BusinessException.class)`
-- Boot는 `CommonErrorHandler` 빈을 기본 리스너 컨테이너에 자동으로 연결한다(확인 필요: Boot 4에서도 같은지. 안 되면 `ConcurrentKafkaListenerContainerFactory`에 직접 설정)
+- Boot는 `CommonErrorHandler` 빈을 기본 리스너 컨테이너 팩토리에 자동으로 연결한다(Boot 4.1.1의 `KafkaAnnotationDrivenConfiguration`이 `ObjectProvider<CommonErrorHandler>`를 받아 팩토리에 넣는 것을 jar로 확인, 2026-10-09). 그래서 `ConcurrentKafkaListenerContainerFactory`를 직접 만들지 않는다
 - DLT 토픽도 `NewTopic`으로 만든다: 각 모듈의 `XxxTopicConfig`에서 원본마다 `{topic}.dlt` (파티션 3)
 
 **3) 기존 consumer에 적용**: `ShopEventConsumer.onShopOpened` → `inboxGuard.runOnce("member.shop-opened", envelope, () -> roleService.grantSeller(...))`
@@ -323,7 +324,7 @@ consumer
 | 상품 상태 (1-8) | `UpdateProductService.changeStatus` | `PRODUCT_UPSERTED`, DISCONTINUED면 `PRODUCT_DISCONTINUED`(reason `SELLER`) | `PRODUCT` / productId |
 | 가게 폐업 단종 (3-2) | `ProductDiscontinueService.discontinueAllByShop` | 상품마다 `PRODUCT_UPSERTED` + `PRODUCT_DISCONTINUED`(reason `SHOP_CLOSED`) | `PRODUCT` / productId |
 | 결제 완료 (2-4 승인, 2-6 대사) | `OrderEventPublisher.paid(order)` — `OrderPaymentApplier.complete`에서 호출 | `ORDER_PAID` | `ORDER` / orderId |
-| 만료·결제 실패 (2-4, 2-5, 2-6) | `OrderEventPublisher.closed(order, reason)` — `OrderPaymentApplier.fail`, `FailPaymentService`, `OrderExpirationService.expireOne` | `ORDER_EXPIRED` | `ORDER` / orderId |
+| 만료·결제 실패 (2-4, 2-5, 2-6) | `OrderEventPublisher.closed(order, reason)` — `OrderPaymentApplier.fail`, `OrderExpirationService.expireOne` (2-4 제안의 결제창 실패 통지 API를 만들었다면 그 서비스도) | `ORDER_EXPIRED` | `ORDER` / orderId |
 | 발송·배송완료 (2-7) | `ShipmentService.ship` / `deliver` | `SHOP_ORDER_SHIPPED` / `SHOP_ORDER_DELIVERED` | `ORDER` / orderId (같은 주문 이벤트 순서 유지) |
 | 환불 완료 (2-8, 2-9) | `RefundCompleter.complete` | `ORDER_LINE_REFUNDED` | `ORDER` / orderId |
 | 구매확정 (2-10) | `ConfirmPurchaseService.confirm`, `AutoConfirmService`(품목마다) | `ORDER_LINE_CONFIRMED` | `ORDER` / orderId |
@@ -383,6 +384,7 @@ consumer
 | item_count | int | X | DEFAULT 0 |
 | status | varchar(20) | X | `ck_settlement_status`: `IN ('CALCULATED','PAID','PAYOUT_FAILED')` |
 | payout_attempts | int | X | DEFAULT 0 |
+| payout_reference | varchar(100) | O | 지급 게이트웨이가 돌려준 이체 참조 ID (3-4b) |
 | last_error | varchar(500) | O | |
 | paid_at | timestamptz | O | |
 | version | bigint | X | |
@@ -409,7 +411,7 @@ consumer
 | 클래스 | 규격 |
 |---|---|
 | `SettlementStatus` | `CALCULATED → {PAID, PAYOUT_FAILED}`, `PAYOUT_FAILED → {PAID, PAYOUT_FAILED}` |
-| `Settlement` (`@Entity`) | 필드는 컬럼과 1:1. 생성은 native INSERT, 이후 `calculate(Money gross, int bp, int itemCount)`, `markPaid(Instant now)`, `markPayoutFailed(String error)` |
+| `Settlement` (`@Entity`) | 필드는 컬럼과 1:1. 생성은 native INSERT, 이후 `calculate(Money gross, int bp, int itemCount)`, `markPaid(String payoutReference, Instant now)`(0원 정산은 `null`), `markPayoutFailed(String error)` |
 | `SettlementProperties` | `@ConfigurationProperties("myroutine.settlement") record (@Min(0) @Max(10000) int feeRateBp)` |
 | `common.config.BusinessProperties` | 업무 시간대 설정을 처음 쓰는 곳이라 여기서 만든다: `@ConfigurationProperties("myroutine") record (@NotNull ZoneId businessZone)` — `application.yaml`의 `myroutine.business-zone: Asia/Seoul`, `ClockConfig`에 `@EnableConfigurationProperties` |
 | `SettlementPeriod` | `record (LocalDate start, LocalDate end)`. `static SettlementPeriod of(YearMonth month)`, `Instant fromInclusive(ZoneId zone)`, `Instant toExclusive(ZoneId zone)` — 단위 테스트 대상 |

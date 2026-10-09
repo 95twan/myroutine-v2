@@ -1,6 +1,7 @@
 # Part 5. 구독
 
-> 버전 0.5 · 2026-10-02 · **덜어내기**: 회차 선점(PROCESSING 리스·재시도 회차·시도 수) 제거 — 회차 INSERT와 주문 생성을 한 트랜잭션으로
+> 버전 0.6 · 2026-10-09 · **사실 확인·정합**: Toss 빌링 API(발급·승인·삭제 엔드포인트와 응답 필드)를 개발자센터 문서와 대조해 확정, Part 2에서 제안으로 옮긴 `pg_call_log` 잔재를 로그 확인으로 바꿨다
+> 0.5 · 2026-10-02 · **덜어내기**: 회차 선점(PROCESSING 리스·재시도 회차·시도 수) 제거 — 회차 INSERT와 주문 생성을 한 트랜잭션으로
 > 0.4 · 2026-10-02 · 예치금 제거: 구독의 "예치금 우선 사용" 옵션 삭제, 회차 결제는 항상 빌링
 > 0.3 · 이 문서만 보고 개발할 수 있게 구체화(빌링·구독·회차의 구현 규격과 테스트 케이스)
 
@@ -47,17 +48,20 @@
 | Toss 빌링(자동결제) | 카드 인증으로 받은 `authKey`를 서버가 빌링키로 바꾸고, 이후 빌링키로 결제를 요청한다 |
 | 대칭키 암호화 (AES-GCM) | 빌링키는 결제를 일으킬 수 있는 비밀이라 DB에 암호화해 저장한다. JDK `javax.crypto`만 쓴다 |
 
-**Toss 빌링 API 요약** (확인 필요: 구현 전에 Toss 문서와 대조)
+**Toss 빌링 API 요약** (2026-10-09 Toss 개발자센터 "코어 API → 자동결제"와 대조. 인증 헤더·멱등키 규칙은 2-3과 같다)
 
 | 작업 | 요청 | 성공 응답 |
 |---|---|---|
-| 빌링키 발급 | `POST /v1/billing/authorizations/issue` `{authKey, customerKey}` | `{billingKey, customerKey, cardCompany, card: {number(마스킹)}}` |
-| 빌링 결제 | `POST /v1/billing/{billingKey}` `{customerKey, amount, orderId, orderName}` + `Idempotency-Key` | Payment 객체 `status: "DONE"` |
+| 빌링키 발급 | `POST /v1/billing/authorizations/issue` `{authKey, customerKey}` | Billing 객체: `billingKey`, `customerKey`, `cardCompany`, `cardNumber`(일부 마스킹), `card: {issuerCode, acquirerCode, number, cardType, ownerType}` 등 |
+| 빌링 결제 | `POST /v1/billing/{billingKey}` `{customerKey, amount, orderId, orderName}`(`orderName` 최대 100자) + `Idempotency-Key` | Payment 객체 `status: "DONE"` (2-3의 `TossPaymentResponse`로 그대로 받는다) |
+| (참고) 빌링키 삭제 | `DELETE /v1/billing/{billingKey}` | 이 프로젝트는 쓰지 않는다(아래 정책) |
+
+- `authKey`는 카드 등록창이 성공하면 리다이렉트 URL의 쿼리로 돌아오는 **일회성** 키다. 발급이 불확실하면 사용자가 카드를 다시 등록한다(아래 정책).
 
 **정책 (이 단계에서 정함)**
 - `customerKey`는 빌링키마다 새로 만든 랜덤 UUID(추측할 수 없게).
 - 활성 구독(ACTIVE·PAUSED·SUSPENDED)이 쓰는 빌링키는 삭제 불가(OPEN-04).
-- 삭제는 상태만 DELETED로 바꾼다(Toss 쪽 삭제 API는 쓰지 않음, 확인 필요).
+- 삭제는 상태만 DELETED로 바꾼다. Toss에는 빌링키 삭제 API가 있지만(위 표) 쓰지 않는다 — 외부 호출과 그 실패 처리를 늘리지 않기 위한 기본값이다. Toss 쪽 빌링키가 남는 점은 회고에 한계로 적는다.
 - 발급 결과가 불확실(타임아웃)하면 502로 응답하고 사용자가 다시 등록한다(돈이 오가지 않으므로 대사하지 않음).
 
 ### 할 일
@@ -74,17 +78,17 @@
 | member_id | uuid | X | 인덱스 `idx_billing_key_member_id` |
 | customer_key | varchar(64) | X | |
 | billing_key_encrypted | varchar(500) | X | |
-| card_summary | varchar(100) | X | 예: `신한 ****1234` |
+| card_summary | varchar(100) | X | `cardCompany + " " + cardNumber`(Toss가 마스킹한 번호 그대로), 예: `신한 1234****5678` |
 | status | varchar(20) | X | `ck_billing_key_status`: `IN ('ACTIVE','DELETED')` |
 | deleted_at | timestamptz | O | |
 | version | bigint | X | |
 | created_at, updated_at | timestamptz | X | |
 
 **3) TossClient 추가** (2-3 분류표 그대로)
-- `BillingIssueResult issueBillingKey(String authKey, String customerKey)` → `sealed interface BillingIssueResult { Issued(String billingKey, String cardSummary); Rejected(String code); Unknown(String reason) }`
+- `BillingIssueResult issueBillingKey(String authKey, String customerKey)` → `sealed interface BillingIssueResult { Issued(String billingKey, String cardSummary); Rejected(String code); Unknown(String reason) }`. 응답 본문은 `TossBillingResponse(String billingKey, String customerKey, String cardCompany, String cardNumber)` + `@JsonIgnoreProperties(ignoreUnknown = true)`로 받는다. 분류(2xx·4xx·5xx·타임아웃)와 호출 형태는 2-3과 같다
 - `PgResult billingCharge(UUID paymentId, String billingKey, String customerKey, String pgOrderId, Money amount, String orderName)` — `Idempotency-Key: paymentId`
-- `pg_call_log`의 operation: `BILLING_ISSUE`, `BILLING`. **request_summary에 빌링키·authKey를 넣지 않는다**
-- `FakePgServer`에 두 경로의 기본 동작 추가: 발급은 `{billingKey: "bk_" + 랜덤, card: {number: "1234****5678"}, cardCompany: "신한"}`, 결제는 승인 경로와 같은 방식(승인 기록·멱등)
+- 2-3의 로그 한 줄(`log.info("pg {} ...")`)에 작업 이름 `BILLING_ISSUE`, `BILLING`을 쓴다. **빌링키·authKey·customerKey는 로그에 남기지 않는다**(감사 테이블 `pg_call_log`는 Part 2에서 제안으로 옮겼다)
+- `FakePgServer`에 두 경로의 기본 동작 추가: 발급(`/v1/billing/authorizations/issue`)은 `{billingKey: "bk_" + 랜덤, customerKey: 요청값, cardCompany: "신한", cardNumber: "1234****5678"}`, 결제(`/v1/billing/{billingKey}`)는 승인 경로와 같은 방식(승인 기록·멱등). 경로 접두어가 `/v1/billing/`로 겹치므로 발급 경로를 먼저 판별한다
 
 **4) payment**
 
@@ -114,7 +118,7 @@
 | 테스트 클래스 | 케이스 (가짜 PG 서버) |
 |---|---|
 | `common/crypto/AesGcmEncryptorTest` | [ ] 암호화 → 복호화 왕복 / [ ] 같은 평문을 두 번 암호화하면 결과가 다르다(IV) / [ ] 암호문 한 글자 변조 → 예외 |
-| `payment/infrastructure/TossBillingClientTest` | [ ] 발급 성공·거절·타임아웃 3분류 / [ ] 빌링 결제 승인·거절·타임아웃·끊김 3분류 / [ ] `pg_call_log`에 빌링키·authKey 원문이 없다 |
+| `payment/infrastructure/TossBillingClientTest` | [ ] 발급 성공·거절·타임아웃 3분류 / [ ] 빌링 결제 승인·거절·타임아웃·끊김 3분류 / [ ] 로그에 빌링키·authKey 원문이 없다(`@ExtendWith(OutputCaptureExtension.class)`의 `CapturedOutput`으로 확인, 7-1 `LogSafetyTest`와 같은 방식) |
 | `payment/web/BillingKeyControllerTest` | [ ] 등록 → DB에 원문이 없고(`billing_key_encrypted` ≠ 발급값) 복호화하면 같다 / [ ] 응답 JSON에 `billingKey`, `customerKey` 필드가 없다 / [ ] 남의 빌링키 삭제 → 404 / [ ] 탈퇴 이벤트 → DELETED |
 
 **리뷰 때 물어볼 것**

@@ -1,6 +1,7 @@
 # 07. API 명세 (Stage 1)
 
 > 엔드포인트 목록과 핵심 API의 요청·응답 계약. 필드 단위 상세는 구현 시 springdoc(OpenAPI)로 생성하고, 이 문서와 어긋나면 이 문서를 갱신한다.
+> 2026-10-09 · 로드맵과 맞춤: 품목 취소에서 남의 주문은 404 `ORDER_NOT_FOUND`(2-8), DLT 재처리 경로에 파티션(7-3)
 
 ## 1. 공통 규약
 | 항목 | 규약 |
@@ -153,7 +154,7 @@
 |---|---|---|---|
 | GET | `/admin/api/outbox?status=DEAD` | 발행 실패 이벤트 | NFR-REL-03 |
 | POST | `/admin/api/outbox/{id}/retry` | 재발행 | NFR-REL-03 |
-| GET | `/admin/api/dlt/{topic}` · POST `/admin/api/dlt/{topic}/{offset}/replay` | DLT 조회·재처리 | NFR-REL-03 |
+| GET | `/admin/api/dlt/{topic}` · POST `/admin/api/dlt/{topic}/{partition}/{offset}/replay` | DLT 조회·재처리 (offset은 파티션마다 따로라 파티션이 필요하다) | NFR-REL-03 |
 | GET | `/admin/api/payments?status=UNKNOWN` | 결과미확정 결제 | FR-PAY-03 |
 | POST | `/admin/api/payments/{id}/reconcile` | 즉시 대사 | FR-PAY-03 |
 | GET | `/admin/api/refunds?status=FAILED` · POST `/{id}/retry` | 실패 환불 재처리 | |
@@ -214,7 +215,7 @@ Idempotency-Key: 7c9e...
 200 { "refundId": "...", "status": "COMPLETED", "amount": 15000 }
 202 { "refundId": "...", "status": "APPROVED" }   // PG 취소 결과 확인 중
 ```
-에러: 409 `INVALID_STATE_TRANSITION`(이미 발송·취소됨), 403(본인 아님).
+에러: 409 `INVALID_STATE_TRANSITION`(이미 발송·취소됨), 404 `ORDER_NOT_FOUND`(없거나 본인 주문이 아님 — 남의 주문은 없는 것처럼, 2-8), 409 `DUPLICATE_RESOURCE`(같은 품목 동시 취소), 502 `PG_ERROR`(PG 취소 명확한 실패).
 
 ### 3.4 POST /api/shops/{shopId}/orders/{shopOrderId}/ship
 ```json

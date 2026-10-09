@@ -3,6 +3,7 @@
 > 코드를 작성할 때 따르는 규칙이자 **코드 리뷰 기준**이다. 리뷰에서 지적하는 항목은 이 문서의 절 번호로 표시한다(예: `§6.2 위반`).
 > 규칙을 바꿔야 할 이유가 생기면 코드보다 이 문서를 먼저 고친다.
 > 근거: [02-design](02-design/README.md), [ADR](adr/)
+> 2026-10-09 · §1.1 확정 버전에 구현된 Modulith·jjwt와 이후 Part의 확인된 호환 버전을 적고, 설정 파일 확장자(`.yaml`)·`pg_call_log`(선택 사항) 표기를 로드맵과 맞췄다
 
 ## 목차
 1. 기술 스택
@@ -88,9 +89,22 @@
 | Lombok | 1.18.46 | JDK 25 지원. 빌드 시 `sun.misc.Unsafe` 경고가 나오지만 동작에는 문제없음 |
 | Testcontainers | 2.0.5 | 모듈명 `testcontainers-postgresql`, 패키지 `org.testcontainers.postgresql` |
 | JUnit Jupiter | 6.0.3 | |
-| Spring Modulith | (1-6에서 추가) | |
-| jjwt | (1-4에서 추가) | |
-| Spring AI, springdoc-openapi, spring-kafka, logstash-logback-encoder | (등장 단계에서 추가) | |
+| Spring Modulith | 2.1.1 | `spring-modulith-bom` import (1-6) |
+| jjwt | 0.13.0 | `jjwt-api` + `jjwt-impl`·`jjwt-jackson` runtimeOnly (1-4) |
+
+**이후 단계에서 쓸 버전** (2026-10-09 Maven Central·Docker Hub로 호환 확인. 단계에 들어갈 때 더 새 패치가 있으면 그것으로 하고 위 표로 옮긴다)
+
+| 구성 | 버전 | 관리 | 단계 |
+|---|---|---|---|
+| AWS SDK for Java v2 (`s3`) | 2.55.13 | `software.amazon.awssdk:bom` 직접 import | 1-10 |
+| AOP | `spring-boot-starter-aspectj` (Boot 4에서 `-aop`에서 이름이 바뀜) | Boot BOM | 2-2 |
+| spring-kafka / kafka-clients | 4.1.1 / 4.2.1 (`spring-boot-starter-kafka`) · 브로커 이미지 `apache/kafka:4.2.2` | Boot BOM | 3-1 |
+| Spring Data Redis / Lettuce | `spring-boot-starter-data-redis` · Lettuce 7.5.2 · 이미지 `redis:7.4.11` | Boot BOM | 4-1 |
+| Spring Data Elasticsearch | 6.1.1 (ES 클라이언트 9.4.5) · 이미지 `elasticsearch:9.4.8` | Boot BOM (Spring Data 2026.0.1) | 6-2 |
+| Spring AI | 2.0.1 (`spring-ai-starter-model-openai`, Boot 4.1.1 스타터에 의존) | `spring-ai-bom` 직접 import | 6-4 |
+| logstash-logback-encoder | 9.0 (Jackson 3 `tools.jackson`, logback 1.5) | 버전 직접 지정 | 7-1 |
+| Testcontainers 모듈 | `testcontainers-minio`·`-kafka`·`-elasticsearch` 모두 BOM 2.0.5에 있다 | Boot가 import하는 Testcontainers BOM | 각 단계 |
+| springdoc-openapi | 확인 필요(Boot 4 호환 버전을 쓰는 단계가 아직 없다) | | - |
 
 **Java 25에서 활용할 것**
 
@@ -126,7 +140,7 @@ myroutine-v2/
     │   │   ├── recommendation/
     │   │   └── notification/
     │   └── resources/
-    │       ├── application.yml, application-local.yml, application-test.yml
+    │       ├── application.yaml, application-local.yaml (application-test.yaml은 src/test/resources)
     │       └── db/migration/{module}/V202610021200__member_create_member.sql
     └── test/java/com/myroutine/{module}/...
 ```
@@ -440,7 +454,7 @@ interface JpaOrderRepository extends JpaRepository<Order, UUID>, OrderRepository
   ```java
   sealed interface PgResult permits PgResult.Approved, PgResult.Rejected, PgResult.Unknown { ... }
   ```
-- 모든 호출을 `pg_call_log`(결제) 또는 로그에 지연시간과 함께 남긴다.
+- 모든 호출을 로그 한 줄에 지연시간과 함께 남긴다(결제 감사 테이블 `pg_call_log`는 선택 사항, 로드맵 2-3 제안).
 - 호출 결과와 지연시간은 Micrometer `Timer`로 기록한다(`pg_call_seconds{operation, result}`).
 - 테스트는 가짜 PG 서버로 한다(§13.4). 실제 Toss 테스트 키는 로컬 수동 확인용으로만 쓴다.
 

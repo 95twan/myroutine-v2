@@ -1,5 +1,7 @@
 # 02. Stage 1 아키텍처 — 모듈러 모놀리스
 
+> 2026-10-09 · 로드맵과 맞춤: 인프라 표에 MinIO(`chainguard/minio`, 1-10)와 운영 VM(1-11) 추가, 스케줄 표의 릴레이·탐지 주기, 에러 응답 예시 코드(`ORDER_EXPIRED`)
+
 ## 1. 시스템 구성
 
 ```mermaid
@@ -19,7 +21,7 @@ flowchart TB
   App --> ES[(Elasticsearch)]
   App --> TOSS[TossPayments]
   App --> OAI[OpenAI]
-  App --> S3[S3]
+  App --> S3[MinIO<br/>S3 호환 객체 저장소]
   App --> SMTP[메일]
   App -. JSON 로그 .-> LS[Logstash] --> ESL[(Elasticsearch<br/>logs-*)] --> KIB[Kibana]
   PROM[Prometheus] -. /actuator/prometheus 수집 .-> App
@@ -129,8 +131,8 @@ com.myroutine
 | 구독 회차 실행 | 매일 06:00 | order |
 | 정산 | 매월 5일 03:00 | settlement |
 | 리뷰 요약 | 매월 1일 04:00 | review |
-| Outbox 릴레이 | 상시 (폴링 + 백오프) | common |
-| 정체 Saga·Outbox 탐지 | 5분 | common (메트릭·알림) |
+| Outbox 릴레이 | 1초 폴링, 실패한 행은 10초 뒤 재시도 (3-1) | common |
+| 정체 Saga·Outbox 탐지 | 30초마다 각 모듈의 메트릭 수집기가 계산 → Grafana 알림 (7-2) | common·payment·order |
 
 > 배치는 Spring Batch 대신 **스케줄러 + 청크 단위 트랜잭션 + keyset 페이징**으로 시작한다. 정산이 Stage 2 성능 목표(100만 건 10분)를 못 맞추면 Spring Batch 파티셔닝을 도입한다.
 
@@ -142,13 +144,14 @@ com.myroutine
 
 ### 5.7 에러 응답
 ```json
-{ "code": "ORDER_RESERVATION_EXPIRED", "message": "주문 유효시간이 지났습니다.", "traceId": "4bf92f35...", "details": {} }
+{ "code": "ORDER_EXPIRED", "message": "주문 유효시간이 지났습니다.", "traceId": "4bf92f35...", "details": {} }
 ```
 
 ## 6. 인프라 (docker-compose)
 | 구성 | 용도 |
 |---|---|
 | postgres (pgvector/pg17) | 앱 DB. Stage 2에서 replica 추가 |
+| minio (`chainguard/minio`) | 상품 이미지 객체 저장소(S3 호환, 1-10). 공식 `minio/minio` 이미지가 2026-09-11 Docker Hub에서 삭제되어 Chainguard 빌드를 쓴다. 로컬은 `latest`, 운영은 digest로 고정(1-11) |
 | redis | 세션, 인증코드, rate limit, 캐시, tokenVersion |
 | kafka (KRaft, 단일 브로커) | 이벤트 |
 | elasticsearch | 검색(`products`) + 로그(`logs-*`) 인덱스 |
@@ -156,12 +159,14 @@ com.myroutine
 | prometheus, grafana | 메트릭·대시보드·알림 — compose 프로필 `observability` |
 | pg-fake | 부하 테스트용 Toss Fake. 테스트용 가짜 PG 서버(`FakePgServer`)에 main을 붙여 컨테이너로 띄움. 지연·실패 비율을 환경변수로 설정 |
 
+- 로컬은 `docker/docker-compose.yml`, 운영 연습 VM은 `docker/docker-compose.ops.yml`(1-11, [ADR-011](../adr/ADR-011-ops-practice-environment.md))이다. 운영에서는 앱도 컨테이너로 돌고, 호스트에 여는 포트는 앱(8080)과 MinIO API(9000)뿐이다.
+
 ## 7. 테스트 전략
 | 계층 | 도구 | 대상 |
 |---|---|---|
 | 단위 | JUnit5, AssertJ | 상태머신, 금액 계산, 정책(POL), 불변식 |
 | 모듈 경계 | Spring Modulith | 의존 규칙 위반 |
-| 통합 | Testcontainers(Postgres, Redis, Kafka), 테스트용 가짜 PG 서버(JDK 내장 HttpServer) | 리포지토리 쿼리, Outbox/Inbox, 체크아웃·환불 흐름 |
+| 통합 | Testcontainers(Postgres, MinIO, Kafka, Redis, Elasticsearch — 각 도구가 등장하는 단계부터), 테스트용 가짜 PG 서버(JDK 내장 HttpServer) | 리포지토리 쿼리, 이미지 업로드, Outbox/Inbox, 체크아웃·환불 흐름 |
 | 시나리오 | 위와 동일 | Saga 정상·보상·중복·타임아웃·순서 역전 (NFR-TST-04) |
 | 동시성 | ExecutorService + CountDownLatch | 초과판매, 이중 차감, 중복 결제 0건 |
 | 부하 | k6 | NFR-PERF |
