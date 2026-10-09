@@ -1,6 +1,6 @@
 # Phase 3. 구현 로드맵
 
-> 버전 0.5 · 2026-10-07 · Part 1에 1-11(운영 환경 연습: VM 배포·자동 CD) 추가 / 0.4 · 2026-10-02 · 예치금 제거(Part 2를 10단계로 다시 번호 매김), 1-10 상품 이미지 추가 / 0.3 · Part 1~7을 "다른 문서를 보지 않고 로드맵만으로 개발할 수 있는" 수준으로 구체화 · 근거: [01-requirements](../01-requirements/README.md), [02-design](../02-design/README.md), [개발 가이드](../development-guide.md), [Git 정책](../git-policy.md)
+> 버전 0.6 · 2026-10-09 · 1-10 MinIO 이미지를 Chainguard 빌드로 교체(공식 이미지 Docker Hub 삭제) / 0.5 · 2026-10-07 · Part 1에 1-11(운영 환경 연습: VM 배포·자동 CD) 추가 / 0.4 · 2026-10-02 · 예치금 제거(Part 2를 10단계로 다시 번호 매김), 1-10 상품 이미지 추가 / 0.3 · Part 1~7을 "다른 문서를 보지 않고 로드맵만으로 개발할 수 있는" 수준으로 구체화 · 근거: [01-requirements](../01-requirements/README.md), [02-design](../02-design/README.md), [개발 가이드](../development-guide.md), [Git 정책](../git-policy.md)
 
 ## 1. 이 로드맵을 읽는 법
 
@@ -63,7 +63,7 @@ flowchart TB
 | 1-7 | - | 모듈 간 호출, `Money` 값 객체, keyset 페이징 |
 | 1-8 | - | 상태 전이 규칙, 낙관적 락(`@Version`), 조건부 UPDATE |
 | 1-9 | - | 재고 예약, **동시성 테스트** |
-| 1-10 | **MinIO**(S3 호환), AWS SDK S3 | presigned URL 업로드, 외부 저장소 호출은 트랜잭션 밖 |
+| 1-10 | **MinIO**(S3 호환, Chainguard 이미지), AWS SDK S3 | presigned URL 업로드, 외부 저장소 호출은 트랜잭션 밖 |
 | 1-11 | Proxmox VM, Docker Compose 배포, GHCR, **GitHub Actions self-hosted runner** | 자동 CD, sha 태그 이미지, 헬스체크·자동 롤백, public 리포의 러너 보안 |
 | 2-1 | - | upsert(`ON CONFLICT DO UPDATE`), 배치 조회 |
 | 2-2 | - | 애그리거트, 여러 모듈을 하나의 트랜잭션으로, **멱등 API** |
