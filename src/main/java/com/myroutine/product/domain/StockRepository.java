@@ -15,4 +15,12 @@ public interface StockRepository {
     int adjust(UUID productId, int delta, Instant now);
 
     List<UUID> findProductIdsWithBrokenBalance();
+
+    int reserve(UUID productId, int quantity, Instant now);
+
+    int commit(UUID productId, int quantity, Instant now);
+
+    int release(UUID productId, int quantity, Instant now);
+
+    int restore(UUID productId, int quantity, Instant now);
 }

@@ -3,6 +3,7 @@ package com.myroutine.product.domain;
 import org.springframework.data.domain.Limit;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -23,4 +24,6 @@ public interface ProductRepository {
     List<ProductListRow> findByShopNextPage(UUID shopId, Instant cursorCreatedAt, UUID cursorId, Limit limit);
 
     int insertPriceHistory(UUID id, UUID productId, long oldPrice, long newPrice, Instant now);
+
+    List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 }
