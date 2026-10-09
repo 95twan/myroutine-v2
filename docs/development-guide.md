@@ -326,6 +326,7 @@ public enum OrderLineStatus {
 }
 ```
 - 전이표는 [04-state-machines.md](02-design/04-state-machines.md)와 1:1로 일치해야 한다. 상태머신 문서가 정답이고, 단위 테스트로 모든 허용·금지 전이를 검증한다.
+- **예외**: 엔티티 메서드로 상태를 바꾸지 않고 native CAS(`UPDATE ... WHERE status = :from`)로만 전이하는 상태(예: `ReservationStatus`)는 전이표와 전이 테스트를 두지 않는다. 호출처가 없는 코드가 되기 때문이다. 이 경우 허용 전이는 상태머신 문서와 CAS 조건이 지키고, 동작은 CAS를 호출하는 서비스·통합 테스트로 검증한다. 엔티티 경로가 있는 상태(`OrderStatus` 등)는 CAS를 함께 써도 전이표를 둔다.
 
 ### 5.5 시간과 시간대
 **시각(언제 일어났나)과 업무 달력(몇 월 며칠인가)을 나눠서 다룬다.**
