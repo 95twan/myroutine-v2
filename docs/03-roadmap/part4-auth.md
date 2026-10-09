@@ -1,6 +1,7 @@
 # Part 4. 인증 완성
 
-> 버전 0.5 · 2026-10-02 · **덜어내기**: 토큰 거부 코드는 401 `UNAUTHORIZED` 하나로(만료·폐기 구분은 제안), tokenVersion 로컬 캐시와 Redis 장애 정책 제거, 가입 토큰용 인증코드 발송은 별도 API로(선택적 리졸버 제거), 소셜 계정 중복은 사전 조회로
+> 버전 0.6 · 2026-10-09 · **구현된 Part 1 코드와 정합**: `TokenResult`·`TokenResponse`의 실제 필드 이름(`expiresInSeconds`), `TestFixtures`의 실제 헬퍼 이름(`signup`·`token`), 단계마다 늘어나는 `JwtProvider.issue`·`AuthClaims` 인자를 한 줄로 맞췄다. Redis 이미지 태그를 고정하고(`redis:7.4.11`) 테스트 컨테이너 기동에 1-10의 MinIO를 넣었다
+> 0.5 · 2026-10-02 · **덜어내기**: 토큰 거부 코드는 401 `UNAUTHORIZED` 하나로(만료·폐기 구분은 제안), tokenVersion 로컬 캐시와 Redis 장애 정책 제거, 가입 토큰용 인증코드 발송은 별도 API로(선택적 리졸버 제거), 소셜 계정 중복은 사전 조회로
 > 0.4 · 2026-10-02 · 예치금 제거 반영(충전 API·개발용 입금 API 관련 항목 삭제)
 > 0.3 · 이 문서만 보고 개발할 수 있게 구체화(Redis 키 설계, 단계별 구현 규격·테스트 케이스)
 
@@ -81,14 +82,22 @@
 ### 할 일
 
 **1) 인프라**
-- `docker-compose`: `redis:7.4` (확인 필요: 태그), `127.0.0.1:6379:6379`
-- 의존성: `spring-boot-starter-data-redis`
-- `IntegrationTestSupport`: `@ServiceConnection(name = "redis") static final GenericContainer<?> redis = new GenericContainer<>("redis:7.4").withExposedPorts(6379);` → `Startables.deepStart(postgres, kafka, redis)`
+- `docker-compose`: `redis:7.4.11`(문서가 정한 7.4 줄의 최신 패치, 2026-10-09 Docker Hub 확인. 8.x도 있다), `127.0.0.1:6379:6379`. 1-11 운영 compose에도 같은 태그로(호스트 포트 없이)
+- 의존성: `implementation 'org.springframework.boot:spring-boot-starter-data-redis'`(Boot 4.1.1에 있다, Lettuce 7.5.2를 Boot가 관리)
+- `IntegrationTestSupport`: `@ServiceConnection(name = "redis") static final GenericContainer<?> redis = new GenericContainer<>("redis:7.4.11").withExposedPorts(6379);` → `Startables.deepStart(postgres, minio, kafka, redis).join()`
 
 **2) common.security 변경**
 - `JwtProperties`에 `@NotNull Duration refreshTokenTtl` 추가
 - `AuthClaims`에 `UUID sessionId` 추가 (`sid` 클레임) — 비밀번호 변경 시 "현재 세션만 남기기"에 쓴다
-- `JwtProvider.issue(UUID memberId, String role, UUID sessionId)`로 변경
+- `JwtProvider.issue(UUID memberId, String role)`(1-4) → `issue(UUID memberId, String role, UUID sessionId)`로 변경
+
+| 단계 | `AuthClaims` (현재 `(UUID memberId, String role)`) | `JwtProvider.issue(...)` | 새 클레임 |
+|---|---|---|---|
+| 4-1 | `(memberId, role, sessionId)` | `(memberId, role, sessionId)` | `sid` |
+| 4-2 | `(memberId, role, sessionId, emailVerified)` | `(memberId, role, sessionId, emailVerified)` | `ev` |
+| 4-4 | `(memberId, role, sessionId, emailVerified, tokenVersion)` | `(memberId, role, sessionId, emailVerified, tokenVersion)` | `tv` |
+
+- `@CurrentMember`는 `expression = "memberId"`라 인자가 늘어도 바꾸지 않는다.
 
 **3) member — 세션**
 
@@ -98,7 +107,7 @@
 | `SessionStore` (domain 인터페이스) | `void create(UUID sessionId, UUID memberId, String refreshHash, String device, Duration ttl)`, `Optional<StoredSession> find(UUID sessionId)`, `boolean rotate(UUID sessionId, String expectedHash, String newHash, Duration ttl)`, `void delete(UUID sessionId)`, `void deleteAllOf(UUID memberId)`, `void deleteAllOfExcept(UUID memberId, UUID keepSessionId)` |
 | `RedisSessionStore` (infrastructure) | 위 인터페이스 구현. `rotate`는 Lua 스크립트 |
 | `TokenIssuer` (application, `@Component`) | `TokenResult issueNewSession(Member member, String device)`, `TokenResult reissue(Member member, UUID sessionId, RefreshToken refresh)` — access + refresh를 만들어 `TokenResult`로 |
-| `TokenResult` | `record (String accessToken, long expiresIn, String refreshToken, long refreshExpiresIn)` |
+| `TokenResult` | 기존 `record TokenResult(String accessToken, long expiresInSeconds)`에 `String refreshToken, long refreshExpiresInSeconds` 추가. web의 `TokenResponse(accessToken, tokenType, expiresIn)`에도 `refreshToken, refreshExpiresIn`을 더하고 `from(result)`에서 옮긴다 |
 | `TokenRefreshService` | `@Transactional(readOnly = true) TokenResult refresh(String rawRefresh)` |
 | `LogoutService` | `void logout(UUID memberId, UUID sessionId, boolean all)` |
 | `MemberErrorCode` | `REFRESH_REUSED` |
@@ -184,11 +193,11 @@ return 0
 `confirm`: `verify` false면 `EMAIL_CODE_INVALID` → 트랜잭션으로 `member.verifyEmail(now)`
 
 **3) 인증 여부로 막기**
-- `AuthClaims`에 `boolean emailVerified` 추가(`ev` 클레임), 발급 시 `member.getEmailVerifiedAt() != null`
+- `AuthClaims`에 `boolean emailVerified` 추가(`ev` 클레임, 4-1의 표), 발급 시 `member.getEmailVerifiedAt() != null`
 - `common.security.RequireVerifiedEmail`: `@Target(METHOD) @Retention(RUNTIME)`
 - `common.security.VerifiedEmailInterceptor implements HandlerInterceptor`: 핸들러 메서드에 어노테이션이 있고 `claims.emailVerified() == false`면 `BusinessException(EMAIL_NOT_VERIFIED)` (인터셉터 예외도 `GlobalExceptionHandler`가 처리한다) → `WebConfig.addInterceptors`에 등록
 - 붙일 곳: `POST /api/orders/checkout`, `POST /api/orders/{id}/payment/confirm`, `POST /api/shops`
-- 테스트 영향: `TestFixtures.signUp(...)`이 기본으로 JDBC로 `email_verified_at`을 채운 뒤 토큰을 발급하도록 바꾼다. 미인증 회원이 필요하면 `signUpUnverified(...)`.
+- 테스트 영향: 이 어노테이션이 `POST /api/shops`에 붙으면 1-6 이후 테스트가 쓰는 미인증 토큰이 403이 된다. `TestFixtures`를 바꾼다: `signup(email)`은 가입 직후 JDBC로 `UPDATE member.member SET email_verified_at = now() WHERE id = ?`, `token(email)`은 같은 처리 후 **`login(email)`로 토큰을 다시 받는다**(가입 응답의 토큰은 발급 시점에 `ev = false`라서). 미인증 회원이 필요하면 `signupUnverified(email)`·`tokenUnverified(email)`을 추가한다.
 
 **4) 비밀번호**
 - `Member.changePassword(String encodedPassword)`
@@ -342,7 +351,7 @@ return 0
 |---|---|
 | 마이그레이션 | `V{...}__member_add_token_version.sql`: `member.member`에 `token_version int NOT NULL DEFAULT 0` |
 | `Member` | `int tokenVersion` 필드, `void increaseTokenVersion()` |
-| `JwtProvider`·`AuthClaims` | 클레임 `tv`(tokenVersion) 추가: `issue(UUID memberId, String role, int tokenVersion, UUID sessionId)`, `AuthClaims(..., int tokenVersion)` |
+| `JwtProvider`·`AuthClaims` | 클레임 `tv`(tokenVersion) 추가: `issue(memberId, role, sessionId, emailVerified, int tokenVersion)`, `AuthClaims(..., int tokenVersion)` (4-1의 표) |
 | `common.security.TokenVersionProvider` | `int currentVersion(UUID memberId)` — 필터(common)가 member를 모르므로 인터페이스만 common에 둔다 |
 | `JwtAuthenticationFilter` 변경 | parse 성공 후 `claims.tokenVersion() != provider.currentVersion(memberId)`면 인증을 설정하지 않는다 → 401 `UNAUTHORIZED` |
 | `RedisTokenVersionProvider` (member.infrastructure) | Redis `GET auth:token-version:{memberId}` → 없으면 DB에서 읽어 `SET ... EX 86400` 후 반환 |

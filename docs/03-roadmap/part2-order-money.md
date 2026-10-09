@@ -1,6 +1,7 @@
 # Part 2. 주문과 돈
 
-> 버전 0.5 · 2026-10-02 · **덜어내기**: 주문번호·바로 구매·멱등 키 재점유와 정리 잡·PG 호출 로그 테이블·트랜잭션 안 호출 가드·결제창 실패 통지 API·대사 백오프·판매자 주문 기간 필터를 "제안"으로 옮기고, 제약 이름 매핑을 없앴다
+> 버전 0.6 · 2026-10-09 · **구현된 Part 1 코드와 정합·사실 확인**: `TestFixtures`의 실제 헬퍼 이름, `ProductApi`·`ShopApi` 반환 필드에서 `CheckoutLine`·`ReserveItem`으로 옮기는 방법, 1-10 규칙(키는 Result, URL은 web)에 따른 장바구니·주문 상세의 `thumbnailUrl`, 결제 모듈 API에 남아 있던 `(ORDER, orderId)` 인자 잔재 제거, AOP 스타터 이름(`spring-boot-starter-aspectj`)·Jackson 3의 모르는 필드 무시·Toss API(엔드포인트·Basic 인증·멱등키 15일)·불확실 코드 목록을 확인해 확정, `RestClient.exchange`로 응답을 분류하는 호출 형태를 적었다
+> 0.5 · 2026-10-02 · **덜어내기**: 주문번호·바로 구매·멱등 키 재점유와 정리 잡·PG 호출 로그 테이블·트랜잭션 안 호출 가드·결제창 실패 통지 API·대사 백오프·판매자 주문 기간 필터를 "제안"으로 옮기고, 제약 이름 매핑을 없앴다
 > 0.4 · 2026-10-02 · **예치금(지갑) 제거**: 2-1·2-2(지갑)·2-9(충전) 삭제, 결제는 Toss 단일 수단, 환불은 PG 부분취소만. 단계 번호를 다시 매김(이전 2-3 → 2-1 …)
 > 0.3 · 이 문서만 보고 개발할 수 있게 구체화
 
@@ -68,9 +69,9 @@ return tx.execute(status -> applier.apply(...));          // 트랜잭션 2: 결
 ### N. 테스트 지원 (Part 2에서 추가)
 | 클래스 | 위치 | 단계 |
 |---|---|---|
-| `TestFixtures` 확장 | `support/TestFixtures` | 각 단계: `openShop(memberId)`, `registerProduct(memberId, shopId, price, stock)`, `address(memberId)`, `checkout(...)` 등 필요한 헬퍼를 단계마다 추가 |
+| `TestFixtures` 확장 | `support/TestFixtures` | 이미 있는 것(Part 1): `signup(email)` → memberId, `token(email)`(가입 + access 토큰), `login(email)`, `changeStatus(memberId, status)`, `openShop(memberId, businessNumber)`, `closeShop(shopId)`, `registerProduct(memberId, shopId)`(가격 10,000·재고 10), `registerProduct(memberId, shopId, category, initialStock)`, `hideProduct`·`discontinueProduct(productId)`. 단계마다 추가: `registerProduct(memberId, shopId, long price, int stock)`(2-1), `address(memberId)` → addressId(2-2, `MemberAddressService.register(memberId, AddressCommand)`), `checkout(token, cartItemIds, addressId)`(2-2) 등. 같은 이름의 오버로드는 인자 타입이 겹치지 않게 한다 |
 | `FakePgServer` | `support/FakePgServer`, `support/Behavior` | 2-3 |
-| `ConcurrencyRunner` | `support/ConcurrencyRunner` | 2-1(장바구니 동시성 테스트에서 처음 사용): `static <T> List<Result<T>> run(int threads, Callable<T> task)` — 스레드 풀 + latch 3개로 동시에 출발시키고 결과(성공 값 또는 예외)를 모아 반환. 1-9의 동시성 테스트에서 쓴 코드를 여기로 옮겨 재사용한다 |
+| `ConcurrencyRunner` | `support/ConcurrencyRunner` | 2-1(장바구니 동시성 테스트에서 처음 사용): `static <T> List<Result<T>> run(int threads, Callable<T> task)` — `record Result<T>(T value, Throwable error) { boolean ok() { return error == null; } }`. 스레드 풀 + latch 3개(ready·start·done)로 동시에 출발시키고 결과를 모아 반환한다. 1-9의 `StockReservationConcurrencyTest`에 있는 latch 코드를 여기로 옮겨 재사용한다(1-9 테스트를 바꿀지는 선택) |
 
 ### O. Part 2 에러 코드
 
@@ -167,14 +168,14 @@ DO UPDATE SET quantity = LEAST(orders.cart_item.quantity + EXCLUDED.quantity, 99
 | `@Transactional(readOnly = true) CartResult getCart(UUID memberId)` | 장바구니가 없으면 빈 결과. 항목들의 productId를 모아 `getForCheckout` **1번** → 항목별로 합침 |
 
 `CartResult(List<CartLineResult> items, long totalAmount)` — totalAmount는 구매 가능한 항목만 합산
-`CartLineResult(UUID cartItemId, UUID productId, UUID shopId, String name, String thumbnailKey, long unitPrice, int quantity, long lineAmount, boolean purchasable, String unavailableReason)`
+`CartLineResult(UUID cartItemId, UUID productId, UUID shopId, String name, String thumbnailKey, long unitPrice, int quantity, long lineAmount, boolean purchasable, String unavailableReason)` — 값은 `ProductForCheckout`(`productId, shopId, name, thumbnailKey, price(Money), onSale, subscribable, inStock`)에서 옮긴다. `unitPrice = price.amount()`
 - `unavailableReason`: 상품이 결과에 없으면 `"NOT_FOUND"`(shopId 등은 null, 가격 0), `onSale == false`면 `"NOT_ON_SALE"`, `inStock == false`면 `"OUT_OF_STOCK"`, 구매 가능하면 null
 
 **4) order.web** — `CartController`
 
 | API | 요청 | 응답 |
 |---|---|---|
-| `GET /api/cart` | | 200 `CartResponse` (Result와 같은 구조) |
+| `GET /api/cart` | | 200 `CartResponse` (Result와 같은 구조. 단 품목의 `thumbnailKey` 대신 **`thumbnailUrl`** — 1-10 규칙대로 web에서 `ImageUrls.toUrl(key)`로 바꾼다. `CartResponse.from(result, imageUrls)`) |
 | `POST /api/cart/items` | `AddCartItemRequest(@NotNull UUID productId, @NotNull @Min(1) @Max(99) Integer quantity)` | 201 `CartItemIdResponse(UUID cartItemId)` |
 | `PATCH /api/cart/items/{id}` | `ChangeQuantityRequest(@NotNull @Min(1) @Max(99) Integer quantity)` | 200 `CartResponse` |
 | `DELETE /api/cart/items/{id}` | | 204 |
@@ -227,7 +228,7 @@ DO UPDATE SET quantity = LEAST(orders.cart_item.quantity + EXCLUDED.quantity, 99
 
 **1) 멱등 공통 장치** — 패키지 `common.idempotency`
 
-의존성: AOP 스타터. 확인 필요: Boot 4에서 이름이 `spring-boot-starter-aspectj`로 바뀌었는지(start.spring.io에서 "AOP"/"AspectJ" 검색).
+의존성: `implementation 'org.springframework.boot:spring-boot-starter-aspectj'`(버전은 Boot BOM). Boot 4에서 `spring-boot-starter-aop`가 이 이름으로 바뀌었다 — Maven Central에서 `spring-boot-starter-aop`는 4.0.0-M2가 마지막이고 `spring-boot-starter-aspectj`는 4.1.1이 있다(2026-10-09 확인).
 
 마이그레이션 `db/migration/common/V{...}__common_create_idempotency_key.sql`
 
@@ -383,14 +384,26 @@ public record ShippingAddressInfo(String recipient, String phone, String zipcode
 5. 가게 소유자가 나(memberId)인 가게가 있으면 `OWN_SHOP_PRODUCT` (details.productIds)
 6. `address = memberApi.getAddress(memberId, addressId)`
 7. `Order.checkout(...)` → `orderRepository.save(order)`
-8. `productApi.reserve(order.getId(), items, order.getExpiresAt())` — 재고 부족이면 422 `OUT_OF_STOCK`
+8. `productApi.reserve(order.getId(), items, order.getExpiresAt())` — 재고 부족이면 422 `OUT_OF_STOCK`. `items`는 `List<ReserveItem>`(`new ReserveItem(productId, quantity)`)이다. `reserve`는 같은 상품이 두 번 들어 있으면 `IllegalArgumentException`을 던지는데, 장바구니는 상품당 한 행이라 겹치지 않는다
 9. `cartItemRepository.deleteAll(cartItems)`
 10. `CheckoutResult` 반환 (status PENDING_PAYMENT)
 - 8에서 예외가 나면 7의 주문까지 롤백되고 장바구니도 그대로다. 여러 상품 중 일부만 예약된 상태도 남지 않는다. 이게 "한 트랜잭션"의 의미다.
 
+`CheckoutLine` 만들기 (3~6의 결과를 품목마다 합친다)
+
+| `CheckoutLine` 칸 | 꺼내는 곳 |
+|---|---|
+| `productId`, `shopId`, `productName`, `thumbnailKey`, `unitPrice` | `ProductForCheckout`의 `productId()`, `shopId()`, `name()`, `thumbnailKey()`, `price()`(이미 `Money`) |
+| `shopName` | `ShopInfo.name()` — `requireActiveShops` 결과를 `shopId`로 `Map`에 담아 찾는다 |
+| `quantity` | 1의 장바구니 항목 |
+
+- 5의 자기 가게 판단은 `ShopInfo.ownerId().equals(memberId)`.
+- `getPurchasable`은 판매 상태만 보고 재고는 보지 않는다(`inStock`이 false여도 통과). 재고 부족은 8의 `reserve`가 판정한다.
+
 `OrderQueryService` (`@Transactional(readOnly = true)`)
 - `CursorPage<OrderSummaryResult> getMyOrders(UUID memberId, String cursor, int size)` — `OrderSummaryResult(UUID orderId, OrderStatus status, long totalAmount, String firstProductName, int lineCount, Instant createdAt)`
-- `OrderDetailResult getMyOrder(UUID memberId, UUID orderId)` — 없거나 남의 것이면 `ORDER_NOT_FOUND`. 주문 필드 전체 + `shopOrders[{shopOrderId, shopId, shopName, status, carrier, trackingNumber, lines[{orderLineId, productId, productName, unitPrice, quantity, lineAmount, refundedAmount, status}]}]` (2-8에서 refunds 추가)
+- `OrderDetailResult getMyOrder(UUID memberId, UUID orderId)` — 없거나 남의 것이면 `ORDER_NOT_FOUND`. 주문 필드 전체 + `shopOrders[{shopOrderId, shopId, shopName, status, carrier, trackingNumber, lines[{orderLineId, productId, productName, thumbnailKey, unitPrice, quantity, lineAmount, refundedAmount, status}]}]` (2-8에서 refunds 추가). 응답(`OrderDetailResponse`)에서는 `thumbnailKey` 대신 `thumbnailUrl`(`ImageUrls`, 1-10)
+- 썸네일 스냅샷은 **키**만 저장한다. 판매자가 그 이미지를 지우면(1-10 삭제는 저장소 객체도 지운다) 지난 주문의 썸네일 URL은 404가 된다 — 일부러 남기는 한계다(이미지를 복사해 두지 않는다)
 
 **6) order.web** — `OrderController` (`/api/orders`)
 
@@ -400,7 +413,7 @@ public record ShippingAddressInfo(String recipient, String phone, String zipcode
 | `GET /api/orders?cursor=&size=` | | 200 `CursorPage<OrderSummaryResponse>` |
 | `GET /api/orders/{id}` | | 200 `OrderDetailResponse` |
 
-`CheckoutRequest`: `@NotEmpty @Size(max = 50) List<UUID> cartItemIds`, `@NotNull UUID addressId`. 요청에 `price` 같은 필드가 있어도 **record에 없으므로 무시된다**(Jackson 3는 기본적으로 모르는 필드를 무시한다. 확인 필요: 무시되지 않고 400이 나면 `@JsonIgnoreProperties(ignoreUnknown = true)`를 붙인다)
+`CheckoutRequest`: `@NotEmpty @Size(max = 50) List<UUID> cartItemIds`, `@NotNull UUID addressId`. 요청에 `price` 같은 필드가 있어도 **record에 없으므로 무시된다**(Jackson 3.1.5의 `FAIL_ON_UNKNOWN_PROPERTIES` 기본값은 `false` — 2026-10-09 `JsonMapper.builder().build()`로 직접 확인, 모르는 필드가 있는 JSON이 예외 없이 읽혔다)
 
 ### 완료 확인
 
@@ -446,14 +459,18 @@ public record ShippingAddressInfo(String recipient, String phone, String zipcode
 | `RestClient.exchange` | 4xx·5xx에서 예외를 던지는 `retrieve()` 대신, 상태 코드와 본문을 직접 읽어 분류한다 |
 | 가짜 PG 서버 | JDK 내장 `HttpServer`로 만든 테스트용 서버. 경로별로 응답·지연·연결 끊기를 설정 |
 
-**Toss API 요약** (확인 필요: 구현 전에 Toss 개발자센터 문서와 한 번 대조한다)
+**Toss API 요약** (2026-10-09 Toss 개발자센터 "코어 API"·"인증 및 기타 헤더 설정" 문서와 대조)
 
 | 작업 | 요청 | 성공 응답 |
 |---|---|---|
 | 승인 | `POST /v1/payments/confirm` 바디 `{paymentKey, orderId, amount}` | 200, Payment 객체 `status: "DONE"` |
 | 취소 | `POST /v1/payments/{paymentKey}/cancel` 바디 `{cancelReason, cancelAmount}` | 200, Payment 객체 `status: "CANCELED"` 또는 `"PARTIAL_CANCELED"` |
 | 조회 | `GET /v1/payments/orders/{orderId}` | 200 Payment 객체 / 없으면 404 `NOT_FOUND_PAYMENT` |
-| 공통 헤더 | `Authorization: Basic base64(시크릿키 + ":")`, 승인·취소에 `Idempotency-Key` | 에러 본문 `{code, message}` |
+| 공통 헤더 | `Authorization: Basic base64(시크릿키 + ":")` — **콜론을 빠뜨리지 않는다**. 승인·취소(POST)에 `Idempotency-Key` | 에러 본문 `{code, message}` |
+
+- 멱등키: 같은 키 + 같은 API 키·주소·메서드면 처음 응답을 그대로 돌려준다. **처음 요청한 날부터 15일 유효**, 300자 이하(넘으면 400 `INVALID_IDEMPOTENCY_KEY`), 첫 요청이 처리 중일 때 다시 보내면 409 `IDEMPOTENT_REQUEST_PROCESSING`.
+- 결제창 인증 후 **10분 안에** 승인 API를 부르지 않으면 Toss 쪽 결제가 만료된다(주문 유효시간 15분보다 짧다. 10분이 지나 confirm하면 Toss가 거절 → 결제 실패로 끝난다).
+- `approvedAt`은 `yyyy-MM-dd'T'HH:mm:ss±hh:mm` 형식이라 `OffsetDateTime`으로 받는다.
 
 ### 할 일
 
@@ -463,7 +480,7 @@ public record ShippingAddressInfo(String recipient, String phone, String zipcode
 - `application.yaml`: `base-url: https://api.tosspayments.com`, `secret-key: ${TOSS_SECRET_KEY}`, `client-key: ${TOSS_CLIENT_KEY:}`, `connect-timeout: 3s`, `read-timeout: 10s`
 - `application-test.yaml`: `secret-key: test_sk_dummy`, `read-timeout: 500ms` (`base-url`은 가짜 서버 주소를 테스트 베이스에서 주입)
 
-**3) payment.domain — 결과 타입**
+**2) payment.domain — 결과 타입**
 ```java
 public sealed interface PgResult permits PgResult.Approved, PgResult.Rejected, PgResult.Unknown {
     record Approved(String paymentKey, long totalAmount, long balanceAmount, String method, Instant approvedAt) implements PgResult {}
@@ -472,11 +489,11 @@ public sealed interface PgResult permits PgResult.Approved, PgResult.Rejected, P
 }
 ```
 
-**4) payment.infrastructure — 클라이언트**
+**3) payment.infrastructure — 클라이언트**
 
 | 클래스 | 규격 |
 |---|---|
-| `TossClientConfig` | `@Configuration @EnableConfigurationProperties(TossProperties.class)`. `@Bean RestClient tossRestClient(TossProperties p)`: `JdkClientHttpRequestFactory(HttpClient.newBuilder().connectTimeout(p.connectTimeout()).build())` + `factory.setReadTimeout(p.readTimeout())`, `baseUrl`, 기본 헤더 `Authorization: Basic ...` |
+| `TossClientConfig` | `@Configuration @EnableConfigurationProperties(TossProperties.class)`. `@Bean RestClient tossRestClient(TossProperties p)`: `var factory = new JdkClientHttpRequestFactory(HttpClient.newBuilder().connectTimeout(p.connectTimeout()).build())` → `factory.setReadTimeout(p.readTimeout())` → `RestClient.builder().requestFactory(factory).baseUrl(p.baseUrl()).defaultHeader(HttpHeaders.AUTHORIZATION, "Basic " + Base64.getEncoder().encodeToString((p.secretKey() + ":").getBytes(UTF_8))).build()`. `RestClient`·`JdkClientHttpRequestFactory`는 spring-web(이미 있는 webmvc 스타터에 포함)에 있어 의존성을 추가하지 않는다. Boot의 `RestClient.Builder` 빈을 주입받으려면 `spring-boot-starter-restclient`가 필요하므로, 여기서는 정적 `RestClient.builder()`를 쓴다 |
 | `TossPaymentResponse` | `record (String paymentKey, String orderId, String status, long totalAmount, long balanceAmount, String method, OffsetDateTime approvedAt)` + `@JsonIgnoreProperties(ignoreUnknown = true)` |
 | `TossErrorResponse` | `record (String code, String message)` + 같은 어노테이션 |
 | `TossClient` | `@Component`. 메서드 아래 |
@@ -485,23 +502,42 @@ public sealed interface PgResult permits PgResult.Approved, PgResult.Rejected, P
 - `PgResult confirm(UUID paymentId, String paymentKey, String pgOrderId, Money amount)` — `Idempotency-Key: paymentId.toString()`
 - `PgResult cancel(UUID paymentId, String paymentKey, Money amount, String reason, String idempotencyKey)`
 - `PgResult queryByOrderId(UUID paymentId, String pgOrderId)`
-- 공통 흐름: 시작 시각 기록 → `tossRestClient.method(...).exchange((req, res) -> 분류(res))` → `ResourceAccessException`(타임아웃·연결 실패·끊김)은 `Unknown(예외 이름)` → `finally`에서 `log.info("pg {} orderId={} result={} status={} latencyMs={}", ...)` — **paymentKey 전체·카드 정보는 남기지 않는다**
+- 공통 흐름: 시작 시각 기록 → 요청 → `exchange`로 분류 → `ResourceAccessException`(타임아웃·연결 실패·끊김)은 `Unknown(예외 이름)` → `finally`에서 `log.info("pg {} orderId={} result={} status={} latencyMs={}", ...)` — **paymentKey 전체·카드 정보는 남기지 않는다**
+
+호출 형태 (승인 예. 취소·조회도 같은 모양)
+
+| 순서 | 코드 형태 | 반환·예외 |
+|---|---|---|
+| 1 요청 | `tossRestClient.post().uri("/v1/payments/confirm").header("Idempotency-Key", paymentId.toString()).contentType(MediaType.APPLICATION_JSON).body(Map.of("paymentKey", paymentKey, "orderId", pgOrderId, "amount", amount.amount()))` / 취소 `.post().uri("/v1/payments/{key}/cancel", paymentKey)`, 조회 `.get().uri("/v1/payments/orders/{orderId}", pgOrderId)` | |
+| 2 분류 | `.exchange((req, res) -> classify(res))` — `retrieve()`와 달리 4xx·5xx에서도 **예외를 던지지 않고** 람다를 부른다. 람다의 반환값(`PgResult`)이 `exchange`의 반환값이다 | `res`는 `ConvertibleClientHttpResponse` |
+| 3 상태 | `HttpStatusCode code = res.getStatusCode()` → `code.is2xxSuccessful()`, `code.is4xxClientError()`, `code.is5xxServerError()`, `code.value()` | |
+| 4 본문 | 2xx면 `res.bodyTo(TossPaymentResponse.class)`, 그 외 `res.bodyTo(TossErrorResponse.class)` | 파싱에 실패하면 `RestClientException` |
+| 5 예외 | 1~4 전체를 `try`로 감싼다: `catch (ResourceAccessException e)` → `Unknown(e.getClass().getSimpleName())`. 4의 파싱 실패는 람다 안에서 `catch (RestClientException e)` → `Unknown("INVALID_BODY")` | `ResourceAccessException`도 `RestClientException`의 하위 타입이다. 어느 쪽으로 잡혀도 결과는 `Unknown`이라 안전하다 |
 
 분류표
 
 | 응답 | 승인·취소 | 조회 |
 |---|---|---|
 | 2xx + 본문 파싱 성공 | `Approved` (승인은 `status == "DONE"`이 아니면 `Unknown`) | `status == "DONE"`·`"PARTIAL_CANCELED"`·`"CANCELED"` → `Approved` / `"ABORTED"`·`"EXPIRED"` → `Rejected(status)` / 그 외(`READY`, `IN_PROGRESS`) → `Unknown` |
-| 2xx + 본문 파싱 실패 | `Unknown("INVALID_BODY")` | 같음 |
+| 본문 파싱 실패 (2xx·4xx 모두) | `Unknown("INVALID_BODY")` — 코드를 읽을 수 없는 4xx는 거절로 단정하지 않는다 | 같음 |
 | 4xx + 코드가 "불확실 코드" 목록에 있음 | `Unknown(code)` | 같음 |
 | 404 `NOT_FOUND_PAYMENT` (조회) | — | `Rejected("NOT_FOUND_PAYMENT")` (승인된 적 없음) |
 | 그 외 4xx | `Rejected(code, message)` | `Rejected(code, message)` |
 | 5xx | `Unknown(code 또는 "HTTP_5xx")` | 같음 |
 | 타임아웃·연결 끊김 | `Unknown(예외 이름)` | 같음 |
 
-- "불확실 코드" 초기 목록(상수 `Set<String> UNCERTAIN_CODES`): `ALREADY_PROCESSED_PAYMENT`, `PROVIDER_ERROR`, `FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING`, `FAILED_INTERNAL_SYSTEM_PROCESSING`, `UNKNOWN_PAYMENT_ERROR`. **확인 필요**: Toss 에러 코드 문서를 보고 "재시도·조회로 확인해야 하는" 4xx 코드를 이 목록에 반영하고, 결과를 PR에 표로 남긴다(Claude가 문서에 옮긴다).
+- "불확실 코드" 목록(상수 `Set<String> UNCERTAIN_CODES`) — 4xx인데 "거절"이 아니라 "이미 처리 중·처리됨"이라 조회로 확인해야 하는 코드. Toss "API 에러 코드" 전체 목록·멱등키 문서와 대조했다(2026-10-09)
 
-**5) 가짜 PG 서버** — `src/test/java/com/myroutine/support/`
+| 코드 | HTTP | 뜻 |
+|---|---|---|
+| `ALREADY_PROCESSED_PAYMENT` | 400 | 이미 처리된 결제 |
+| `ALREADY_PROCESSING_REQUEST` | 400 | 이미 처리 중인 요청 |
+| `IDEMPOTENT_REQUEST_PROCESSING` | 409 | 같은 멱등키의 첫 요청이 아직 처리 중 |
+
+- `FAILED_INTERNAL_SYSTEM_PROCESSING`, `FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING`, `UNKNOWN_ERROR` 등은 **500**이라 위 표의 5xx 규칙으로 이미 `Unknown`이다(목록에 넣지 않는다). 이전 목록의 `PROVIDER_ERROR`, `UNKNOWN_PAYMENT_ERROR`는 현재 에러 목록에 없어 뺐다.
+- API별 에러 표(승인·취소·조회마다 나오는 코드)는 문서 화면에서만 보여 대조하지 못했다(확인 필요). 구현할 때 개발자센터에서 승인·취소 API의 에러 표를 한 번 보고, 위 목록에 더할 코드가 있으면 PR에 적는다(Claude가 문서에 옮긴다).
+
+**4) 가짜 PG 서버** — `src/test/java/com/myroutine/support/`
 
 | 클래스 | 규격 |
 |---|---|
@@ -672,7 +708,7 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 |---|---|
 | `payment/domain/PaymentStatusTest` | [ ] 전체 조합 파라미터화 |
 | `order/web/PaymentConfirmTest` | 아래 |
-| `payment/application/PaymentApiImplTest` | [ ] `applyOutcome`: IN_PROGRESS → APPROVED / 이미 APPROVED인 결제에 REJECTED 반영 → 그대로 APPROVED / [ ] 같은 (ORDER, orderId)로 `begin` 두 번 → `DataIntegrityViolationException` |
+| `payment/application/PaymentApiImplTest` | [ ] `applyOutcome`: IN_PROGRESS → APPROVED / 이미 APPROVED인 결제에 REJECTED 반영 → 그대로 APPROVED / [ ] 같은 orderId로 `begin` 두 번 → `DataIntegrityViolationException`(`uk_payment_order`) |
 
 `PaymentConfirmTest` (43,000원 주문을 `TestFixtures`로 만들어 시작)
 - [ ] **승인** → 200 PAID, `stock.sold` 증가·`reserved` 0, 가게주문·품목 PAID, payment APPROVED, 가짜 서버 요청의 `idempotency-key` = paymentId
@@ -726,7 +762,7 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 
 `JobRunner.run` 순서
 1. `MDC.put(TraceIds.MDC_KEY, TraceIds.newId())`, `MDC.put("job", jobName)`
-2. 시작 시각 → `jobLock.runExclusively(jobName, () -> count = task.get())`
+2. 시작 시각 → `jobLock.runExclusively(jobName, () -> count.set(task.get()))` — 람다 안에서는 지역 변수에 대입할 수 없으므로 `AtomicInteger count`에 담는다
 3. 실행했으면 `log.info("job {} processed {} in {}ms", ...)`, 락을 못 잡았으면 `log.debug("job {} skipped: locked", ...)`
 4. 예외는 `log.error("job {} failed", jobName, e)`로 남기고 다시 던지지 않는다(다음 주기에 재실행)
 5. `finally`에서 MDC 두 키 제거
@@ -782,7 +818,7 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 |---|---|
 | 대사(reconciliation) | 우리 기록과 외부(PG) 기록을 맞춰보고 차이를 해결하는 작업 |
 | 주문이 주도하는 대사 | 주문 모듈이 결제 모듈에게 "이 주문 결제 어떻게 됐어?"라고 묻는다. 이벤트가 필요 없다 (ADR-004) |
-| PG 멱등 키 재사용 | 결과가 불확실했던 취소는 **같은 Idempotency-Key로 다시 호출**한다. Toss가 처음 결과를 돌려주므로 두 번 취소되지 않는다 (확인 필요: Toss 멱등 키 보관 기간 15일) |
+| PG 멱등 키 재사용 | 결과가 불확실했던 취소는 **같은 Idempotency-Key로 다시 호출**한다. Toss가 처음 결과를 돌려주므로 두 번 취소되지 않는다. Toss 멱등키는 처음 요청한 날부터 **15일** 유효하다(2-3, 2026-10-09 확인) — 복구 잡(2-8b)은 5분 단위로 돌아 이 안에 끝난다 |
 
 **정책 (이 단계에서 정함)**
 - 재시도 간격: 잡이 1분마다 돌므로 **조회에 실패하면 다음 실행(1분 뒤)에 다시** 한다. `reconcile_attempts`만 늘린다(Part 7 알림의 근거).
@@ -807,14 +843,16 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 
 **2) payment — 대사·취소**
 
-`PaymentApi` 추가
+`PaymentApi` 추가 (`PaymentView`·`CancelOutcome`은 2-4의 `StartPayment`처럼 `payment.api`의 별도 파일)
 ```java
 Optional<PaymentView> find(UUID orderId);
 PgOutcome queryOutcome(UUID orderId);      // 트랜잭션 밖 전용
 CancelOutcome cancel(UUID orderId, Money amount, String reason, String idempotencyKey);  // 트랜잭션 밖 전용
-record PaymentView(UUID paymentId, PaymentState state, long amount, long cancelledAmount, Instant approvedAt) {}
-enum CancelOutcome { DONE, FAILED, UNKNOWN }
+
+public record PaymentView(UUID paymentId, PaymentState state, long amount, long cancelledAmount, Instant approvedAt) {}
+public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 ```
+- 결제는 주문 전용이라(`payment.order_id` unique) 모든 메서드는 `orderId` 하나로 결제를 찾는다.
 
 `queryOutcome` 순서
 1. payment 조회 → 없으면 `IllegalStateException`
@@ -838,12 +876,12 @@ enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | `OrderReconcileJob` (order.infrastructure) | `@Scheduled(fixedDelay = 60_000)` → `jobRunner.run("reconcile-orders", service::reconcileBatch)` |
 
 `reconcileBatch` 순서 — `findStuckIds(PAYMENT_IN_PROGRESS, now - 30초, Limit.of(100))`의 각 주문마다 try/catch로 감싸서:
-1. `view = paymentApi.find(ORDER, orderId)` (없으면 로그 후 다음 주문)
-2. `outcome = paymentApi.queryOutcome(ORDER, orderId)` → UNKNOWN이면 다음 주문
+1. `view = paymentApi.find(orderId)` (없으면 로그 후 다음 주문)
+2. `outcome = paymentApi.queryOutcome(orderId)` → UNKNOWN이면 다음 주문
 3. `try { tx.execute(s -> applier.apply(orderId, view.paymentId(), outcome)) }`
 4. 3이 예외로 실패했고 outcome이 APPROVED이며 `outcome.approvedAt() < now - 5분`이면 **보상**:
    1. `tx.execute(s -> paymentApi.applyOutcome(paymentId, outcome))` — 승인 사실만 먼저 기록
-   2. `paymentApi.cancel(ORDER, orderId, 결제 금액, "주문 완료 실패로 자동 취소", "order-compensate-" + orderId)`
+   2. `paymentApi.cancel(orderId, Money.of(view.amount()), "주문 완료 실패로 자동 취소", "order-compensate-" + orderId)`
    3. DONE이면 `tx.execute(s -> { applier.failOrder(orderId, "결제 완료 처리 실패로 자동 취소"); })`, 아니면 다음 주기에 다시
 5. 처리한(PAID 또는 PAYMENT_FAILED가 된) 건수 반환
 
@@ -1009,7 +1047,7 @@ enum CancelOutcome { DONE, FAILED, UNKNOWN }
 - `void applyRefund(UUID lineId, Money amount, RefundReasonType type, Instant now)`: `refundedAmount += amount`, 품목 `→ CANCELLED`(BUYER_CANCEL) 또는 `→ RETURNED`(RETURN), 이어서 `recalculateShopOrder`
 - `recalculateShopOrder(ShopOrder)` (private): 모든 품목이 CANCELLED면 가게주문 `PAID → CANCELLED` / 가게주문이 DELIVERED이고 모든 품목이 CONFIRMED·RETURNED·CANCELLED 중 하나면 `→ COMPLETED`(completedAt)
 
-**3) payment — 주문 결제 부분취소**: 2-6의 `PaymentApi.cancel(ORDER, orderId, amount, reason, idempotencyKey)`를 그대로 쓴다. `idempotencyKey = refundId.toString()`
+**3) payment — 주문 결제 부분취소**: 2-6의 `PaymentApi.cancel(orderId, amount, reason, idempotencyKey)`를 그대로 쓴다. `idempotencyKey = refundId.toString()`
 
 **4) order.application**
 

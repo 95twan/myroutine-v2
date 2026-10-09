@@ -1,6 +1,6 @@
 # ADR-011. 운영 환경 연습: Proxmox VM 1대 + Docker Compose, GitHub Actions self-hosted runner로 자동 배포
 
-- 상태: 승인 (2026-10-07, 개정: 쿠버네티스를 최종 목표로 기록)
+- 상태: 승인 (2026-10-07, 개정: 쿠버네티스를 최종 목표로 기록 / 2026-10-09: "확인 필요" 항목을 공식 문서·실행으로 확인, `workflow_run` 트리거의 안전 조건과 인프라 이미지 고정 방식 추가)
 - 관련: 로드맵 [1-11](../03-roadmap/part1-foundation.md), NFR-SEC-01, [ADR-010](ADR-010-observability.md), [Git 정책 §7](../git-policy.md)
 
 ## 맥락
@@ -13,17 +13,19 @@
 1. **환경**: Proxmox에 Ubuntu Server VM 1대를 만들고 Docker Engine + compose로 앱과 인프라를 모두 올린다. VM 자원은 RAM 약 20GB를 기준으로 시작하고(호스트에 몇 GB를 남김) 실제 사용량은 7-1(ELK) 때 측정해서 조정한다(확인 필요).
 2. **파이프라인**:
    - CI(`ci.yml`)는 지금처럼 GitHub 호스티드 러너에서 PR·push마다 `./gradlew build`.
-   - CD(`cd.yml`)는 `develop`에 push되고 CI가 통과한 뒤 실행된다: ① 호스티드 러너가 Docker 이미지를 빌드해 GHCR에 `{sha}` 태그로 올린다 → ② VM의 self-hosted 러너가 해당 sha 이미지를 pull해 `docker compose up -d`로 교체한다 → ③ 헬스체크가 실패하면 직전 sha로 되돌린다.
+   - CD(`cd.yml`)는 `develop`에 push되고 CI가 통과한 뒤 `workflow_run`으로 실행된다: ① 호스티드 러너가 Docker 이미지를 빌드해 GHCR에 `{sha}` 태그로 올린다 → ② VM의 self-hosted 러너가 해당 sha 이미지를 pull해 `docker compose up -d`로 교체한다 → ③ 헬스체크가 실패하면 직전 sha로 되돌린다.
    - `workflow_dispatch`로 특정 sha를 직접 배포할 수 있다(수동 롤백 수단).
    - 배포 대상 브랜치를 `develop`으로 한 이유: `main`은 Part가 끝날 때만 갱신돼(Git 정책 §7) 배포가 7번뿐이다. 이 환경은 단계마다 합쳐진 결과를 계속 돌려보는 용도다. `main` 릴리스(태그)와 배포는 별개다.
 3. **public 리포에서 self-hosted runner를 쓰는 안전 장치** (필수):
-   - 배포 job은 `pull_request` 이벤트로는 절대 실행되지 않는다(`push`와 `workflow_dispatch`만). 포크 PR의 코드가 VM에서 돌 수 없어야 한다.
-   - 저장소 설정에서 외부 기여자의 워크플로 실행에 승인을 요구한다(확인 필요: 정확한 설정명).
+   - 배포 job은 `pull_request` 이벤트로는 절대 실행되지 않는다(`workflow_run`과 `workflow_dispatch`만). 포크 PR의 코드가 VM에서 돌 수 없어야 한다.
+   - **`workflow_run`은 포크 PR로 돈 CI가 끝나도 발생한다.** 그래서 배포 job은 `github.event.workflow_run.event == 'push'`이고 `conclusion == 'success'`일 때만 실행한다(`branches: [develop]` 필터만으로는 포크의 같은 이름 브랜치를 거르지 못한다). 구현 규격은 로드맵 1-11 §5.
+   - 저장소 설정 Settings → Actions → General → "Approval for running fork pull request workflows from contributors"를 "Require approval for all external contributors"로 둔다(메뉴 이름은 2026-10-09 GitHub 문서로 확인).
    - 배포 job은 GitHub Environment `ops`를 쓰고, 배포 가능한 브랜치를 `develop`·`main`으로 제한한다.
    - 러너는 전용 비root 사용자로 실행하고, VM에는 이 프로젝트 외의 중요한 데이터를 두지 않는다. (docker 그룹은 사실상 root 권한이다. VM을 격리된 용도로만 쓰는 것으로 위험을 받아들인다.)
-4. **시크릿**: 운영 `.env`는 VM의 고정 경로(예: `/opt/myroutine/.env`)에 사람이 한 번 만든다. 리포와 GitHub Secrets에는 두지 않는다(NFR-SEC-01, 공격면 축소). 배포는 이 파일을 읽기만 한다. GHCR 로그인은 워크플로의 `GITHUB_TOKEN`을 쓴다(확인 필요: 패키지 권한).
+4. **시크릿**: 운영 `.env`는 VM의 고정 경로(예: `/opt/myroutine/.env`)에 사람이 한 번 만든다. 리포와 GitHub Secrets에는 두지 않는다(NFR-SEC-01, 공격면 축소). 배포는 이 파일을 읽기만 한다. GHCR 로그인은 워크플로의 `GITHUB_TOKEN`을 쓴다. push하는 job은 `permissions: packages: write`, pull만 하는 배포 job은 `packages: read`(GitHub 문서 "Publishing Docker images"의 예시와 같다, 2026-10-09 확인).
 5. **접속**: 집 네트워크(LAN) 안에서만. 앱 포트와 MinIO 포트만 LAN에 열고, DB·Redis·Kafka·ES와 actuator 관리 포트(8081)는 호스트에 publish하지 않는다(MEM-05). 외부 접속은 **보류**한다(아래).
 6. **데이터**: Postgres·MinIO 등은 named volume. 백업은 Stage 1 범위 밖이고 회고에 남긴다.
+   - 인프라 이미지도 고정한다: 버전 태그가 있으면 태그로(예: `pgvector/pgvector:pg17`), 태그가 `latest`뿐인 이미지(`chainguard/minio`, 2026-09-11 공식 `minio/minio` 삭제 후 사용)는 **digest**(`image@sha256:...`)로. 매일 다시 빌드되는 `latest`로 두면 롤백해도 인프라 버전이 바뀐다.
 7. **스키마와 롤백**: 롤백은 이미지만 되돌린다(Flyway는 되돌리지 않는다). 따라서 **이전 버전 앱이 새 스키마에서 동작해야** 한다. 컬럼 삭제·이름 변경 같은 파괴적 마이그레이션은 "추가 → 코드 전환 → 삭제"의 두 번 이상의 배포로 나눈다.
 
 ## 고려한 대안
@@ -39,7 +41,7 @@
 ## 진화 경로: 최종 목표는 Kubernetes + 무중단 배포
 - 2026-10-07 사용자가 밝힌 최종 목표다. 원 프로젝트에서 K3s를 써 봤다(As-Is: 매니페스트가 replicas 1, HPA·Ingress·PDB 없음 — 그 결함을 고치는 것이 이번 목표의 일부).
 - **지금(1-11)은 compose + 자동 CD**로 시작한다. 그래야 파이프라인과 앱의 운영 특성(헬스체크, 환경변수 주입, graceful shutdown)을 먼저 익히고, 쿠버네티스로 옮길 때 "무엇이 좋아졌나"를 비교할 수 있다.
-- 옮기기 쉽게 **1-11에서 미리 지키는 것**: 이미지는 sha 태그, 설정은 전부 환경변수, 헬스체크 경로·포트 고정(readiness/liveness로 재사용), 앱의 종료 시 요청 마무리(`server.shutdown=graceful`, 확인 필요: Boot 4 설정 키).
+- 옮기기 쉽게 **1-11에서 미리 지키는 것**: 이미지는 sha 태그, 설정은 전부 환경변수, 헬스체크 경로·포트 고정(readiness/liveness로 재사용), 앱의 종료 시 요청 마무리(`server.shutdown=graceful` — Boot 4.1.1에서는 기본값이라 따로 켜지 않는다. 단계별 최대 대기는 `spring.lifecycle.timeout-per-shutdown-phase`, 기본 30s. 2026-10-09 jar의 설정 메타데이터로 확인).
 - **시기와 세부는 [ADR-012](ADR-012-kubernetes-zero-downtime.md)**: Stage 1 완료 후, Stage 2 시작 전(2026-10-07 결정). 노드 수·상태 서비스 위치·무중단 조건·단계(K-1~K-5)는 거기서 다룬다.
 
 ## 보류: 외부 접속

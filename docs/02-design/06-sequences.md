@@ -1,5 +1,6 @@
 # 06. 핵심 시퀀스
 
+> 2026-10-09: 로드맵·실제 모듈 API와 맞춤 — §2에 남아 있던 예치금 "보류" 잔재 삭제, 대사·만료·구독 회차의 호출 이름(`queryOutcome`, `releaseReservation`, `callBillingCharge`)과 대사 대상·보상 조건, refresh 재사용 시 폐기 범위(그 세션), 이미지 업로드 응답 필드
 > 2026-10-02: 예치금 제거 반영(체크아웃·만료·환불·구독·정산에서 wallet 삭제, §8 충전 → 상품 이미지 업로드로 교체)
 
 표기: 색 블록 = 하나의 DB 트랜잭션. 외부 호출(PG, 은행, 메일, 객체 저장소)은 항상 트랜잭션 밖이다.
@@ -49,13 +50,13 @@ sequenceDiagram
     PG-->>P: DONE
     rect rgba(80,200,120,0.15)
       P->>P: APPROVED
-      O->>O: PAID, 예약 COMMITTED, 보류 CAPTURED, 품목 PAID, outbox(order-paid)
+      O->>O: PAID, 예약 COMMITTED, 가게주문·품목 PAID, outbox(order-paid)
     end
     O-->>C: 200 PAID
   else 명확한 실패 (4xx, 거절)
     rect rgba(255,120,80,0.12)
       P->>P: FAILED
-      O->>O: PAYMENT_FAILED, 예약 RELEASED, 보류 RELEASED
+      O->>O: PAYMENT_FAILED, 예약 RELEASED, 가게주문·품목 CANCELLED
     end
     O-->>C: 402 PAYMENT_FAILED
   else 타임아웃·5xx
@@ -72,31 +73,33 @@ sequenceDiagram
   participant O as order
   participant P as payment
   participant PG as Toss API
-  J->>O: PAYMENT_IN_PROGRESS 주문 중 결제가 UNKNOWN이고 재확인 시각이 된 것
+  J->>O: PAYMENT_IN_PROGRESS로 30초 넘게 머문 주문 (updated_at 기준, 100건)
   loop 주문별
-    O->>P: reconcile(orderId)
+    O->>P: queryOutcome(orderId)
     P->>PG: GET /v1/payments/orders/{pgOrderId}
     alt 승인됨
       P->>P: UNKNOWN → APPROVED
       P-->>O: APPROVED
       rect rgba(80,200,120,0.15)
-        O->>O: PAYMENT_IN_PROGRESS → PAID, 예약·보류 확정 (이미 PAID면 무시)
+        O->>O: PAYMENT_IN_PROGRESS → PAID, 예약 확정 (이미 PAID면 무시)
       end
-      opt 완료 불가 (예: 데이터 이상)
-        O->>P: cancel(full, idempotencyKey=orderId) → PG 전액취소 + 알림
+      opt 완료 불가 (예: 데이터 이상) 이고 승인 후 5분 경과
+        O->>P: applyOutcome(APPROVED) — 승인 사실 먼저 기록
+        O->>P: cancel(orderId, 전액, idempotencyKey=order-compensate-{orderId}) → PG 전액취소
+        O->>O: DONE이면 PAYMENT_FAILED (아니면 다음 주기)
       end
     else 미승인
       P->>P: UNKNOWN → FAILED
       P-->>O: FAILED
-      O->>O: PAYMENT_IN_PROGRESS → PAYMENT_FAILED, 예약·보류 해제
+      O->>O: PAYMENT_IN_PROGRESS → PAYMENT_FAILED, 예약 해제
     else 조회도 실패
       P->>P: reconcile_attempts++
-      P-->>O: STILL_UNKNOWN (다음 주기에 재시도)
+      P-->>O: UNKNOWN (다음 주기에 재시도)
     end
   end
 ```
 - 결과를 이벤트로 알리지 않고 **주문이 결제에게 물어본다**(order → payment는 원래 허용된 의존 방향). Kafka 없이 동작하고, 누가 흐름을 책임지는지가 분명하다.
-- 추가 점검: `payment.APPROVED AND order.status = PAYMENT_IN_PROGRESS`가 5분 넘게 지속되면 완료를 재시도한다(승인 직후 로컬 완료 트랜잭션이 실패한 경우).
+- 승인 직후 로컬 완료 트랜잭션이 실패한 주문도 PAYMENT_IN_PROGRESS로 남으므로 같은 잡이 매 주기 완료를 다시 시도한다. PG 승인 시각으로부터 5분이 지나도 완료하지 못하면 위의 보상 취소로 끝낸다(로드맵 2-6).
 
 ## 3. 주문 만료 (S2)
 ```mermaid
@@ -108,7 +111,7 @@ sequenceDiagram
   loop 주문별 트랜잭션
     rect rgba(80,140,255,0.12)
       O->>O: CAS PENDING_PAYMENT → EXPIRED (0건이면 skip: 결제 진행 중)
-      O->>PR: expire(orderId) — reserved → available
+      O->>PR: releaseReservation(orderId, EXPIRED) — reserved → available, 예약 EXPIRED
       O->>O: 품목 CANCELLED + outbox(order-expired)
     end
   end
@@ -164,14 +167,15 @@ sequenceDiagram
   loop 구독별
     rect rgba(80,140,255,0.12)
       O->>O: cycle(subscription_id, cycle_date) INSERT — UK 충돌이면 오늘 이미 처리됨 → 건너뜀
-      O->>O: 적용가 결정 (pending_effective_date <= run_date면 인상가)
+      O->>O: 적용가 결정 (pending_effective_date <= cycle_date면 인상가)
       O->>O: 주문(SUBSCRIPTION) 생성 + 재고 예약
+      O->>P: begin(..., billingKeyId) — payment(IN_PROGRESS)
     end
-    alt 재고 부족
-      O->>O: cycle SKIPPED + 알림, next_run_date 다음 주기
+    alt 재고 부족·판매 중지 (위 트랜잭션 롤백)
+      O->>O: 새 트랜잭션: cycle SKIPPED + 알림, next_run_date 다음 주기
     else
-      O->>P: billingCharge(orderId, totalAmount, billingKeyId)
-      P->>PG: POST /v1/billing/{billingKey} (Idempotency-Key)
+      O->>P: callBillingCharge(paymentId, orderName) — 트랜잭션 밖
+      P->>PG: POST /v1/billing/{billingKey} (Idempotency-Key = paymentId)
       alt 성공
         O->>O: 주문 PAID, cycle PAID, failures=0, next_run_date 갱신
       else 실패
@@ -179,7 +183,7 @@ sequenceDiagram
         alt failures >= 3
           O->>O: 구독 SUSPENDED + outbox(subscription-status-changed)
         else
-          O->>O: next_run_date = 내일 (같은 회차 재시도)
+          O->>O: next_run_date = 내일 (내일 새 회차로 재시도)
         end
       else 불확실
         O->>O: 주문은 PAYMENT_IN_PROGRESS → 주문 대사 잡이 이어서 처리
@@ -248,14 +252,14 @@ sequenceDiagram
   participant S3 as MinIO (S3 호환)
   C->>PR: POST /api/shops/{shopId}/products/{id}/images/presigned-url (contentType, contentLength)
   PR->>PR: 소유자·상품 상태·이미지 개수 확인, objectKey = products/{productId}/{uuid}.{ext}
-  PR-->>C: {uploadUrl(PUT, 10분), objectKey}
-  C->>S3: PUT uploadUrl (파일 바이트) — 앱 서버를 거치지 않는다
+  PR-->>C: {uploadUrl(PUT, 10분), headers(서명된 헤더), objectKey, expiresAt}
+  C->>S3: PUT uploadUrl + headers 그대로 (파일 바이트) — 앱 서버를 거치지 않는다
   C->>PR: POST /api/shops/{shopId}/products/{id}/images (objectKey)
   PR->>S3: HEAD objectKey — 실제로 올라왔는지, 크기·타입 확인
   rect rgba(80,140,255,0.12)
     PR->>PR: product_image INSERT (sort_order 다음 번호), 첫 이미지면 thumbnail_key 설정
   end
-  PR-->>C: 201 {imageId, url}
+  PR-->>C: 201 {imageId, url, sortOrder}
 ```
 - 파일이 앱 서버를 거치지 않아 서버 메모리·대역폭을 쓰지 않는다. 대신 "올렸는데 등록 안 한" 객체가 남을 수 있다(정리는 Stage 1 범위 밖, 한계로 기록).
 
@@ -275,7 +279,7 @@ sequenceDiagram
   C->>M: POST /api/auth/refresh (refresh)
   M->>R: 세션 조회, refreshHash 비교
   alt 이미 사용된 refresh (재사용)
-    M->>R: 같은 familyId 세션 전체 폐기
+    M->>R: 그 세션 폐기 (세션 = family, 다른 기기 세션은 유지)
     M-->>C: 401 REFRESH_REUSED
   else 정상
     M->>R: 새 refresh로 교체 (회전)

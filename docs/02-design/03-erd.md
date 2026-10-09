@@ -1,5 +1,6 @@
 # 03. ERD (Stage 1)
 
+> 2026-10-09: 로드맵 4-x와 맞춤 — Redis 키 이름(`auth:email-code:{purpose}:{email}`, 쿨다운·시간당 키, OAuth 키, 세션 = family라 `familyId` 없음), `member.ban_reason`·`social_account.provider_email` 추가
 > 2026-10-02 덜어내기: 회원 역할은 단일 `role`, 주문번호·`from_cart`·`pg_call_log`·대사 백오프 컬럼·구독 재시도 회차·회차 리스·리뷰 임베딩 삭제.
 > 2026-10-02: 예치금(wallet) 제거 — wallet schema 삭제, 주문·환불·구독의 예치금 컬럼 삭제, payment는 주문 전용(`order_id` UK). 상품 이미지는 MinIO(S3 호환)에 저장하고 `product_image.object_key`만 DB에.
 
@@ -30,6 +31,7 @@ erDiagram
     varchar status "ACTIVE, BANNED, WITHDRAWN"
     varchar role "USER, SELLER, ADMIN (하나)"
     int token_version "토큰 즉시 무효화"
+    varchar ban_reason "제재 사유 (4-4)"
     timestamptz withdrawn_at
   }
   social_account {
@@ -37,6 +39,7 @@ erDiagram
     uuid member_id FK
     varchar provider "KAKAO, GOOGLE, NAVER"
     varchar provider_user_id "UK(provider, provider_user_id)"
+    varchar provider_email "제공자가 준 이메일 (없을 수 있음)"
   }
   member_address {
     uuid id PK
@@ -62,7 +65,7 @@ erDiagram
     text content
   }
 ```
-Redis: `auth:email-code:{email}`(코드, 시도 횟수, TTL 5분), `auth:email-rate:{email}`, `auth:session:{sessionId}`(memberId, familyId, refreshHash, 기기), `auth:token-version:{memberId}`, `auth:login-fail:{email}`(연속 실패 횟수, TTL 15분).
+Redis(키·TTL의 기준은 [로드맵 Part 4 공통 규칙 T](../03-roadmap/part4-auth.md)): `auth:session:{sessionId}`(memberId, refreshHash, 기기 — 세션 하나가 곧 refresh family), `auth:member-sessions:{memberId}`, `auth:email-code:{purpose}:{email}`(코드 해시, 시도 횟수, TTL 5분), `auth:email-cooldown:{email}`(60초), `auth:email-hourly:{email}`(1시간), `auth:oauth-state:{state}`, `auth:oauth-signup:{signupToken}`, `auth:token-version:{memberId}`, `auth:login-fail:{email}`(연속 실패 횟수, TTL 15분).
 - 한 회원은 비밀번호(`password_hash`)와 소셜 계정(`social_account`)을 함께 가질 수 있다. 둘 다 없는 회원은 없다.
 - 이메일 미인증 회원은 주문·결제·가게 개설 API를 쓸 수 없다(FR-MEM-09).
 - Redis는 로드맵 Part 4에서 도입한다. 그 전에는 로그인 실패 제한·refresh 세션 없이 Access 토큰만 쓴다.

@@ -1,6 +1,7 @@
 # Part 6. 리뷰 · 검색 · 추천
 
-> 버전 0.4 · 2026-10-02 · **덜어내기**: 6-3 무중단 재색인은 선택 단계로, 리뷰 임베딩 제거(요약은 단순 선택), 제재 회원 문의 허용은 제안으로, 리뷰 중복은 사전 조회로
+> 버전 0.5 · 2026-10-09 · **버전·설정 확인**: Spring Data Elasticsearch(Boot BOM 6.1.1, 클라이언트 9.4.5)에 맞춘 ES 이미지 `9.4.8`, Spring AI `2.0.1`(Boot 4.1.1 스타터에 의존)과 OpenAI 설정 키, Spring AI 2.0의 OpenAI 클라이언트가 **자체 재시도(기본 3회)**를 한다는 점(테스트의 호출 횟수에 영향), pgvector `avg` 집계를 확인해 확정. 1-10 규칙에 따라 추천 응답의 `thumbnailKey`를 `thumbnailUrl`로
+> 0.4 · 2026-10-02 · **덜어내기**: 6-3 무중단 재색인은 선택 단계로, 리뷰 임베딩 제거(요약은 단순 선택), 제재 회원 문의 허용은 제안으로, 리뷰 중복은 사전 조회로
 > 0.3 · 이 문서만 보고 개발할 수 있게 구체화(모듈 경계, ES·pgvector·OpenAI 사용 규격, 테스트 케이스)
 
 > **끝나면**: 구매확정한 상품에 리뷰를 쓰고, 키워드로 상품을 검색하고, 취향 기반 추천과 월간 리뷰 요약을 본다.
@@ -25,7 +26,7 @@
 ### X. 외부 AI·검색 호출
 - OpenAI·Elasticsearch 호출은 **트랜잭션 밖**에서 한다(공통 규칙 K). consumer에서 외부 호출이 필요하면 순서를 "중복 확인 → 외부 호출 → `InboxGuard.runOnce`로 저장"으로 한다(`runOnce`는 트랜잭션이라 그 안에서 부르면 안 된다).
 - 타임아웃: ES 2초, OpenAI 임베딩 10초·요약 60초. 테스트는 가짜 서버(JDK `HttpServer`, 2-3와 같은 방식).
-- 확인 필요: Spring Boot 4와 호환되는 Spring AI·Spring Data Elasticsearch 버전. 착수할 때 호환표를 확인하고 개발 가이드 §1.1 표에 적는다(Claude).
+- 호환 버전(2026-10-09 Maven Central 확인, 개발 가이드 §1.1 표에도 적었다): Spring Data Elasticsearch **6.1.1**(Boot 4.1.1 BOM이 관리, ES Java 클라이언트 9.4.5) / Spring AI **2.0.1**(`spring-ai-starter-model-openai` 2.0.1이 Boot 4.1.1 스타터에 의존). 착수할 때 더 새 패치가 있으면 그것으로.
 
 ### Y. 모듈 의존 (Part 6 추가분)
 
@@ -168,9 +169,9 @@ ON CONFLICT (product_id) DO UPDATE SET
 ### 할 일
 
 **1) 인프라**
-- docker-compose: `docker.elastic.co/elasticsearch/elasticsearch:{버전}` (확인 필요: Spring Data Elasticsearch가 지원하는 8.x/9.x), `discovery.type=single-node`, `xpack.security.enabled=false`, `ES_JAVA_OPTS=-Xms512m -Xmx512m`, 포트 `127.0.0.1:9200`
-- 의존성: `spring-boot-starter-data-elasticsearch` (확인 필요: Boot 4 이름), 테스트 `org.testcontainers:testcontainers-elasticsearch`
-- `IntegrationTestSupport`: `@ServiceConnection static final ElasticsearchContainer es` (보안 끄는 환경변수 동일)
+- docker-compose: `docker.elastic.co/elasticsearch/elasticsearch:9.4.8`(클라이언트 9.4.5와 같은 9.4 줄의 최신 패치, 2026-10-09 레지스트리에서 태그 확인), `discovery.type=single-node`, `xpack.security.enabled=false`, `ES_JAVA_OPTS=-Xms512m -Xmx512m`, 포트 `127.0.0.1:9200`
+- 의존성: `implementation 'org.springframework.boot:spring-boot-starter-data-elasticsearch'`(Boot 4.1.1에 있다), 테스트 `testImplementation 'org.testcontainers:testcontainers-elasticsearch'`(Testcontainers BOM 2.0.5가 관리)
+- `IntegrationTestSupport`: `@ServiceConnection static final ElasticsearchContainer es = new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:9.4.8").withEnv("xpack.security.enabled", "false")`(8.x 이후 이미지는 기본으로 보안이 켜져 있어 끈다) → `Startables.deepStart(...)`에 추가
 
 **2) search 모듈 (domain 생략, application + infrastructure, 개발 가이드 §3.3)**
 
@@ -182,7 +183,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 | `ProductEventConsumer` (consumer `search.product-upserted`) | `inboxGuard.runOnce`를 쓰지 않는다 — ES 쓰기 자체가 external version으로 멱등이고, 트랜잭션 안에서 ES를 부르면 안 되기 때문. `ProductUpsertedEvent` → `indexer.upsert(e, "products")` (+ 6-3의 재색인 대상이 있으면 거기에도) |
 
 - `product-discontinued`는 따로 구독하지 않는다. 단종도 `product-upserted`(status DISCONTINUED)가 함께 발행되기 때문이다(3-3).
-- ES 클라이언트 타임아웃: `spring.elasticsearch.connection-timeout: 2s`, `socket-timeout: 2s`
+- ES 클라이언트 타임아웃: `spring.elasticsearch.connection-timeout: 2s`, `spring.elasticsearch.socket-timeout: 2s`(Boot 4.1.1 기본값은 1s·30s, 키 이름은 jar 메타데이터로 확인)
 - ES가 내려가 있으면 consumer가 실패 → 3번 재시도 → DLT. 복구 후 7-3 운영 API로 DLT를 재처리하거나 6-3 재색인으로 맞춘다.
 
 **3) API** — `SearchController`
@@ -259,8 +260,18 @@ ON CONFLICT (product_id) DO UPDATE SET
 ### 할 일
 
 **1) 인프라·설정**
-- 의존성: Spring AI OpenAI 스타터 + BOM (확인 필요: Boot 4 호환 버전과 아티팩트 이름)
-- `spring.ai.openai.api-key: ${OPENAI_API_KEY}`, `spring.ai.openai.base-url`(테스트는 가짜 서버), 임베딩 모델 이름은 설정으로
+- 의존성: `implementation platform('org.springframework.ai:spring-ai-bom:2.0.1')`, `implementation 'org.springframework.ai:spring-ai-starter-model-openai'`(버전은 BOM). Spring AI는 Boot BOM이 관리하지 않아 BOM을 직접 import한다(1-10의 AWS SDK와 같은 방식)
+- 설정 (키 이름은 `spring-ai-autoconfigure-model-openai` 2.0.1의 메타데이터로 확인)
+
+| 키 | 값 | 이유 |
+|---|---|---|
+| `spring.ai.openai.api-key` | `${OPENAI_API_KEY}` | |
+| `spring.ai.openai.base-url` | 테스트는 가짜 서버 주소 | 확인 필요: Spring AI 2.0의 OpenAI 클라이언트가 이 값 뒤에 `/v1`을 붙이는지(공식 `openai-java` SDK 4.49.0 기반). 가짜 서버가 받은 경로를 로그로 보고 `/v1`을 base-url에 넣을지 정한다 |
+| `spring.ai.openai.embedding.options.model` | `text-embedding-3-small` | |
+| `spring.ai.openai.embedding.timeout` / `spring.ai.openai.chat.timeout` | `10s` / `60s` | 공통 규칙 X (둘 다 기본 60s) |
+| `spring.ai.openai.embedding.max-retries` / `spring.ai.openai.chat.max-retries` | `0` | **기본 3** — 클라이언트가 안에서 다시 부르면 500 한 번에 가짜 서버 호출이 4번 찍히고, 재시도는 Kafka(3-2)·잡이 이미 한다 |
+
+- `EmbeddingModel`은 스타터가 빈으로 만든다. 호출 형태: `float[] vector = embeddingModel.embed(String text)` → 아래 3)처럼 `'[0.1,0.2,...]'` 형식의 문자열로 바꿔 `CAST(? AS vector)`에 넘긴다
 - `support/FakeOpenAiServer`: `/v1/embeddings` → 입력 문자열 해시로 결정적인 1536차원 벡터를 만들어 응답, 호출 횟수 기록, 지연·500 설정 / `/v1/chat/completions` → 고정 요약 문장 (6-5)
 
 **2) 마이그레이션** — `db/migration/recommendation/V{...}__recommendation_create_tables.sql` (`CREATE SCHEMA IF NOT EXISTS recommendation; CREATE EXTENSION IF NOT EXISTS vector;`)
@@ -279,11 +290,11 @@ ON CONFLICT (product_id) DO UPDATE SET
 `RecommendationService.recommend(UUID memberId)` (`@Transactional(readOnly = true)` 아님 — Redis를 먼저 본다)
 1. Redis 캐시 있으면 반환
 2. 최근 구매 상품 ID(90일, 최대 20)
-3. 평균 벡터를 SQL로: `SELECT AVG(embedding)::text FROM recommendation.product_embedding WHERE product_id IN (...)` (pgvector는 `avg` 집계를 지원한다, 확인 필요)
+3. 평균 벡터를 SQL로: `SELECT AVG(embedding)::text FROM recommendation.product_embedding WHERE product_id IN (...)` (pgvector README의 집계 함수 표에 `avg(vector) → vector`가 있다, 2026-10-09 확인)
 4. `SELECT product_id FROM recommendation.product_embedding WHERE status = 'ACTIVE' AND product_id NOT IN (:purchased) ORDER BY embedding <=> CAST(:taste AS vector) LIMIT 20`
 5. `productApi.getForCheckout(ids)`로 이름·가격·판매 여부 → 판매 중만, 순서 유지 → Redis 저장(JSON, 30분)
 
-**4) API**: `GET /api/recommendations/me` → 200 `List<RecommendationResponse(productId, name, price, thumbnailKey)>`
+**4) API**: `GET /api/recommendations/me` → 200 `List<RecommendationResponse(productId, name, price, thumbnailUrl)>` — `getForCheckout`이 주는 `thumbnailKey`를 web에서 `ImageUrls.toUrl`로 바꾼다(1-10 규칙). Redis 캐시에는 키를 저장한다(URL은 설정에 따라 바뀔 수 있다)
 
 ### 완료 확인
 
@@ -304,7 +315,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 **정책 (이 단계에서 정함)**
 - 프롬프트에 넣는 리뷰: 좋아요 많은 순 30개 + 별점 낮은 순 10개(중복 제외, 최대 40개). 리뷰가 아무리 많아도 40개를 넘지 않는다.
-- 요약 대상: 전월(업무 날짜)에 ACTIVE 리뷰가 1개 이상 새로 생긴 상품. 요약 모델은 설정값(예: `gpt-4o-mini`, 확인 필요).
+- 요약 대상: 전월(업무 날짜)에 ACTIVE 리뷰가 1개 이상 새로 생긴 상품. 요약 모델은 설정값 `spring.ai.openai.chat.options.model`(예: `gpt-4o-mini` — 착수 시점에 OpenAI가 제공하는 저가 모델인지 확인 필요).
 - 요약 잡: 매월 1일 04:00(Asia/Seoul), 상품별 실패는 기록하고 건너뛴다.
 
 ### 할 일

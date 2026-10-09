@@ -1,7 +1,8 @@
 # 운영 환경 VM 준비 가이드 (Proxmox + Docker + Actions runner)
 
-> 버전 0.1 · 2026-10-07 · 로드맵 [1-11](../03-roadmap/part1-foundation.md)의 "0) VM 준비" 절차. 결정 근거는 [ADR-011](../adr/ADR-011-ops-practice-environment.md).
-> 이 문서의 명령은 **직접 실행해 검증한 것이 아니다.** 버전·메뉴 이름·옵션은 각 공식 문서와 대조하고, 다르면 이 문서를 고치게 알려 달라. 확인하지 못한 곳은 "확인 필요"로 표시했다.
+> 버전 0.2 · 2026-10-09 · OS 버전·ufw 우회·러너 토큰 만료·`svc.sh` 인자·포크 PR 승인 메뉴 이름을 공식 문서로 확인해 확정, `.env` 키 이름을 1-11의 `.env.ops.example`(로컬과 같은 `SPRING_DATASOURCE_*`)에 맞춤
+> 0.1 · 2026-10-07 · 로드맵 [1-11](../03-roadmap/part1-foundation.md)의 "0) VM 준비" 절차. 결정 근거는 [ADR-011](../adr/ADR-011-ops-practice-environment.md).
+> 이 문서의 명령은 VM에서 **직접 실행해 검증한 것이 아니다.** 메뉴 이름·옵션 중 공식 문서로 확인한 것은 날짜를 적었고, 확인하지 못한 곳은 "확인 필요"로 남겼다. 다르면 이 문서를 고치게 알려 달라.
 
 ## 0. 전체 순서
 
@@ -15,7 +16,7 @@ flowchart LR
 | 항목 | 값 | 이유 |
 |---|---|---|
 | 이름 | `myroutine-ops` | |
-| OS | Ubuntu Server LTS (확인 필요: 설치 시점의 최신 LTS) | Docker·GitHub 러너가 공식 지원 |
+| OS | Ubuntu Server 26.04 LTS | Docker Engine 설치 문서의 지원 목록에 22.04·24.04·26.04가 있다(2026-10-09 확인). 앱 이미지 `eclipse-temurin:25-jre`도 26.04 기반 |
 | vCPU | 8~10, CPU 타입 `host` | 호스트 16코어 중 일부는 Proxmox와 다른 VM용으로 남긴다 |
 | RAM | 약 20GB, **Ballooning 끔** | ES·Kafka가 메모리를 한 번에 잡는다. 줄었다 늘었다 하면 OOM 원인이 된다. 실사용량은 7-1(ELK) 때 측정해서 조정 |
 | 디스크 | 100GB, VirtIO SCSI, (SSD면) Discard 켬 | 이미지·Postgres·ES·MinIO 볼륨 |
@@ -56,7 +57,7 @@ sudo ufw allow from 192.168.0.0/16 to any port 8080 proto tcp
 sudo ufw allow from 192.168.0.0/16 to any port 9000 proto tcp
 sudo ufw enable
 ```
-> ⚠ **Docker가 publish한 포트는 ufw 규칙을 우회한다**(Docker가 iptables를 직접 건드린다. 확인 필요: 현재 동작은 Docker 문서의 "Packet filtering and firewalls" 참고). ufw만 믿지 말고, **compose에서 아예 publish하지 않는 것**이 1차 방어다(1-11 정책: Postgres·8081·MinIO 콘솔은 publish 없음). ufw는 2차 방어다.
+> ⚠ **Docker가 publish한 포트는 ufw 규칙을 우회한다**. Docker는 컨테이너 트래픽을 nat 테이블에서 돌려 ufw가 쓰는 INPUT·OUTPUT 체인에 닿기 전에 보낸다(Docker 문서 "Packet filtering and firewalls → Docker and ufw", 2026-10-09 확인). ufw만 믿지 말고, **compose에서 아예 publish하지 않는 것**이 1차 방어다(1-11 정책: Postgres·8081·MinIO 콘솔은 publish 없음). ufw는 2차 방어다.
 
 ## 3. Docker 설치
 
@@ -74,6 +75,7 @@ sudo systemctl enable docker              # 재부팅 후 자동 시작
 `sudo systemctl restart docker` 후 확인:
 ```bash
 docker version && docker compose version
+docker compose up --help | grep -- '--wait'   # 1-11 배포 스크립트가 쓰는 --wait, --wait-timeout이 있어야 한다
 sudo -u runner docker ps            # 권한 확인 (목록이 비어 있어도 에러가 없으면 된다)
 ```
 
@@ -88,20 +90,21 @@ sudo -u runner touch /opt/myroutine/.env && sudo chmod 600 /opt/myroutine/.env
 
 - `/opt/myroutine/.env`를 `runner` 사용자 권한으로 편집한다. **키 이름은 리포의 `.env.ops.example`이 기준**이다(1-11에서 사용자가 만든다). 들어가야 하는 값의 종류:
 
-| 종류 | 예시 키 (확인 필요: 실제 이름은 `.env.ops.example`) | 값 만드는 법 |
+| 종류 | 키 (1-11의 `.env.ops.example`과 같다) | 값 만드는 법 |
 |---|---|---|
-| DB | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | 비밀번호: `openssl rand -base64 32` |
-| JWT 서명 키 | `JWT_SECRET` 등 | `openssl rand -base64 48` |
+| DB | `SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/my_routine`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` | 로컬과 같은 이름이다. 운영 compose가 이 값으로 postgres 컨테이너도 초기화한다(`POSTGRES_USER: ${SPRING_DATASOURCE_USERNAME}`). 비밀번호: `openssl rand -base64 32` |
+| JWT 서명 키 | `JWT_SECRET` | `openssl rand -base64 48` |
 | MinIO | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | 비밀번호: `openssl rand -base64 32` |
 | 저장소 주소 | `STORAGE_ENDPOINT=http://{VM_IP}:9000`, `STORAGE_PUBLIC_BASE_URL=http://{VM_IP}:9000/myroutine` | **컨테이너 내부 주소를 쓰지 않는다**(presigned URL 때문. 1-11 §3) |
 | CORS | `CORS_ALLOWED_ORIGINS=http://{프론트 주소}` | `*` 금지 |
 
+- 배포 스크립트는 이 파일을 compose의 `--env-file`로도 넘긴다(compose 파일 안의 `${...}` 치환용. `env_file:`만으로는 치환되지 않는다, 1-11 §2).
 - 이 파일은 **리포·GitHub Secrets·이미지·채팅·이슈에 붙이지 않는다.** 비밀번호 관리자나 NAS의 암호화 폴더에 백업해 둔다.
 - `/opt/myroutine/deployed-sha`는 배포 스크립트가 만든다. 직접 만들지 않는다.
 
 ## 5. GitHub Actions 러너 설치
 
-> 러너 등록 토큰은 **짧은 시간만 유효**하다(확인 필요: 만료 시간). 화면을 연 채로 바로 진행한다.
+> 러너 등록 토큰은 **1시간 뒤 만료**된다(GitHub 문서 "Adding self-hosted runners", 2026-10-09 확인). 화면을 연 채로 바로 진행한다.
 
 1. GitHub 리포 → **Settings → Actions → Runners → New self-hosted runner** → OS `Linux`, 아키텍처 `x64`(VM에 맞게). 화면에 나오는 다운로드·설정 명령이 **최신 기준**이다. 아래는 흐름만 요약.
 2. `runner` 사용자로 전환해서 진행한다(`sudo -iu runner`).
@@ -114,7 +117,7 @@ mkdir ~/actions-runner && cd ~/actions-runner
 3. **서비스로 등록**한다(재부팅 후 자동 시작). `admin` 사용자로 돌아와서:
 ```bash
 cd /home/runner/actions-runner
-sudo ./svc.sh install runner      # 확인 필요: 인자는 서비스를 실행할 사용자
+sudo ./svc.sh install runner      # 인자 = 서비스를 실행할 사용자 (GitHub 문서 "Configuring the self-hosted runner application as a service", 2026-10-09 확인)
 sudo ./svc.sh start
 sudo ./svc.sh status
 ```
@@ -129,9 +132,9 @@ sudo ./svc.sh status
 | 위치 | 설정 |
 |---|---|
 | Settings → Environments → **New environment `ops`** | **Deployment branches**를 "Selected branches"로 `develop`, `main`만 허용 |
-| Settings → Actions → General → Fork pull request workflows | 외부 기여자의 워크플로 실행에 **승인 필요**로 설정 (확인 필요: 메뉴 문구) |
+| Settings → Actions → General → **Approval for running fork pull request workflows from contributors** | **Require approval for all external contributors** 선택 (메뉴 이름은 GitHub 문서로 2026-10-09 확인. 이 리포의 현재 값은 기본값인 first-time contributors). 기본값은 한 번이라도 머지된 사람은 승인 없이 돌기 때문에 가장 엄격한 값을 고른다 |
 | Settings → Actions → General → Workflow permissions | 기본은 **Read** 권한. 이미지 push가 필요한 job에서만 `packages: write`를 워크플로에 명시 |
-| 워크플로 파일 | `self-hosted` job이 `pull_request` 이벤트로 실행되지 않는지 확인 (1-11 완료 확인) |
+| 워크플로 파일 | `self-hosted` job이 `pull_request` 이벤트로 실행되지 않고, `cd.yml`의 `workflow_run` 조건에 `github.event.workflow_run.event == 'push'`가 있는지 확인 (1-11 §5, 완료 확인) |
 | Packages(GHCR) | 첫 이미지가 올라간 뒤 패키지 설정에서 리포와의 연결·가시성·접근 권한 확인 (확인 필요) |
 
 ## 7. 스냅샷과 백업

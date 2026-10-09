@@ -28,7 +28,7 @@
 | 판매자 | 가게를 1개 이상 보유한 회원(SELLER, 구매자 권한 포함). 상품·재고·가게주문 관리, 정산 수령 |
 | 관리자 | ADMIN. 회원 제재, 문의 답변, 운영 도구 |
 | 시스템 | 배치·스케줄러(구독 회차 실행, 예약 만료, 자동 구매확정, 정산, 결제 대사) |
-| 외부 | TossPayments(결제·빌링), OAuth(Kakao/Google/Naver), 메일, OpenAI, S3 |
+| 외부 | TossPayments(결제·빌링), OAuth(Kakao/Google/Naver), 메일, OpenAI, 객체 저장소(MinIO, S3 호환) |
 
 ## 2. 정책 결정
 | ID | 항목 | 결정 | 상태 |
