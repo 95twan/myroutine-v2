@@ -51,7 +51,7 @@
 | 메트릭 | Micrometer(actuator 기본) → Prometheus → Grafana | |
 | 보일러플레이트 | Lombok (제한적, §5.1) | |
 | ID | `uuid-creator` (UUIDv7) | |
-| 객체 저장소 | MinIO(로컬, S3 호환) + AWS SDK for Java v2 (`s3`) | 상품 이미지 presigned URL 업로드 (로드맵 1-10, 2026-10-02 승인) |
+| 객체 저장소 | MinIO(로컬, S3 호환, `chainguard/minio` 이미지) + AWS SDK for Java v2 (`s3`) | 상품 이미지 presigned URL 업로드 (로드맵 1-10, 2026-10-02 승인). 공식 `minio/minio` 이미지가 Docker Hub에서 삭제되어(2026-09-11) 이미지만 교체 |
 
 > **신규 학습 범위는 ELK, Prometheus/Grafana, k6로 한정한다.** Flyway, Spring Modulith(verify 테스트만), Testcontainers는 학습 부담이 거의 없어 포함한다. 그 외 도구(분산 트레이싱, ShedLock, WireMock, ArchUnit)는 이미 아는 방식으로 대체했다(ADR-010).
 
