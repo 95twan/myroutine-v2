@@ -1,8 +1,7 @@
 package com.myroutine.support;
 
 import com.myroutine.member.application.*;
-import com.myroutine.product.application.RegisterProductCommand;
-import com.myroutine.product.application.RegisterProductService;
+import com.myroutine.product.application.*;
 import com.myroutine.product.domain.ProductCategory;
 import com.myroutine.shop.application.OpenShopCommand;
 import com.myroutine.shop.application.OpenShopService;
@@ -10,6 +9,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.Map;
+import java.util.Random;
 import java.util.UUID;
 
 @Component
@@ -19,6 +25,7 @@ public class TestFixtures {
     private final SignupService signupService;
     private final OpenShopService openShopService;
     private final RegisterProductService registerProductService;
+    private final ProductImageService productImageService;
     private final LoginService loginService;
     private final JdbcTemplate jdbcTemplate;
 
@@ -100,6 +107,34 @@ public class TestFixtures {
 
     public void discontinueProduct(UUID productId) {
         jdbcTemplate.update("UPDATE product.product SET status = 'DISCONTINUED' WHERE id = ?", productId);
+    }
+
+    public ImageResult registerProductImage(UUID memberId, UUID shopId, UUID productId) throws Exception {
+        byte[] fileBytes = new byte[2000];
+        new Random().nextBytes(fileBytes);
+
+        UploadUrlResult issued = productImageService.issueUploadUrl(memberId, shopId, productId, "image/png", fileBytes.length);
+
+        HttpResponse<String> response = putToStorage(issued.uploadUrl(), issued.headers(), fileBytes);
+
+        if (response.statusCode() != 200) {
+            throw new IllegalStateException("저장소 업로드에 실패했습니다. status=" + response.statusCode() + ", body=" + response.body());
+        }
+
+        return productImageService.register(memberId, shopId, productId, issued.objectKey());
+    }
+
+    public HttpResponse<String> putToStorage(String uploadUrl, Map<String, String> headers, byte[] body) throws Exception {
+        HttpClient httpClient = HttpClient.newHttpClient();
+        HttpRequest.Builder putBuilder = HttpRequest.newBuilder(URI.create(uploadUrl))
+                .PUT(HttpRequest.BodyPublishers.ofByteArray(body));
+        headers.forEach((name, value) -> {
+            if (!name.equalsIgnoreCase("host") && !name.equalsIgnoreCase("content-length")) {
+                putBuilder.header(name, value);
+            }
+        });
+
+        return httpClient.send(putBuilder.build(), HttpResponse.BodyHandlers.ofString());
     }
 
 }

@@ -19,5 +19,14 @@ myroutine:
   jwt:
     secret: ${JWT_SECRET}
     access-token-ttl: 1h
+  storage:
+    endpoint: ${STORAGE_ENDPOINT:http://localhost:9000}
+    region: us-east-1
+    access-key: ${MINIO_ROOT_USER}
+    secret-key: ${MINIO_ROOT_PASSWORD}
+    bucket: myroutine
+    public-base-url: ${STORAGE_PUBLIC_BASE_URL:http://localhost:9000/myroutine}
+    upload-url-ttl: 10m
+    max-upload-bytes: 5242880
 
 logging.pattern.level: "%5p [%X{traceId:-}]"

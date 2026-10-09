@@ -1,5 +1,6 @@
 package com.myroutine.product.web;
 
+import com.myroutine.common.storage.ImageUrls;
 import com.myroutine.common.web.CursorPage;
 import com.myroutine.product.application.ProductDetailResult;
 import com.myroutine.product.application.ProductQueryService;
@@ -18,6 +19,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ProductController {
     private final ProductQueryService productQueryService;
+    private final ImageUrls imageUrls;
 
     @GetMapping
     public ResponseEntity<CursorPage<ProductSummaryResponse>> getPublicProducts(
@@ -27,12 +29,12 @@ public class ProductController {
     ) {
         CursorPage<ProductSummaryResult> result = productQueryService.getPublicProducts(category, cursor, size);
 
-        return ResponseEntity.ok(new CursorPage<>(result.items().stream().map(ProductSummaryResponse::from).toList(), result.nextCursor()));
+        return ResponseEntity.ok(new CursorPage<>(result.items().stream().map(item -> ProductSummaryResponse.from(item, imageUrls)).toList(), result.nextCursor()));
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<ProductDetailResponse> getProduct(@PathVariable UUID id) {
         ProductDetailResult result = productQueryService.getProduct(id);
-        return ResponseEntity.ok(ProductDetailResponse.from(result));
+        return ResponseEntity.ok(ProductDetailResponse.from(result, imageUrls));
     }
 }

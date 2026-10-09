@@ -1,6 +1,7 @@
 package com.myroutine.product.web;
 
 import com.myroutine.common.security.CurrentMember;
+import com.myroutine.common.storage.ImageUrls;
 import com.myroutine.common.web.CursorPage;
 import com.myroutine.product.application.*;
 import jakarta.validation.Valid;
@@ -21,6 +22,7 @@ public class SellerProductController {
     private final ProductQueryService productQueryService;
     private final UpdateProductService updateProductService;
     private final AdjustStockService adjustStockService;
+    private final ImageUrls imageUrls;
 
     @PostMapping
     public ResponseEntity<ProductIdResponse> register(@CurrentMember UUID memberId, @PathVariable UUID shopId, @RequestBody @Valid RegisterProductRequest request) {
@@ -47,7 +49,7 @@ public class SellerProductController {
             @RequestBody @Valid UpdateProductRequest request
     ) {
         ProductDetailResult result = updateProductService.update(memberId, shopId, id, request.toCommand());
-        return ResponseEntity.ok(ProductDetailResponse.from(result));
+        return ResponseEntity.ok(ProductDetailResponse.from(result, imageUrls));
     }
 
     @PatchMapping("/{id}/status")
@@ -58,7 +60,7 @@ public class SellerProductController {
             @RequestBody @Valid ChangeProductStatusRequest request
     ) {
         ProductDetailResult result = updateProductService.changeStatus(memberId, shopId, id, request.status());
-        return ResponseEntity.ok(ProductDetailResponse.from(result));
+        return ResponseEntity.ok(ProductDetailResponse.from(result, imageUrls));
     }
 
     @PostMapping("/{id}/stock-adjustments")

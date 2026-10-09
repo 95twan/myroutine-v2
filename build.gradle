@@ -37,6 +37,10 @@ dependencies {
 	implementation 'org.springframework.modulith:spring-modulith-starter-core'
 	testImplementation 'org.springframework.modulith:spring-modulith-starter-test'
 
+	implementation platform('software.amazon.awssdk:bom:2.55.13')
+	implementation 'software.amazon.awssdk:s3'
+	testImplementation 'org.testcontainers:testcontainers-minio'
+
 	implementation 'org.flywaydb:flyway-database-postgresql'
 	compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'org.postgresql:postgresql'
