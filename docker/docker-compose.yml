@@ -17,8 +17,8 @@ services:
     image: chainguard/minio:latest
     restart: unless-stopped
     ports:
-      - "9000:9000"   # S3 API 포트
-      - "9001:9001"   # 웹 콘솔 포트
+      - "127.0.0.1:9000:9000"   # S3 API 포트
+      - "127.0.0.1:9001:9001"   # 웹 콘솔 포트
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
