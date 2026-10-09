@@ -1,6 +1,7 @@
 # Part 1. 뼈대와 첫 기능
 
-> 버전 0.19 · 2026-10-09 · **1-10 MinIO 이미지 교체·구체화**(실제 코드와 대조해 `ImageResult`의 url/key 불일치, `SellerProductResponse`에 없는 썸네일 필드, 단종 상품 이미지 삭제 규칙 누락, `TransactionTemplate`·`BucketInitializer`·상세 조회 이미지 로딩 설명 부족을 고쳤다). 1-1~1-9는 구현된 코드와 맞췄다(설정 파일 `.yaml`·환경변수 이름, 테스트 메서드 camelCase, `TestFixtures` 이름, 확정된 jjwt·Modulith·AWS SDK 버전, 가리키는 곳이 없는 `:113` 참조): 공식 `minio/minio`가 2026-09-11 Docker Hub에서 삭제되어(소스만 배포) `chainguard/minio`로 바꿨다(호환 확인 완료). 의존성 버전 확정, 단계의 목적·흐름과 `S3ObjectStorage`의 호출 형태·반환 타입·예외를 풀어 적었다
+> 버전 0.20 · 2026-10-09 · **1-11 구체화·사실 확인**: 운영 MinIO는 `chainguard/minio`를 digest로 고정하고 `mc ready local`로 헬스체크(직접 실행해 확인), JRE 이미지(`eclipse-temurin:25-jre`)에 curl이 없음을 확인해 설치하도록 정함, compose 변수 치환에 `--env-file`이 필요한 점, 관리 포트(8081)를 호스트에서 못 부르는 점, `workflow_run`이 포크 PR의 CI 완료에도 실행되는 점과 거르는 조건, 배포 job에 checkout이 빠진 점, 운영 `.env` 키 이름(로컬과 같은 `SPRING_DATASOURCE_*`)을 고치고 deploy.sh·워크플로·CORS를 호출 형태 수준으로 풀어 적었다
+> 0.19 · 2026-10-09 · **1-10 MinIO 이미지 교체·구체화**(실제 코드와 대조해 `ImageResult`의 url/key 불일치, `SellerProductResponse`에 없는 썸네일 필드, 단종 상품 이미지 삭제 규칙 누락, `TransactionTemplate`·`BucketInitializer`·상세 조회 이미지 로딩 설명 부족을 고쳤다). 1-1~1-9는 구현된 코드와 맞췄다(설정 파일 `.yaml`·환경변수 이름, 테스트 메서드 camelCase, `TestFixtures` 이름, 확정된 jjwt·Modulith·AWS SDK 버전, 가리키는 곳이 없는 `:113` 참조): 공식 `minio/minio`가 2026-09-11 Docker Hub에서 삭제되어(소스만 배포) `chainguard/minio`로 바꿨다(호환 확인 완료). 의존성 버전 확정, 단계의 목적·흐름과 `S3ObjectStorage`의 호출 형태·반환 타입·예외를 풀어 적었다
 > 0.18 · 2026-10-09 · **1-9 멱등 INSERT 근거 보강**: `restore`에서 이력 INSERT를 UPDATE보다 먼저 하는 이유(행 락은 줄 세울 뿐 중복을 판정하지 못함, `ON CONFLICT DO NOTHING`은 예외·롤백이 없음)와 `insertReservation`은 일반 INSERT, `insertMovement`는 `ON CONFLICT DO NOTHING`인 이유를 적었다
 > 0.17 · 2026-10-09 · **1-9 `ProductApiImplTest` 완료 확인에 release 성공 경로·restore 사전 조건 실패 추가**: 기존 케이스는 "COMMITTED를 release하면 변화 없음"뿐이라 `HELD → RELEASED/EXPIRED`와 `stock.release`(INV-04: 해제·만료된 예약의 재고는 가용재고로 복귀)를 실행하는 테스트가 없었다. `restore`의 사전 조건 실패(예약 상태, 수량 범위)도 구현 규격에 있으나 검증이 없어 추가했다
 > 0.16 · 2026-10-09 · **CAS 전용 상태 예외를 개발 가이드와 맞춤**: 개발 가이드 §5.4 근처에 같은 예외를 추가했고(전이표·전이 테스트를 두지 않는 대신 CAS 호출 서비스의 통합 테스트로 검증), `ReservationStatus` 행의 문장을 읽기 쉽게 고쳤다
@@ -1437,10 +1438,10 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 ### 할 일
 
 **1) 인프라**
-- **이미지**: `chainguard/minio:latest`. 공식 `minio/minio`는 2026-09-11 Docker Hub에서 삭제됐다(MinIO가 소스만 배포). Chainguard는 같은 MinIO 소스를 빌드한 이미지라 API·정책 JSON·`S3Client` 코드가 그대로 맞는다. Docker Hub `chainguard/minio`에는 `latest`·`latest-dev` 태그만 있어(2026-10-09 확인) 버전을 고정하지 못한다 — 로컬·테스트 용도라 감수하고, 1-11 배포 때 다시 정한다
+- **이미지**: `chainguard/minio:latest`. 공식 `minio/minio`는 2026-09-11 Docker Hub에서 삭제됐다(MinIO가 소스만 배포). Chainguard는 같은 MinIO 소스를 빌드한 이미지라 API·정책 JSON·`S3Client` 코드가 그대로 맞는다. Docker Hub `chainguard/minio`에는 `latest`·`latest-dev` 태그만 있어(2026-10-09 확인) 버전을 고정하지 못한다 — 로컬·테스트 용도라 감수한다. 운영(1-11)은 같은 이미지를 **digest로 고정**한다
 - `docker-compose`: 위 이미지, `command: server /data --console-address ":9001"`, 환경변수 `MINIO_ROOT_USER=${MINIO_ROOT_USER}`, `MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}`, 포트 `127.0.0.1:9000:9000`(API), `127.0.0.1:9001:9001`(콘솔), named volume
 - `.env.example`에 `MINIO_ROOT_USER=`, `MINIO_ROOT_PASSWORD=`
-- 의존성: `implementation platform('software.amazon.awssdk:bom:2.55.13')`(2026-10-09 Maven Central 최신), `implementation 'software.amazon.awssdk:s3'`(버전은 BOM이 정한다), `testImplementation 'org.testcontainers:testcontainers-minio'`(버전 생략: Spring Boot BOM이 관리하는 것으로 보이지만 확인 필요 — 해석이 안 되면 `2.0.5`를 명시). AWS SDK는 Spring Boot BOM이 관리하지 않아 BOM을 직접 import한다
+- 의존성: `implementation platform('software.amazon.awssdk:bom:2.55.13')`(2026-10-09 Maven Central 최신), `implementation 'software.amazon.awssdk:s3'`(버전은 BOM이 정한다), `testImplementation 'org.testcontainers:testcontainers-minio'`(버전 생략: Boot 4.1.1 BOM이 import하는 `testcontainers-bom` 2.0.5에 들어 있다, 2026-10-09 Maven Central의 pom으로 확인). AWS SDK는 Spring Boot BOM이 관리하지 않아 BOM을 직접 import한다
 - **호환 확인 결과**(2026-10-09, `chainguard/minio`, SDK 기본 설정): 기동·`/data` 쓰기 정상, presigned PUT 서명 그대로 200 / 다른 Content-Type·다른 크기 403(`SignatureDoesNotMatch`), `putBucketPolicy`, 익명 GET(`products/*` 200, 밖 403), HEAD(없는 키 `NoSuchKeyException` 404), DELETE 정상. 서명 헤더는 `content-length`·`host`·`content-type`. SDK 기본 체크섬 때문에 서명이 깨지는 문제는 없었다. 다른 저장소로 바꿀 때 같은 항목을 다시 확인한다
 
 **2) common.storage** (모든 모듈이 쓸 수 있는 저장소 포트)
@@ -1613,6 +1614,16 @@ curl -s -X POST localhost:8080/api/shops/$SHOP/products/$PRODUCT/images/presigne
 
 **왜 지금**: Postgres(1-1)와 MinIO(1-10)까지 있어 "최소 풀스택"이 갖춰졌다. 여기서 배포 파이프라인을 만들어 두면 Kafka(Part 3)·Redis(Part 4)·ES(Part 6)는 compose에 서비스를 추가하는 것만으로 같은 파이프라인에 올라탄다. 늦추면 환경 차이 문제(접속 주소, 시크릿 주입)를 한꺼번에 만난다.
 
+**흐름**: 아래 할 일 1)~5)가 각각 한 칸이다.
+```
+develop 머지 → CI(ci.yml, GitHub 호스티드 러너) 성공
+  → cd.yml 시작 (workflow_run)                                             (5)
+     ① build-image  호스티드 러너: 그 sha로 이미지 빌드 → ghcr.io/95twan/myroutine:{sha} push   (1)
+     ② deploy       VM의 self-hosted 러너: 리포 checkout → scripts/deploy.sh {sha}            (4)
+          → 운영 compose로 새 이미지 기동, 헬스체크 통과까지 대기                             (2)(3)
+          → 스모크 성공: deployed-sha 갱신 / 실패: 직전 sha로 다시 기동, Actions 빨간불
+```
+
 **새로 등장**
 
 | 개념·도구 | 한 줄 설명 | 더 읽을 곳 |
@@ -1623,11 +1634,11 @@ curl -s -X POST localhost:8080/api/shops/$SHOP/products/$PRODUCT/images/presigne
 | GitHub Environment | 배포 job이 쓰는 환경 이름(`ops`). 배포할 수 있는 브랜치를 제한한다 | |
 | 헬스체크 + 롤백 | 배포 직후 앱이 정상인지 확인하고, 아니면 직전 이미지로 되돌린다 | |
 
-> **왜 public 리포에서 self-hosted runner가 위험한가**: 누구나 포크해서 PR을 올릴 수 있고, 그 PR의 워크플로가 **내 VM에서** 실행되면 외부 코드가 집 네트워크 안에서 돈다. 그래서 배포 job은 `pull_request`로 실행되지 않게 하고 브랜치를 제한한다.
+> **왜 public 리포에서 self-hosted runner가 위험한가**: 누구나 포크해서 PR을 올릴 수 있고, 그 PR의 워크플로가 **내 VM에서** 실행되면 외부 코드가 집 네트워크 안에서 돈다. 그래서 배포 job은 `pull_request`로 실행되지 않게 하고, `workflow_run`의 원인이 develop **push**인지 확인하고(5)), 브랜치를 제한한다.
 
 **정책 (이 단계에서 정함)**
-- 배포 대상: `develop` push. 트리거는 CI 성공 이후(`workflow_run`)와 수동(`workflow_dispatch`, 입력 `sha`). `main` 릴리스(태그)는 배포와 별개다.
-- 이미지: `ghcr.io/{owner}/myroutine:{전체 sha}`. 배포는 항상 **sha 태그**로 한다(`latest`로 배포하지 않는다 — 어떤 버전이 떠 있는지 모호해지고 롤백이 안 된다).
+- 배포 대상: `develop` push. 트리거는 `develop` push로 돈 CI가 성공한 뒤(`workflow_run`)와 수동(`workflow_dispatch`, 입력 `sha`). `main` 릴리스(태그)는 배포와 별개다.
+- 이미지: `ghcr.io/95twan/myroutine:{전체 sha}`(GHCR 이름은 소문자만). 배포는 항상 **sha 태그**로 한다(`latest`로 배포하지 않는다 — 어떤 버전이 떠 있는지 모호해지고 롤백이 안 된다).
 - 프로필: 기존 `prod`를 쓴다(새 이름을 만들지 않는다). 이 VM이 `prod` 설정의 대상이다.
 - 시크릿: VM의 `/opt/myroutine/.env`(사람이 한 번 만든다). 리포·GitHub Secrets·이미지에 넣지 않는다. 키 이름 목록은 `.env.ops.example`에 둔다.
 - 노출: 앱(8080)과 MinIO API(9000)만 LAN에 연다. **Postgres·actuator 관리 포트(8081)·MinIO 콘솔은 호스트에 publish하지 않는다.**
@@ -1636,41 +1647,83 @@ curl -s -X POST localhost:8080/api/shops/$SHOP/products/$PRODUCT/images/presigne
 
 ### 할 일
 
-**0) VM 준비 (사용자, Claude가 `docs/ops/vm-setup.md`를 먼저 써 준다)**
+**0) VM 준비 (사용자, 절차는 [`docs/ops/vm-setup.md`](../ops/vm-setup.md))**
 - Proxmox에 Ubuntu Server VM 생성(RAM 약 20GB, vCPU는 호스트 여유에 맞춰), 고정 IP(DHCP 예약), Docker Engine + compose 플러그인 설치
 - 전용 사용자(비root, docker 그룹)로 GitHub Actions runner를 설치하고 **systemd 서비스**로 등록, 러너 라벨 `ops`
 - `/opt/myroutine/.env` 작성(권한 600), 배포 상태 파일 경로 `/opt/myroutine/deployed-sha`
 
-**1) 앱 이미지**
-- `docker/Dockerfile`: 멀티 스테이지(Java 25 temurin). 실행 이미지는 JRE, **비root 사용자**, `bootJar` 결과만 복사. `.dockerignore`로 `.git`·`build`·`.env*` 제외
-- 이미지에 설정값·시크릿을 굽지 않는다(전부 환경변수)
+**1) 앱 이미지** — `docker/Dockerfile` + 리포 루트 `.dockerignore`(`.git`, `build`, `.gradle`, `.env*` 제외)
+
+| 스테이지 | 규격 |
+|---|---|
+| 빌드 | `FROM eclipse-temurin:25-jdk AS build` → 소스 복사 → `./gradlew bootJar --no-daemon` → 결과 `build/libs/myroutine-0.0.1-SNAPSHOT.jar`(`rootProject.name` + version). 같은 폴더의 `*-plain.jar`는 실행할 수 없는 jar라 복사하지 않는다 |
+| 실행 | `FROM eclipse-temurin:25-jre` → `apt-get install -y --no-install-recommends curl`(헬스체크용, 아래 참고) → 전용 사용자 `useradd --system --uid 10001 app` 후 `USER app` → jar만 복사 → `ENTRYPOINT ["java", "-jar", "/app/app.jar"]`, `EXPOSE 8080 8081` |
+
+- `eclipse-temurin:25-jre`(2026-10-09 기준 Ubuntu 26.04 기반)에는 **curl·wget이 없다**(직접 확인). 그래서 실행 스테이지에서 curl을 설치한다. 이미지에 기본으로 있는 `ubuntu` 사용자는 sudo 그룹이라 쓰지 않는다.
+- 이미지에 설정값·시크릿을 굽지 않는다(전부 환경변수). `SPRING_PROFILES_ACTIVE`도 compose에서 준다.
 
 **2) 운영 compose** — `docker/docker-compose.ops.yml` (로컬 `docker-compose.yml`과 분리)
 
 | 서비스 | 규격 |
 |---|---|
-| `app` | `image: ghcr.io/{owner}/myroutine:${IMAGE_TAG}`, `env_file: /opt/myroutine/.env`, `SPRING_PROFILES_ACTIVE=prod`, 포트 `8080:8080`, `restart: unless-stopped`, `depends_on: postgres(service_healthy)`, 헬스체크(관리 포트 8081의 `/actuator/health` — 확인 필요: JRE 이미지에는 curl이 없을 수 있다. 쓸 수 있는 도구로 정한다) |
-| `postgres` | 로컬과 같은 이미지·버전, named volume, **호스트 포트 없음**, `pg_isready` 헬스체크 |
-| `minio` | 로컬과 같은 이미지, named volume, API 포트 `9000:9000`(LAN), 콘솔은 publish하지 않는다 |
+| `app` | `image: ghcr.io/95twan/myroutine:${IMAGE_TAG}`(GHCR 이름은 소문자), `env_file: /opt/myroutine/.env`, `environment: SPRING_PROFILES_ACTIVE: prod`, 포트 `8080:8080`만, `restart: unless-stopped`, `depends_on`: `postgres`·`minio` 모두 `condition: service_healthy`(MinIO가 늦게 뜨면 1-10의 `BucketInitializer`가 실패해 앱이 안 뜬다), `healthcheck: test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health"]`, `interval: 10s`, `timeout: 3s`, `retries: 6`, `start_period: 60s`(Flyway·기동 시간) |
+| `postgres` | 로컬과 같은 `pgvector/pgvector:pg17`, 환경변수는 로컬 compose와 같게 `POSTGRES_USER: ${SPRING_DATASOURCE_USERNAME}`, `POSTGRES_PASSWORD: ${SPRING_DATASOURCE_PASSWORD}`, `POSTGRES_DB: my_routine`, named volume, **`ports` 없음**, `healthcheck: test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d my_routine"]` |
+| `minio` | 로컬과 같은 이미지를 **digest로 고정**: `chainguard/minio@sha256:f74600a1a46330cdbda1ef760d17a96bd6e0f4a6f0a2c49792ca3ee7e4c6fa18`(2026-10-09의 `latest`, MinIO `RELEASE.2026-09-22T19-25-18Z`). `command: server /data --console-address ":9001"`, `MINIO_ROOT_USER: ${MINIO_ROOT_USER}`, `MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}`, named volume `/data`, 포트 `9000:9000`만(콘솔 9001은 publish하지 않는다), `healthcheck: test: ["CMD", "mc", "ready", "local"]` |
 
+- **digest로 고정하는 이유**: `chainguard/minio`는 `latest`·`latest-dev` 태그만 있고 매일 다시 빌드된다. 태그로 두면 재배포·롤백 때마다 다른 MinIO가 뜰 수 있다. 올릴 때는 `docker pull chainguard/minio:latest` → `docker image inspect --format '{{index .RepoDigests 0}}' chainguard/minio:latest`로 새 digest를 얻어 이 파일을 고치는 커밋을 만든다(로컬 compose는 `latest` 그대로).
+- MinIO 이미지 확인 결과(2026-10-09, 위 digest): 실행 사용자 uid 65532(비root)이고 named volume `/data` 쓰기는 정상이다. 이미지에 `mc`는 있고 `curl`은 없다. `mc ready local`은 서버가 준비될 때까지 기다렸다가 0으로 끝나는 것을 직접 확인했다(`local`은 `mc`에 기본으로 들어 있는 `http://localhost:9000` 별칭).
+- **변수 치환 주의**: `env_file:`은 **컨테이너 안**의 환경변수만 채운다. compose 파일 안의 `${SPRING_DATASOURCE_USERNAME}` 같은 치환은 셸 환경변수나 `--env-file`로 준 파일에서만 읽는다(로컬에서 `--env-file .env.local`을 붙이는 이유와 같다). 그래서 4)의 스크립트는 항상 `--env-file /opt/myroutine/.env`를 붙인다. `IMAGE_TAG`는 셸 환경변수로 주며, 셸 값이 `--env-file` 값보다 우선한다.
 - Part 3 이후 인프라가 늘어나면 이 파일에 서비스를 추가한다. 관측 스택은 `profiles: ["observability"]`로 분리한다([아키텍처 §6](../02-design/02-architecture-stage1.md)).
 
-**3) 운영 설정** — `application-prod.yaml` + `.env`
-- 외부에서 달라지는 값은 모두 환경변수: DB 접속 정보, JWT 키, MinIO 계정, `STORAGE_ENDPOINT`, `STORAGE_PUBLIC_BASE_URL`, `CORS_ALLOWED_ORIGINS`
-- ⚠ **presigned URL의 호스트는 `STORAGE_ENDPOINT`로 서명된다.** 컨테이너 내부 주소(`http://minio:9000`)로 두면 클라이언트가 받은 업로드 URL을 열 수 없다. 운영에서는 `STORAGE_ENDPOINT=http://{VM LAN IP}:9000`, `STORAGE_PUBLIC_BASE_URL=http://{VM LAN IP}:9000/myroutine`로 둔다(앱도 같은 주소로 MinIO에 접근한다).
-- **CORS**: 지금까지 없었다. `myroutine.web.cors-allowed-origins`(`@ConfigurationProperties` + `@Validated`, 비어 있으면 허용 없음)를 만들고 Security에 연결한다. `*`는 쓰지 않는다(NFR-SEC-04, 개발 가이드 §15). 프론트가 어디서 뜨든 이 설정만 바꾸면 된다.
+**3) 운영 설정** — `application-prod.yaml` + `/opt/myroutine/.env` + 키 이름만 적은 `.env.ops.example`(커밋)
 
-**4) 배포 스크립트** — `scripts/deploy.sh {sha}`
-1. 현재 `deployed-sha`를 `PREV`로 읽는다(없으면 첫 배포)
-2. `IMAGE_TAG={sha} docker compose -f docker/docker-compose.ops.yml up -d --wait`(확인 필요: `--wait`가 헬스체크 통과까지 기다리는 버전인지)
-3. 성공하면 `deployed-sha`를 `{sha}`로 갱신, 이후 `scripts/smoke.sh`(health UP + 상품 목록 200) 실행
-4. 실패하면 `PREV`로 다시 `up -d`, 종료 코드 1(Actions가 빨간불)
+`.env.ops.example`의 키 (`application.yaml`이 이미 읽는 이름을 그대로 쓴다. 새 이름을 만들지 않는다)
+
+| 키 | 운영 값의 형태 |
+|---|---|
+| `SPRING_DATASOURCE_URL` | `jdbc:postgresql://postgres:5432/my_routine` (compose 서비스 이름이 호스트 이름) |
+| `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` | 앱 접속과 postgres 컨테이너 초기화에 함께 쓴다(2)의 `postgres` |
+| `JWT_SECRET` | `openssl rand -base64 48` |
+| `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | 앱의 `myroutine.storage.access-key`·`secret-key`와 minio 컨테이너가 함께 쓴다 |
+| `STORAGE_ENDPOINT`, `STORAGE_PUBLIC_BASE_URL` | `http://{VM LAN IP}:9000`, `http://{VM LAN IP}:9000/myroutine` (아래 ⚠) |
+| `CORS_ALLOWED_ORIGINS` | 쉼표로 구분한 오리진 목록, 예: `http://192.168.0.20:5173` |
+
+- ⚠ **presigned URL의 호스트는 `STORAGE_ENDPOINT`로 서명된다.** 컨테이너 내부 주소(`http://minio:9000`)로 두면 클라이언트가 받은 업로드 URL을 열 수 없다. 앱도 같은 LAN 주소로 MinIO에 접근한다(포트 9000이 publish돼 있으므로 컨테이너에서도 닿는다).
+- `application-prod.yaml`: `myroutine.web.cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:}`. 그 외 값은 이미 `application.yaml`이 환경변수로 읽으므로 다시 적지 않는다. graceful shutdown은 Boot 4.1.1 기본값(`server.shutdown=graceful`, 단계별 대기 `spring.lifecycle.timeout-per-shutdown-phase=30s`, 2026-10-09 jar 메타데이터로 확인)이라 설정하지 않는다.
+- **CORS** (지금까지 없었다. `*`는 쓰지 않는다 — NFR-SEC-04, 개발 가이드 §15)
+
+| 대상 | 규격 |
+|---|---|
+| `common.security.CorsProperties` | `@ConfigurationProperties("myroutine.web") @Validated record (List<String> corsAllowedOrigins)` — 쉼표로 구분한 문자열은 Boot가 `List`로 바꿔 준다. `null`이면 `List.of()`로 본다. 등록은 `JwtProperties`처럼 `SecurityConfig`의 `@EnableConfigurationProperties`에 추가한다 |
+| `SecurityConfig` | `@Bean CorsConfigurationSource`: `CorsConfiguration`에 `setAllowedOrigins(origins)`, `setAllowedMethods(List.of("GET","POST","PATCH","DELETE","OPTIONS"))`, `setAllowedHeaders(List.of("Authorization","Content-Type","Idempotency-Key"))`, `setExposedHeaders(List.of("X-Request-Id"))` → `UrlBasedCorsConfigurationSource.registerCorsConfiguration("/api/**", config)`. 체인에 `http.cors(Customizer.withDefaults())`(같은 이름의 빈을 찾아 쓴다). 목록이 비어 있으면 어떤 오리진도 허용되지 않는다 |
+| 테스트 | `SecurityConfig` 쪽 MockMvc 1건: 허용 오리진의 preflight(`OPTIONS` + `Origin` + `Access-Control-Request-Method`) → 200과 `Access-Control-Allow-Origin`, 다른 오리진 → 403 |
+
+**4) 배포 스크립트** — `scripts/deploy.sh {sha}`, `scripts/smoke.sh` (리포 루트 기준 경로, `set -euo pipefail`)
+
+공통: `COMPOSE="docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml"`
+
+1. `PREV=$(cat /opt/myroutine/deployed-sha 2>/dev/null || true)` — 비어 있으면 첫 배포
+2. `IMAGE_TAG={sha} $COMPOSE up -d --wait --wait-timeout 180` — `--wait`는 모든 서비스가 running(헬스체크가 있으면 healthy)이 될 때까지 기다리고, 실패하면 0이 아닌 종료 코드를 낸다(로컬 Docker Compose v5.5.1의 `up --help`로 확인. VM에 설치한 버전에서 `docker compose up --help | grep wait`로 한 번 더 본다)
+3. `scripts/smoke.sh` — 관리 포트 8081은 호스트에 publish하지 않으므로 호스트에서 `curl localhost:8081`은 안 된다. 컨테이너 안에서 부른다: `$COMPOSE exec -T app curl -fsS http://localhost:8081/actuator/health`, 공개 API는 호스트에서 `curl -fsS http://localhost:8080/api/products`
+4. 2·3이 모두 성공하면 `echo {sha} > /opt/myroutine/deployed-sha`, 종료 코드 0
+5. 2·3 중 하나라도 실패하면: `PREV`가 있으면 `IMAGE_TAG=$PREV $COMPOSE up -d --wait` → 종료 코드 1(Actions 빨간불, `deployed-sha`는 그대로). `PREV`가 없으면 되돌릴 버전이 없으므로 그냥 종료 코드 1
+
+- `set -e` 아래에서 실패를 잡아 5로 가려면 2·3을 `if ! ...; then rollback; fi` 형태로 감싼다.
 
 **5) 워크플로** — `.github/workflows/cd.yml`
-- `build-image` job: `ubuntu-latest`. checkout(대상 sha) → GHCR 로그인(`GITHUB_TOKEN`, 권한 `packages: write`) → 이미지 빌드·push(`:{sha}`)
-- `deploy` job: `runs-on: [self-hosted, ops]`, `needs: build-image`, `environment: ops`, **`pull_request` 이벤트에서는 실행되지 않음**. GHCR 로그인(`packages: read`) → `scripts/deploy.sh {sha}`
-- `concurrency: { group: deploy, cancel-in-progress: false }`: 배포가 겹치지 않게 한다
-- 저장소 설정: Environment `ops`의 배포 브랜치를 `develop`·`main`으로 제한, 외부 기여자 워크플로는 승인 후 실행(확인 필요: 설정 이름)
+
+| 항목 | 규격 |
+|---|---|
+| 트리거 | `on: workflow_run: { workflows: ["CI"], types: [completed], branches: [develop] }` + `workflow_dispatch: { inputs: { sha: { required: true } } }`. `"CI"`는 `ci.yml`의 `name:` 값이다 |
+| 대상 sha | `SHA: ${{ github.event.workflow_run.head_sha || inputs.sha }}` (workflow 수준 `env`) |
+| 실행 조건 (두 job 모두) | `if: github.event_name == 'workflow_dispatch' \|\| (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')` |
+| `concurrency` | `{ group: deploy, cancel-in-progress: false }`: 배포가 겹치지 않게 한다 |
+| `build-image` | `runs-on: ubuntu-latest`, `permissions: { contents: read, packages: write }`. `actions/checkout`(`ref: ${{ env.SHA }}`) → `echo "${{ secrets.GITHUB_TOKEN }}" \| docker login ghcr.io -u ${{ github.actor }} --password-stdin` → `docker build -f docker/Dockerfile -t ghcr.io/95twan/myroutine:$SHA .` → `docker push` |
+| `deploy` | `needs: build-image`, `runs-on: [self-hosted, ops]`, `environment: ops`, `permissions: { contents: read, packages: read }`. `actions/checkout`(`ref: ${{ env.SHA }}` — compose 파일과 스크립트가 리포에 있으므로 **배포 job도 checkout이 필요하다**) → GHCR 로그인(같은 방식) → `scripts/deploy.sh $SHA` |
+
+- ⚠ **`workflow_run`은 포크에서 온 PR의 CI가 끝나도 실행된다.** 이때 워크플로 파일은 기본 브랜치(develop)의 것이 쓰이고 저장소 권한으로 돈다. 그래서 위 실행 조건의 `workflow_run.event == 'push'`가 필수다(PR로 돈 CI는 `event`가 `pull_request`). `branches: [develop]` 필터만으로는 부족하다 — 포크의 브랜치 이름도 `develop`일 수 있다.
+- `cd.yml`에는 `pull_request`·`pull_request_target` 트리거를 두지 않는다.
+- 저장소 설정(사람이 한 번): Environment `ops`의 배포 브랜치를 `develop`·`main`으로 제한, Settings → Actions → General → **Approval for running fork pull request workflows from contributors**를 **Require approval for all external contributors**로(2026-10-09 GitHub 문서로 메뉴 이름 확인. 이 리포의 현재 값은 `first_time_contributors` — `gh api repos/95twan/myroutine-v2/actions/permissions/fork-pr-contributor-approval`로 확인했다)
 
 **6) 문서 (Claude)**: `docs/ops/vm-setup.md`(VM 준비 절차), 7-5의 README에 "운영 환경과 배포 흐름" 절 포함
 
@@ -1684,7 +1737,7 @@ curl -s -X POST localhost:8080/api/shops/$SHOP/products/$PRODUCT/images/presigne
 | [ ] 자동 롤백 | 일부러 부팅이 실패하는 커밋(예: 필수 환경변수 누락)을 머지 → 헬스체크 실패 → Actions 빨간불 → 앱은 직전 sha로 계속 응답, `deployed-sha` 그대로 (확인 후 되돌림, PR에 로그) |
 | [ ] 수동 배포 | `workflow_dispatch`에 이전 sha 입력 → 그 버전으로 교체 |
 | [ ] 마이그레이션 | 마이그레이션이 든 배포 후 `flyway_schema_history`에 새 버전이 있다 |
-| [ ] 포크 PR 안전 | `pull_request`로 실행되는 워크플로에 `self-hosted` job이 없다(파일 점검) + Environment 배포 브랜치 제한 설정 스크린샷 |
+| [ ] 포크 PR 안전 | `pull_request`로 실행되는 워크플로에 `self-hosted` job이 없고, `cd.yml`의 실행 조건에 `workflow_run.event == 'push'`가 있다(파일 점검) + PR을 하나 올려 CI가 끝난 뒤 CD가 **건너뜀(skipped)**으로 표시되는 것 + Environment 배포 브랜치 제한·포크 승인 설정 스크린샷 |
 | [ ] 시크릿 | `git ls-files`·GitHub Secrets·`docker history`에 운영 `.env` 값이 없다 |
 | [ ] 재부팅 복구 | VM 재부팅 후 러너 서비스와 compose가 사람 개입 없이 올라온다 |
 | [ ] 러너 권한 | 러너 서비스가 root가 아닌 전용 사용자로 돈다 |
@@ -1694,6 +1747,7 @@ curl -s -X POST localhost:8080/api/shops/$SHOP/products/$PRODUCT/images/presigne
 
 **리뷰 때 물어볼 것**
 - public 리포에서 self-hosted runner가 위험한 이유는? 어떤 설정이 그걸 막나? 그래도 남는 위험은?
+- `workflow_run`에 `branches: [develop]`만 걸고 `event == 'push'` 조건을 빼면 어떤 PR이 VM에 배포될 수 있나?
 - 이미지를 `latest`가 아니라 sha로 배포하는 이유는? 롤백이 어떻게 달라지나?
 - 새 버전이 마이그레이션을 포함하고 헬스체크에 실패해 이미지가 롤백되면, DB는 어떤 상태인가? 이전 앱은 그 DB에서 동작하나?
 - presigned URL의 호스트를 컨테이너 내부 주소로 두면 무슨 일이 생기나?

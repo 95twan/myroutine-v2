@@ -1,6 +1,7 @@
 # ADR-012. Stage 1.5: Kubernetes(k3s) 전환과 무중단 배포
 
 - 상태: **시기 승인 (2026-10-07), 세부는 제안.** 세부(노드 수, 상태 서비스 위치, 도구)는 이 단계를 시작하기 전에 다시 확인하고 확정한다. 이 문서의 "확인 필요"는 직접 검증하지 못한 내용이다.
+- 2026-10-09: Boot 4.1.1의 probe·graceful shutdown 기본값, kubectl 내장 Kustomize, MinIO(Chainguard 이미지) 헬스 경로를 확인해 반영했다.
 - 관련: [ADR-011](ADR-011-ops-practice-environment.md), [01-architecture-evolution](../02-design/01-architecture-evolution.md), NFR-REL
 
 ## 맥락
@@ -13,8 +14,10 @@
 ## 결정 (제안 포함)
 1. **시기**: Stage 1.5로 `v1.0.0` 이후, Stage 2 시작 전. Stage 2 Baseline(2-1)은 k3s 환경에서 측정한다.
 2. **클러스터**: 새 VM(`myroutine-k3s`)에 **k3s 단일 노드**. compose VM은 전환 완료 후 정지(삭제하지 않고 스냅샷 유지). 노드 장애 대응(HA)은 목표가 아니다 — **"앱 배포 중 무중단"**이 목표다. 멀티 노드는 24GB 호스트에서 인프라 전체를 함께 올리기 어렵다(확인 필요: 실측).
-3. **매니페스트**: plain YAML + `kubectl apply -k`(Kustomize는 kubectl 내장, 확인 필요). Helm·Operator는 쓰지 않는다(새 도구를 더 늘리지 않는다).
+3. **매니페스트**: plain YAML + `kubectl apply -k`(Kustomize는 kubectl 1.14부터 내장 — Kubernetes 문서 "Declarative Management of Kubernetes Objects Using Kustomize", 2026-10-09 확인). Helm·Operator는 쓰지 않는다(새 도구를 더 늘리지 않는다).
 4. **상태 있는 서비스**(Postgres·Redis·Kafka·ES·MinIO): 같은 클러스터에서 단순한 StatefulSet + PVC(k3s 기본 local-path)로 시작한다. 데이터 안전성은 compose와 같은 수준(VM 백업)이다. 운영형 DB(Operator)는 범위 밖.
+   - **MinIO**: 공식 `minio/minio` 이미지는 2026-09-11 Docker Hub에서 삭제됐다. compose(1-11)와 같은 `chainguard/minio`를 **같은 digest**로 쓴다(태그가 `latest`·`latest-dev`뿐이라 digest로 고정). 인자 `server /data --console-address :9001`. 이 이미지는 uid 65532(비root)로 돈다 → PVC에 쓰기 권한이 필요하다(`securityContext.fsGroup: 65532`가 필요한지 local-path에서 확인 필요). probe는 HTTP `GET /minio/health/live`(liveness)·`/minio/health/ready`(readiness), 포트 9000 — 두 경로 모두 200을 돌려주는 것을 2026-10-09 이 이미지로 확인했다.
+   - presigned URL의 호스트 문제(1-11 §3)는 그대로다: `STORAGE_ENDPOINT`는 클러스터 내부 서비스 이름이 아니라 클라이언트가 닿는 주소(NodePort 또는 Ingress)여야 한다.
 5. **CD**: 같은 self-hosted runner를 새 VM에 옮긴다. 배포 job이 `kubectl set image`(sha 태그) → `kubectl rollout status` → 실패 시 `kubectl rollout undo`. 러너의 kubeconfig는 **전용 네임스페이스만 다루는 ServiceAccount**로 제한한다(확인 필요: RBAC 구성).
 6. **무중단 조건** (이게 갖춰져야 "무중단"이라고 말할 수 있다):
 
@@ -22,8 +25,8 @@
 |---|---|
 | 복제본 | 앱 replicas ≥ 2 |
 | 롤링 전략 | `maxUnavailable: 0`, `maxSurge: 1` |
-| readiness probe | 앱이 요청을 받을 준비가 된 뒤에만 트래픽을 받는다. Boot의 probe 그룹(`/actuator/health/readiness`, 관리 포트 8081) 사용(확인 필요: Boot 4 설정) |
-| 종료 | `server.shutdown=graceful`(확인 필요), `terminationGracePeriodSeconds` > 요청 처리 시간, 종료 신호 전 짧은 지연(`preStop`)으로 서비스 엔드포인트에서 빠질 시간을 준다 |
+| readiness probe | 앱이 요청을 받을 준비가 된 뒤에만 트래픽을 받는다. Boot의 probe 그룹 `/actuator/health/readiness`·`/actuator/health/liveness`를 관리 포트 8081에서 쓴다 — Boot 4.1.1은 `management.endpoint.health.probes.enabled` 기본값이 `true`라 설정 없이 열린다(2026-10-09 jar 메타데이터로 확인). 메인 포트(8080)에도 `/readyz`·`/livez`를 열려면 `management.endpoint.health.probes.add-additional-paths=true`(기본 false) |
+| 종료 | `server.shutdown=graceful`은 Boot 4.1.1 기본값이다(따로 켜지 않는다). 단계별 최대 대기 `spring.lifecycle.timeout-per-shutdown-phase`(기본 30s)보다 `terminationGracePeriodSeconds`를 크게, 종료 신호 전 짧은 지연(`preStop`)으로 서비스 엔드포인트에서 빠질 시간을 준다 |
 | PDB | PodDisruptionBudget으로 동시 중단 수를 제한 |
 | DB 스키마 | 롤링 중에는 **구버전·신버전이 같은 DB를 동시에 쓴다.** ADR-011 §7의 "파괴적 마이그레이션은 여러 번의 배포로"가 필수 규칙이 된다 |
 | 다중 인스턴스 안전 | 앱이 2개 이상일 때 스케줄 잡(Postgres advisory lock, 2-5)과 Outbox 발행(Part 3)이 중복 실행되지 않는다. **이 단계가 그 가정을 처음 실제로 검증한다** |
