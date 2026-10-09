@@ -52,4 +52,48 @@ public interface JpaStockRepository extends JpaRepository<Stock, UUID>, StockRep
                     """
     )
     List<UUID> findProductIdsWithBrokenBalance();
+
+    @Modifying
+    @Query(
+            nativeQuery = true,
+            value = """
+                    UPDATE product.stock
+                    SET available = available - :quantity, reserved = reserved + :quantity, updated_at = :now
+                    WHERE product_id = :productId AND available >= :quantity
+                    """
+    )
+    int reserve(UUID productId, int quantity, Instant now);
+
+    @Modifying
+    @Query(
+            nativeQuery = true,
+            value = """
+                    UPDATE product.stock
+                    SET reserved = reserved - :quantity, sold = sold + :quantity, updated_at = :now
+                    WHERE product_id = :productId AND reserved >= :quantity
+                    """
+    )
+    int commit(UUID productId, int quantity, Instant now);
+
+    @Modifying
+    @Query(
+            nativeQuery = true,
+            value = """
+                    UPDATE product.stock
+                    SET reserved = reserved - :quantity, available = available + :quantity, updated_at = :now
+                    WHERE product_id = :productId AND reserved >= :quantity
+                    """
+    )
+    int release(UUID productId, int quantity, Instant now);
+
+    @Modifying
+    @Query(
+            nativeQuery = true,
+            value = """
+                    UPDATE product.stock
+                    SET sold = sold - :quantity, available = available + :quantity, updated_at = :now
+                    WHERE product_id = :productId AND sold >= :quantity
+                    """
+    )
+    int restore(UUID productId, int quantity, Instant now);
 }

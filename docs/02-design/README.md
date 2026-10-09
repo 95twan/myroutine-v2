@@ -12,6 +12,7 @@
 | [05-events.md](05-events.md) | Outbox 릴레이, 이벤트 목록(토픽·payload·consumer) |
 | [06-sequences.md](06-sequences.md) | 체크아웃, 결제 승인·대사, 만료, 취소, 구독 회차, 정산, 가게, 상품 이미지 업로드, 인증 |
 | [07-api-spec.md](07-api-spec.md) | 공통 규약, 에러 코드, 엔드포인트 목록, 핵심 API 계약 |
+| [08-stock-design-evolution.md](08-stock-design-evolution.md) | 재고 설계의 진화: 가장 단순한 구조 → 조건부 UPDATE → 예약 → CAS → 이력 → 데드락 회피, 면접 Q&A |
 | [../adr/](../adr/) | 설계 결정 기록 10건 |
 
 ## 핵심 결정 요약

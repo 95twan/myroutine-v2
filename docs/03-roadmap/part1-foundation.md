@@ -1,6 +1,16 @@
 # Part 1. 뼈대와 첫 기능
 
-> 버전 0.8 · 2026-10-08 · **1-8 구현 위치·쿼리 구체화**: `Product.update` 동작 규칙, `insertPriceHistory`·`adjust`·`findProductIdsWithBrokenBalance`가 놓일 계층(domain 시그니처 ↔ infrastructure 쿼리)과 native 쿼리 SQL을 1-7 방식에 맞춰 명시했다(1-7에서 이미 선언된 `findByIdAndShopId` 반영)
+> 버전 0.18 · 2026-10-09 · **1-9 멱등 INSERT 근거 보강**: `restore`에서 이력 INSERT를 UPDATE보다 먼저 하는 이유(행 락은 줄 세울 뿐 중복을 판정하지 못함, `ON CONFLICT DO NOTHING`은 예외·롤백이 없음)와 `insertReservation`은 일반 INSERT, `insertMovement`는 `ON CONFLICT DO NOTHING`인 이유를 적었다
+> 0.17 · 2026-10-09 · **1-9 `ProductApiImplTest` 완료 확인에 release 성공 경로·restore 사전 조건 실패 추가**: 기존 케이스는 "COMMITTED를 release하면 변화 없음"뿐이라 `HELD → RELEASED/EXPIRED`와 `stock.release`(INV-04: 해제·만료된 예약의 재고는 가용재고로 복귀)를 실행하는 테스트가 없었다. `restore`의 사전 조건 실패(예약 상태, 수량 범위)도 구현 규격에 있으나 검증이 없어 추가했다
+> 0.16 · 2026-10-09 · **CAS 전용 상태 예외를 개발 가이드와 맞춤**: 개발 가이드 §5.4 근처에 같은 예외를 추가했고(전이표·전이 테스트를 두지 않는 대신 CAS 호출 서비스의 통합 테스트로 검증), `ReservationStatus` 행의 문장을 읽기 쉽게 고쳤다
+> 0.15 · 2026-10-09 · **1-9 `ProductApiImplTest` 정합성 점검 범위 명시**: "모든 케이스 끝에" `findProductIdsWithBrokenBalance()`를 재고를 다루는 케이스로 좁히고, 실패 케이스는 수량 직접 단언을 병행하도록 적었다
+> 0.14 · 2026-10-09 · **1-9 `ReservationStatus` 전이표 제거**: 예약 상태는 native CAS로만 바뀌어 `transitTo`를 호출할 곳이 없으므로 enum은 값만 두고 `ReservationStatusTest`(16개 조합)를 완료 확인에서 뺐다. 공통 규칙 C에 "CAS로만 전이하는 상태는 전이표를 두지 않는다" 예외를 추가했다
+> 0.13 · 2026-10-09 · **1-9 `commitReservation` 조회 정렬 이유 명시**: 예약 조회를 상품 ID 오름차순으로 하는 이유(`stock` 행 락 순서 통일 = 데드락 회피)를 한 줄 추가했다
+> 0.12 · 2026-10-09 · **1-9 `restore` 누적 환불 책임 명시**: `restore`가 환불 수량의 누적 합을 검사하지 않는다는 점과, 그 방어가 주문 모듈(품목 종결 상태 + CHECK)의 책임임을 적었다
+> 0.11 · 2026-10-09 · **1-9 `commitReservation` 분기 명확화**: 한 줄에 "0이면"이 두 번 나와(`transit` 결과 / `commit` 결과) 어느 쪽이 예외이고 어느 쪽이 건너뜀인지 모호했다. 반환값별로 나눠 적었다. `releaseReservation`은 같은 구조를 따른다
+> 0.10 · 2026-10-09 · **1-9 체크아웃 조회 쿼리 구체화**: `getForCheckout`·`getPurchasable`·`reserve`가 쓰는 `ProductRepository.findCheckoutRowsByIds`와 projection `ProductCheckoutRow`, JPQL을 명시했다(본문에 "1-7의 엔티티 조인 방식"이라고만 있고 `할 일`에 쿼리·projection이 없어 어디에 무엇을 만들지 알 수 없었다. `ProductListRow`에는 `subscribable`이 없어 재사용도 불가)
+> 0.9 · 2026-10-09 · **1-9 구현 위치 구체화**: 예약·재고 native 쿼리는 domain 인터페이스에 시그니처만 두고 `@Query`는 `JpaStockReservationRepository`·`JpaStockRepository`에 구현한다고 명시했다(표의 "위치" 열이 시그니처 선언 위치인지 구현 위치인지 모호했음). `existsByOrderId` 명명 주의 추가
+> 0.8 · 2026-10-08 · **1-8 구현 위치·쿼리 구체화**: `Product.update` 동작 규칙, `insertPriceHistory`·`adjust`·`findProductIdsWithBrokenBalance`가 놓일 계층(domain 시그니처 ↔ infrastructure 쿼리)과 native 쿼리 SQL을 1-7 방식에 맞춰 명시했다(1-7에서 이미 선언된 `findByIdAndShopId` 반영)
 > 0.7 · 2026-10-07 · **1-11 운영 환경 연습(VM 배포·자동 CD) 추가**: Proxmox VM + Docker Compose, GitHub Actions self-hosted runner, sha 태그 이미지·자동 롤백. 근거 [ADR-011](../adr/ADR-011-ops-practice-environment.md). 외부 접속(Cloudflare)은 보류. Part 1 릴리스(`v0.1.0`)는 1-11 완료 후
 > 0.6 · 2026-10-06 · **1-6 `requireActiveShops` 구체화**: 중복 ID·빈 입력·문제 ID 수집 방식·`details.shopIds` 형식을 명시했다(1-6 리뷰에서 규격이 모호해 구현이 갈린 부분). 1-6 `ShopControllerTest` 완료 확인에 **수정 성공(null 유지)** 케이스를 추가했다(`Shop.update`의 null 유지 규칙이 규격에 있는데 검증하는 테스트가 없었다). `UpdateShopRequest`는 빈 문자열·공백만 있는 값을 400으로 거르도록 명시했다(수정 때만 빈 이름이 저장되던 문제)
 > 0.5 · 2026-10-02 · **덜어내기**: `InvalidStateTransitionException`·`UniqueConstraintMapping`·`@CurrentMember` 리졸버·traceId 헤더 수용·토큰 만료 코드 구분을 제거하고, 미리 만들던 컬럼(이메일 인증·토큰 버전·탈퇴 시각)은 쓰는 단계로 미뤘다. 회원 역할은 jsonb 목록 → 단일 `role` 컬럼. 꼭 필요하지 않은 테스트·장치는 각 단계의 "제안"으로 옮겼다
@@ -92,6 +102,7 @@ public enum XxxStatus {
 }
 ```
 - 같은 상태로의 전이(A → A)도 금지다(표에 없으므로).
+- **예외**: 엔티티 메서드로 상태를 바꾸지 않고 native CAS로만 전이하는 상태(1-9 `ReservationStatus`)는 전이표를 두지 않는다. 호출처가 없는 코드가 되기 때문이다. 엔티티 메서드와 CAS를 함께 쓰는 상태(Part 2 `OrderStatus` 등)는 엔티티 경로가 있으므로 전이표를 둔다.
 - 테스트: 모든 (from, to) 조합을 `@ParameterizedTest` + `@CsvSource`로 검증한다(3개 상태면 9건).
 
 ### D. 애플리케이션 서비스
@@ -1296,14 +1307,19 @@ public enum ReleaseReason { PAYMENT_FAILED, EXPIRED }   // PAYMENT_FAILED → RE
 
 | 대상 | 규격 |
 |---|---|
-| `ReservationStatus` | `HELD, COMMITTED, RELEASED, EXPIRED`. 전이 `HELD → {COMMITTED, RELEASED, EXPIRED}`, 나머지는 종결 |
+| `ReservationStatus` | `HELD, COMMITTED, RELEASED, EXPIRED` — **값만 둔다. `transitTo`·전이표는 만들지 않는다**(공통 규칙 C의 예외). 이 상태는 엔티티가 아니라 native CAS(`transit`의 `WHERE status = :from`)로만 바뀌어 enum 전이표를 호출할 곳이 없기 때문이다. 허용 전이(`HELD → {COMMITTED, RELEASED, EXPIRED}`, 나머지는 종결)는 [상태머신 문서](../02-design/04-state-machines.md)와 CAS 조건이 지킨다 |
 | `StockReservation` | `@Entity @Table(name = "stock_reservation", schema = "product")`, `extends BaseTimeEntity`. **읽기 전용**(쓰기는 native). 필드는 컬럼과 1:1 |
 | `ProductErrorCode` | `PRODUCT_NOT_ON_SALE` 추가 |
+| `ProductCheckoutRow` | `record (UUID id, UUID shopId, String name, String thumbnailKey, Money price, ProductStatus status, boolean subscribable, int available)` — 체크아웃 조회 전용 projection. 1-7의 `ProductListRow`에는 `subscribable`이 없어 재사용하지 못한다. `product.api`의 `ProductForCheckout`을 `domain`이 참조하면 안 되므로 `domain`에 따로 둔다 |
+| `ProductRepository` | `List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids)` 추가 |
 | `StockReservationRepository` | `boolean existsByOrderId(UUID orderId)`, `List<StockReservation> findAllByOrderIdAndStatusOrderByProductIdAsc(UUID orderId, ReservationStatus status)`, `Optional<StockReservation> findByOrderIdAndProductId(UUID orderId, UUID productId)` + native 아래 |
+
+**구현 위치 (infrastructure)** — 1-8과 같은 방식이다. 아래 표의 "위치"는 **시그니처를 선언하는 `domain` 인터페이스**다. `@Modifying @Query(nativeQuery = true, ...)`는 `JpaStockRepository`와 새로 만드는 `JpaStockReservationRepository`(`public interface JpaStockReservationRepository extends JpaRepository<StockReservation, UUID>, StockReservationRepository`)에만 둔다. `domain`은 Spring Data 어노테이션에 의존하지 않는다.
+- 파생 쿼리 메서드는 이름이 규칙을 따라야 한다: 존재 확인은 `existsBy…`(`existBy…`로 쓰면 기동 시 쿼리 생성에 실패한다).
 
 native 쿼리 (반환 `int`, 모두 `updated_at = :now` 포함)
 
-| 메서드 | SQL 핵심 | 위치 |
+| 메서드 | SQL 핵심 | 선언 위치(domain) |
 |---|---|---|
 | `insertReservation(id, orderId, productId, quantity, expiresAt, now)` | status `'HELD'`로 INSERT | `StockReservationRepository` |
 | `transit(UUID id, String from, String to, Instant now)` | `UPDATE ... SET status = :to WHERE id = :id AND status = :from` | `StockReservationRepository` |
@@ -1314,24 +1330,41 @@ native 쿼리 (반환 `int`, 모두 `updated_at = :now` 포함)
 
 - 상태 문자열은 `ReservationStatus.X.name()`으로 넘긴다.
 
+JPQL 쿼리 (`JpaProductRepository`, 1-7의 `findPublicFirstPage`와 같은 방식)
+
+```java
+@Query("""
+        select new com.myroutine.product.domain.ProductCheckoutRow(p.id, p.shopId, p.name, p.thumbnailKey, p.price, p.status, p.subscribable, s.available)
+        from Product p
+        join Stock s on s.productId = p.id
+        where p.id in :ids
+        """)
+List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
+```
+- 상품 조회와 재고 조회를 따로 하지 않고 한 번에 가져온다(N+1 방지). `inner join`이므로 DB에 없는 ID는 결과 행이 생기지 않는다 = "없는 ID는 결과에서 빠진다"의 구현이다. 빈 컬렉션이 들어오면 `in ()`이 되어 DB마다 동작이 다르니, 호출 쪽에서 빈 입력은 쿼리 전에 빈 목록을 반환한다.
+
 **4) product.application — `ProductApiImpl`** (package-private, `@Service`, 의존성 `ProductRepository`, `StockRepository`, `StockReservationRepository`, `Clock`)
 
-`getForCheckout` (`@Transactional(readOnly = true)`): 상품과 재고를 한 쿼리로 조회(1-7의 엔티티 조인 방식, `where p.id in :ids`) → `ProductForCheckout`로 변환. `inStock = available > 0`. 없는 ID는 결과에서 빠진다
+`getForCheckout` (`@Transactional(readOnly = true)`): `productRepository.findCheckoutRowsByIds(ids)`(위 JPQL 쿼리, 상품+재고 한 번에) → `ProductForCheckout`로 변환: `onSale = (status == ON_SALE)`, `inStock = available > 0`. 재고 수량 자체는 모듈 밖으로 내보내지 않는다. 없는 ID는 결과에서 빠진다(예외 없음). `ids`가 비어 있으면 쿼리 없이 빈 목록
 
 `getPurchasable` (`@Transactional(readOnly = true)`): `getForCheckout` 결과에서 빠진 ID와 `onSale == false`인 ID를 모아, 하나라도 있으면 `BusinessException(PRODUCT_NOT_ON_SALE, Map.of("productIds", 그 목록))`
 
 `reserve` (`@Transactional` — 호출자 트랜잭션에 합류)
 1. 입력 검증: items가 비었거나, quantity ≤ 0이거나, 같은 productId가 두 번 나오면 `IllegalArgumentException` (내부 API 계약 위반 = 버그)
 2. `existsByOrderId(orderId)`면 그대로 `return` (멱등)
-3. 상품을 모두 조회. 없거나 ON_SALE이 아닌 상품이 있으면 `BusinessException(PRODUCT_NOT_ON_SALE, Map.of("productIds", 그 ID 목록))`
+3. `findCheckoutRowsByIds`로 상품을 모두 조회(`getPurchasable`과 같은 쿼리). 없거나 ON_SALE이 아닌 상품이 있으면 `BusinessException(PRODUCT_NOT_ON_SALE, Map.of("productIds", 그 ID 목록))`
 4. items를 **productId 오름차순**(`Comparator.comparing(ReserveItem::productId)`)으로 정렬
 5. 상품마다 `stockRepository.reserve(...)` → 0이면 `BusinessException(OUT_OF_STOCK, Map.of("productIds", List.of(productId)))` — 예외가 트랜잭션을 롤백하므로 앞에서 줄인 재고도 되돌아간다
 6. 상품마다 `insertReservation(Ids.newId(), ...)`, `insertMovement(..., StockMovementType.RESERVE.name(), q, StockRefType.ORDER.name(), orderId, null, now)`
 - 같은 orderId로 **동시에** 두 번 호출되면 둘 다 2번을 통과할 수 있다. 늦은 쪽은 `uk_stock_reservation_order_product` 위반으로 실패하고 전체가 롤백된다(재고는 한 번만 줄어든다).
+  - `insertReservation`이 `ON CONFLICT DO NOTHING` **없는 일반 INSERT**인 이유: 이 경우는 `existsByOrderId`를 뚫고 들어온 "있어서는 안 되는 경쟁"이라 예외로 전체를 롤백시켜야 한다. 반대로 `restore`의 `insertMovement`는 재시도가 정상 흐름이라 예외 없이 반환값(0/1)으로 중복을 알려 주는 `ON CONFLICT DO NOTHING`을 쓴다. **중복이 정상 흐름이면 `ON CONFLICT DO NOTHING`+반환값, 있어서는 안 되는 위반이면 일반 INSERT+예외**로 가른다(공통 규칙 `:113`).
 
 `commitReservation` (`@Transactional`)
-1. `findAllByOrderIdAndStatusOrderByProductIdAsc(orderId, HELD)`
-2. 각 예약: `transit(id, HELD, COMMITTED)` → 1이면 `stockRepository.commit(...)`(0이면 `IllegalStateException` — 불변식이 깨진 상황) + `insertMovement(..., StockMovementType.COMMIT.name(), q, StockRefType.ORDER.name(), orderId, ...)` / 0이면 건너뜀(이미 처리됨)
+1. `findAllByOrderIdAndStatusOrderByProductIdAsc(orderId, HELD)` — 상품 ID 오름차순으로 읽는 이유: 아래 반복문이 `stock` 행 락을 잡는 순서가 `reserve`와 같아져 교차 주문 간 데드락을 막는다
+2. 각 예약마다 `transit(id, HELD, COMMITTED, now)`를 호출하고 **그 반환값**으로 갈린다.
+   - **`transit`이 1**: 내가 전이했다. 이어서 ① `stockRepository.commit(productId, q, now)` — **이 반환값이 0이면 `IllegalStateException`**(예약은 있는데 `reserved`가 모자란 불변식 위반이므로 전체 롤백), ② `insertMovement(..., StockMovementType.COMMIT.name(), q, StockRefType.ORDER.name(), orderId, null, now)`
+   - **`transit`이 0**: 다른 호출이 먼저 전이했다(동시 중복 호출). 이 예약은 **아무것도 하지 않고 다음 예약으로 넘어간다**(예외 아님). 멱등 계약이다.
+   - 같은 `orderId`를 순차로 두 번 호출하면 두 번째는 1단계에서 HELD 목록이 비어 아무 일도 하지 않는다.
 
 `releaseReservation` (`@Transactional`): commit과 같은 구조. 전이 대상은 `reason`에 따라 RELEASED 또는 EXPIRED, 재고는 `release`, 이력 `insertMovement(..., StockMovementType.RELEASE.name(), q, StockRefType.ORDER.name(), orderId, null, now)`. HELD만 대상이므로 COMMITTED 예약은 건드리지 않는다.
 
@@ -1341,6 +1374,10 @@ native 쿼리 (반환 `int`, 모두 `updated_at = :now` 포함)
 3. `insertMovement(..., StockMovementType.RESTORE.name(), quantity, StockRefType.REFUND.name(), refundId, ...)` → **0이면 `return`**(같은 refundId로 이미 복구함)
 4. `stockRepository.restore(...)` → 0이면 `IllegalStateException`
 - 이력 INSERT를 먼저 하는 이유: unique 제약이 "이 환불로 복구했는가"의 기록이자 잠금 역할을 한다.
+  - **재고 행 락으로는 중복을 못 막는다.** `UPDATE`의 행 락은 트랜잭션이 끝날 때까지 유지되지만 같은 재고 행을 쓰는 `UPDATE`들을 **줄 세울 뿐**, 같은 `refundId`의 중복인지는 모른다. 순서가 UPDATE → INSERT면 동시에 온 같은 `refundId`의 두 번째 호출이 락 대기 후 갱신된 `sold`로 `WHERE sold >= :q`를 다시 통과해 재고를 한 번 더 바꾼다. 중복 여부를 아는 것은 `refundId`가 들어 있는 이력 unique뿐이다.
+  - **`ON CONFLICT DO NOTHING`은 충돌해도 예외를 던지지 않는다**(반환 0). 그래서 충돌했다고 트랜잭션이 롤백되지 않는다. UPDATE를 먼저 했다면 두 번째 호출은 이미 바꾼 재고를 그대로 두고 `return`해 커밋되므로 재고가 두 번 복구된다. 이력 INSERT를 먼저 하면 0을 받은 시점에 아직 재고를 건드리지 않았으므로 `return`해도 되돌릴 것이 없다.
+  - 반대로 첫 호출이 이후 단계(재고 `restore`가 0이라 예외)에서 롤백되면 이력 INSERT도 함께 롤백되어 기록이 남지 않으므로, 같은 `refundId`의 재시도가 정상 처리된다.
+- 같은 주문·상품에 서로 다른 `refundId`가 여러 번 들어올 때 **복구 수량의 누적 합이 예약 수량을 넘는지는 `restore`가 검사하지 않는다**(각 호출이 "예약 수량 이하"만 본다). 이 방어는 호출자(주문 모듈)의 책임이다: 환불은 품목 단위이고 품목은 `CANCELLED`·`RETURNED`가 종결 상태라 같은 품목을 두 번 환불할 수 없으며, `order_line.refunded_amount <= line_amount` CHECK가 한 번 더 막는다(2-2·2-8).
 
 **5) 테스트에서 호출**: 아직 order 모듈이 없으므로 테스트에서 `ProductApi`를 주입받아 직접 호출한다(`ProductApiImpl`은 package-private이라 인터페이스로 주입). orderId·refundId는 `Ids.newId()`로 만든다.
 
@@ -1348,8 +1385,7 @@ native 쿼리 (반환 `int`, 모두 `updated_at = :now` 포함)
 
 | 테스트 클래스 | 케이스 |
 |---|---|
-| `product/domain/ReservationStatusTest` | [ ] 16개 조합 파라미터화 |
-| `product/application/ProductApiImplTest` | [ ] `getForCheckout`: 없는 ID는 빠지고 재고 0이면 `inStock = false` / [ ] `getPurchasable`: HIDDEN 상품 포함 시 `PRODUCT_NOT_ON_SALE` / [ ] reserve → available·reserved 변화, 예약 HELD, RESERVE 이력 / [ ] 같은 orderId reserve 두 번 → 한 번만 반영 / [ ] 상품 3개 중 3번째 재고 부족 → `OUT_OF_STOCK`, **1·2번째 재고 그대로**, 예약 0건 / [ ] DISCONTINUED·HIDDEN 상품 → `PRODUCT_NOT_ON_SALE`, `details.productIds` / [ ] commit 두 번 → 한 번만(sold 확인) / [ ] COMMITTED 예약을 release → 아무 변화 없음 / [ ] 같은 refundId로 restore 두 번 → 한 번만 / [ ] 모든 케이스 끝에 `findProductIdsWithBrokenBalance()` 빈 목록 |
+| `product/application/ProductApiImplTest` | [ ] `getForCheckout`: 없는 ID는 빠지고 재고 0이면 `inStock = false` / [ ] `getPurchasable`: HIDDEN 상품 포함 시 `PRODUCT_NOT_ON_SALE` / [ ] reserve → available·reserved 변화, 예약 HELD, RESERVE 이력 / [ ] 같은 orderId reserve 두 번 → 한 번만 반영 / [ ] 상품 3개 중 3번째 재고 부족 → `OUT_OF_STOCK`, **1·2번째 재고 그대로**, 예약 0건 / [ ] DISCONTINUED·HIDDEN 상품 → `PRODUCT_NOT_ON_SALE`, `details.productIds` / [ ] commit 두 번 → 한 번만(sold 확인) / [ ] COMMITTED 예약을 release → 아무 변화 없음 / [ ] **HELD 예약을 release → `reserved`가 `available`로 복구(INV-04)**, 예약 상태 `PAYMENT_FAILED` → RELEASED / `EXPIRED` → EXPIRED, `RELEASE` 이력 1건, 두 번 호출해도 한 번만 / [ ] 같은 refundId로 restore 두 번 → 한 번만 / [ ] restore 사전 조건 실패: COMMITTED가 아닌(HELD) 예약 → `INVALID_STATE_TRANSITION`, 예약 수량보다 큰 수량 → `IllegalArgumentException`, 둘 다 재고 변화 없음 / [ ] 재고를 바꾸거나 바꾸지 않아야 하는 케이스(reserve·commit·release·restore와 그 실패·중복 케이스) 끝에 `findProductIdsWithBrokenBalance()` 빈 목록. 읽기 전용인 `getForCheckout`·`getPurchasable`에는 넣지 않는다. 실패 케이스는 합 불변식만으로 롤백을 증명하지 못하므로 수량을 직접 단언한다 |
 | `product/application/StockReservationConcurrencyTest` | [ ] **재고 100에 서로 다른 orderId 1,000건 동시 예약(각 1개) → 성공 100, available 0, reserved 100, `available + reserved + sold = received`**. 스레드 풀 64 + `CountDownLatch` 3개(ready·start·done), `done.await(60, SECONDS)` |
 | `product/application/ReservationDeadlockTest` | [ ] 상품 A·B(재고 충분), 주문 X는 [A, B], 주문 Y는 [B, A] 순서로 동시에 예약 → 둘 다 성공, 데드락 예외(`CannotAcquireLockException`, `PessimisticLockingFailureException`) 없음. `@RepeatedTest(50)` |
 

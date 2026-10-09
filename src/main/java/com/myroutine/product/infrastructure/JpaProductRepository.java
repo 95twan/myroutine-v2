@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -60,4 +61,12 @@ public interface JpaProductRepository extends JpaRepository<Product, UUID>, Prod
                     """
     )
     int insertPriceHistory(UUID id, UUID productId, long oldPrice, long newPrice, Instant now);
+
+    @Query("""
+                select new com.myroutine.product.domain.ProductCheckoutRow(p.id, p.shopId, p.name, p.thumbnailKey, p.price, p.status, p.subscribable, s.available)
+                from Product p
+                join Stock s on s.productId = p.id
+                where p.id in :ids
+            """)
+    List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 }
