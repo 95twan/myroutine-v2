@@ -1434,6 +1434,7 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 - 이미지는 공개 읽기: 버킷 정책으로 `products/*`의 GET을 누구나 허용한다. 응답의 URL = `{publicBaseUrl}/{objectKey}`.
 - DISCONTINUED 상품은 이미지를 바꿀 수 없다(409 `PRODUCT_DISCONTINUED`). ACTIVE 가게 주인만.
 - 한계(일부러 남김): URL만 받고 등록하지 않은 객체는 저장소에 남는다. 정리(버킷 수명 주기 규칙 등)는 Stage 1 범위 밖이고 회고에 적는다.
+- 한계(일부러 남김): 파일의 **내용**은 검증하지 않는다. 서명은 `Content-Type`과 `Content-Length`만 묶으므로, 형식·크기만 맞으면 PNG가 아닌 데이터도 올라갈 수 있다(매직 바이트 확인은 Stage 1 범위 밖이고 회고에 적는다).
 
 ### 할 일
 
@@ -1452,9 +1453,8 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 |---|---|
 | `StorageProperties` | `@ConfigurationProperties("myroutine.storage") @Validated record (@NotNull URI endpoint, @NotBlank String region, @NotBlank String accessKey, @NotBlank String secretKey, @NotBlank String bucket, @NotBlank String publicBaseUrl, @NotNull Duration uploadUrlTtl, @Positive long maxUploadBytes)` |
 | `StorageConfig` | `@Configuration @EnableConfigurationProperties(StorageProperties.class)`. `@Bean S3Client`: `endpointOverride(endpoint)`, `region(Region.of(region))`, `credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey)))`, `serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())`(MinIO는 경로 방식 주소), `overrideConfiguration(c -> c.apiCallTimeout(Duration.ofSeconds(5)))` / `@Bean S3Presigner`: 같은 endpoint·region·credentials·path style |
-| `ObjectStorage` (인터페이스) | `PresignedUpload presignPut(String key, String contentType, long contentLength)`, `Optional<StoredObject> head(String key)`, `void delete(String key)` |
+| `ObjectStorage` (인터페이스) | `PresignedUpload presignPut(String key, String contentType, long contentLength)`, `boolean exists(String key)`, `void delete(String key)` |
 | `PresignedUpload` | `record (String url, Map<String, String> headers, Instant expiresAt)` — `headers`는 클라이언트가 PUT 때 **그대로** 보내야 하는 서명된 헤더(Content-Type 등) |
-| `StoredObject` | `record (long size, String contentType)` |
 | `S3ObjectStorage` (`@Component`) | `ObjectStorage` 구현. `S3Client`·`S3Presigner`·`StorageProperties`를 생성자로 주입받는다. 메서드별 순서는 표 아래 **S3ObjectStorage 구현 순서** |
 | `BucketInitializer` (`@Component`) | 앱이 뜰 때 버킷을 준비한다. 순서는 표 아래 **BucketInitializer 구현 순서** |
 | `ImageUrls` (`@Component`) | `StorageProperties`를 주입받아 저장된 키를 클라이언트가 쓸 URL로 바꾼다. `String toUrl(String objectKey)`: `objectKey == null ? null : properties.publicBaseUrl() + "/" + objectKey` |
@@ -1480,18 +1480,17 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 - 클라이언트(브라우저·JDK `HttpClient`)는 `Host`·`Content-Length`를 직접 설정하지 못하는 경우가 많다. 같은 값이 자동으로 나가므로 문제없고, 테스트에서 `headers`를 요청에 넣을 때 이 둘은 건너뛴다.
 - presigned URL은 가진 사람이 유효시간 동안 업로드할 수 있는 열쇠다. 로그에 남기지 않는다.
 
-`head(key)` — 파일이 저장소에 실제로 있는지, 크기·형식이 뭔지 확인한다(③ 단계). 네트워크 호출이 있다. 반환 타입 `Optional<StoredObject>`.
+`exists(key)` — 파일이 저장소에 실제로 올라와 있는지 확인한다(③ 단계). 네트워크 호출이 있다. 반환 타입 `boolean`.
 
 | 순서 | 할 일 | 코드 형태 |
 |---|---|---|
-| 1 | HEAD 요청을 보낸다(본문 없이 크기·형식만 돌아온다) | `HeadObjectResponse response = s3Client.headObject(b -> b.bucket(properties.bucket()).key(key));` |
-| 2 | 응답에서 꺼내 `Optional.of(new StoredObject(size, contentType))`로 반환한다 | `response.contentLength()`(`Long`) → `size`, `response.contentType()` → `contentType` |
-| 3 | 파일이 없으면 `1`에서 예외가 난다. 이때 `Optional.empty()`를 반환한다 | `1`을 `try`로 감싸고 `catch (NoSuchKeyException e)` (`software.amazon.awssdk.services.s3.model.NoSuchKeyException`) |
-| 4 | **그 외 예외(타임아웃·연결 실패·403)는 잡지 않고 던진다.** 저장소 장애를 "없음"으로 바꾸면 안 된다 | `catch`는 `NoSuchKeyException` 하나만 둔다 |
+| 1 | HEAD 요청을 보낸다(본문 없이 메타데이터만 돌아오므로 응답 값은 쓰지 않는다). 예외 없이 끝나면 있다 | `s3Client.headObject(b -> b.bucket(properties.bucket()).key(key)); return true;` |
+| 2 | 파일이 없으면 `1`에서 예외가 난다. 이때 `false`를 반환한다 | `1`을 `try`로 감싸고 `catch (NoSuchKeyException e) { return false; }` (`software.amazon.awssdk.services.s3.model.NoSuchKeyException`) |
+| 3 | **그 외 예외(타임아웃·연결 실패·403)는 잡지 않고 던진다.** 저장소 장애를 "없음"으로 바꾸면 안 된다 | `catch`는 `NoSuchKeyException` 하나만 둔다 |
 
 - 버킷이 없어도 HEAD는 404라서 "업로드 안 됨"으로 보인다. `BucketInitializer`가 버킷을 항상 보장하는 이유다.
 
-`delete(key)` — 저장소에서 파일을 지운다(이미지 삭제, 또는 등록하려는 파일이 형식·크기 위반일 때). 네트워크 호출이 있다. 반환 타입 `void`.
+`delete(key)` — 저장소에서 파일을 지운다(이미지 삭제 때). 네트워크 호출이 있다. 반환 타입 `void`.
 - 호출 한 줄: `s3Client.deleteObject(b -> b.bucket(properties.bucket()).key(key));`
 - S3 규약상 없는 키를 지워도 예외 없이 성공한다(확인 필요: 이 이미지에서 직접 시험하지 않았다). `try-catch`를 쓰지 않고 예외를 그대로 던진다. 삼킬지(`log.warn`)는 호출하는 서비스가 정한다(아래 5의 `delete`).
 
@@ -1525,17 +1524,40 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 | `ProductImage` | `@Entity @Table(name = "product_image", schema = "product")`, `@EntityListeners(AuditingEntityListener.class)`, `UUID id`, `String objectKey`, `int sortOrder`, `@CreatedDate Instant createdAt`. `static ProductImage of(String objectKey, int sortOrder)`가 `id = Ids.newId()`를 채운다. 다른 엔티티처럼 `@NoArgsConstructor(access = PROTECTED)`·`@Getter`. **`BaseTimeEntity`는 상속하지 않는다**(테이블에 `updated_at`이 없다). `product_id` 컬럼은 필드로 두지 않고 `Product`의 `@JoinColumn`이 채운다 |
 | `Product` 추가 | `@OneToMany(cascade = CascadeType.ALL, orphanRemoval = true) @JoinColumn(name = "product_id", nullable = false, updatable = false) @OrderBy("sortOrder") private List<ProductImage> images = new ArrayList<>();` |
 | `Product.MAX_IMAGES` | `public static final int MAX_IMAGES = 10` — 서비스의 사전 검사와 `addImage`가 같은 값을 쓴다 |
-| `Product.addImage(String objectKey)` | DISCONTINUED면 `PRODUCT_DISCONTINUED` → `images.size() >= MAX_IMAGES`면 `PRODUCT_IMAGE_LIMIT_EXCEEDED` → `sortOrder = images.isEmpty() ? 0 : 마지막 sortOrder + 1` → 첫 이미지면 `thumbnailKey = objectKey` → 추가한 `ProductImage` 반환 |
-| `Product.removeImage(UUID imageId)` | DISCONTINUED면 `PRODUCT_DISCONTINUED`(정책: 단종 상품은 이미지를 바꿀 수 없다) → 없으면 `PRODUCT_IMAGE_NOT_FOUND` → 제거 → 남은 것 중 첫 번째의 키를 `thumbnailKey`로(없으면 null) → 지운 이미지의 `objectKey` 반환 |
+| `Product.addImage(String objectKey)` | **`Product` 클래스 안에 만드는 메서드.** 상품에 이미지 한 장을 붙인다. 규칙(단종 불가·최대 10장·첫 이미지는 썸네일)을 엔티티가 스스로 지킨다. 순서는 표 아래 **addImage·removeImage 순서** |
+| `Product.removeImage(UUID imageId)` | **`Product` 클래스 안에 만드는 메서드.** 상품에서 이미지 한 장을 뺀다. 순서는 표 아래 |
 | `static String objectKeyPrefix(UUID productId)` | `"products/" + productId + "/"` |
 | `ProductErrorCode` 추가 | `PRODUCT_IMAGE_LIMIT_EXCEEDED`(422), `IMAGE_NOT_UPLOADED`(422), `PRODUCT_IMAGE_NOT_FOUND`(404) |
 
-- 이미지 추가·삭제는 `Product`의 컬렉션을 바꾸므로 `Product.version`이 올라간다(확인 필요: Hibernate가 소유 컬렉션 변경 시 루트 버전을 올리는지 — 아래 동시성 테스트로 확인). 그래서 동시에 11번째 이미지를 두 명이 등록해도 한쪽은 409 `CONFLICT_RETRY`가 되어 10장을 넘지 않는다.
+**addImage·removeImage 순서** (둘 다 `Product` 안의 `public` 메서드)
+
+`ProductImage addImage(String objectKey)` — 입력: 올라간 파일의 키 / 출력: 새로 만든 `ProductImage`(서비스가 응답에 이미지 id를 줄 때 쓴다)
+1. `status == DISCONTINUED`면 `BusinessException(PRODUCT_DISCONTINUED)`
+2. `images.size() >= MAX_IMAGES`면 `BusinessException(PRODUCT_IMAGE_LIMIT_EXCEEDED)`
+3. `sortOrder`를 정한다: `images`가 비었으면 `0`, 아니면 마지막 이미지의 `sortOrder + 1`
+4. `ProductImage image = ProductImage.of(objectKey, sortOrder)` → `images.add(image)`
+5. 첫 이미지였으면(4 이전에 `images`가 비어 있었으면) `this.thumbnailKey = objectKey`
+6. `image` 반환
+
+`String removeImage(UUID imageId)` — 입력: 지울 이미지 id / 출력: 지운 이미지의 `objectKey`(서비스가 저장소의 파일을 지울 때 쓴다)
+1. `status == DISCONTINUED`면 `BusinessException(PRODUCT_DISCONTINUED)`
+2. `images`에서 `id`가 `imageId`인 것을 찾는다. 없으면 `BusinessException(PRODUCT_IMAGE_NOT_FOUND)`
+3. `images.remove(찾은 것)` (`orphanRemoval = true`라서 DB 행도 같이 지워진다)
+4. 남은 `images`의 첫 번째 `objectKey`를 `thumbnailKey`에 넣는다. 남은 게 없으면 `null`
+5. 찾았던 이미지의 `objectKey` 반환
+
+- 두 메서드 모두 DB를 직접 건드리지 않는다. `images` 목록만 바꾸면, 서비스의 트랜잭션이 끝날 때 JPA가 INSERT·DELETE를 알아서 한다.
+
+- 이미지 추가·삭제는 `Product`의 컬렉션을 바꾸므로 `Product.version`이 올라간다(확인함 2026-10-10: Hibernate가 소유 컬렉션 변경 시 `Product.version`을 올린다 — 아래 동시성 테스트에서 매번 `ObjectOptimisticLockingFailureException`으로 한쪽이 실패했다). 그래서 동시에 11번째 이미지를 두 명이 등록해도 한쪽은 409 `CONFLICT_RETRY`가 되어 10장을 넘지 않는다.
 
 **5) product.application** — `ProductImageService`: 위 조각들을 엮어 이미지 업로드의 **업무 흐름**(허가증 발급 → 등록 → 삭제)을 만든다. 상품 DB와 보관소를 함께 다루므로 아래 규칙을 지킨다.
 
-- **클래스에 `@Transactional`을 붙이지 않는다.** 붙이면 메서드 전체가 한 트랜잭션이라 `storage.head`·`delete`(네트워크 호출)가 DB 커넥션을 쥔 채 실행된다. 그 대신 DB를 쓰는 구간만 `TransactionTemplate`으로 감싼다. `TransactionTemplate`은 Spring Boot가 자동 등록하는 빈이라 생성자 주입으로 받는다(확인 필요: 주입이 안 되면 `new TransactionTemplate(transactionManager)`). 반환값이 있으면 `transactionTemplate.execute(status -> { ...; return 값; })`, 없으면 `transactionTemplate.executeWithoutResult(status -> { ... })`. 읽기 구간도 같은 템플릿을 쓴다.
-- 허용 형식과 확장자는 서비스 안의 상수 하나로 둔다: `Map.of("image/jpeg", "jpg", "image/png", "png", "image/webp", "webp")`. 최대 크기는 `properties.maxUploadBytes()`.
+- **클래스에 `@Transactional`을 붙이지 않는다.** 붙이면 메서드 전체가 한 트랜잭션이라 `storage.exists`·`delete`(네트워크 호출)가 DB 커넥션을 쥔 채 실행된다. 그 대신 DB를 쓰는 구간만 `TransactionTemplate`으로 감싼다. `TransactionTemplate`은 Spring Boot가 자동 등록하는 빈이라 생성자 주입으로 받는다(확인 필요: 주입이 안 되면 `new TransactionTemplate(transactionManager)`). 반환값이 있으면 `transactionTemplate.execute(status -> { ...; return 값; })`, 없으면 `transactionTemplate.executeWithoutResult(status -> { ... })`. 읽기 구간도 같은 템플릿을 쓴다.
+- **의존성**: `ShopApi`, `ProductRepository`, `ObjectStorage`, `StorageProperties`, `TransactionTemplate` (`@Service @RequiredArgsConstructor`)
+- **서비스 안의 상수 2개** (`private static final`)
+  - `Map<String, String> EXTENSIONS = Map.of("image/jpeg", "jpg", "image/png", "png", "image/webp", "webp")` — 허용 형식 검사(`containsKey`)와 키 끝의 확장자(`get`)에 쓴다
+  - `Pattern OBJECT_KEY_PATTERN = Pattern.compile("^products/[0-9a-f-]{36}/[0-9a-f-]{36}\\.(jpg|png|webp)$")` — `register`의 키 모양 검사(`matcher(objectKey).matches()`)에 쓴다
+- 상수로 두지 않는 값: 최대 이미지 수는 `Product.MAX_IMAGES`, 최대 업로드 크기는 설정값 `properties.maxUploadBytes()`, 키 접두어는 `Product.objectKeyPrefix(productId)`
 - 결과 타입(모두 application): `UploadUrlResult(String uploadUrl, Map<String,String> headers, String objectKey, Instant expiresAt)`, `ImageResult(UUID imageId, String objectKey, int sortOrder)`. **Result는 키를 들고, URL 변환은 web에서 한다**(아래 6).
 
 `UploadUrlResult issueUploadUrl(UUID memberId, UUID shopId, UUID productId, String contentType, long contentLength)` — ① 업로드 허가증 발급
@@ -1551,9 +1573,8 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 
 1. `shopApi.verifyOwnerOfActiveShop`
 2. 키 검사: `objectKey.startsWith(Product.objectKeyPrefix(productId))`이고 정규식 `^products/[0-9a-f-]{36}/[0-9a-f-]{36}\.(jpg|png|webp)$`에 맞아야 한다. 아니면 `INVALID_REQUEST`(남의 상품 경로나 이상한 경로를 등록하지 못하게 한다)
-3. **(트랜잭션 밖)** `Optional<StoredObject> stored = storage.head(objectKey)` → 비어 있으면 `IMAGE_NOT_UPLOADED`
-4. `stored`의 크기가 1 미만이거나 `maxUploadBytes` 초과이거나, `contentType`이 허용 Map에 없으면 `storage.delete(objectKey)`로 지운 뒤 `INVALID_REQUEST`(서명이 막아 주지만 서버가 마지막으로 한 번 더 확인한다)
-5. (트랜잭션) `findByIdAndShopId`(없으면 `PRODUCT_NOT_FOUND`) → `ProductImage image = product.addImage(objectKey)` → `new ImageResult(image.getId(), image.getObjectKey(), image.getSortOrder())` 반환. 새 `ProductImage`는 `id`를 직접 채우므로 Hibernate가 INSERT 전에 SELECT를 한 번 날릴 수 있다(확인 필요: 쿼리 로그로 확인)
+3. **(트랜잭션 밖)** `storage.exists(objectKey)`가 `false`면 `IMAGE_NOT_UPLOADED`
+4. (트랜잭션) `findByIdAndShopId`(없으면 `PRODUCT_NOT_FOUND`) → `ProductImage image = product.addImage(objectKey)` → `new ImageResult(image.getId(), image.getObjectKey(), image.getSortOrder())` 반환. `ProductImage`는 `save()`를 따로 부르지 않는다. 영속 상태의 `product.images`에 넣어 두면 트랜잭션이 끝날 때(커밋 직전 flush) JPA가 cascade로 INSERT한다. INSERT는 `addImage` 호출 시점이 아니라 커밋 시점에 나가고, UNIQUE 위반 같은 DB 오류도 그때 난다(`transactionTemplate.execute` 밖으로 전파되어 409로 변환). `id`는 `ProductImage.of`가 이미 채우므로 `image.getId()`는 바로 쓸 수 있다. 확인 필요: `id`를 직접 채운 엔티티를 cascade로 저장할 때 Hibernate가 INSERT 앞에 `select ... from product.product_image where id=?`를 날리는지(쿼리 로그로 확인, 나가도 기능은 정상)
 
 `void delete(UUID memberId, UUID shopId, UUID productId, UUID imageId)` — 이미지 삭제
 
@@ -1572,19 +1593,42 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 - 컨트롤러는 기존 `SellerProductController`처럼 `@RestController @RequiredArgsConstructor`, 회원은 `@CurrentMember UUID memberId`, 경로는 `@PathVariable UUID shopId, productId`로 받는다. 요청 DTO는 `@RequestBody @Valid`.
 - **기존 응답 변경** (키 대신 URL을 내려준다):
   - `ProductSummaryResponse`·`ProductDetailResponse`의 `thumbnailKey` → **`thumbnailUrl`**. `SellerProductResponse`는 썸네일 필드가 없으므로 바꾸지 않는다.
-  - URL 변환은 `ImageUrls`가 하는데 `from(result)`는 정적 메서드라 빈에 접근하지 못한다. 그래서 `from(result, imageUrls)`로 `ImageUrls`를 인자로 받고, 컨트롤러가 주입받은 `ImageUrls`를 넘긴다(호출하는 `ProductController`도 함께 고친다).
+  - URL 변환은 `ImageUrls`가 하는데 `from(result)`는 정적 메서드라 빈에 접근하지 못한다. 그래서 `from(result, imageUrls)`로 `ImageUrls`를 인자로 받고, 컨트롤러가 주입받은 `ImageUrls`를 넘긴다(호출하는 곳을 모두 함께 고친다: `ProductController`와, `ProductDetailResponse.from`을 쓰는 `SellerProductController`의 `update`·`changeStatus`. 이 컨트롤러에도 `ImageUrls`를 주입한다).
   - `ProductDetailResponse`에 `images: List<ImageResponse>` 추가. `ImageResponse(UUID imageId, String url, int sortOrder)`는 `ImageResponse.from(ImageResult, imageUrls)`로 만든다.
-- **상세 조회가 이미지를 읽게 하기**: 현재 `ProductQueryService.getProduct`는 `productRepository.findById`로 상품만 읽는다. `ProductRepository`에 `Optional<Product> findDetailById(UUID id)`를 추가하고, `JpaProductRepository`에서 `@EntityGraph(attributePaths = "images")`를 붙여 구현한다(`@EntityGraph`는 순수 인터페이스 `ProductRepository`가 아니라 `JpaProductRepository`에 둔다). `getProduct`는 이 메서드를 쓰고, `ProductDetailResult`에 `List<ImageResult> images`를 추가해 `product.getImages()`를 옮긴다.
+- **상세 조회가 이미지를 읽게 하기**: 현재 `ProductQueryService.getProduct`는 `productRepository.findById`로 상품만 읽는다. `ProductRepository`에 `Optional<Product> findDetailById(UUID id)`를 추가하고, `JpaProductRepository`에서 `@EntityGraph(attributePaths = "images")`를 붙여 구현한다(`@EntityGraph`는 순수 인터페이스 `ProductRepository`가 아니라 `JpaProductRepository`에 둔다). `getProduct`는 이 메서드를 쓰고, `ProductDetailResult`에 `List<ImageResult> images`를 추가해 `product.getImages()`를 옮긴다. 이제 `ProductRepository.findById`를 쓰는 곳이 없으므로 그 선언을 지운다(구현체 `JpaProductRepository`는 `JpaRepository`가 `findById`를 이미 제공하므로 영향 없다).
 - 클라이언트 업로드 방법(README·PR에 적기): `curl -X PUT "{uploadUrl}" -H "Content-Type: image/png" --data-binary @a.png` — `headers`의 값을 그대로 넣는다.
 
-**7) 테스트 환경** — `IntegrationTestSupport`에 `static final MinIOContainer minio = new MinIOContainer(DockerImageName.parse("chainguard/minio:latest").asCompatibleSubstituteFor("minio/minio"))`(이미지 이름이 달라 `asCompatibleSubstituteFor`가 필요하다. 확인 필요: Testcontainers 2.x의 패키지 `org.testcontainers.minio`, 이 이미지에서 시작 명령·대기 전략이 그대로 동작하는지) 추가, `@DynamicPropertySource`로 `myroutine.storage.endpoint`(`minio.getS3URL()`), `access-key`(`minio.getUserName()`), `secret-key`(`minio.getPassword()`), `public-base-url`(`getS3URL() + "/myroutine"`) 주입. 업로드는 테스트에서 `java.net.http.HttpClient`로 presigned URL에 실제 PUT한다.
+**7) 테스트 환경** — 목적: 통합 테스트에서도 진짜 저장소(MinIO 컨테이너)로 업로드·조회를 해 본다. `application.yaml`의 `myroutine.storage.*`가 필수 값이고 `BucketInitializer`가 앱이 뜰 때 저장소에 접속하므로, **이 설정이 없으면 기존 통합 테스트도 모두 기동에 실패한다.** `IntegrationTestSupport`에 세 가지를 한다.
+
+1. 컨테이너 필드 추가 (Postgres 옆, 같은 싱글턴 방식). 클래스는 `org.testcontainers.containers.MinIOContainer`(Testcontainers 2.0.5에서 확인)
+```java
+static final MinIOContainer minio = new MinIOContainer(
+        DockerImageName.parse("chainguard/minio:latest").asCompatibleSubstituteFor("minio/minio"));
+```
+`asCompatibleSubstituteFor`가 필요한 이유: 이미지 이름이 `minio/minio`가 아니라서 이게 없으면 Testcontainers가 호환 이미지로 인정하지 않는다.
+2. 기존 `static { postgres.start(); }` 블록에 `minio.start();`를 추가한다. 시작 명령(`server --console-address :9001 /data`)과 대기 전략(`/minio/health/live`), 기본 계정(`minioadmin`/`minioadmin`)은 `MinIOContainer`가 알아서 설정한다(`chainguard/minio`에서 같은 명령으로 `live` 200을 확인했다).
+3. 컨테이너 주소·계정을 앱 설정에 주입한다. 컨테이너 포트는 매번 달라서 `@DynamicPropertySource`가 필요하다.
+```java
+@DynamicPropertySource
+static void storageProperties(DynamicPropertyRegistry registry) {
+    registry.add("myroutine.storage.endpoint", minio::getS3URL);
+    registry.add("myroutine.storage.access-key", minio::getUserName);
+    registry.add("myroutine.storage.secret-key", minio::getPassword);
+    registry.add("myroutine.storage.public-base-url", () -> minio.getS3URL() + "/myroutine");
+}
+```
+`getS3URL()`은 `http://호스트:포트` 형태다. 버킷 `myroutine`과 공개 읽기 정책은 앱 기동 시 `BucketInitializer`가 만든다. 테스트 후 `TRUNCATE`는 DB만 비우고 저장소 객체는 지우지 않는다(키가 매번 달라서 문제없다).
+
+업로드는 테스트에서 `java.net.http.HttpClient`로 presigned URL에 실제 PUT한다. 서명된 헤더를 요청에 넣을 때 `host`·`content-length`는 건너뛴다(클라이언트가 자동으로 붙인다).
 
 ### 완료 확인
 
 | 테스트 클래스 | 케이스 |
 |---|---|
 | `product/domain/ProductImageTest` | [ ] 첫 이미지 → 썸네일 / [ ] 썸네일 삭제 → 다음 이미지가 썸네일, 모두 삭제 → null / [ ] 11번째 → `PRODUCT_IMAGE_LIMIT_EXCEEDED` / [ ] DISCONTINUED → `addImage`·`removeImage` 모두 `PRODUCT_DISCONTINUED` |
-| `product/web/ProductImageControllerTest` (MinIO 컨테이너) | [ ] URL 발급 → `HttpClient`로 PUT(서명된 헤더 그대로) → 200 → 등록 → 201 → 응답 `url`로 GET(인증 없이) → 200, 같은 바이트 / [ ] 상품 상세에 `images`, 목록에 `thumbnailUrl` / [ ] **서명과 다른 Content-Type으로 PUT → MinIO가 403** / [ ] 업로드 없이 등록 → 422 `IMAGE_NOT_UPLOADED` / [ ] 다른 상품 접두어의 키 등록 → 400 / [ ] `image/gif` 요청 → 400, 6MB 요청 → 400 / [ ] 다른 회원의 가게 → 403 / [ ] 삭제 → 204, 저장소에서도 사라짐(HEAD 없음) |
+| `product/web/ProductImageControllerTest` (MinIO 컨테이너) | [ ] URL 발급 → `HttpClient`로 PUT(서명된 헤더 그대로) → 200 → 등록 → 201 → 응답 `url`로 GET(인증 없이) → 200, 같은 바이트 / [ ] 상품 상세에 `images`, 목록에 `thumbnailUrl` / [ ] **서명과 다른 Content-Type으로 PUT → MinIO가 403** / [ ] 업로드 없이 등록 → 422 `IMAGE_NOT_UPLOADED` / [ ] **다른 상품의 파일 키를 내 상품에 등록 → 400** (예: 상품 B의 이미지 키를 상품 A의 등록 API에 보낸다. "이 상품 폴더의 파일만 이 상품에 등록할 수 있다"를 지키고, 다른 상품 파일을 참조하는 것을 막는다. 이미 B에 등록된 키는 `object_key` UNIQUE 제약도 막지만 그 경우는 409 `DUPLICATE_RESOURCE`이므로, 이 테스트가 400 `INVALID_REQUEST`를 요구하면 접두어 검사를 확인할 수 있다) / [ ] `image/gif` 요청 → 400, 6MB 요청 → 400 / [ ] **가게 주인이 아닌 회원의 토큰으로 요청 → 403** (예: 다른 회원이 남의 가게의 `presigned-url`을 요청. 세 API 모두 첫 단계가 소유권 확인이라 한 API로 확인하면 된다) / [ ] 삭제 → 204, 저장소에서도 사라짐(`storage.exists`가 `false`) |
+
+- 테스트에서 객체 키는 매번 새 UUID로 만든다. 저장소 객체는 `TRUNCATE`로 지워지지 않아 고정 키를 쓰면 앞 테스트의 파일 때문에 `exists`가 오탐한다.
 
 ```bash
 curl -s -X POST localhost:8080/api/shops/$SHOP/products/$PRODUCT/images/presigned-url \
@@ -1593,7 +1637,7 @@ curl -s -X POST localhost:8080/api/shops/$SHOP/products/$PRODUCT/images/presigne
 ```
 
 **제안 (선택)**
-- 9장인 상품에 2장을 동시에 등록하면 하나는 409(낙관적 락)가 되어 10장을 넘지 않는지 테스트(Hibernate가 컬렉션 변경 시 `Product.version`을 올리는지 확인하는 의미도 있다)
+- `product/application/ProductImageConcurrencyTest`: 9장인 상품에 업로드해 둔 이미지 2개를 스레드 2개가 `CountDownLatch`로 동시에 `register`하면 **DB에 정확히 10건**, 성공 1건, 실패 1건이다. 실패한 쪽은 `ObjectOptimisticLockingFailureException`(두 트랜잭션이 겹친 경우)이나 `PRODUCT_IMAGE_LIMIT_EXCEEDED`(한쪽이 먼저 커밋한 뒤 읽은 경우) 둘 다 정상이므로 핵심 단언은 "10건, 성공 1건"이다. 겹침이 매번 일어나지 않으므로 `@RepeatedTest(10)`. (Hibernate가 컬렉션 변경 시 `Product.version`을 올리는지 확인하는 의미도 있다. 확인함: 10회 모두 실패한 쪽이 `ObjectOptimisticLockingFailureException`이었다)
 
 **리뷰 때 물어볼 것**
 - 파일을 서버로 받아서 저장하지 않고 presigned URL을 쓴 이유는? 대가는(등록되지 않은 객체)?

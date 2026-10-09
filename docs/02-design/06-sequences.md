@@ -255,7 +255,7 @@ sequenceDiagram
   PR-->>C: {uploadUrl(PUT, 10분), headers(서명된 헤더), objectKey, expiresAt}
   C->>S3: PUT uploadUrl + headers 그대로 (파일 바이트) — 앱 서버를 거치지 않는다
   C->>PR: POST /api/shops/{shopId}/products/{id}/images (objectKey)
-  PR->>S3: HEAD objectKey — 실제로 올라왔는지, 크기·타입 확인
+  PR->>S3: HEAD objectKey — 실제로 올라왔는지 확인
   rect rgba(80,140,255,0.12)
     PR->>PR: product_image INSERT (sort_order 다음 번호), 첫 이미지면 thumbnail_key 설정
   end
