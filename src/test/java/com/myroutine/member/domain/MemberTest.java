@@ -37,7 +37,7 @@ class MemberTest {
     }
 
     @Test
-    @DisplayName("BANNED 회원은 MEMBER_BANNED 예외가 발생한다.")
+    @DisplayName("로그인 검증을 실패한다. (BANNED 회원, MEMBER_BANNED)")
     void verify_can_login_banned_throws_member_banned() {
         // Given
         Member bannedMember = Member.signUp("test@test.com", "pass1234", "test", "테스트");
@@ -50,7 +50,7 @@ class MemberTest {
     }
 
     @Test
-    @DisplayName("WITHDRAWN 회원은 LOGIN_FAILED 예외가 발생한다.")
+    @DisplayName("로그인 검증을 실패한다. (WITHDRAWN 회원, LOGIN_FAILED)")
     void verify_can_login_withdrawn_throws_login_failed() {
         // Given
         Member withdrawnMember = Member.signUp("test@test.com", "pass1234", "test", "테스트");

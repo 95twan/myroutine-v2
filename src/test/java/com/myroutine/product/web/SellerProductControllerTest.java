@@ -11,7 +11,7 @@ import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
@@ -215,9 +215,9 @@ class SellerProductControllerTest extends IntegrationTestSupport {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {0, 51})
+    @CsvSource({"0, 1 이상이어야 합니다.", "51, 50 이하여야 합니다."})
     @DisplayName("판매자 상품 목록 조회를 실패한다. (size 범위 초과)")
-    void getShopProductsWithInvalidSize(int size) throws Exception {
+    void getShopProductsWithInvalidSize(int size, String message) throws Exception {
         // Given
         UUID memberId = testFixtures.signup("test@test.com");
         String token = testFixtures.login("test@test.com");
@@ -231,7 +231,8 @@ class SellerProductControllerTest extends IntegrationTestSupport {
                         .header("Authorization", "Bearer " + token)
                         .param("size", String.valueOf(size)))
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
-                .andExpect(jsonPath("$.details").value(hasKey("size")));
+                .andExpect(jsonPath("$.details").value(hasKey("size")))
+                .andExpect(jsonPath("$.details.size").value(message));
     }
 
     @Test

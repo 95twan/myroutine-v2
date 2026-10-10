@@ -12,7 +12,7 @@ public record AddressResult(
         String zipcode,
         String address1,
         String address2,
-        Boolean isDefault,
+        boolean isDefault,
         Instant createdAt
 ) {
     public static AddressResult from(MemberAddress memberAddress) {

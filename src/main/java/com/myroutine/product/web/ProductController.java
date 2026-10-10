@@ -25,7 +25,7 @@ public class ProductController {
     public ResponseEntity<CursorPage<ProductSummaryResponse>> getPublicProducts(
             @RequestParam(required = false) ProductCategory category,
             @RequestParam(required = false) String cursor,
-            @RequestParam(defaultValue = "20") @Min(1) @Max(50) int size
+            @RequestParam(defaultValue = "20") @Min(value = 1, message = "1 이상이어야 합니다.") @Max(value = 50, message = "50 이하여야 합니다.") int size
     ) {
         CursorPage<ProductSummaryResult> result = productQueryService.getPublicProducts(category, cursor, size);
 

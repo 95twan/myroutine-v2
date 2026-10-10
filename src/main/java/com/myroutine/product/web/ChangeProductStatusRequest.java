@@ -4,7 +4,7 @@ import com.myroutine.product.domain.ProductStatus;
 import jakarta.validation.constraints.NotNull;
 
 public record ChangeProductStatusRequest(
-        @NotNull ProductStatus status
+        @NotNull(message = "필수 값입니다.") ProductStatus status
 ) {
 
 }

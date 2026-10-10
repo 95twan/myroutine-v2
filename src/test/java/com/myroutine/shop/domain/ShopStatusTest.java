@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ShopStatusTest {
 
     @ParameterizedTest(name = "[성공] {0} -> {1}")
-    @DisplayName("전 상태에서 다음 상태로 전이할 수 있는 경우 다음 상태로 전이된다.")
+    @DisplayName("가게 상태를 전이한다. (허용된 전이)")
     @MethodSource("successTransitProvider")
     void transitSuccess(ShopStatus from, ShopStatus to) {
         // When
@@ -32,7 +32,7 @@ class ShopStatusTest {
     }
 
     @ParameterizedTest(name = "[실패] {0} -> {1}")
-    @DisplayName("이전 상태에서 다음 상태로 전이할 수 없는 경우 예외가 발생한다.")
+    @DisplayName("가게 상태 전이를 실패한다. (허용되지 않은 전이)")
     @MethodSource("failTransitProvider")
     void transitFail(ShopStatus from, ShopStatus to) {
         // When & Then

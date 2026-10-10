@@ -30,7 +30,7 @@ public class JwtProviderTest {
     }
 
     @Test
-    @DisplayName("만료 시각이 지난 토큰은 검증에 실패한다.")
+    @DisplayName("토큰 검증을 실패한다. (만료)")
     void parse_after_expiry_returns_empty() {
         UUID memberId = UUID.randomUUID();
         String role = "USER";
@@ -41,7 +41,7 @@ public class JwtProviderTest {
     }
 
     @Test
-    @DisplayName("서명을 변조한 토큰은 검증에 실패한다.")
+    @DisplayName("토큰 검증을 실패한다. (서명 변조)")
     void parse_tampered_signature_returns_empty() {
         UUID memberId = UUID.randomUUID();
         String role = "USER";
@@ -61,7 +61,7 @@ public class JwtProviderTest {
     }
 
     @Test
-    @DisplayName("다른 키로 서명한 토큰은 검증에 실패한다.")
+    @DisplayName("토큰 검증을 실패한다. (다른 키로 서명)")
     void parse_token_signed_with_other_key_returns_empty() {
         JwtProperties otherJwtProperties = new JwtProperties("/X+uaAk0Ub+zJuc3k5yzCzpxS11JaML5lybbrW2tQHU=", Duration.ofHours(1));
         JwtProvider otherJwtProvider = new JwtProvider(otherJwtProperties, Clock.fixed(t0, ZoneOffset.UTC));
@@ -70,7 +70,7 @@ public class JwtProviderTest {
     }
 
     @Test
-    @DisplayName("형식이 잘못된 토큰은 검증에 실패한다.")
+    @DisplayName("토큰 검증을 실패한다. (형식 오류)")
     void parse_malformed_token_returns_empty() {
         String token = "abc";
         assertThat(jwtProvider.parse(token)).isEmpty();

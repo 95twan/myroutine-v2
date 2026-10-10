@@ -35,7 +35,7 @@ public class SellerProductController {
             @CurrentMember UUID memberId,
             @PathVariable UUID shopId,
             @RequestParam(required = false) String cursor,
-            @RequestParam(defaultValue = "20") @Min(1) @Max(50) int size
+            @RequestParam(defaultValue = "20") @Min(value = 1, message = "1 이상이어야 합니다.") @Max(value = 50, message = "50 이하여야 합니다.") int size
     ) {
         CursorPage<SellerProductResult> result = productQueryService.getShopProducts(memberId, shopId, cursor, size);
         return ResponseEntity.ok(new CursorPage<>(result.items().stream().map(SellerProductResponse::from).toList(), result.nextCursor()));
