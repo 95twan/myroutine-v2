@@ -1,6 +1,8 @@
 # Part 1. 뼈대와 첫 기능
 
-> 버전 0.23 · 2026-10-10 · **Part 1 마무리 문서 정리**: 남은 "확인 필요" 4건을 직접 확인해 확정(감사 시각 `Instant`, S3 없는 키 삭제, 저장소 장애 시 기동 실패, cascade INSERT 전 select 없음), 공통 규칙 E에 검증 메시지 표준 문구를 추가(메시지 없는 제약이 영어 기본 문구·정규식을 응답에 내보내던 문제), "수정 사항" 절 구현 완료 표기, "Part 1 완료"에 Part 2 시작 전 결정(`subscribable`)과 Release 노트용 알려진 한계 추가
+> 버전 0.25 · 2026-10-11 · **`subscribable` 정책 결정**: 상품 등록에서 생략·`null`이면 `false`로 등록한다. 1-7 규격을 고치고 "수정 사항 (Part 2 시작 전)" 절(구현 규격·테스트)을 추가했다. "Part 1 완료"의 결정 항목·알려진 한계 표를 갱신했다
+> 0.24 · 2026-10-11 · 1-4 JSON 변환 주입 타입: Boot 빈의 실제 타입이 `JsonMapper`임을 확인했고, 프로젝트는 `ObjectMapper`로 통일한다고 적었다(Part 2 재검토 중 확인·결정)
+> 0.23 · 2026-10-10 · **Part 1 마무리 문서 정리**: 남은 "확인 필요" 4건을 직접 확인해 확정(감사 시각 `Instant`, S3 없는 키 삭제, 저장소 장애 시 기동 실패, cascade INSERT 전 select 없음), 공통 규칙 E에 검증 메시지 표준 문구를 추가(메시지 없는 제약이 영어 기본 문구·정규식을 응답에 내보내던 문제), "수정 사항" 절 구현 완료 표기, "Part 1 완료"에 Part 2 시작 전 결정(`subscribable`)과 Release 노트용 알려진 한계 추가
 > 0.22 · 2026-10-10 · **구현으로 해소된 "확인 필요" 3건 정리**: 1-4 JSON 변환 주입 타입(`ObjectMapper`), 1-7 쿼리 파라미터 검증 예외 매핑(`HandlerMethodValidationException` → 400), 1-10 `TransactionTemplate` 생성자 주입. 실제 코드·테스트와 대조해 확인한 것만 고쳤다
 > 0.21 · 2026-10-10 · **1-11 "할 일"을 S1~S8 순서(맥에서 확인 가능한 것부터)로 재구성**: 기존 규격(1~6)과 따라 하기 절을 하나로 합쳐 단계마다 규격·호출 형태·확인 명령·흔한 실패를 한곳에 두고, 맥 리허설(롤백 포함), 기본 브랜치가 `develop`이라 `cd.yml`은 머지 후에야 시험된다는 점, `.gitignore`의 `.env*` 때문에 `.env.ops.example`이 빠지는 문제, 운영 compose `name:`·`${IMAGE_TAG:?}`·이미지 `LABEL` 보강, 풀스택 curl 순서
 > 0.20 · 2026-10-09 · **1-11 구체화·사실 확인**: 운영 MinIO는 `chainguard/minio`를 digest로 고정하고 `mc ready local`로 헬스체크(직접 실행해 확인), JRE 이미지(`eclipse-temurin:25-jre`)에 curl이 없음을 확인해 설치하도록 정함, compose 변수 치환에 `--env-file`이 필요한 점, 관리 포트(8081)를 호스트에서 못 부르는 점, `workflow_run`이 포크 PR의 CI 완료에도 실행되는 점과 거르는 조건, 배포 job에 checkout이 빠진 점, 운영 `.env` 키 이름(로컬과 같은 `SPRING_DATASOURCE_*`)을 고치고 deploy.sh·워크플로·CORS를 호출 형태 수준으로 풀어 적었다
@@ -574,7 +576,7 @@ runtimeOnly 'io.jsonwebtoken:jjwt-jackson:{버전}'
 
 `RestAuthenticationEntryPoint.commence`
 - 응답: status 401, `Content-Type: application/json;charset=UTF-8`, 본문 `ErrorResponse.of(UNAUTHORIZED, Map.of())`를 JSON으로 써서 내보낸다
-- JSON 변환은 Boot가 만든 Jackson 3 빈을 생성자 주입으로 받는다. 주입 타입은 `tools.jackson.databind.ObjectMapper`다(1-4 구현에서 이 타입으로 주입·동작함을 확인했다. `JsonMapper`로 받을 수 있는지는 확인하지 않았다)
+- JSON 변환은 Boot가 만든 Jackson 3 빈을 생성자 주입으로 받는다. 주입 타입은 `tools.jackson.databind.ObjectMapper`다(1-4 구현에서 이 타입으로 주입·동작함을 확인했다). Boot가 만드는 빈(`jacksonJsonMapper`)의 실제 타입은 `tools.jackson.databind.json.JsonMapper`라 `JsonMapper`로 받아도 같은 빈이 들어온다(2026-10-10 확인). 프로젝트는 **`ObjectMapper`로 통일**한다(Part 2 멱등 장치, Part 3 Kafka 직렬화도 같음)
 - `RestAccessDeniedHandler`도 같은 방식, 코드는 `FORBIDDEN`
 
 `SecurityConfig` 변경
@@ -1103,7 +1105,7 @@ public record Money(long amount) implements Comparable<Money> { ... }
 | `ProductController` | `GET /api/products/{id}` | **공개** | | 200 `ProductDetailResponse` |
 | `SellerProductController` | `GET /api/shops/{shopId}/products?cursor=&size=` | 소유자 | size 규칙은 공개 목록과 같다 | 200 `CursorPage<SellerProductResponse>` |
 
-- `RegisterProductRequest`: `name @NotBlank @Size(max=100)`, `description @NotNull @Size(max=5000)`, `category @NotNull ProductCategory`, `price @NotNull @Min(1) @Max(100_000_000) Long`, `initialStock @NotNull @Min(0) @Max(1_000_000) Integer`, `subscribable boolean`
+- `RegisterProductRequest`: `name @NotBlank @Size(max=100)`, `description @NotNull @Size(max=5000)`, `category @NotNull ProductCategory`, `price @NotNull @Min(1) @Max(100_000_000) Long`, `initialStock @NotNull @Min(0) @Max(1_000_000) Integer`, `subscribable Boolean` — 생략·`null`이면 `false`(아래 "수정 사항 (Part 2 시작 전)", 2026-10-11 결정)
 - 쿼리 파라미터 검증(`@Min`, `@Max`)은 컨트롤러 메서드 파라미터에 붙이기만 하고, **컨트롤러 클래스에는 `@Validated`를 붙이지 않는다.** 클래스에 `@Validated`가 있으면 AOP 프록시 검증이 먼저 동작해 `jakarta.validation.ConstraintViolationException`이 던져지고(`GlobalExceptionHandler`에 핸들러가 없어 500), Spring MVC 내장 검증이 던지는 `HandlerMethodValidationException`이 나오지 않는다(1-7 구현 중 `size=0` 테스트에서 확인). 내장 검증의 위반 예외는 `HandlerMethodValidationException`이므로 `GlobalExceptionHandler`에 **400 `INVALID_REQUEST`** 핸들러를 추가한다(`@Validated`를 뺀 컨트롤러에서 Spring 7이 이 예외를 던지는 것을 1-7 구현에서 확인했다). `details`에는 다른 검증 핸들러와 같게 **파라미터명 → 검증 메시지**를 담는다(예: `{"size": "1 이상이어야 합니다"}`). 파라미터 이름·메시지는 `e.getValueResults()`의 `getMethodParameter().getParameterName()`과 `getResolvableErrors()`로 꺼낸다(확인함).
 - 응답 record는 Result 필드를 그대로 옮긴다(`ProductSummaryResponse` 등).
 - `SecurityConfig`: `.requestMatchers(HttpMethod.GET, "/api/products", "/api/products/*").permitAll()`
@@ -2140,14 +2142,15 @@ docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml e
 ## Part 1 완료
 - [ ] develop → main PR(merge commit), 태그 `v0.1.0`, GitHub Release에 완료 단계와 동시성 테스트 결과 요약, **배포 환경에서 돌려본 결과(1-11 완료 확인)** 링크
 - [ ] Part 2 문서를 다시 읽고, Part 1에서 배운 점을 반영해 다듬는다(필요하면 Claude에게 요청)
-- [ ] **Part 2 시작 전에 결정**: 상품 등록 요청에서 `subscribable`을 생략하면 400이고 `details`가 `{}`다(원시 `boolean`이 역직렬화 단계에서 거절된다). (a) `Boolean`+`@NotNull`로 필수 처리 / (b) 생략 시 `false`(DB 기본값과 같음, 권장). 정하면 1-7 `RegisterProductRequest` 규격부터 고친다
+- [x] **Part 2 시작 전에 결정**: 상품 등록 요청에서 `subscribable`을 생략하면 400이고 `details`가 `{}`다(원시 `boolean`이 역직렬화 단계에서 거절된다). (a) `Boolean`+`@NotNull`로 필수 처리 / (b) 생략 시 `false` → **(b)로 결정**(2026-10-11). 1-7 규격을 고쳤고 구현은 아래 "수정 사항 (Part 2 시작 전)"
+- [ ] 위 결정의 구현(2-1 착수 전)
 
 ### Release 노트에 적을 알려진 한계
 
 | 한계 | 내용 | 해소 |
 |---|---|---|
 | 토큰 즉시 차단 불가 | refresh·로그아웃·강제 차단이 없고 Access 토큰은 만료(1시간)까지 유효하다 | Part 4 |
-| `subscribable` 생략 시 400 | `details`가 비어 있어 원인을 알 수 없다 | Part 2 시작 전 결정 |
+| `subscribable` 생략 시 400 | `details`가 비어 있어 원인을 알 수 없다 | 생략 시 `false`로 결정(2026-10-11), 2-1 착수 전 구현 |
 | 지원하지 않는 `Content-Type`이 500 | `text/plain` 등으로 요청하면 415가 아니라 500 `INTERNAL_ERROR`와 ERROR 로그가 나간다 | 선택(415 매핑) |
 | 저장소 객체 잔류 | URL만 받고 등록하지 않은 객체, 삭제 후 저장소 삭제에 실패한 객체가 남는다. 파일 내용(매직 바이트)도 검증하지 않는다 | Stage 1 범위 밖(회고) |
 | 앱이 MinIO root 계정으로 접속 | 서비스 계정을 분리하지 않았다 | Stage 1 범위 밖(회고) |
@@ -2183,3 +2186,25 @@ docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml e
 **리뷰 때 물어볼 것**
 - `@NotBlank` 대신 `@Pattern`을 쓰는 이유는? `@NotBlank`를 수정 요청에 쓰면 무엇이 달라지나?
 - "null은 유지"와 "값을 비운다"를 한 요청 형식으로 구분할 수 있나? (`address2`는 `""`를 "비움"으로 약속해서 구분한다. 이 약속의 대가는?)
+
+---
+
+## 수정 사항 (Part 2 시작 전)
+
+> 2026-10-11 · Part 1 최종 리뷰에서 발견. `RegisterProductRequest.subscribable`이 원시 `boolean`이라, 요청에서 빠지면 역직렬화 단계에서 400이 되고 `details`가 `{}`여서 원인을 알 수 없었다. **생략하거나 `null`이면 `false`(구독 불가)로 등록**하기로 정했다(DB 컬럼 `DEFAULT false`와 같은 의미). 구현은 사용자가 2-1 착수 전에 한다.
+
+| 대상 | 현재 | 수정 |
+|---|---|---|
+| `RegisterProductRequest.subscribable` | `boolean` | `Boolean` (검증 어노테이션 없음) |
+| `RegisterProductRequest.toCommand()` | 그대로 넘긴다 | `Boolean.TRUE.equals(subscribable)`로 넘긴다 — `null`·`false`는 `false`. `RegisterProductCommand`는 `boolean` 그대로 둔다 |
+
+**테스트(완료 확인에 추가)**
+
+| 테스트 클래스 | 케이스 |
+|---|---|
+| `product/web/SellerProductControllerTest` | [ ] `subscribable`을 뺀 JSON으로 등록 → 201, 상세 조회의 `subscribable`이 `false` / [ ] `"subscribable": true`로 등록 → 상세 조회 `true` |
+
+- "필드가 없는" 요청은 JSON 문자열로 직접 만든다. `RegisterProductRequest`에 `null`을 넣어 직렬화하면 `"subscribable": null`이 되어 필드가 빠진 경우와 다르다(결과는 둘 다 `false`).
+
+**리뷰 때 물어볼 것**
+- 원시 `boolean`을 그대로 두고 "필수"로 정했다면 클라이언트는 어떤 오류를 받았을까? 그 오류로 원인을 알 수 있나?
