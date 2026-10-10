@@ -1,4 +1,3 @@
 myroutine:
   web:
-    cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:}
-    dummy: ${DOES_NOT_EXIST}
+    cors-allowed-origins: ${DOES_NOT_EXIST}
