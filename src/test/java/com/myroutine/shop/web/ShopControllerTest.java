@@ -135,7 +135,8 @@ class ShopControllerTest extends IntegrationTestSupport {
                         .content(objectMapper.writeValueAsString(updateShopRequest))
                 )
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.details.name").value("공백만 입력할 수 없습니다."));
     }
 
     @Test

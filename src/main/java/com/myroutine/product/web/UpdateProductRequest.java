@@ -5,7 +5,7 @@ import com.myroutine.product.domain.ProductCategory;
 import jakarta.validation.constraints.*;
 
 public record UpdateProductRequest(
-        @Pattern(regexp = ".*\\S.*")
+        @Pattern(regexp = ".*\\S.*", message = "공백만 입력할 수 없습니다.")
         @Size(max = 100, message = "제품명은 100자 이하여야 합니다.")
         String name,
         @Size(max = 5000, message = "제품 설명은 5000자 이하여야 합니다.")

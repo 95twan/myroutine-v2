@@ -169,8 +169,8 @@ class AuthControllerTest extends IntegrationTestSupport {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
-                .andExpect(jsonPath("$.details.password").exists())
-                .andExpect(jsonPath("$.details.email").exists());
+                .andExpect(jsonPath("$.details.password").value("비밀번호는 8~64자여야 합니다."))
+                .andExpect(jsonPath("$.details.email").value("이메일 형식이 아닙니다."));
     }
 
     @Test
