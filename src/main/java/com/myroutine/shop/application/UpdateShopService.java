@@ -22,7 +22,6 @@ public class UpdateShopService {
                 () -> new BusinessException(ShopErrorCode.SHOP_NOT_FOUND)
         );
         shop.verifyOwner(memberId);
-        shop.verifyActive();
         shop.update(
                 command.name(),
                 command.email(),
