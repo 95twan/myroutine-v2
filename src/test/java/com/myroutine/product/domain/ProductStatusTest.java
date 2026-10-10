@@ -15,7 +15,7 @@ class ProductStatusTest {
 
     @ParameterizedTest
     @MethodSource("transitSuccessProvider")
-    @DisplayName("전 상태에서 다음 상태로 전이할 수 있는 경우 다음 상태로 전이된다.")
+    @DisplayName("상품 상태를 전이한다. (허용된 전이)")
     void transitSuccess(ProductStatus from, ProductStatus to) {
         // Given
 
@@ -35,7 +35,7 @@ class ProductStatusTest {
 
     @ParameterizedTest
     @MethodSource("transitFailProvider")
-    @DisplayName("이전 상태에서 다음 상태로 전이할 수 없는 경우 예외가 발생한다.")
+    @DisplayName("상품 상태 전이를 실패한다. (허용되지 않은 전이)")
     void transitFail(ProductStatus from, ProductStatus to) {
         // Given
 

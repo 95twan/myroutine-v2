@@ -118,7 +118,7 @@ class AuthControllerTest extends IntegrationTestSupport {
     }
 
     @RepeatedTest(10)
-    @DisplayName("회원가입 동시성 테스트")
+    @DisplayName("같은 이메일로 동시에 가입하면 한 건만 가입된다.")
     void signUpConcurrently() throws Exception {
         // Given
         String email = "test@test.com";
@@ -158,7 +158,7 @@ class AuthControllerTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("회원가입 입력값이 유효하지 않을 경우")
+    @DisplayName("회원 가입을 실패한다. (입력값이 유효하지 않음)")
     void signUpWithInvalidInput() throws Exception {
         // Given
         SignupRequest request = new SignupRequest("test1testcom", "111aaa", "nick", "name");
@@ -174,7 +174,7 @@ class AuthControllerTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("입력값이 깨진 JSON일 경우")
+    @DisplayName("회원 가입을 실패한다. (깨진 JSON)")
     void signUpWithMalformedJson() throws Exception {
         // Given
         String brokenJson = "{\"email\":";
@@ -206,7 +206,7 @@ class AuthControllerTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("예상치 못한 에러는 INTERNAL_ERROR 예외가 발생한다.")
+    @DisplayName("예상치 못한 에러는 INTERNAL_ERROR로 응답하고 내부 정보를 노출하지 않는다.")
     void unexpectedError() throws Exception {
         // Given
 
@@ -311,7 +311,7 @@ class AuthControllerTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("제재 회원이라도 비밀번호가 틀리면 LOGIN_FAILED를 준다.")
+    @DisplayName("로그인을 실패한다. (제재 회원이지만 비밀번호 불일치)")
     void loginWithBannedMemberAndWrongPassword() throws Exception {
         // Given
         String email = "test@test.com";

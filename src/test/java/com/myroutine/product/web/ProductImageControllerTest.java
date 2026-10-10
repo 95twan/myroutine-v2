@@ -147,7 +147,7 @@ class ProductImageControllerTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("서명과 다른 Content-Type으로 PUT하면 저장소가 403으로 거절한다.")
+    @DisplayName("이미지 업로드를 실패한다. (서명과 다른 Content-Type, 저장소가 403으로 거절)")
     void putWithDifferentContentType() throws Exception {
         // Given
         UUID memberId = testFixtures.signup("test@test.com");

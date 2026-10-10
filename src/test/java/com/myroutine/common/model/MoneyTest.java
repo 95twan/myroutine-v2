@@ -9,7 +9,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class MoneyTest {
 
     @Test
-    @DisplayName("음수 금액으로 생성을 실패한다.")
+    @DisplayName("금액 생성을 실패한다. (음수 금액)")
     void createWithNegativeAmount() {
         // Given
 
@@ -19,7 +19,7 @@ class MoneyTest {
     }
 
     @Test
-    @DisplayName("뺀 결과가 음수이면 실패한다.")
+    @DisplayName("금액 빼기를 실패한다. (결과가 음수)")
     void minusToNegative() {
         // Given
         Money money = Money.of(1000);
@@ -29,7 +29,7 @@ class MoneyTest {
     }
 
     @Test
-    @DisplayName("곱하기에서 오버플로가 나면 실패한다.")
+    @DisplayName("금액 곱하기를 실패한다. (오버플로)")
     void timesOverflow() {
         // Given
         Money money = Money.of(Long.MAX_VALUE);
