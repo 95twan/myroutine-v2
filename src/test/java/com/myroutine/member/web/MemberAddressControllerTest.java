@@ -338,4 +338,193 @@ class MemberAddressControllerTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
+    @Test
+    @DisplayName("배송지 수정을 실패한다. (수령인이 빈 문자열)")
+    void updateAddressWithEmptyRecipient() throws Exception {
+        // Given
+        String token = testFixtures.token("test1@test.com");
+        AddressRequest request = new AddressRequest(
+                "recipient1",
+                "010-9999-9999",
+                "97940",
+                "address1",
+                "address2",
+                true
+        );
+
+        MvcResult result = mockMvc.perform(post("/api/members/me/addresses")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String addressId = JsonPath.read(result.getResponse().getContentAsString(), "$.addressId");
+
+        UpdateAddressRequest updateRequest = new UpdateAddressRequest(
+                "",
+                null,
+                "38792",
+                "changed address1",
+                "changed address2",
+                true
+        );
+
+        // When & Then
+        mockMvc.perform(patch("/api/members/me/addresses/" + addressId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updateRequest)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("배송지 상세주소를 비운다. (빈 문자열은 null로 저장)")
+    void updateAddressClearsAddress2() throws Exception {
+        // Given
+        String token = testFixtures.token("test1@test.com");
+        AddressRequest request = new AddressRequest(
+                "recipient1",
+                "010-9999-9999",
+                "97940",
+                "address1",
+                "address2",
+                true
+        );
+
+        MvcResult result = mockMvc.perform(post("/api/members/me/addresses")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String addressId = JsonPath.read(result.getResponse().getContentAsString(), "$.addressId");
+
+        UpdateAddressRequest updateRequest = new UpdateAddressRequest(
+                null,
+                null,
+                "38792",
+                "changed address1",
+                "",
+                true
+        );
+
+        // When & Then
+        mockMvc.perform(patch("/api/members/me/addresses/" + addressId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updateRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.address2").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("배송지를 수정한다. (상세주소를 생략하면 기존 값 유지)")
+    void updateAddressWithoutAddress2KeepsValue() throws Exception {
+        // Given
+        String token = testFixtures.token("test1@test.com");
+        AddressRequest request = new AddressRequest(
+                "recipient1",
+                "010-9999-9999",
+                "97940",
+                "address1",
+                "address2",
+                true
+        );
+
+        MvcResult result = mockMvc.perform(post("/api/members/me/addresses")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String addressId = JsonPath.read(result.getResponse().getContentAsString(), "$.addressId");
+
+        UpdateAddressRequest updateRequest = new UpdateAddressRequest(
+                null,
+                null,
+                "38792",
+                "changed address1",
+                null,
+                true
+        );
+
+        // When & Then
+        mockMvc.perform(patch("/api/members/me/addresses/" + addressId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updateRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.address2").value("address2"));
+    }
+
+    @Test
+    @DisplayName("배송지 수정을 실패한다. (상세주소가 공백만 있음)")
+    void updateAddressWithBlankAddress2() throws Exception {
+        // Given
+        String token = testFixtures.token("test1@test.com");
+        AddressRequest request = new AddressRequest(
+                "recipient1",
+                "010-9999-9999",
+                "97940",
+                "address1",
+                "address2",
+                true
+        );
+
+        MvcResult result = mockMvc.perform(post("/api/members/me/addresses")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String addressId = JsonPath.read(result.getResponse().getContentAsString(), "$.addressId");
+
+        UpdateAddressRequest updateRequest = new UpdateAddressRequest(
+                null,
+                null,
+                "38792",
+                "changed address1",
+                " ",
+                true
+        );
+
+        // When & Then
+        mockMvc.perform(patch("/api/members/me/addresses/" + addressId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updateRequest)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("배송지를 등록한다. (상세주소가 빈 문자열이면 null로 저장)")
+    void registerAddressWithEmptyAddress2StoresNull() throws Exception {
+        // Given
+        String token = testFixtures.token("test1@test.com");
+        AddressRequest request = new AddressRequest(
+                "recipient1",
+                "010-9999-9999",
+                "97940",
+                "address1",
+                "",
+                true
+        );
+
+        mockMvc.perform(post("/api/members/me/addresses")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/members/me/addresses")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].address2").doesNotExist());
+    }
 }

@@ -5,8 +5,10 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public record ChangeProfileRequest(
+        @Pattern(regexp = ".*\\S.*")
         @Size(min=2,max=20)
         String nickname,
+        @Pattern(regexp = ".*\\S.*")
         @Size(min=1,max=50)
         String name,
         @Pattern(regexp="^[0-9-]{9,20}$")
