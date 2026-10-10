@@ -35,3 +35,10 @@ out/
 
 ### VS Code ###
 .vscode/
+
+.env*
+!.env.example
+!.env.ops.example
+.DS_Store
+
+.claude/worktrees/

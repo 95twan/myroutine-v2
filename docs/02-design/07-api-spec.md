@@ -1,6 +1,7 @@
 # 07. API 명세 (Stage 1)
 
 > 엔드포인트 목록과 핵심 API의 요청·응답 계약. 필드 단위 상세는 구현 시 springdoc(OpenAPI)로 생성하고, 이 문서와 어긋나면 이 문서를 갱신한다.
+> 2026-10-09 · 로드맵과 맞춤: 품목 취소에서 남의 주문은 404 `ORDER_NOT_FOUND`(2-8), DLT 재처리 경로에 파티션(7-3)
 
 ## 1. 공통 규약
 | 항목 | 규약 |
@@ -17,20 +18,30 @@
 ### 주요 에러 코드
 | HTTP | code | 상황 |
 |---|---|---|
-| 400 | `INVALID_REQUEST` | 검증 실패 |
-| 401 | `UNAUTHORIZED`, `TOKEN_EXPIRED`, `TOKEN_REVOKED`, `REFRESH_REUSED` | 인증 |
+| 400 | `INVALID_REQUEST` | 검증 실패, JSON 형식 오류 |
+| 404 | `NOT_FOUND` | 없는 경로 |
+| 405 | `METHOD_NOT_ALLOWED` | 지원하지 않는 HTTP 메서드 |
+| 401 | `UNAUTHORIZED`(토큰 없음·틀림·만료·폐기 모두), `REFRESH_REUSED` | 인증 |
 | 401 | `LOGIN_FAILED` | 이메일 또는 비밀번호 불일치 (어느 쪽이 틀렸는지 알려주지 않음) |
 | 403 | `FORBIDDEN`, `MEMBER_BANNED`, `EMAIL_NOT_VERIFIED` | 인가, 제재, 이메일 미인증 회원의 주문·결제·가게 개설 |
 | 423 | `ACCOUNT_LOCKED` | 로그인 연속 실패로 잠김 (details.unlockAt) |
-| 404 | `*_NOT_FOUND` | |
+| 404 | `*_NOT_FOUND` | `MEMBER_NOT_FOUND`, `MEMBER_ADDRESS_NOT_FOUND`, `SHOP_NOT_FOUND`, `PRODUCT_NOT_FOUND` 등 |
+| 409 | `MEMBER_EMAIL_DUPLICATED`, `MEMBER_NICKNAME_DUPLICATED`, `SHOP_BUSINESS_NUMBER_DUPLICATED` | 중복 (서비스의 사전 조회) |
+| 409 | `DUPLICATE_RESOURCE` | 동시 요청 경합으로 DB unique 제약에 걸림 |
+| 409 | `PRODUCT_DISCONTINUED` | 단종 상품 수정 |
+| 400 | `IDEMPOTENCY_KEY_REQUIRED` | `@Idempotent` API에 키 없음 |
+| 409 | `RETURN_NOT_ALLOWED` | 거절된 품목의 반품 재요청 |
+| 422 | `OWN_SHOP_PRODUCT`, `PRODUCT_IMAGE_LIMIT_EXCEEDED`, `IMAGE_NOT_UPLOADED` | 자기 가게 상품 주문, 상품 이미지 개수 초과·업로드되지 않은 이미지 등록 |
+| 404 | `CART_ITEM_NOT_FOUND`, `CART_PRODUCT_NOT_FOUND`, `ORDER_LINE_NOT_FOUND`, `SHOP_ORDER_NOT_FOUND`, `REFUND_NOT_FOUND`, `PRODUCT_IMAGE_NOT_FOUND` | |
 | 409 | `IDEMPOTENCY_IN_PROGRESS`, `CONFLICT_RETRY`, `INVALID_STATE_TRANSITION` | 경합, 상태 |
 | 409 | `ORDER_EXPIRED`, `ORDER_ALREADY_PAID` | 결제 승인 시 주문 상태 불일치 |
 | 409 | `REFUND_IN_PROGRESS` | 진행 중 환불이 있는 가게주문 발송 시도 |
-| 422 | `OUT_OF_STOCK`, `INSUFFICIENT_WALLET_BALANCE`, `PRODUCT_NOT_ON_SALE`, `SHOP_NOT_ACTIVE`, `AMOUNT_MISMATCH`, `IDEMPOTENCY_KEY_REUSED` | 비즈니스 규칙 |
+| 422 | `OUT_OF_STOCK`, `PRODUCT_NOT_ON_SALE`, `SHOP_NOT_ACTIVE`, `AMOUNT_MISMATCH`, `IDEMPOTENCY_KEY_REUSED` | 비즈니스 규칙 |
 | 422 | `SHOP_HAS_ACTIVE_ORDERS`, `MEMBER_HAS_ACTIVE_RESOURCES`, `PRODUCT_NOT_SUBSCRIBABLE`, `OWN_SHOP_PRODUCT` | 폐업·탈퇴·구독 조건 |
 | 402 | `PAYMENT_FAILED` | PG 명확한 거절 |
 | 429 | `RATE_LIMITED` | 인증코드 발송 등 |
 | 502 | `PG_ERROR` | PG 취소 명확한 실패 |
+| 500 | `INTERNAL_ERROR` | 예상하지 못한 서버 오류 (내부 정보 비노출) |
 
 ## 2. 엔드포인트
 
@@ -70,11 +81,13 @@
 | Method | Path | 권한 | 설명 | 요구사항 |
 |---|---|---|---|---|
 | GET | `/api/products` | - | 목록 (category, sort, cursor) | FR-PRD-05 |
-| GET | `/api/products/{id}` | - | 상세 (가격, 재고 여부, 평점 요약) | FR-PRD-05 |
+| GET | `/api/products/{id}` | - | 상세 (가격, 재고 여부). 평점 요약은 `/api/products/{id}/review-stats`로 따로 (product가 review를 참조하지 않게) | FR-PRD-05 |
 | POST | `/api/shops/{shopId}/products` | O, IK | 등록 (초기 재고 포함, 한 트랜잭션) | FR-PRD-01 |
 | PATCH | `/api/shops/{shopId}/products/{id}` | O | 수정 (가격 변경 시 이력·이벤트) | FR-PRD-03, 07 |
 | PATCH | `/api/shops/{shopId}/products/{id}/status` | O | ON_SALE / HIDDEN / DISCONTINUED | FR-PRD-03 |
-| POST | `/api/shops/{shopId}/products/{id}/images/presigned-url` | O | 업로드 URL | FR-PRD-02 |
+| POST | `/api/shops/{shopId}/products/{id}/images/presigned-url` | O | 업로드 URL 발급 (MinIO PUT, 10분) | FR-PRD-02 |
+| POST | `/api/shops/{shopId}/products/{id}/images` | O | 업로드한 이미지 등록 `{objectKey}` | FR-PRD-02 |
+| DELETE | `/api/shops/{shopId}/products/{id}/images/{imageId}` | O | 이미지 삭제 | FR-PRD-02 |
 | POST | `/api/shops/{shopId}/products/{id}/stock-adjustments` | O, IK | 재고 증감 `{delta, reason}` | FR-PRD-04 |
 | GET | `/api/shops/{shopId}/products` | O | 판매자용 목록 (재고·상태 포함) | |
 
@@ -83,9 +96,9 @@
 |---|---|---|---|---|
 | GET | `/api/cart` | U | 장바구니 (현재가·상태·재고 여부) | FR-PRD-06 |
 | POST/PATCH/DELETE | `/api/cart/items[/{id}]` | U | 담기·수량·삭제 | FR-PRD-06 |
-| POST | `/api/orders/checkout` | U, IK | 주문서 생성 (예약 + 보류) | FR-ORD-01~03 |
+| POST | `/api/orders/checkout` | U, IK | 주문서 생성 (재고 예약) | FR-ORD-01~03 |
 | POST | `/api/orders/{id}/payment/confirm` | O, IK | PG 승인 | FR-ORD-03~06, FR-PAY-01·02 |
-| POST | `/api/orders/{id}/payment/fail` | O | PG 결제창 실패·취소 통지 → 즉시 해제 | FR-ORD-04 |
+| POST | `/api/orders/{id}/payment/fail` | O | (선택) PG 결제창 실패·취소 통지 → 즉시 해제. 없으면 만료 잡이 정리 | FR-ORD-04 |
 | GET | `/api/orders` | U | 내 주문 목록 | FR-ORD-07 |
 | GET | `/api/orders/{id}` | O | 상세 (가게주문·품목·환불) | FR-ORD-07 |
 | POST | `/api/orders/{id}/lines/{lineId}/cancel` | O, IK | 발송 전 취소 | FR-ORD-08 |
@@ -111,19 +124,12 @@
 | GET | `/api/subscriptions/{id}/cycles` | O | 회차 이력 | |
 | GET | `/api/shops/{shopId}/subscriptions` | O | 판매자 구독 현황 | FR-SUB-07 |
 
-### payment / wallet
+### payment
 | Method | Path | 권한 | 설명 | 요구사항 |
 |---|---|---|---|---|
 | POST | `/api/billing-keys` | U | 빌링키 발급 (authKey 교환) | FR-PAY-07 |
 | GET/DELETE | `/api/billing-keys[/{id}]` | O | 조회·삭제 | FR-PAY-07 |
 | GET | `/api/payments` | U | 결제·취소 내역 | FR-PAY-08 |
-| POST | `/api/wallet-charges` | U, IK | 충전 요청 → pgOrderId | FR-PAY-05 |
-| POST | `/api/wallet-charges/{id}/confirm` | O, IK | 충전 승인 | FR-PAY-05 |
-| POST | `/api/wallet-charges/{id}/cancel` | O, IK | 충전 취소 | FR-PAY-06 |
-| GET | `/api/wallet` | U | 잔액·보류액·가용잔액 | FR-WAL-01 |
-| GET | `/api/wallet/ledger` | U | 거래 내역 (type, 기간, cursor) | FR-WAL-01 |
-| PUT | `/api/wallet/bank-account` | U | 출금 계좌 등록 | FR-WAL-05 |
-| POST | `/api/wallet/withdrawals` | U, IK | 출금 요청 | FR-WAL-05 |
 
 ### settlement
 | Method | Path | 권한 | 설명 | 요구사항 |
@@ -148,7 +154,7 @@
 |---|---|---|---|
 | GET | `/admin/api/outbox?status=DEAD` | 발행 실패 이벤트 | NFR-REL-03 |
 | POST | `/admin/api/outbox/{id}/retry` | 재발행 | NFR-REL-03 |
-| GET | `/admin/api/dlt/{topic}` · POST `/admin/api/dlt/{topic}/{offset}/replay` | DLT 조회·재처리 | NFR-REL-03 |
+| GET | `/admin/api/dlt/{topic}` · POST `/admin/api/dlt/{topic}/{partition}/{offset}/replay` | DLT 조회·재처리 (offset은 파티션마다 따로라 파티션이 필요하다) | NFR-REL-03 |
 | GET | `/admin/api/payments?status=UNKNOWN` | 결과미확정 결제 | FR-PAY-03 |
 | POST | `/admin/api/payments/{id}/reconcile` | 즉시 대사 | FR-PAY-03 |
 | GET | `/admin/api/refunds?status=FAILED` · POST `/{id}/retry` | 실패 환불 재처리 | |
@@ -165,26 +171,19 @@ Idempotency-Key: 7c9e...
 ```
 ```json
 {
-  "items": [
-    { "productId": "0192...a1", "quantity": 2 },
-    { "productId": "0192...b7", "quantity": 1 }
-  ],
-  "walletAmount": 5000,
+  "cartItemIds": ["0192...a1", "0192...b7"],
   "addressId": "0192...c3"
 }
 ```
-- 클라이언트는 **가격을 보내지 않는다** (POL-17).
-- 장바구니에서 주문하면 `items` 대신 `cartItemIds`를 보낼 수 있다. 결제 완료 시 해당 장바구니 항목을 삭제한다.
+- 클라이언트는 **가격을 보내지 않는다** (POL-17). 상품·수량은 장바구니 항목에서 가져온다.
+- 주문에 쓴 장바구니 항목은 체크아웃 때 바로 삭제한다. 장바구니를 거치지 않는 바로 구매(`items`)는 선택 사항이다.
 
 ```json
 201 Created
 {
   "orderId": "0192...d4",
-  "orderNumber": "20261002-000123",
   "status": "PENDING_PAYMENT",
   "totalAmount": 43000,
-  "walletAmount": 5000,
-  "pgAmount": 38000,
   "pgOrderId": "ORD-0192d4...",
   "expiresAt": "2026-10-02T06:15:00Z",
   "shopOrders": [
@@ -192,11 +191,11 @@ Idempotency-Key: 7c9e...
   ]
 }
 ```
-에러: 422 `OUT_OF_STOCK`(details.productIds), `INSUFFICIENT_WALLET_BALANCE`, `PRODUCT_NOT_ON_SALE`, `SHOP_NOT_ACTIVE`, 400 `walletAmount > totalAmount`.
+에러: 422 `OUT_OF_STOCK`(details.productIds), `PRODUCT_NOT_ON_SALE`, `SHOP_NOT_ACTIVE`, `OWN_SHOP_PRODUCT`.
 
 ### 3.2 POST /api/orders/{id}/payment/confirm
 ```json
-{ "paymentKey": "tgen_2026...", "pgOrderId": "ORD-0192d4...", "amount": 38000 }
+{ "paymentKey": "tgen_2026...", "pgOrderId": "ORD-0192d4...", "amount": 43000 }
 ```
 
 | 응답 | 의미 | 클라이언트 동작 |
@@ -206,17 +205,17 @@ Idempotency-Key: 7c9e...
 | 402 `PAYMENT_FAILED` | PG 거절 | 실패 화면, 재주문 |
 | 409 `ORDER_EXPIRED` | 승인 시작 전에 만료 | 재주문 안내 (PG 승인 없음) |
 | 409 `ORDER_ALREADY_PAID` | 중복 요청 (다른 Idempotency-Key) | 완료 화면 |
-| 422 `AMOUNT_MISMATCH` | amount ≠ pgAmount | 위변조 의심, 로그 |
+| 422 `AMOUNT_MISMATCH` | amount ≠ totalAmount | 위변조 의심, 로그 |
 
 ### 3.3 POST /api/orders/{id}/lines/{lineId}/cancel
 ```json
 { "reason": "단순 변심" }
 ```
 ```json
-200 { "refundId": "...", "status": "COMPLETED", "amount": 15000, "pgAmount": 15000, "walletAmount": 0 }
+200 { "refundId": "...", "status": "COMPLETED", "amount": 15000 }
 202 { "refundId": "...", "status": "APPROVED" }   // PG 취소 결과 확인 중
 ```
-에러: 409 `INVALID_STATE_TRANSITION`(이미 발송·취소됨), 403(본인 아님).
+에러: 409 `INVALID_STATE_TRANSITION`(이미 발송·취소됨), 404 `ORDER_NOT_FOUND`(없거나 본인 주문이 아님 — 남의 주문은 없는 것처럼, 2-8), 409 `DUPLICATE_RESOURCE`(같은 품목 동시 취소), 502 `PG_ERROR`(PG 취소 명확한 실패).
 
 ### 3.4 POST /api/shops/{shopId}/orders/{shopOrderId}/ship
 ```json
@@ -229,7 +228,7 @@ Idempotency-Key: 7c9e...
 {
   "productId": "...", "quantity": 1,
   "cycle": { "type": "WEEKLY", "value": 1 },
-  "addressId": "...", "billingKeyId": "...", "useWalletFirst": false,
+  "addressId": "...", "billingKeyId": "...",
   "startDate": "2026-10-05"
 }
 ```

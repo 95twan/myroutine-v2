@@ -1,5 +1,7 @@
 # 02. Stage 1 아키텍처 — 모듈러 모놀리스
 
+> 2026-10-09 · 로드맵과 맞춤: 인프라 표에 MinIO(`chainguard/minio`, 1-10)와 운영 VM(1-11) 추가, 스케줄 표의 릴레이·탐지 주기, 에러 응답 예시 코드(`ORDER_EXPIRED`)
+
 ## 1. 시스템 구성
 
 ```mermaid
@@ -8,7 +10,7 @@ flowchart TB
   subgraph App["myroutine-app (Spring Boot 4.x, Java 25)"]
     direction TB
     MEM[member] ~~~ SHOP[shop] ~~~ PRD[product]
-    ORD[order] ~~~ PAY[payment] ~~~ WAL[wallet]
+    ORD[order] ~~~ PAY[payment]
     STL[settlement] ~~~ REV[review] ~~~ SRC[search]
     REC[recommendation] ~~~ NTF[notification]
     COM[common: outbox, inbox, idempotency, error, security]
@@ -19,7 +21,7 @@ flowchart TB
   App --> ES[(Elasticsearch)]
   App --> TOSS[TossPayments]
   App --> OAI[OpenAI]
-  App --> S3[S3]
+  App --> S3[MinIO<br/>S3 호환 객체 저장소]
   App --> SMTP[메일]
   App -. JSON 로그 .-> LS[Logstash] --> ESL[(Elasticsearch<br/>logs-*)] --> KIB[Kibana]
   PROM[Prometheus] -. /actuator/prometheus 수집 .-> App
@@ -34,10 +36,9 @@ As-Is 대비 제거: Eureka, Config Server, API Gateway(Stage 3에서 도입), R
 |---|---|---|
 | member | 가입·로그인(OAuth), 이메일 인증, 토큰·세션, 회원 정보, 제재, 문의 | `member` |
 | shop | 가게 개설·수정·폐업, 판매자 소유권 확인 | `shop` |
-| product | 상품, 이미지, 가격 이력, 재고, 재고 예약 | `product` |
+| product | 상품, 이미지(MinIO 업로드 URL 발급·등록), 가격 이력, 재고, 재고 예약 | `product` (+ MinIO 버킷) |
 | order | 장바구니, 체크아웃, 주문·가게주문·품목, 취소·반품·환불 오케스트레이션, 구독·회차 | `orders` |
-| payment | PG 승인·취소·조회, 빌링키, 대사, 예치금 충전 결제 | `payment` |
-| wallet | 예치금 잔액·보류·원장, 출금(계좌 송금) | `wallet` |
+| payment | PG 승인·취소·조회, 빌링키, 대사 | `payment` |
 | settlement | 정산 대상 적재, 월 정산, 판매자 지급 | `settlement` |
 | review | 리뷰, 평점 통계, 좋아요, 월간 LLM 요약 | `review` |
 | search | ES 상품 색인(프로젝션), 검색·자동완성 | (ES) |
@@ -52,18 +53,21 @@ As-Is 대비 제거: Eureka, Config Server, API Gateway(Stage 3에서 도입), R
 ```mermaid
 flowchart LR
   ORD[order] -->|조회·예약| PRD[product]
-  ORD -->|보류·확정·복원| WAL[wallet]
   ORD -->|승인·취소| PAY[payment]
   ORD -->|가게 상태| SHOP[shop]
   ORD -->|배송지 조회| MEM[member]
-  PAY -->|충전 입금| WAL
-  STL[settlement] -->|정산금 입금| WAL
+  STL[settlement] -->|정산금 지급| PO[지급 Mock<br/>PayoutGateway]
+  STL -->|가게 주인 조회| SHOP
+  NTF[notification] -->|수신자 연락처| MEM
+  NTF -->|가게 주인 조회| SHOP
   PRD -->|소유권| SHOP
   MEM -->|활성 가게 수 재조회| SHOP
   REV -->|구매확정 여부| ORD
   REC -->|상품 정보| PRD
+  SRC[search] -->|재색인용 상품 목록| PRD
 ```
 실선은 **동기 호출(모듈 API)**. 그 외 연결은 모두 Kafka 이벤트([05-events.md](05-events.md)).
+- 의존 역전 구현(호출이 아니라 인터페이스 구현): order → `shop.api.ShopClosePrecondition`, order·settlement → `member.api.WithdrawalPrecondition`. member는 shop을 참조하므로 shop은 member를 참조하지 않는다(가게 조건은 member가 `ShopApi`로 직접 확인).
 
 규칙
 1. 다른 모듈은 `{module}.api` 패키지(인터페이스 + DTO)만 참조한다. `domain`, `infrastructure`는 외부 비공개.
@@ -84,16 +88,23 @@ com.myroutine
 │   └── web            # REST 컨트롤러, 요청/응답 DTO
 ├── shop ...
 └── common
-    ├── outbox / inbox / idempotency
-    ├── error          # ErrorCode, BusinessException, GlobalExceptionHandler
+    ├── outbox / inbox # Outbox 발행·릴레이, 멱등 소비 (Part 3)
+    ├── mail           # MailSender 포트
+    ├── crypto         # AES-GCM (빌링키)
+    ├── storage        # ObjectStorage 포트 (MinIO/S3), ImageUrls
+    ├── config         # Clock, JPA Auditing, WebMvc, 스케줄링 설정
+    ├── idempotency    # @Idempotent, 멱등 키 저장소·AOP
+    ├── job            # JobLock(세션 advisory lock), JobRunner
+    ├── error          # ErrorCode, BusinessException, ErrorResponse, GlobalExceptionHandler
+    ├── web            # TraceIdFilter, TraceIds, Cursor (요청 단위 횡단 관심사)
     ├── security       # JWT, 인증 필터, @CurrentMember
-    └── model          # Money, 공통 ID 생성기
+    └── model          # Money, Ids(UUIDv7), BaseTimeEntity
 ```
 
 ## 5. 횡단 설계
 
 ### 5.1 인증·인가 (ADR-006)
-- Access JWT(15분, 클레임: memberId, roles, tokenVersion), Refresh는 Redis 세션(기기별, 교체·재사용 탐지).
+- Access JWT(15분, 클레임: memberId, role, tokenVersion, sessionId), Refresh는 Redis 세션(기기별, 교체·재사용 탐지).
 - 판매자 기능은 **역할이 아니라 소유권으로 인가**한다(`shop.memberId == 요청자`). SELLER 역할은 UI 노출용이라, 역할 반영이 늦어도 기능은 막히지 않는다.
 - 제재·탈퇴·로그아웃 전체 시 `tokenVersion`을 증가시킨다. 필터가 Redis에 캐시한 현재 버전과 비교해 즉시 무효화한다.
 
@@ -103,7 +114,7 @@ com.myroutine
 
 ### 5.3 멱등 API
 - 생성·결제 계열 POST는 `Idempotency-Key` 헤더를 받는다. `common.idempotency_key`(key, memberId, requestHash, status, response)에 결과를 저장하고 재요청에는 같은 응답을 돌려준다.
-- 대상: 상품 등록, 체크아웃, 결제 승인, 충전, 출금, 취소·반품 요청.
+- 대상: 가게 개설, 상품 등록, 재고 조정, 체크아웃, 결제 승인, 구독 신청, 취소·반품 요청.
 
 ### 5.4 스케줄 작업
 다중 인스턴스 중복 실행은 **Postgres 세션 레벨 advisory lock**으로 막는다(별도 라이브러리 없음). Stage 2에서 인스턴스를 여러 개 띄울 것을 전제한다.
@@ -114,14 +125,14 @@ com.myroutine
 
 | 작업 | 주기 | 모듈 |
 |---|---|---|
-| 재고 예약·주문 만료 | 1분 | order (product·wallet API 호출) |
-| 결제 대사 | 1분 (결과미확정 결제 대상) | order(주문 결제: PaymentApi.reconcile 호출), payment(충전: wallet 직접 반영) |
+| 재고 예약·주문 만료 | 1분 | order (product API 호출) |
+| 결제 대사 | 1분 (결과미확정 결제 대상) | order (PaymentApi.queryOutcome 호출) |
 | 자동 구매확정 | 1시간 | order |
 | 구독 회차 실행 | 매일 06:00 | order |
 | 정산 | 매월 5일 03:00 | settlement |
 | 리뷰 요약 | 매월 1일 04:00 | review |
-| Outbox 릴레이 | 상시 (폴링 + 백오프) | common |
-| 정체 Saga·Outbox 탐지 | 5분 | common (메트릭·알림) |
+| Outbox 릴레이 | 1초 폴링, 실패한 행은 10초 뒤 재시도 (3-1) | common |
+| 정체 Saga·Outbox 탐지 | 30초마다 각 모듈의 메트릭 수집기가 계산 → Grafana 알림 (7-2) | common·payment·order |
 
 > 배치는 Spring Batch 대신 **스케줄러 + 청크 단위 트랜잭션 + keyset 페이징**으로 시작한다. 정산이 Stage 2 성능 목표(100만 건 10분)를 못 맞추면 Spring Batch 파티셔닝을 도입한다.
 
@@ -133,13 +144,14 @@ com.myroutine
 
 ### 5.7 에러 응답
 ```json
-{ "code": "ORDER_RESERVATION_EXPIRED", "message": "주문 유효시간이 지났습니다.", "traceId": "4bf92f35...", "details": {} }
+{ "code": "ORDER_EXPIRED", "message": "주문 유효시간이 지났습니다.", "traceId": "4bf92f35...", "details": {} }
 ```
 
 ## 6. 인프라 (docker-compose)
 | 구성 | 용도 |
 |---|---|
 | postgres (pgvector/pg17) | 앱 DB. Stage 2에서 replica 추가 |
+| minio (`chainguard/minio`) | 상품 이미지 객체 저장소(S3 호환, 1-10). 공식 `minio/minio` 이미지가 2026-09-11 Docker Hub에서 삭제되어 Chainguard 빌드를 쓴다. 로컬은 `latest`, 운영은 digest로 고정(1-11) |
 | redis | 세션, 인증코드, rate limit, 캐시, tokenVersion |
 | kafka (KRaft, 단일 브로커) | 이벤트 |
 | elasticsearch | 검색(`products`) + 로그(`logs-*`) 인덱스 |
@@ -147,12 +159,14 @@ com.myroutine
 | prometheus, grafana | 메트릭·대시보드·알림 — compose 프로필 `observability` |
 | pg-fake | 부하 테스트용 Toss Fake. 테스트용 가짜 PG 서버(`FakePgServer`)에 main을 붙여 컨테이너로 띄움. 지연·실패 비율을 환경변수로 설정 |
 
+- 로컬은 `docker/docker-compose.yml`, 운영 연습 VM은 `docker/docker-compose.ops.yml`(1-11, [ADR-011](../adr/ADR-011-ops-practice-environment.md))이다. 운영에서는 앱도 컨테이너로 돌고, 호스트에 여는 포트는 앱(8080)과 MinIO API(9000)뿐이다.
+
 ## 7. 테스트 전략
 | 계층 | 도구 | 대상 |
 |---|---|---|
 | 단위 | JUnit5, AssertJ | 상태머신, 금액 계산, 정책(POL), 불변식 |
 | 모듈 경계 | Spring Modulith | 의존 규칙 위반 |
-| 통합 | Testcontainers(Postgres, Redis, Kafka), 테스트용 가짜 PG 서버(JDK 내장 HttpServer) | 리포지토리 쿼리, Outbox/Inbox, 체크아웃·환불 흐름 |
+| 통합 | Testcontainers(Postgres, MinIO, Kafka, Redis, Elasticsearch — 각 도구가 등장하는 단계부터), 테스트용 가짜 PG 서버(JDK 내장 HttpServer) | 리포지토리 쿼리, 이미지 업로드, Outbox/Inbox, 체크아웃·환불 흐름 |
 | 시나리오 | 위와 동일 | Saga 정상·보상·중복·타임아웃·순서 역전 (NFR-TST-04) |
 | 동시성 | ExecutorService + CountDownLatch | 초과판매, 이중 차감, 중복 결제 0건 |
 | 부하 | k6 | NFR-PERF |

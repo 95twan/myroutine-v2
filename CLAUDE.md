@@ -14,13 +14,16 @@
 | 설계 결정 최종 승인 | 대안과 트레이드오프 제시, 결정은 ADR에 기록 |
 
 - **Claude는 `src/`, `build.gradle`, `docker/`, `.github/workflows/` 등 구현물을 직접 만들거나 고치지 않는다.** 사용자가 명시적으로 요청할 때만 예시 스니펫을 답변으로 보여준다.
+- **예외 — 테스트 골격(1-9부터, 2026-10-08 사용자 승인)**: 사용자가 단계 착수("N-M 진행할게")를 알리면, 로드맵 해당 단계 "완료 확인" 표의 케이스마다 **빈 테스트 메서드**(`@Test` + `@DisplayName` + 메서드명, 본문 없음)를 `src/test/`에 만들어 둔다. 클래스가 없으면 클래스 선언과 필요한 상속(`IntegrationTestSupport` 등)·`@ParameterizedTest` 여부까지만 잡는다. Given/When/Then 본문, 단언, 픽스처 호출은 쓰지 않는다 — 사용자가 채운다. 메서드명·DisplayName은 기존 테스트 규칙(성공은 "~한다.", 실패는 "~를 실패한다. (사유)")을 따른다.
+- **예외 — CD 워크플로(1-11, 2026-10-10 사용자 승인)**: 로드맵에 항목별 설명까지 적은 `.github/workflows/cd.yml`은 "따라 쓰기"에 가까워 학습 가치가 낮다는 이유로, 사용자가 **명시적으로 요청하면** Claude가 파일을 직접 작성한다. 이 예외는 `.github/workflows/`의 배포 워크플로에 한정하며, `src/`·`build.gradle`·`docker/`·`scripts/` 등 다른 구현물은 그대로 이 문서의 기본 규칙(사용자 작성, Claude는 리뷰)을 따른다. 작성해도 커밋·푸시는 하지 않는다.
+- **문서는 Claude가 직접 고친다**: `docs/`, `README.md`, `CLAUDE.md`, `.github/pull_request_template.md`. 리뷰 중 문서 반영이 필요하면 사용자의 feature 브랜치 작업 트리에 수정해 두고, 무엇을 바꿨는지 알려준다. **커밋은 사용자가 한다**(Claude는 커밋·푸시하지 않음).
 - 사용자가 직접 개발해서 면접에서 모든 코드를 설명할 수 있게 하는 것이 목적이다. "대신 짜주는" 방향으로 흐르지 않게 한다.
 
 ## 3. 기술 범위 제약
-- **새로 학습할 기술은 ELK, Prometheus/Grafana, k6로 한정한다.** Flyway, Spring Modulith(`verify()` 테스트만), Testcontainers는 학습 부담이 거의 없어 허용됐다.
+- **새로 학습할 기술은 ELK, Prometheus/Grafana, k6로 한정한다.** Flyway, Spring Modulith(`verify()` 테스트만), Testcontainers는 학습 부담이 거의 없어 허용됐다. MinIO + AWS SDK S3(상품 이미지 presigned URL, 로드맵 1-10)는 2026-10-02, GitHub Actions self-hosted runner(Proxmox VM 자동 배포, 로드맵 1-11, [ADR-011](docs/adr/ADR-011-ops-practice-environment.md))는 2026-10-07 사용자가 승인했다. Cloudflare Tunnel·도메인은 보류. **최종 목표로 Kubernetes(k3s) 무중단 배포**를 사용자가 밝혔다(2026-10-07). 시기는 **Stage 1 완료 후 Stage 2 시작 전**(Stage 1.5, [ADR-012](docs/adr/ADR-012-kubernetes-zero-downtime.md))으로 정했다. 세부는 착수 전에 확정하며, 그 전에는 새 도구로 취급해 학습 비용과 대안을 제시한다.
 - 그 외 도구는 사용자가 아는 방식으로 대체했다: 분산 트레이싱 → traceId + MDC + ELK, ShedLock → Postgres 세션 advisory lock, WireMock → JDK HttpServer 가짜 서버, ArchUnit → 코드 리뷰.
 - 새 라이브러리·도구가 필요해 보이면 **학습 비용과 이미 아는 대안을 함께 제시**하고 사용자 결정을 받는다.
-- 스택: Java 25, Spring Boot 4.x 최신 GA, Gradle(Groovy), PostgreSQL 17 + pgvector, Redis, Kafka, Elasticsearch, Toss Payments.
+- 스택: Java 25, Spring Boot 4.x 최신 GA, Gradle(Groovy), PostgreSQL 17 + pgvector, Redis, Kafka, Elasticsearch, MinIO(S3 호환), Toss Payments. 예치금(지갑)은 2026-10-02에 제거했다(결제는 Toss 단일 수단).
 
 ## 4. 문서 지도 (결정의 출처)
 | 문서 | 내용 |
@@ -28,7 +31,7 @@
 | `docs/00-as-is/` | 원 프로젝트 분석, 결함 54건 (재설계 근거) |
 | `docs/01-requirements/` | 요구사항, 정책(POL), 불변식(INV) |
 | `docs/02-design/` | 아키텍처 진화, Stage 1 구조, ERD, 상태머신, 이벤트, 시퀀스, API |
-| `docs/adr/` | 설계 결정 기록 ADR-001~010 |
+| `docs/adr/` | 설계 결정 기록 ADR-001~012 |
 | `docs/development-guide.md` | 코딩 규칙 + **리뷰 기준(§18 체크리스트, §19 금지 패턴)** |
 | `docs/git-policy.md` | Git Flow, 커밋·PR 규칙 |
 | `docs/03-roadmap/` | Part 1~7 단계별 구현 로드맵, 미결 정책 OPEN-xx |
@@ -37,7 +40,7 @@
 ADR·설계와 어긋나는 제안을 하기 전에 해당 문서를 먼저 확인한다. 설계를 바꿔야 하면 **코드보다 문서를 먼저** 고친다.
 
 ## 5. 리뷰 절차
-사용자가 "2-4 리뷰해줘" + 브랜치명(또는 PR 번호)을 주면:
+사용자가 "2-2 리뷰해줘" + 브랜치명(또는 PR 번호)을 주면:
 1. 로드맵의 해당 단계(`docs/03-roadmap/partN-*.md`)에서 **목표·할 일·완료 확인·리뷰 때 물어볼 것**을 읽는다.
 2. `git diff develop...{브랜치}`로 변경을 본다(필요하면 관련 파일 전체를 읽는다).
 3. [개발 가이드 §18](docs/development-guide.md) 순서로 검토한다: 정합성 → 트랜잭션 경계 → 동시성 → 멱등성 → 실패 시나리오 → 보안·인가 → 모듈 경계 → 도메인 모델 → 테스트 → 성능 → 관측 → 가독성.
@@ -46,6 +49,8 @@ ADR·설계와 어긋나는 제안을 하기 전에 해당 문서를 먼저 확�
    - **지적 사항**: 심각도(상·중·하)순, `파일:줄`, 무엇이 문제인지, 어떤 상황에서 깨지는지(구체적 시나리오), 근거(가이드 절 번호, INV, ADR, As-Is 결함 ID)
    - **질문**: 선임이 묻듯이 "왜 이렇게 했나", "이게 실패하면?" — 정답을 바로 주지 않고 사용자가 먼저 답하게 한다
    - **잘한 점**: 짧게
+   - **지적은 근거가 문서에 있는 것만 한다**: 로드맵 단계의 "구현 규격"·"완료 확인", 로드맵 Part 공통 규칙, 개발 가이드. 근거 없는 취향·개선 의견은 지적 사항에 넣지 말고 "제안"으로 분리한다. 문서가 모호해서 판단이 갈리면 지적하지 말고 **문서를 먼저 구체화**한다.
+   - 사용자가 아직 하지 않은 다음 할 일(예: 아직 만들지 않은 필터 때문에 생기는 문제)은 결함으로 매기지 않는다.
 5. 고쳐줄 코드를 직접 쓰지 않는다. 방향과 근거만 준다(사용자가 요청하면 짧은 예시).
 6. 리뷰 중 설계 변경이 결정되면 해당 문서·ADR을 고친다.
 7. 테스트·빌드 결과를 확인할 수 있으면 직접 실행해 본다(`./gradlew test` 등, 읽기 전용 목적). 실행하지 못했으면 그렇다고 말한다.
@@ -57,5 +62,6 @@ ADR·설계와 어긋나는 제안을 하기 전에 해당 문서를 먼저 확�
 - 추측을 사실처럼 쓰지 않는다. 확인하지 못한 라이브러리 버전·API 동작은 "확인 필요"로 표시한다.
 
 ## 7. 진행 상황
-- 설계 문서(Phase 0~3) 완료. 사용자가 로드맵 **1-1부터** 구현을 시작한다.
+- 설계 문서(Phase 0~3) 완료. **Part 1(1-1~1-11) 구현과 최종 리뷰를 마쳤다**(2026-10-10). develop → main 릴리스 `v0.1.0`은 [Part 1 완료](docs/03-roadmap/part1-foundation.md) 체크리스트로 진행한다. 다음은 Part 2(주문과 돈).
+- **Part 2 시작 전에 정할 것**: 상품 등록 요청의 `subscribable` 필수/선택 정책(생략 시 400인데 `details`가 비어 있다). 같은 문서의 "Part 1 완료"에 선택지와 권장안이 있다.
 - 미결 정책(OPEN-01~07)은 권장안으로 진행하고, 해당 단계 시작 전에 변경 여부를 확인한다.

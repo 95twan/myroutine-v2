@@ -1,6 +1,9 @@
 # 06. 핵심 시퀀스
 
-표기: 색 블록 = 하나의 DB 트랜잭션. 외부 호출(PG, 은행, 메일)은 항상 트랜잭션 밖이다.
+> 2026-10-09: 로드맵·실제 모듈 API와 맞춤 — §2에 남아 있던 예치금 "보류" 잔재 삭제, 대사·만료·구독 회차의 호출 이름(`queryOutcome`, `releaseReservation`, `callBillingCharge`)과 대사 대상·보상 조건, refresh 재사용 시 폐기 범위(그 세션), 이미지 업로드 응답 필드
+> 2026-10-02: 예치금 제거 반영(체크아웃·만료·환불·구독·정산에서 wallet 삭제, §8 충전 → 상품 이미지 업로드로 교체)
+
+표기: 색 블록 = 하나의 DB 트랜잭션. 외부 호출(PG, 은행, 메일, 객체 저장소)은 항상 트랜잭션 밖이다.
 
 ## 1. 체크아웃 (S1)
 
@@ -11,24 +14,17 @@ sequenceDiagram
   participant O as order
   participant PR as product
   participant SH as shop
-  participant W as wallet
-  C->>O: POST /api/orders/checkout (Idempotency-Key, cartItemIds, walletAmount, addressId)
-  O->>PR: getProductsForCheckout(productIds) — 가격·상태·shopId
-  O->>SH: getActiveShops(shopIds)
-  O->>O: 검증 (ON_SALE, 가게 ACTIVE, 자기 가게 상품 아님)<br/>총액 = Σ(서버 가격 × 수량), pgAmount = 총액 - walletAmount
+  C->>O: POST /api/orders/checkout (Idempotency-Key, cartItemIds, addressId)
+  O->>PR: getPurchasable(productIds) — 가격·상태·shopId (판매 중이 아니면 예외)
+  O->>SH: requireActiveShops(shopIds) (운영 중이 아니면 예외)
+  O->>O: 검증 (ON_SALE, 가게 ACTIVE, 자기 가게 상품 아님)<br/>총액 = Σ(서버 가격 × 수량) = PG 결제 금액
   rect rgba(80,140,255,0.12)
     O->>O: orders(PENDING_PAYMENT, expires_at=+15m), shop_order, order_line(PENDING) 저장
-    O->>PR: reserve(orderId, items) — 조건부 UPDATE, 상품 ID 정렬 순서로(데드락 방지)
-    O->>W: hold(orderId, walletAmount) — 지갑 FOR UPDATE, 가용잔액 확인
-    alt pgAmount == 0
-      O->>PR: commit(orderId)
-      O->>W: capture(orderId)
-      O->>O: PAID + outbox(order-paid)
-    end
+    O->>PR: reserve(orderId, items, expiresAt) — 조건부 UPDATE, 상품 ID 정렬 순서로(데드락 방지)
   end
-  O-->>C: 201 {orderId, pgOrderId, pgAmount, expiresAt, status}
+  O-->>C: 201 {orderId, pgOrderId, totalAmount, expiresAt, status}
 ```
-- 재고 부족·잔액 부족이면 트랜잭션 전체가 롤백된다(모놀리스 로컬 트랜잭션의 이점). Stage 3에서는 이 블록이 Saga로 바뀐다.
+- 재고 부족이면 트랜잭션 전체(주문 저장 포함)가 롤백된다(모놀리스 로컬 트랜잭션의 이점). Stage 3에서는 이 블록이 Saga로 바뀐다.
 - 여러 상품을 예약할 때 **상품 ID 정렬 순서로 UPDATE**해 교차 주문 간 데드락을 막는다.
 - 성능 관점: 인기상품 `stock` 행이 핫스팟이 된다 → Stage 2-5 실험 대상.
 
@@ -42,29 +38,29 @@ sequenceDiagram
   participant O as order
   participant P as payment
   participant PG as Toss API
-  C->>T: pgOrderId, pgAmount로 결제 인증
+  C->>T: pgOrderId, totalAmount로 결제 인증
   T-->>C: successUrl?paymentKey&orderId&amount
   C->>O: POST /api/orders/{orderId}/payment/confirm (Idempotency-Key, paymentKey, amount)
   rect rgba(80,140,255,0.12)
     O->>O: CAS PENDING_PAYMENT → PAYMENT_IN_PROGRESS (실패 시 409: 만료·중복)
-    O->>P: begin(orderId, amount, paymentKey) — payment(IN_PROGRESS) 생성, (purpose, reference_id) unique
+    O->>P: begin(orderId, amount, paymentKey) — payment(IN_PROGRESS) 생성, order_id unique
   end
   P->>PG: POST /v1/payments/confirm (Idempotency-Key = paymentId), timeout 10s
   alt 승인
     PG-->>P: DONE
     rect rgba(80,200,120,0.15)
       P->>P: APPROVED
-      O->>O: PAID, 예약 COMMITTED, 보류 CAPTURED, 품목 PAID, outbox(order-paid)
+      O->>O: PAID, 예약 COMMITTED, 가게주문·품목 PAID, outbox(order-paid)
     end
     O-->>C: 200 PAID
   else 명확한 실패 (4xx, 거절)
     rect rgba(255,120,80,0.12)
       P->>P: FAILED
-      O->>O: PAYMENT_FAILED, 예약 RELEASED, 보류 RELEASED
+      O->>O: PAYMENT_FAILED, 예약 RELEASED, 가게주문·품목 CANCELLED
     end
     O-->>C: 402 PAYMENT_FAILED
   else 타임아웃·5xx
-    P->>P: UNKNOWN (next_reconcile_at = +10s)
+    P->>P: UNKNOWN
     O-->>C: 202 결제 확인 중 (클라이언트는 주문 상태 폴링)
   end
 ```
@@ -77,32 +73,33 @@ sequenceDiagram
   participant O as order
   participant P as payment
   participant PG as Toss API
-  J->>O: PAYMENT_IN_PROGRESS 주문 중 결제가 UNKNOWN이고 재확인 시각이 된 것
+  J->>O: PAYMENT_IN_PROGRESS로 30초 넘게 머문 주문 (updated_at 기준, 100건)
   loop 주문별
-    O->>P: reconcile(orderId)
+    O->>P: queryOutcome(orderId)
     P->>PG: GET /v1/payments/orders/{pgOrderId}
     alt 승인됨
       P->>P: UNKNOWN → APPROVED
       P-->>O: APPROVED
       rect rgba(80,200,120,0.15)
-        O->>O: PAYMENT_IN_PROGRESS → PAID, 예약·보류 확정 (이미 PAID면 무시)
+        O->>O: PAYMENT_IN_PROGRESS → PAID, 예약 확정 (이미 PAID면 무시)
       end
-      opt 완료 불가 (예: 데이터 이상)
-        O->>P: cancel(full, idempotencyKey=orderId) → PG 전액취소 + 알림
+      opt 완료 불가 (예: 데이터 이상) 이고 승인 후 5분 경과
+        O->>P: applyOutcome(APPROVED) — 승인 사실 먼저 기록
+        O->>P: cancel(orderId, 전액, idempotencyKey=order-compensate-{orderId}) → PG 전액취소
+        O->>O: DONE이면 PAYMENT_FAILED (아니면 다음 주기)
       end
     else 미승인
       P->>P: UNKNOWN → FAILED
       P-->>O: FAILED
-      O->>O: PAYMENT_IN_PROGRESS → PAYMENT_FAILED, 예약·보류 해제
+      O->>O: PAYMENT_IN_PROGRESS → PAYMENT_FAILED, 예약 해제
     else 조회도 실패
-      P->>P: reconcile_attempts++, 백오프
-      P-->>O: STILL_UNKNOWN (다음 주기에 재시도)
+      P->>P: reconcile_attempts++
+      P-->>O: UNKNOWN (다음 주기에 재시도)
     end
   end
 ```
 - 결과를 이벤트로 알리지 않고 **주문이 결제에게 물어본다**(order → payment는 원래 허용된 의존 방향). Kafka 없이 동작하고, 누가 흐름을 책임지는지가 분명하다.
-- 예치금 충전(§8)의 대사는 payment 자체 잡이 수행하고 결과를 wallet에 직접 반영한다(payment → wallet 방향).
-- 추가 점검: `payment.APPROVED AND order.status = PAYMENT_IN_PROGRESS`가 5분 넘게 지속되면 완료를 재시도한다(승인 직후 로컬 완료 트랜잭션이 실패한 경우).
+- 승인 직후 로컬 완료 트랜잭션이 실패한 주문도 PAYMENT_IN_PROGRESS로 남으므로 같은 잡이 매 주기 완료를 다시 시도한다. PG 승인 시각으로부터 5분이 지나도 완료하지 못하면 위의 보상 취소로 끝낸다(로드맵 2-6).
 
 ## 3. 주문 만료 (S2)
 ```mermaid
@@ -110,13 +107,11 @@ sequenceDiagram
   participant J as 만료 잡 (1분)
   participant O as order
   participant PR as product
-  participant W as wallet
   J->>O: PENDING_PAYMENT AND expires_at < now() LIMIT 100
   loop 주문별 트랜잭션
     rect rgba(80,140,255,0.12)
       O->>O: CAS PENDING_PAYMENT → EXPIRED (0건이면 skip: 결제 진행 중)
-      O->>PR: expire(orderId) — reserved → available
-      O->>W: release(orderId)
+      O->>PR: releaseReservation(orderId, EXPIRED) — reserved → available, 예약 EXPIRED
       O->>O: 품목 CANCELLED + outbox(order-expired)
     end
   end
@@ -130,21 +125,20 @@ sequenceDiagram
   participant O as order
   participant P as payment
   participant PG as Toss API
-  participant W as wallet
   participant PR as product
   C->>O: POST /api/orders/{orderId}/lines/{lineId}/cancel (Idempotency-Key)
   rect rgba(80,140,255,0.12)
-    O->>O: 검증 (본인, 품목 PAID, 가게주문 미발송) — order_line 행 잠금
-    O->>O: refund(APPROVED) 생성, 금액 배분 (POL-08)
+    O->>O: 검증 (본인, 품목 PAID, 가게주문 미발송) — 주문 행 잠금
+    O->>O: refund(APPROVED, amount = 품목 금액) 생성
   end
-  opt pg_amount > 0
-    O->>P: cancel(paymentId, pg_amount, idempotencyKey=refundId)
+  opt 항상 (전액 PG 부분취소, POL-08)
+    O->>P: cancel(orderId, amount, idempotencyKey=refundId)
     P->>PG: POST /v1/payments/{paymentKey}/cancel (cancelAmount, Idempotency-Key=refundId)
     alt 성공
       P->>P: payment_cancel DONE, cancelled_amount 증가
       O->>O: refund → PG_CANCELLED
     else 불확실
-      P->>P: payment_cancel UNKNOWN → 환불 복구 잡이 PaymentApi.reconcileCancel(refundId)로 확인
+      P->>P: payment_cancel UNKNOWN → 환불 복구 잡이 같은 Idempotency-Key로 취소를 다시 호출
       O-->>C: 202 처리 중
     else 실패
       O->>O: refund → FAILED + 운영 알림
@@ -152,7 +146,6 @@ sequenceDiagram
     end
   end
   rect rgba(80,200,120,0.15)
-    O->>W: refund(memberId, wallet_amount, refId=refundId) — 원장 unique 멱등
     O->>PR: restore(orderId, productId, qty, refId=refundId) — sold → available
     O->>O: refunded_amount 증가, 품목 CANCELLED, refund COMPLETED, 가게주문 상태 재계산, outbox(order-line-refunded)
   end
@@ -168,21 +161,21 @@ sequenceDiagram
   participant J as 회차 잡 (매일 06:00)
   participant O as order
   participant PR as product
-  participant W as wallet
   participant P as payment
   participant PG as Toss 빌링 API
   J->>O: ACTIVE AND next_run_date <= today (keyset 페이징)
   loop 구독별
     rect rgba(80,140,255,0.12)
-      O->>O: cycle(subscription_id, run_date) INSERT 또는 CAS 선점 (UK로 중복 실행 방지)
-      O->>O: 적용가 결정 (pending_effective_date <= run_date면 인상가)
-      O->>O: 주문(SUBSCRIPTION) 생성 + 예약 + (use_wallet_first면) 예치금 보류
+      O->>O: cycle(subscription_id, cycle_date) INSERT — UK 충돌이면 오늘 이미 처리됨 → 건너뜀
+      O->>O: 적용가 결정 (pending_effective_date <= cycle_date면 인상가)
+      O->>O: 주문(SUBSCRIPTION) 생성 + 재고 예약
+      O->>P: begin(..., billingKeyId) — payment(IN_PROGRESS)
     end
-    alt 재고 부족
-      O->>O: cycle SKIPPED + 알림, next_run_date 다음 주기
+    alt 재고 부족·판매 중지 (위 트랜잭션 롤백)
+      O->>O: 새 트랜잭션: cycle SKIPPED + 알림, next_run_date 다음 주기
     else
-      O->>P: billingCharge(orderId, pgAmount, billingKeyId)
-      P->>PG: POST /v1/billing/{billingKey} (Idempotency-Key)
+      O->>P: callBillingCharge(paymentId, orderName) — 트랜잭션 밖
+      P->>PG: POST /v1/billing/{billingKey} (Idempotency-Key = paymentId)
       alt 성공
         O->>O: 주문 PAID, cycle PAID, failures=0, next_run_date 갱신
       else 실패
@@ -190,7 +183,7 @@ sequenceDiagram
         alt failures >= 3
           O->>O: 구독 SUSPENDED + outbox(subscription-status-changed)
         else
-          O->>O: next_run_date = 내일 (같은 회차 재시도)
+          O->>O: next_run_date = 내일 (내일 새 회차로 재시도)
         end
       else 불확실
         O->>O: 주문은 PAYMENT_IN_PROGRESS → 주문 대사 잡이 이어서 처리
@@ -206,7 +199,7 @@ sequenceDiagram
   participant K as Kafka
   participant S as settlement
   participant J as 정산 잡 (매월 5일)
-  participant W as wallet
+  participant B as 지급 Mock (PayoutGateway)
   K->>S: order-line-confirmed → settlement_item INSERT (order_line_id UK, 중복 무시)
   J->>S: 대상 가게 ID 목록 (미정산 item 있는 가게, shop_id > :last ORDER BY shop_id LIMIT 500)
   loop 가게별
@@ -215,8 +208,8 @@ sequenceDiagram
       S->>S: UPDATE settlement_item SET settlement_id WHERE shop_id AND 기간 AND settlement_id IS NULL
       S->>S: 합계·수수료·정산액 계산 (실제 갱신된 행 기준)
     end
-    S->>W: deposit(sellerMemberId, net, type=SETTLEMENT, refId=settlementId)
-    S->>S: PAID / 실패 시 PAYOUT_FAILED (다음 실행에서 재시도)
+    S->>B: payout(settlementId, shopId, net) — 트랜잭션 밖, 멱등 키 = settlementId
+    S->>S: PAID(payout_reference) / 실패 시 PAYOUT_FAILED (다음 실행에서 재시도)
   end
 ```
 - As-Is BAT-02(PENDING 조건 offset 페이징 중 상태 변경 → 누락)를 keyset + "item에 정산 ID 할당" 방식으로 제거.
@@ -234,45 +227,41 @@ sequenceDiagram
   participant PR as product
   C->>SH: POST /api/shops
   rect rgba(80,140,255,0.12)
-    SH->>SH: advisory lock(memberId), shop ACTIVE, outbox(shop-opened)
+    SH->>SH: shop ACTIVE, outbox(shop-opened)
   end
-  K->>M: shop-opened → roles += SELLER (멱등)
+  K->>M: shop-opened → role = SELLER (멱등)
 
   C->>SH: DELETE /api/shops/{id}
   rect rgba(80,140,255,0.12)
-    SH->>SH: advisory lock(memberId), 소유자 확인
+    SH->>SH: 소유자 확인
     SH->>O: ShopClosePrecondition.check(shopId) — 진행 중 가게주문·활성 구독 없음
     SH->>SH: CLOSED, outbox(shop-closed)
   end
   K->>PR: shop-closed → 상품 일괄 DISCONTINUED + 상품별 product-discontinued
   K->>M: shop-closed → shop API로 활성 가게 수 재조회 → 0이면 SELLER 회수
 ```
-- **의존 역전**: 폐업 조건은 order의 데이터인데 shop → order 의존은 순환을 만든다. shop이 `ShopClosePrecondition` 인터페이스를 `shop.api`에 정의하고 order가 구현한다(order → shop 방향 유지). 회원 탈퇴 조건(`WithdrawalPrecondition`)도 같은 방식이다.
+- **의존 역전**: 폐업 조건은 order의 데이터인데 shop → order 의존은 순환을 만든다. shop이 `ShopClosePrecondition` 인터페이스를 `shop.api`에 정의하고 order가 구현한다(order → shop 방향 유지). 회원 탈퇴 조건(`WithdrawalPrecondition`, order·settlement가 구현)도 같은 방식이다.
 - 폐업 직후 상품 단종 이벤트가 처리되기 전에 체크아웃이 들어와도, 체크아웃이 가게 ACTIVE를 확인하므로 주문이 생기지 않는다.
 
-## 8. 예치금 충전
+## 8. 상품 이미지 업로드 (presigned URL)
 ```mermaid
 sequenceDiagram
   autonumber
-  participant C as Client
-  participant P as payment
-  participant PG as Toss API
-  participant W as wallet
-  C->>P: POST /api/wallet-charges (amount) → wallet_charge(PENDING), pgOrderId
-  C->>P: POST /api/wallet-charges/{id}/confirm (paymentKey, amount)
+  participant C as Client (판매자)
+  participant PR as product
+  participant S3 as MinIO (S3 호환)
+  C->>PR: POST /api/shops/{shopId}/products/{id}/images/presigned-url (contentType, contentLength)
+  PR->>PR: 소유자·상품 상태·이미지 개수 확인, objectKey = products/{productId}/{uuid}.{ext}
+  PR-->>C: {uploadUrl(PUT, 10분), headers(서명된 헤더), objectKey, expiresAt}
+  C->>S3: PUT uploadUrl + headers 그대로 (파일 바이트) — 앱 서버를 거치지 않는다
+  C->>PR: POST /api/shops/{shopId}/products/{id}/images (objectKey)
+  PR->>S3: HEAD objectKey — 실제로 올라왔는지 확인
   rect rgba(80,140,255,0.12)
-    P->>P: payment(IN_PROGRESS, purpose=WALLET_CHARGE)
+    PR->>PR: product_image INSERT (sort_order 다음 번호), 첫 이미지면 thumbnail_key 설정
   end
-  P->>PG: confirm (Idempotency-Key)
-  alt 승인
-    rect rgba(80,200,120,0.15)
-      P->>P: APPROVED, wallet_charge CHARGED
-      P->>W: deposit(type=CHARGE, refId=chargeId) — 원장 unique 멱등
-    end
-  else 불확실
-    P->>P: UNKNOWN → payment 충전 대사 잡 → 승인 확인 시 wallet 입금(원장 멱등)
-  end
+  PR-->>C: 201 {imageId, url, sortOrder}
 ```
+- 파일이 앱 서버를 거치지 않아 서버 메모리·대역폭을 쓰지 않는다. 대신 "올렸는데 등록 안 한" 객체가 남을 수 있다(정리는 Stage 1 범위 밖, 한계로 기록).
 
 ## 9. 인증: 토큰 갱신 · 즉시 무효화
 ```mermaid
@@ -281,16 +270,16 @@ sequenceDiagram
   participant F as 인증 필터
   participant R as Redis
   participant M as member
-  C->>F: Bearer access (memberId, roles, tv=3)
+  C->>F: Bearer access (memberId, role, tv=3)
   F->>F: 서명·만료 검증
-  F->>R: GET auth:token-version:{memberId} (로컬 캐시 5초)
+  F->>R: GET auth:token-version:{memberId}
   alt tv 불일치 (제재·탈퇴·전체 로그아웃)
-    F-->>C: 401 TOKEN_REVOKED
+    F-->>C: 401 UNAUTHORIZED
   end
   C->>M: POST /api/auth/refresh (refresh)
   M->>R: 세션 조회, refreshHash 비교
   alt 이미 사용된 refresh (재사용)
-    M->>R: 같은 familyId 세션 전체 폐기
+    M->>R: 그 세션 폐기 (세션 = family, 다른 기기 세션은 유지)
     M-->>C: 401 REFRESH_REUSED
   else 정상
     M->>R: 새 refresh로 교체 (회전)

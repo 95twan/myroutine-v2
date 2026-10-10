@@ -8,7 +8,7 @@
 
 ## 결정
 1. **공개 표면**: 다른 모듈은 `{module}.api` 패키지(인터페이스 + DTO + 이벤트 타입)만 참조한다.
-2. **동기 호출**: 정해진 방향(order→product/wallet/payment/shop/member, member→shop(조회), payment→wallet, settlement→wallet, product→shop, review→order, recommendation→product)만 허용하고 순환은 금지한다.
+2. **동기 호출**: 정해진 방향(order→product/payment/shop/member, member→shop(조회), settlement→shop(가게 주인 조회), notification→member/shop(수신자 조회), product→shop, review→order, recommendation→product, search→product(재색인용 목록))만 허용하고 순환은 금지한다. (2026-10-02 개정: settlement·notification의 조회 의존 추가, 예치금 제거로 wallet 관련 방향 삭제)
 3. **트랜잭션**: 한 요청 안의 모듈 간 동기 쓰기는 하나의 로컬 트랜잭션으로 묶을 수 있다. 외부 시스템 호출은 트랜잭션 밖에서 한다.
 4. **멱등 API**: 모듈 API의 쓰기 메서드는 비즈니스 키(orderId, refundId, settlementId)를 받고, 같은 키로 다시 호출해도 결과가 같다. Stage 3에서 원격 호출 + 재시도로 바꿔도 의미가 유지된다.
 5. **역방향 통지는 이벤트**로 한다 (예: product의 가격 변경 → order 구독).

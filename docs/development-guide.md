@@ -3,6 +3,8 @@
 > 코드를 작성할 때 따르는 규칙이자 **코드 리뷰 기준**이다. 리뷰에서 지적하는 항목은 이 문서의 절 번호로 표시한다(예: `§6.2 위반`).
 > 규칙을 바꿔야 할 이유가 생기면 코드보다 이 문서를 먼저 고친다.
 > 근거: [02-design](02-design/README.md), [ADR](adr/)
+> 2026-10-10 · Part 1 완료에 맞춰 §1.1 확정 버전 표에 AWS SDK·MinIO 이미지·`testcontainers-minio`(1-10)를 옮겼다
+> 2026-10-09 · §1.1 확정 버전에 구현된 Modulith·jjwt와 이후 Part의 확인된 호환 버전을 적고, 설정 파일 확장자(`.yaml`)·`pg_call_log`(선택 사항) 표기를 로드맵과 맞췄다
 
 ## 목차
 1. 기술 스택
@@ -51,6 +53,7 @@
 | 메트릭 | Micrometer(actuator 기본) → Prometheus → Grafana | |
 | 보일러플레이트 | Lombok (제한적, §5.1) | |
 | ID | `uuid-creator` (UUIDv7) | |
+| 객체 저장소 | MinIO(로컬, S3 호환, `chainguard/minio` 이미지) + AWS SDK for Java v2 (`s3`) | 상품 이미지 presigned URL 업로드 (로드맵 1-10, 2026-10-02 승인). 공식 `minio/minio` 이미지가 Docker Hub에서 삭제되어(2026-09-11) 이미지만 교체 |
 
 > **신규 학습 범위는 ELK, Prometheus/Grafana, k6로 한정한다.** Flyway, Spring Modulith(verify 테스트만), Testcontainers는 학습 부담이 거의 없어 포함한다. 그 외 도구(분산 트레이싱, ShedLock, WireMock, ArchUnit)는 이미 아는 방식으로 대체했다(ADR-010).
 
@@ -71,11 +74,45 @@
 
 **서드파티 호환성은 착수 시 확인한다** (첫 티켓의 수용 기준): Spring AI, springdoc-openapi, Spring Modulith, Testcontainers(2.x는 모듈·패키지명 변경), QueryDSL 포크, logstash-logback-encoder. 호환 버전이 없는 라이브러리는 대안을 찾고 이 표에 기록한다.
 
+**확정 버전** (Part 1 완료 기준, `./gradlew dependencies`로 확인. 새 라이브러리는 등장하는 단계에서 추가한다)
+
+| 구성 | 버전 | 비고 |
+|---|---|---|
+| JDK (Gradle toolchain) | Temurin 25.0.4 | 시스템 기본 JDK와 무관하게 toolchain이 25를 사용. IntelliJ 프로젝트 SDK도 25로 맞춘다 |
+| Gradle Wrapper | 9.7.1 | |
+| Spring Boot | 4.1.1 | `io.spring.dependency-management` 1.1.7 |
+| Spring Framework | 7.0.9 | |
+| Hibernate ORM | 7.4.5.Final | |
+| Flyway | 12.4.0 | `spring-boot-starter-flyway` + `flyway-database-postgresql` |
+| PostgreSQL JDBC | 42.7.13 | DB 이미지 `pgvector/pgvector:pg17` |
+| HikariCP | 7.0.2 | |
+| Jackson | 3.1.5 (`tools.jackson`) | |
+| Lombok | 1.18.46 | JDK 25 지원. 빌드 시 `sun.misc.Unsafe` 경고가 나오지만 동작에는 문제없음 |
+| Testcontainers | 2.0.5 | 모듈명 `testcontainers-postgresql`·`testcontainers-minio`(1-10), 패키지 `org.testcontainers.postgresql` |
+| JUnit Jupiter | 6.0.3 | |
+| Spring Modulith | 2.1.1 | `spring-modulith-bom` import (1-6) |
+| jjwt | 0.13.0 | `jjwt-api` + `jjwt-impl`·`jjwt-jackson` runtimeOnly (1-4) |
+| AWS SDK for Java v2 (`s3`) | 2.55.13 | `software.amazon.awssdk:bom` 직접 import(Boot BOM이 관리하지 않는다) (1-10) |
+| MinIO 이미지 | `chainguard/minio` | 공식 `minio/minio`가 2026-09-11 Docker Hub에서 삭제되어 교체. 로컬·테스트는 `latest`, 운영은 digest 고정 (1-10·1-11) |
+
+**이후 단계에서 쓸 버전** (2026-10-09 Maven Central·Docker Hub로 호환 확인. 단계에 들어갈 때 더 새 패치가 있으면 그것으로 하고 위 표로 옮긴다)
+
+| 구성 | 버전 | 관리 | 단계 |
+|---|---|---|---|
+| AOP | `spring-boot-starter-aspectj` (Boot 4에서 `-aop`에서 이름이 바뀜) | Boot BOM | 2-2 |
+| spring-kafka / kafka-clients | 4.1.1 / 4.2.1 (`spring-boot-starter-kafka`) · 브로커 이미지 `apache/kafka:4.2.2` | Boot BOM | 3-1 |
+| Spring Data Redis / Lettuce | `spring-boot-starter-data-redis` · Lettuce 7.5.2 · 이미지 `redis:7.4.11` | Boot BOM | 4-1 |
+| Spring Data Elasticsearch | 6.1.1 (ES 클라이언트 9.4.5) · 이미지 `elasticsearch:9.4.8` | Boot BOM (Spring Data 2026.0.1) | 6-2 |
+| Spring AI | 2.0.1 (`spring-ai-starter-model-openai`, Boot 4.1.1 스타터에 의존) | `spring-ai-bom` 직접 import | 6-4 |
+| logstash-logback-encoder | 9.0 (Jackson 3 `tools.jackson`, logback 1.5) | 버전 직접 지정 | 7-1 |
+| Testcontainers 모듈 | `testcontainers-kafka`·`-elasticsearch` 모두 BOM 2.0.5에 있다 (`-minio`는 1-10에서 사용) | Boot가 import하는 Testcontainers BOM | 각 단계 |
+| springdoc-openapi | 확인 필요(Boot 4 호환 버전을 쓰는 단계가 아직 없다) | | - |
+
 **Java 25에서 활용할 것**
 
 | 기능 | 활용 |
 |---|---|
-| 가상 스레드 + `synchronized` 고정(pinning) 해소 (JEP 491, Java 24+) | Stage 2-3 가상 스레드 실험. Java 21 시절의 pinning 문제 없이 비교 가능 |
+| 가상 스레드 + `synchronized` 고정(pinning) 해소 (JEP 491, Java 24+) | Stage 2-1 가상 스레드 실험. Java 21 시절의 pinning 문제 없이 비교 가능 |
 | Scoped Values (JEP 506, 정식) | 요청 컨텍스트(memberId 등) 전달 실험 [선택] |
 | Compact Object Headers (JEP 519) | Stage 2 메모리·GC 실험 옵션 (`-XX:+UseCompactObjectHeaders`) |
 | record 패턴, switch 패턴 매칭, sealed | `PgResult` 같은 결과 타입 분기 (§8.2) |
@@ -99,14 +136,13 @@ myroutine-v2/
     │   │   ├── product/
     │   │   ├── order/
     │   │   ├── payment/
-    │   │   ├── wallet/
     │   │   ├── settlement/
     │   │   ├── review/
     │   │   ├── search/
     │   │   ├── recommendation/
     │   │   └── notification/
     │   └── resources/
-    │       ├── application.yml, application-local.yml, application-test.yml
+    │       ├── application.yaml, application-local.yaml (application-test.yaml은 src/test/resources)
     │       └── db/migration/{module}/V202610021200__member_create_member.sql
     └── test/java/com/myroutine/{module}/...
 ```
@@ -151,7 +187,7 @@ notification, search처럼 비즈니스 규칙이 적은 모듈은 `domain`을 �
 ```java
 // src/main/java/com/myroutine/order/package-info.java
 @org.springframework.modulith.ApplicationModule(
-    allowedDependencies = {"common", "product::api", "wallet::api", "payment::api", "shop::api", "member::api"}
+    allowedDependencies = {"common", "product::api", "payment::api", "shop::api", "member::api"}
 )
 package com.myroutine.order;
 
@@ -170,7 +206,8 @@ package com.myroutine.common;
 // product/api/ProductApi.java — 다른 모듈이 보는 계약
 public interface ProductApi {
     List<ProductForCheckout> getForCheckout(Collection<UUID> productIds);
-    void reserve(UUID orderId, List<ReserveItem> items);           // 멱등: 같은 orderId 재호출 시 무시
+    List<ProductForCheckout> getPurchasable(Collection<UUID> productIds);   // 판매 중이 아니면 예외
+    void reserve(UUID orderId, List<ReserveItem> items, Instant expiresAt);   // 멱등: 같은 orderId 재호출 시 무시
     void commitReservation(UUID orderId);
     void releaseReservation(UUID orderId, ReleaseReason reason);
     void restore(UUID orderId, UUID productId, int quantity, UUID refundId);  // 멱등: refundId
@@ -257,7 +294,6 @@ public class OrderLine {
 | `Refund` | - | 주문과 별도 애그리거트 (독립적인 진행 상태) |
 | `Subscription` | - | `SubscriptionCycle`은 별도 애그리거트 (회차가 계속 쌓임) |
 | `Product` | `ProductImage` | `Stock`은 별도 (갱신 빈도·경합이 다름) |
-| `Wallet` | - | `LedgerEntry`, `WalletHold`는 별도 테이블이지만 wallet 서비스 안에서 같은 트랜잭션으로만 변경 |
 | `Payment` | `PaymentCancel` | |
 
 규칙
@@ -299,15 +335,33 @@ public enum OrderLineStatus {
 
     public OrderLineStatus transitTo(OrderLineStatus to) {
         if (!ALLOWED.getOrDefault(this, Set.of()).contains(to)) {
-            throw new InvalidStateTransitionException(this, to);
+            throw new BusinessException(CommonErrorCode.INVALID_STATE_TRANSITION);
         }
         return to;
     }
 }
 ```
 - 전이표는 [04-state-machines.md](02-design/04-state-machines.md)와 1:1로 일치해야 한다. 상태머신 문서가 정답이고, 단위 테스트로 모든 허용·금지 전이를 검증한다.
+- **예외**: 엔티티 메서드로 상태를 바꾸지 않고 native CAS(`UPDATE ... WHERE status = :from`)로만 전이하는 상태(예: `ReservationStatus`)는 전이표와 전이 테스트를 두지 않는다. 호출처가 없는 코드가 되기 때문이다. 이 경우 허용 전이는 상태머신 문서와 CAS 조건이 지키고, 동작은 CAS를 호출하는 서비스·통합 테스트로 검증한다. 엔티티 경로가 있는 상태(`OrderStatus` 등)는 CAS를 함께 써도 전이표를 둔다.
 
-### 5.5 도메인 예외
+### 5.5 시간과 시간대
+**시각(언제 일어났나)과 업무 달력(몇 월 며칠인가)을 나눠서 다룬다.**
+
+| 구분 | 예 | Java 타입 | 기준 |
+|---|---|---|---|
+| 시각 | `created_at`, `paid_at`, `expires_at`, 토큰 만료 | **`Instant`** | UTC. DB 컬럼은 `timestamptz` |
+| 날짜·업무 규칙 | 구독 실행일, 정산 기간("전월"), "매일 06:00", "배송완료 후 7일" | `LocalDate`, `ZonedDateTime` | **업무 시간대 `Asia/Seoul`을 명시**해서 계산 |
+
+규칙
+- `application.yaml`(공통)에 `spring.jpa.properties.hibernate.jdbc.time_zone: UTC`를 둔다. **local 프로필에만 두지 않는다** — 환경마다 시간이 다르게 저장되는 것을 막기 위해서다.
+- 업무 시간대는 설정(`myroutine.business-zone: Asia/Seoul`)으로 받아 한 곳에서만 쓴다.
+- 현재 시각은 **`Clock` 빈으로만** 얻는다(`Instant.now(clock)`). `LocalDateTime.now()`, `new Date()`처럼 JVM 기본 시간대에 기대는 코드는 금지한다. 테스트에서는 `Clock`을 바꿔 "15분 뒤", "7일 뒤"를 흉내 낸다.
+- 엔티티의 시각 필드에 `LocalDateTime`을 쓰지 않는다. `timestamptz` 컬럼에 `LocalDateTime`을 넣으면 JDBC 세션 시간대로 해석되어 환경마다 저장값이 달라진다.
+- 업무 날짜로 바꿀 때는 시간대를 명시한다: `instant.atZone(businessZone).toLocalDate()`.
+- `@Scheduled`의 cron에는 `zone`을 명시한다: `@Scheduled(cron = "0 0 6 * * *", zone = "Asia/Seoul")`.
+- API는 `Instant`를 ISO-8601 UTC(`2026-10-02T06:00:00Z`)로 내보낸다. 한국 시간 표시는 클라이언트가 한다.
+
+### 5.6 도메인 예외
 도메인 규칙 위반은 `BusinessException`(+ 모듈별 `ErrorCode`)으로 던진다. 도메인에서 HTTP 상태를 직접 다루지 않고, ErrorCode가 매핑을 가진다(§11).
 
 ## 6. 애플리케이션 서비스 작성법
@@ -341,7 +395,7 @@ public class ConfirmPaymentService {
     }
 }
 ```
-- `@Transactional` 메서드 안에서 `RestClient`, 메일, OpenAI, S3, ES를 호출하지 않는다.
+- `@Transactional` 메서드 안에서 `RestClient`, 메일, OpenAI, MinIO(S3), ES를 호출하지 않는다.
 - 같은 클래스의 `@Transactional` 메서드를 `this.method()`로 호출하면 프록시를 거치지 않아 트랜잭션이 적용되지 않는다. `TransactionTemplate`을 쓰거나 별도 빈으로 분리한다.
 - 트랜잭션 전파는 기본(REQUIRED)만 쓴다. `REQUIRES_NEW`가 필요해 보이면 설계를 다시 보고, 쓴다면 이유를 주석으로 남긴다.
 
@@ -402,7 +456,7 @@ interface JpaOrderRepository extends JpaRepository<Order, UUID>, OrderRepository
   ```java
   sealed interface PgResult permits PgResult.Approved, PgResult.Rejected, PgResult.Unknown { ... }
   ```
-- 모든 호출을 `pg_call_log`(결제) 또는 로그에 지연시간과 함께 남긴다.
+- 모든 호출을 로그 한 줄에 지연시간과 함께 남긴다(결제 감사 테이블 `pg_call_log`는 선택 사항, 로드맵 2-3 제안).
 - 호출 결과와 지연시간은 Micrometer `Timer`로 기록한다(`pg_call_seconds{operation, result}`).
 - 테스트는 가짜 PG 서버로 한다(§13.4). 실제 Toss 테스트 키는 로컬 수동 확인용으로만 쓴다.
 
@@ -448,7 +502,7 @@ class OrderLineConfirmedConsumer {
 | 잔액처럼 한 행에 연산 여러 개 | `SELECT ... FOR UPDATE` | 지갑 |
 | 같은 회원의 연속 요청 직렬화 | `pg_advisory_xact_lock(hashtext(:key))` (트랜잭션 끝나면 해제) | 가게 개설·폐업 |
 | 스케줄 작업 중복 실행 방지 | 전용 커넥션에서 `pg_try_advisory_lock` → 작업 → `pg_advisory_unlock` (세션 레벨) | 만료 잡, 대사 잡, Outbox 릴레이, 정산 |
-| 중복 처리 방지 (최후 방어선) | UNIQUE 제약 + `INSERT ... ON CONFLICT DO NOTHING` | 원장, 정산 item, processed_message |
+| 중복 처리 방지 (최후 방어선) | UNIQUE 제약 + `INSERT ... ON CONFLICT DO NOTHING` | 재고 이력, 정산 item, processed_message |
 | 여러 행을 잠글 때 | **항상 같은 순서**(ID 오름차순) | 여러 상품 예약 |
 
 주의
@@ -460,7 +514,7 @@ class OrderLineConfirmedConsumer {
 ```java
 // common
 public interface ErrorCode { String code(); HttpStatus status(); String message(); }
-public class BusinessException extends RuntimeException { private final ErrorCode errorCode; ... }
+public class BusinessException extends RuntimeException { private final ErrorCode errorCode; private final Map<String, Object> details; ... }
 
 // 모듈별
 public enum OrderErrorCode implements ErrorCode {
@@ -475,6 +529,38 @@ public enum OrderErrorCode implements ErrorCode {
 - 에러 코드는 [07-api-spec.md](02-design/07-api-spec.md)에 등록한다.
 - 예외를 삼키지 않는다. `catch (Exception e) { log.error(...) }`로 끝내는 코드는 리뷰에서 반려한다(ORD-05).
 
+**응답 규격 (`common.error.ErrorResponse`)**
+```java
+public record ErrorResponse(String code, String message, String traceId, Map<String, Object> details) {
+    static ErrorResponse of(ErrorCode errorCode, Map<String, Object> details) { ... }   // traceId는 MDC에서
+}
+```
+- `traceId`는 새로 만들지 않는다. `TraceIdFilter`가 MDC에 넣은 `traceId`를 꺼내 쓴다(§14.1). 그래야 응답 헤더 `X-Request-Id`와 같고 로그와도 같다.
+- `details`는 없으면 빈 객체(`{}`)다. 검증 실패는 `{필드명: 메시지}`, 그 외는 코드별로 정한다(예: `OUT_OF_STOCK` → `{productIds: [...]}`).
+- `message`는 사용자에게 보여줘도 되는 문구만 쓴다. SQL·클래스명·스택트레이스를 넣지 않는다.
+
+**`GlobalExceptionHandler` 변환표**
+| 예외 | HTTP | code | details | 로그 |
+|---|---|---|---|---|
+| `BusinessException` | `errorCode.status()` | `errorCode.code()` | `e.getDetails()` | WARN |
+| `MethodArgumentNotValidException` (`@Valid` 실패) | 400 | `INVALID_REQUEST` | `{필드명: 메시지}` | WARN |
+| `HandlerMethodValidationException` (쿼리 파라미터 검증 실패, 1-7) | 400 | `INVALID_REQUEST` | `{}` | WARN |
+| `HttpMessageNotReadableException` (JSON 오류) | 400 | `INVALID_REQUEST` | `{}` | WARN |
+| `NoResourceFoundException` | 404 | `NOT_FOUND` | `{}` | WARN |
+| `HttpRequestMethodNotSupportedException` | 405 | `METHOD_NOT_ALLOWED` | `{}` | WARN |
+| `OptimisticLockingFailureException` | 409 | `CONFLICT_RETRY` | `{}` | WARN |
+| `MethodArgumentTypeMismatchException`, `MissingServletRequestParameterException` | 400 | `INVALID_REQUEST` | `{파라미터명: 메시지}` | WARN |
+| `DataIntegrityViolationException` + unique 위반(SQLState `23505`) | 409 | `DUPLICATE_RESOURCE` | 없음 | WARN |
+| `DataIntegrityViolationException` + 그 외 | 500 | `INTERNAL_ERROR` | 없음 | ERROR + 스택트레이스 |
+| 그 외 `Exception` | 500 | `INTERNAL_ERROR` | 없음 | ERROR + 스택트레이스 |
+
+- 중복은 서비스가 먼저 조회해서 구체적인 코드(`MEMBER_EMAIL_DUPLICATED` 등)로 막는다. DB unique 제약까지 오는 것은 동시 요청 경합뿐이라 어떤 제약이든 409 `DUPLICATE_RESOURCE` 하나로 응답한다.
+- 응답 `message`는 항상 `ErrorCode.message()`다. 예외 메시지를 응답에 넣지 않는다.
+- 상태 전이 실패는 `new BusinessException(CommonErrorCode.INVALID_STATE_TRANSITION)`(409).
+- 단계별 상세 규격은 [로드맵 1-3](03-roadmap/part1-foundation.md)이 기준이다.
+
+**유틸 클래스**: `Ids`처럼 인스턴스를 만들지 않는 클래스는 `final` + private 생성자로 둔다.
+
 ## 12. 네이밍
 | 대상 | 규칙 | 예 |
 |---|---|---|
@@ -484,7 +570,7 @@ public enum OrderErrorCode implements ErrorCode {
 | 이벤트 | `{명사}{과거분사}Event` | `ShopClosedEvent` |
 | 예외 | `BusinessException` + `{모듈}ErrorCode` | |
 | 테이블·컬럼 | snake_case, 테이블은 단수(예약어면 복수 `orders`) | `order_line` |
-| 제약·인덱스 | `pk_`, `uk_{table}_{cols}`, `ck_{table}_{rule}`, `idx_{table}_{cols}` | `uk_ledger_entry_type_ref` |
+| 제약·인덱스 | `pk_`, `uk_{table}_{cols}`, `ck_{table}_{rule}`, `idx_{table}_{cols}` | `uk_stock_movement_type_ref` |
 | 테스트 메서드 | 한글 `@DisplayName` + 영문 메서드명 | `@DisplayName("배송 중인 품목은 취소할 수 없다")` |
 
 ## 13. 테스트
@@ -507,27 +593,48 @@ void cancel_shipped_line_fails() {
     OrderLine line = OrderLineFixture.shipped();
 
     assertThatThrownBy(line::cancel)
-        .isInstanceOf(InvalidStateTransitionException.class);
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode").isEqualTo(CommonErrorCode.INVALID_STATE_TRANSITION);
 }
 ```
 - given-when-then 순서로 쓰고, 픽스처는 `XxxFixture`로 모은다.
 
 ### 13.3 통합 테스트 베이스
 ```java
+@ActiveProfiles("test")
 @SpringBootTest
 public abstract class IntegrationTestSupport {
+    @Autowired
+    JdbcTemplate jdbc;
+
     @ServiceConnection
-    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("pgvector/pgvector:pg17");
-    @ServiceConnection
-    static final KafkaContainer kafka = new KafkaContainer("apache/kafka:3.8.0");   // org.testcontainers.kafka
-    @ServiceConnection(name = "redis")
-    static final GenericContainer<?> redis = new GenericContainer<>("redis:7").withExposedPorts(6379);
+    static final PostgreSQLContainer postgres = new PostgreSQLContainer("pgvector/pgvector:pg17");
+    // Kafka·Redis는 해당 단계에서 필요해지는 단계에서 추가한다.
+    // @ServiceConnection static final KafkaContainer kafka = new KafkaContainer("apache/kafka:3.8.0");   // org.testcontainers.kafka
+    // @ServiceConnection(name = "redis") static final GenericContainer<?> redis = new GenericContainer<>("redis:7").withExposedPorts(6379);
 
     static {   // 싱글턴: JVM 전체에서 한 번만 띄워 모든 테스트 클래스가 공유
-        Startables.deepStart(postgres, kafka, redis).join();
+        postgres.start();   // 컨테이너가 여러 개가 되면 Startables.deepStart(postgres, kafka, redis).join()
+    }
+
+    @AfterEach
+    void truncateAllTables() {   // flyway_schema_history를 뺀 모든 스키마의 테이블을 비운다
+        List<String> tables = jdbc.queryForList(
+                "SELECT schemaname || '.' || tablename FROM pg_tables "
+                        + "WHERE schemaname NOT IN ('pg_catalog', 'information_schema') "
+                        + "AND tablename <> 'flyway_schema_history'",
+                String.class);
+        if (tables.isEmpty()) {
+            return;   // 빈 목록으로 TRUNCATE를 실행하면 문법 오류
+        }
+        jdbc.execute("TRUNCATE TABLE " + String.join(", ", tables) + " RESTART IDENTITY CASCADE");
     }
 }
 ```
+- `@ActiveProfiles("test")`가 없으면 `application-test.yaml`이 로드되지 않는다. datasource는 `@ServiceConnection`이 주입하므로 test 프로필에 적지 않는다.
+- Testcontainers 2.x에서 Postgres 컨테이너는 `org.testcontainers.postgresql.PostgreSQLContainer`(제네릭 없음)를 쓴다. 구 `org.testcontainers.containers.PostgreSQLContainer<?>`는 deprecated다.
+- Spring Initializr가 만든 `TestcontainersConfiguration`·`TestMyRoutineApplication`은 이 베이스와 역할이 겹쳐 삭제했다. 컨테이너 정의는 이 클래스 한 곳에만 둔다.
+- 정리 쿼리는 스키마를 붙여 조회한다(`common` 등 `public`이 아닌 스키마가 있다). 테이블이 생기기 전에는 이 경로가 실행되지 않으므로, 첫 테이블이 생기는 단계(1-3)에서 실제로 비워지는지 확인한다.
 - `@Testcontainers` + `@Container`를 쓰면 테스트 클래스마다 컨테이너가 재시작된다. 위처럼 static 블록에서 직접 시작하는 싱글턴 패턴으로 공유한다(속도). 종료는 Testcontainers의 Ryuk이 처리한다.
 - 컨텍스트 캐시를 깨지 않도록 `@MockitoBean`(Boot 3.4+, 구 `@MockBean`) 남용을 피한다. 필요하면 테스트용 설정 클래스로 Fake 빈을 공통화한다.
 - 통합 테스트에 `@Transactional`을 붙이지 않는다. 테스트가 끝나면 롤백돼서 **커밋 이후 동작(Outbox 발행, AFTER_COMMIT, 실제 락)**이 검증되지 않는다. 테이블 정리는 `@AfterEach`에서 TRUNCATE로 한다.
@@ -635,7 +742,7 @@ void no_oversell() throws Exception {
 
 ### 13.6 필수 테스트
 - 모든 상태 enum: 허용·금지 전이 전체 (파라미터화 테스트)
-- 모든 금액 계산: 경계값(0원, 전액 예치금, 전액 PG, 부분 환불 누적)
+- 모든 금액 계산: 경계값(최소 금액, 부분 환불 누적, 누적 취소 = 승인액)
 - 모든 consumer: 같은 이벤트 2번 → 결과 1번
 - 모든 변경 API: 다른 회원이 호출 → 403/404 (INV-11)
 - 모듈 경계 verify 테스트
@@ -644,18 +751,18 @@ void no_oversell() throws Exception {
 
 ### 14.1 traceId 전파 (ADR-010)
 ```java
-// common: 요청마다 traceId를 만들어 MDC에 넣는다
+// common.web: 요청마다 traceId를 만들어 MDC에 넣는다 (TraceIds도 같은 패키지)
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class TraceIdFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws ServletException, IOException {
-        String traceId = Optional.ofNullable(req.getHeader("X-Request-Id")).orElseGet(TraceIds::newId);
-        MDC.put("traceId", traceId);
-        res.setHeader("X-Request-Id", traceId);
+        String traceId = TraceIds.newId();   // 항상 서버가 만든다 (클라이언트 헤더를 이어 쓰는 것은 로드맵 1-3의 제안)
+        MDC.put(TraceIds.MDC_KEY, traceId);
+        res.setHeader(TraceIds.HEADER, traceId);
         try { chain.doFilter(req, res); }
-        finally { MDC.clear(); }
+        finally { MDC.remove(TraceIds.MDC_KEY); }
     }
 }
 ```
@@ -677,23 +784,24 @@ Kibana에서 `traceId:"..."`로 검색하면 한 요청의 HTTP → DB → Kafka
 - 비즈니스 메트릭 이름은 `{도메인}_{대상}_{단위}`로 하고 [ADR-010](adr/ADR-010-observability.md)의 목록을 따른다. 새 메트릭은 그 목록에 추가한다.
 
 ## 15. 설정·보안
-- 프로필: `local`(docker-compose), `test`(Testcontainers), `prod`.
+- 프로필: `local`(docker-compose), `test`(Testcontainers), `prod`(Proxmox VM 운영 환경 연습, ADR-011).
 - 시크릿(JWT 키, Toss 시크릿 키, OAuth 시크릿, OpenAI·AWS 키)은 환경변수로만 받는다. `.env`는 gitignore하고 `.env.example`에 키 이름만 둔다(MEM-01).
 - 설정값은 `@ConfigurationProperties` + `@Validated` record로 묶는다. `@Value` 문자열을 여기저기 흩뿌리지 않는다.
 - CORS 허용 origin은 설정으로 명시한다. `*`를 쓰지 않는다(MEM-04).
-- actuator는 별도 관리 포트로 열고 외부에 노출하지 않는다(MEM-05).
+- actuator는 별도 관리 포트로 열고 외부에 노출하지 않는다(MEM-05). 운영 compose에서도 관리 포트(8081)는 호스트에 publish하지 않는다.
+- 배포(ADR-011): 이미지는 **커밋 sha 태그**로만 배포한다(`latest` 금지). 운영 `.env`는 VM에만 두고 리포·GitHub Secrets·이미지에 넣지 않는다. `self-hosted` 러너를 쓰는 job은 `pull_request` 이벤트에서 실행되지 않게 한다(public 리포). 외부에서 달라지는 주소(CORS 오리진, 저장소 endpoint·공개 URL)는 환경변수로 받는다.
 
 ## 16. Git·PR
 > 상세 규칙은 [Git 정책](git-policy.md)이 기준이다. 아래는 요약.
 
-- 브랜치: Git Flow — `main`(릴리스), `develop`(통합, 기본 브랜치), `feature/{단계ID}-{요약}` (예: `feature/2-4-checkout`). feature → develop은 squash merge.
+- 브랜치: Git Flow — `main`(릴리스), `develop`(통합, 기본 브랜치), `feature/{단계ID}-{요약}` (예: `feature/2-2-checkout`). feature → develop은 squash merge.
 - 커밋 메시지: `{type}: {무엇을} ({왜})`, type은 `feat, fix, refactor, test, docs, chore`. 관련 없는 변경을 한 커밋에 섞지 않는다.
 - PR은 티켓 하나 단위로 올리고, 본문에 다음을 쓴다.
   1. 티켓 ID와 수용 기준 체크
   2. 변경 요약과 설계 문서와 다르게 구현한 부분(있으면 이유)
   3. 테스트 결과(실행한 테스트, 필수 시나리오 체크)
   4. 리뷰어가 특히 봐줬으면 하는 곳
-- **리뷰 요청**: "2-4 리뷰해줘"와 함께 브랜치명(`feature/2-4-checkout`) 또는 PR 번호를 알려준다. §18 체크리스트로 리뷰하고, 지적 사항과 질문을 심각도순으로 돌려준다.
+- **리뷰 요청**: "2-2 리뷰해줘"와 함께 브랜치명(`feature/2-2-checkout`) 또는 PR 번호를 알려준다. §18 체크리스트로 리뷰하고, 지적 사항과 질문을 심각도순으로 돌려준다.
 
 ## 17. 모듈 하나를 만드는 순서
 1. 티켓의 수용 기준과 관련 설계(ERD, 상태머신, 시퀀스, API)를 다시 읽는다.
@@ -704,7 +812,7 @@ Kibana에서 `traceId:"..."`로 검색하면 한 요청의 HTTP → DB → Kafka
 6. 컨트롤러 + API 테스트 (검증, 인가, 에러 응답)
 7. 이벤트 발행·소비 + 멱등 테스트
 8. 동시성·시나리오 테스트 (해당 티켓의 필수 목록)
-9. 문서 갱신 (설계와 달라진 부분, 에러 코드, 메트릭)
+9. 설계와 달라진 부분을 PR 본문에 정리 (문서 갱신 — 설계, 에러 코드, 메트릭, README — 은 리뷰 때 Claude가 한다)
 10. PR → 리뷰 → 반영 → 머지
 
 ## 18. 리뷰 체크리스트
@@ -738,8 +846,8 @@ Kibana에서 `traceId:"..."`로 검색하면 한 요청의 HTTP → DB → Kafka
 | AFTER_COMMIT fire-and-forget 발행 | Outbox | ORD-09, SHOP-05 |
 | 타임아웃을 실패로 단정 | UNKNOWN + 대사 | PAY-01, ORD-10 |
 | 선택 후 트랜잭션 종료 → 그다음 처리 | 상태값 선점(PROCESSING + 리스) | PAY-03 |
-| 중복 요청에 unique 예외를 그대로 반환 | 기존 결과를 멱등 응답 | WAL-01 |
-| DB 락을 잡은 채 외부 송금 | 선차감 커밋 → 호출 → 확정/보상 | WAL-02 |
+| 중복 요청에 unique 예외를 그대로 반환 | 기존 결과를 멱등 응답 (`@Idempotent`, 비즈니스 키) | WAL-01 |
+| DB 락을 잡은 채 외부 송금 | 트랜잭션 밖에서 멱등 키로 호출 → 결과 기록 (정산 지급) | WAL-02 |
 | `final` 없는 필드 + `@RequiredArgsConstructor` | 의존성 필드는 모두 `private final` | SUP-01 |
 | consumer마다 다른 ack 설정 | 공통 설정 하나 | SUP-02 |
 | 트랜잭션 안에서 unique 위반 catch 후 계속 | `ON CONFLICT DO NOTHING` | SUP-05 |

@@ -1,0 +1,16 @@
+spring:
+  config:
+    import: optional:file:.env.local[.properties]
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+  jpa:
+    properties:
+      hibernate:
+        format_sql: true
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG                  # 실행되는 SQL
+    org.hibernate.orm.jdbc.bind: TRACE        # ? 자리에 들어간 파라미터 값
