@@ -2082,7 +2082,7 @@ curl -s -o /dev/null -w '%{http_code}\n' "$IMG"                                 
 
 **노출 제한**: `nc -vz -w 3 {VM_IP} 5432`, `8081`, `9001`은 실패, `8080`·`9000`은 성공.
 
-**자동 롤백**: ① 새 브랜치에서 `application-prod.yaml`에 기본값 없는 플레이스홀더를 하나 넣는다(예: `myroutine.web.dummy: ${DOES_NOT_EXIST}`). test 프로필에서는 안 읽혀서 **CI는 통과**하고, 운영(`prod`)에서만 부팅이 실패한다. ② develop에 머지. ③ CD가 빨간불, VM에서 `cat /opt/myroutine/deployed-sha`는 이전 sha 그대로, `IMAGE_TAG=$(cat /opt/myroutine/deployed-sha) docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml ps`의 앱 이미지 태그도 이전 sha, 위 풀스택 `curl`의 `/api/products`는 계속 200. ④ Actions 로그를 PR에 붙이고 revert PR로 되돌린다.
+**자동 롤백**: ① 새 브랜치에서 `application-prod.yaml`에 **바인딩이 실패하는 값**을 넣는다: `myroutine.jwt.access-token-ttl: invalid`(기존 `cors-allowed-origins` 줄은 그대로). 이 값은 `Duration`으로 변환되지 않아 `Failed to bind properties under 'myroutine.jwt.access-token-ttl'`로 기동이 실패한다(2026-10-10 로컬 `bootRun`으로 확인). `application-prod.yaml`은 `application.yaml`보다 우선하고, 이 속성을 덮는 환경변수는 `.env`에 없다. test 프로필은 이 파일을 읽지 않아 **CI는 통과**하고 운영(`prod`)에서만 실패한다. **플레이스홀더(`${없는변수}`)로는 실패시킬 수 없다**: `@ConfigurationProperties` 바인딩은 해석하지 못한 `${...}`를 문자열 그대로 두고 기동한다(`cors-allowed-origins`에 넣어 보니 `Started … in 3.93 seconds`였고 운영에서도 배포가 두 번 연속 성공했다). 아무 코드도 읽지 않는 속성도 마찬가지다.  ② develop에 머지. ③ CD가 빨간불, VM에서 `cat /opt/myroutine/deployed-sha`는 이전 sha 그대로, `IMAGE_TAG=$(cat /opt/myroutine/deployed-sha) docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml ps`의 앱 이미지 태그도 이전 sha, 위 풀스택 `curl`의 `/api/products`는 계속 200. ④ Actions 로그를 PR에 붙이고 revert PR로 되돌린다.
 
 **수동 배포**: Actions → CD → *Run workflow*에 이전 40자리 sha 입력 → VM의 앱 이미지 태그가 그 sha로 바뀐다. 이후 다시 최신 sha로 수동 배포해 원상 복구한다.
 
@@ -2100,7 +2100,7 @@ docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml e
 
 **재부팅 복구**: VM에서 `sudo reboot` → 2~3분 뒤 GitHub Runners에서 Idle, 다른 PC에서 `curl $BASE/api/products` 200(사람이 `compose up`을 치지 않았는데 올라와 있어야 한다. `restart: unless-stopped`와 `systemctl enable docker`가 이걸 한다).
 
-**포크 PR 안전**: 파일 점검(`grep -n "self-hosted" .github/workflows/*.yml`에서 `ci.yml`이 없고 `cd.yml`만, `grep -n "workflow_run.event" .github/workflows/cd.yml`) + 아무 PR 하나를 올려 CI가 끝난 뒤 Actions의 CD 항목이 **Skipped**로 표시되는지 보기 + S6의 스크린샷.
+**포크 PR 안전**: 파일 점검(`grep -n "self-hosted" .github/workflows/*.yml`에서 `ci.yml`이 없고 `cd.yml`만, `grep -n "workflow_run.event" .github/workflows/cd.yml`) + 같은 리포의 브랜치로 PR을 올려 CI가 끝나도 **CD 실행이 생기지 않는 것** 보기(`gh run list --workflow=cd.yml`에 그 PR 커밋 sha가 없다. `workflow_run`의 `branches: [develop]` 필터가 CI를 돌린 브랜치 이름으로 먼저 거른다. `event == 'push'`는 그 필터를 통과하는 경우, 즉 포크의 브랜치 이름이 `develop`인 PR을 막는 두 번째 방어선이라 같은 리포 PR로는 직접 볼 수 없다) + S6의 스크린샷.
 
 **러너 권한**: [`vm-setup.md` §5](../ops/vm-setup.md)의 두 점검 명령.
 
@@ -2116,7 +2116,7 @@ docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml e
 | [ ] 자동 롤백 | 일부러 부팅이 실패하는 커밋(예: 필수 환경변수 누락)을 머지 → 헬스체크 실패 → Actions 빨간불 → 앱은 직전 sha로 계속 응답, `deployed-sha` 그대로 (확인 후 되돌림, PR에 로그) |
 | [ ] 수동 배포 | `workflow_dispatch`에 이전 sha 입력 → 그 버전으로 교체 |
 | [ ] 마이그레이션 | 마이그레이션이 든 배포 후 `flyway_schema_history`에 새 버전이 있다 |
-| [ ] 포크 PR 안전 | `pull_request`로 실행되는 워크플로에 `self-hosted` job이 없고, `cd.yml`의 실행 조건에 `workflow_run.event == 'push'`가 있다(파일 점검) + PR을 하나 올려 CI가 끝난 뒤 CD가 **건너뜀(skipped)**으로 표시되는 것 + Environment 배포 브랜치 제한·포크 승인 설정 스크린샷 |
+| [ ] 포크 PR 안전 | `pull_request`로 실행되는 워크플로에 `self-hosted` job이 없고, `cd.yml`의 실행 조건에 `workflow_run.event == 'push'`가 있다(파일 점검) + 같은 리포의 PR을 올려 CI가 끝나도 CD 실행이 생기지 않는 것 + Environment 배포 브랜치 제한·포크 승인 설정 스크린샷 |
 | [ ] 시크릿 | `git ls-files`·GitHub Secrets·`docker history`에 운영 `.env` 값이 없다 |
 | [ ] 재부팅 복구 | VM 재부팅 후 러너 서비스와 compose가 사람 개입 없이 올라온다 |
 | [ ] 러너 권한 | 러너 서비스가 root가 아닌 전용 사용자로 돈다 |
