@@ -3,6 +3,7 @@
 > 코드를 작성할 때 따르는 규칙이자 **코드 리뷰 기준**이다. 리뷰에서 지적하는 항목은 이 문서의 절 번호로 표시한다(예: `§6.2 위반`).
 > 규칙을 바꿔야 할 이유가 생기면 코드보다 이 문서를 먼저 고친다.
 > 근거: [02-design](02-design/README.md), [ADR](adr/)
+> 2026-10-10 · Part 1 완료에 맞춰 §1.1 확정 버전 표에 AWS SDK·MinIO 이미지·`testcontainers-minio`(1-10)를 옮겼다
 > 2026-10-09 · §1.1 확정 버전에 구현된 Modulith·jjwt와 이후 Part의 확인된 호환 버전을 적고, 설정 파일 확장자(`.yaml`)·`pg_call_log`(선택 사항) 표기를 로드맵과 맞췄다
 
 ## 목차
@@ -73,7 +74,7 @@
 
 **서드파티 호환성은 착수 시 확인한다** (첫 티켓의 수용 기준): Spring AI, springdoc-openapi, Spring Modulith, Testcontainers(2.x는 모듈·패키지명 변경), QueryDSL 포크, logstash-logback-encoder. 호환 버전이 없는 라이브러리는 대안을 찾고 이 표에 기록한다.
 
-**확정 버전** (1-1 기준, `./gradlew dependencies`로 확인. 새 라이브러리는 등장하는 단계에서 추가한다)
+**확정 버전** (Part 1 완료 기준, `./gradlew dependencies`로 확인. 새 라이브러리는 등장하는 단계에서 추가한다)
 
 | 구성 | 버전 | 비고 |
 |---|---|---|
@@ -87,23 +88,24 @@
 | HikariCP | 7.0.2 | |
 | Jackson | 3.1.5 (`tools.jackson`) | |
 | Lombok | 1.18.46 | JDK 25 지원. 빌드 시 `sun.misc.Unsafe` 경고가 나오지만 동작에는 문제없음 |
-| Testcontainers | 2.0.5 | 모듈명 `testcontainers-postgresql`, 패키지 `org.testcontainers.postgresql` |
+| Testcontainers | 2.0.5 | 모듈명 `testcontainers-postgresql`·`testcontainers-minio`(1-10), 패키지 `org.testcontainers.postgresql` |
 | JUnit Jupiter | 6.0.3 | |
 | Spring Modulith | 2.1.1 | `spring-modulith-bom` import (1-6) |
 | jjwt | 0.13.0 | `jjwt-api` + `jjwt-impl`·`jjwt-jackson` runtimeOnly (1-4) |
+| AWS SDK for Java v2 (`s3`) | 2.55.13 | `software.amazon.awssdk:bom` 직접 import(Boot BOM이 관리하지 않는다) (1-10) |
+| MinIO 이미지 | `chainguard/minio` | 공식 `minio/minio`가 2026-09-11 Docker Hub에서 삭제되어 교체. 로컬·테스트는 `latest`, 운영은 digest 고정 (1-10·1-11) |
 
 **이후 단계에서 쓸 버전** (2026-10-09 Maven Central·Docker Hub로 호환 확인. 단계에 들어갈 때 더 새 패치가 있으면 그것으로 하고 위 표로 옮긴다)
 
 | 구성 | 버전 | 관리 | 단계 |
 |---|---|---|---|
-| AWS SDK for Java v2 (`s3`) | 2.55.13 | `software.amazon.awssdk:bom` 직접 import | 1-10 |
 | AOP | `spring-boot-starter-aspectj` (Boot 4에서 `-aop`에서 이름이 바뀜) | Boot BOM | 2-2 |
 | spring-kafka / kafka-clients | 4.1.1 / 4.2.1 (`spring-boot-starter-kafka`) · 브로커 이미지 `apache/kafka:4.2.2` | Boot BOM | 3-1 |
 | Spring Data Redis / Lettuce | `spring-boot-starter-data-redis` · Lettuce 7.5.2 · 이미지 `redis:7.4.11` | Boot BOM | 4-1 |
 | Spring Data Elasticsearch | 6.1.1 (ES 클라이언트 9.4.5) · 이미지 `elasticsearch:9.4.8` | Boot BOM (Spring Data 2026.0.1) | 6-2 |
 | Spring AI | 2.0.1 (`spring-ai-starter-model-openai`, Boot 4.1.1 스타터에 의존) | `spring-ai-bom` 직접 import | 6-4 |
 | logstash-logback-encoder | 9.0 (Jackson 3 `tools.jackson`, logback 1.5) | 버전 직접 지정 | 7-1 |
-| Testcontainers 모듈 | `testcontainers-minio`·`-kafka`·`-elasticsearch` 모두 BOM 2.0.5에 있다 | Boot가 import하는 Testcontainers BOM | 각 단계 |
+| Testcontainers 모듈 | `testcontainers-kafka`·`-elasticsearch` 모두 BOM 2.0.5에 있다 (`-minio`는 1-10에서 사용) | Boot가 import하는 Testcontainers BOM | 각 단계 |
 | springdoc-openapi | 확인 필요(Boot 4 호환 버전을 쓰는 단계가 아직 없다) | | - |
 
 **Java 25에서 활용할 것**
