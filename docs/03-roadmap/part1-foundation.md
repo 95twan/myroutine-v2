@@ -1,6 +1,7 @@
 # Part 1. 뼈대와 첫 기능
 
-> 버전 0.23 · 2026-10-10 · **Part 1 마무리 문서 정리**: 남은 "확인 필요" 4건을 직접 확인해 확정(감사 시각 `Instant`, S3 없는 키 삭제, 저장소 장애 시 기동 실패, cascade INSERT 전 select 없음), 공통 규칙 E에 검증 메시지 표준 문구를 추가(메시지 없는 제약이 영어 기본 문구·정규식을 응답에 내보내던 문제), "수정 사항" 절 구현 완료 표기, "Part 1 완료"에 Part 2 시작 전 결정(`subscribable`)과 Release 노트용 알려진 한계 추가
+> 버전 0.24 · 2026-10-11 · 1-4 JSON 변환 주입 타입: Boot 빈의 실제 타입이 `JsonMapper`임을 확인했고, 프로젝트는 `ObjectMapper`로 통일한다고 적었다(Part 2 재검토 중 확인·결정)
+> 0.23 · 2026-10-10 · **Part 1 마무리 문서 정리**: 남은 "확인 필요" 4건을 직접 확인해 확정(감사 시각 `Instant`, S3 없는 키 삭제, 저장소 장애 시 기동 실패, cascade INSERT 전 select 없음), 공통 규칙 E에 검증 메시지 표준 문구를 추가(메시지 없는 제약이 영어 기본 문구·정규식을 응답에 내보내던 문제), "수정 사항" 절 구현 완료 표기, "Part 1 완료"에 Part 2 시작 전 결정(`subscribable`)과 Release 노트용 알려진 한계 추가
 > 0.22 · 2026-10-10 · **구현으로 해소된 "확인 필요" 3건 정리**: 1-4 JSON 변환 주입 타입(`ObjectMapper`), 1-7 쿼리 파라미터 검증 예외 매핑(`HandlerMethodValidationException` → 400), 1-10 `TransactionTemplate` 생성자 주입. 실제 코드·테스트와 대조해 확인한 것만 고쳤다
 > 0.21 · 2026-10-10 · **1-11 "할 일"을 S1~S8 순서(맥에서 확인 가능한 것부터)로 재구성**: 기존 규격(1~6)과 따라 하기 절을 하나로 합쳐 단계마다 규격·호출 형태·확인 명령·흔한 실패를 한곳에 두고, 맥 리허설(롤백 포함), 기본 브랜치가 `develop`이라 `cd.yml`은 머지 후에야 시험된다는 점, `.gitignore`의 `.env*` 때문에 `.env.ops.example`이 빠지는 문제, 운영 compose `name:`·`${IMAGE_TAG:?}`·이미지 `LABEL` 보강, 풀스택 curl 순서
 > 0.20 · 2026-10-09 · **1-11 구체화·사실 확인**: 운영 MinIO는 `chainguard/minio`를 digest로 고정하고 `mc ready local`로 헬스체크(직접 실행해 확인), JRE 이미지(`eclipse-temurin:25-jre`)에 curl이 없음을 확인해 설치하도록 정함, compose 변수 치환에 `--env-file`이 필요한 점, 관리 포트(8081)를 호스트에서 못 부르는 점, `workflow_run`이 포크 PR의 CI 완료에도 실행되는 점과 거르는 조건, 배포 job에 checkout이 빠진 점, 운영 `.env` 키 이름(로컬과 같은 `SPRING_DATASOURCE_*`)을 고치고 deploy.sh·워크플로·CORS를 호출 형태 수준으로 풀어 적었다
@@ -574,7 +575,7 @@ runtimeOnly 'io.jsonwebtoken:jjwt-jackson:{버전}'
 
 `RestAuthenticationEntryPoint.commence`
 - 응답: status 401, `Content-Type: application/json;charset=UTF-8`, 본문 `ErrorResponse.of(UNAUTHORIZED, Map.of())`를 JSON으로 써서 내보낸다
-- JSON 변환은 Boot가 만든 Jackson 3 빈을 생성자 주입으로 받는다. 주입 타입은 `tools.jackson.databind.ObjectMapper`다(1-4 구현에서 이 타입으로 주입·동작함을 확인했다. `JsonMapper`로 받을 수 있는지는 확인하지 않았다)
+- JSON 변환은 Boot가 만든 Jackson 3 빈을 생성자 주입으로 받는다. 주입 타입은 `tools.jackson.databind.ObjectMapper`다(1-4 구현에서 이 타입으로 주입·동작함을 확인했다). Boot가 만드는 빈(`jacksonJsonMapper`)의 실제 타입은 `tools.jackson.databind.json.JsonMapper`라 `JsonMapper`로 받아도 같은 빈이 들어온다(2026-10-10 확인). 프로젝트는 **`ObjectMapper`로 통일**한다(Part 2 멱등 장치, Part 3 Kafka 직렬화도 같음)
 - `RestAccessDeniedHandler`도 같은 방식, 코드는 `FORBIDDEN`
 
 `SecurityConfig` 변경

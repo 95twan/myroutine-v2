@@ -1,6 +1,7 @@
 # Part 3. 이벤트
 
-> 버전 0.6 · 2026-10-09 · **사실 확인·정합**: Kafka 이미지 태그(`apache/kafka:4.2.2`)·Boot 4 스타터 이름·`CommonErrorHandler` 자동 연결을 확인해 확정, 테스트 컨테이너 기동에 1-10의 MinIO 포함, 정산 테이블에 빠져 있던 `payout_reference` 컬럼과 `markPaid` 인자 통일, Part 2에서 제안으로 옮긴 `FailPaymentService` 잔재 제거
+> 버전 0.7 · 2026-10-11 · JSON 변환 타입을 `ObjectMapper`로 통일(Part 1 코드·Part 2 멱등 장치와 같은 타입)
+> 0.6 · 2026-10-09 · **사실 확인·정합**: Kafka 이미지 태그(`apache/kafka:4.2.2`)·Boot 4 스타터 이름·`CommonErrorHandler` 자동 연결을 확인해 확정, 테스트 컨테이너 기동에 1-10의 MinIO 포함, 정산 테이블에 빠져 있던 `payout_reference` 컬럼과 `markPaid` 인자 통일, Part 2에서 제안으로 옮긴 `FailPaymentService` 잔재 제거
 > 0.5 · 2026-10-02 · **덜어내기**: 가게 개설·폐업 advisory lock 제거(재조회로 충분), 폐업 이벤트의 남은 가게 수 필드 제거, 재시도 간격은 고정값으로(백오프는 제안), 회원 역할은 단일 `role`
 > 0.4 · 2026-10-02 · 예치금 제거: 정산 지급은 `PayoutGateway`(은행 송금 Mock), 충전 이벤트·지갑 탈퇴 조건 삭제
 > 0.3 · 이 문서만 보고 개발할 수 있게 구체화
@@ -34,7 +35,7 @@
 | 키 | 집계 ID(aggregateId). 같은 집계의 이벤트는 같은 파티션으로 가서 순서가 지켜진다 |
 | 발행 | **상태 변경과 같은 트랜잭션** 안에서 `OutboxPublisher.publish(...)`. `KafkaTemplate`을 비즈니스 코드에서 직접 부르지 않는다 |
 | 소비 | 모든 consumer는 `InboxGuard.runOnce(...)` 안에서 처리한다(3-2부터). 같은 이벤트를 두 번 받아도 결과가 한 번 |
-| 직렬화 | Kafka 메시지 값은 **JSON 문자열**(`StringSerializer`). 봉투 → JSON 변환은 `JsonMapper`로 직접 한다(Kafka용 Jackson 직렬화 설정을 따로 다루지 않기 위해) |
+| 직렬화 | Kafka 메시지 값은 **JSON 문자열**(`StringSerializer`). 봉투 → JSON 변환은 주입받은 `ObjectMapper`(`tools.jackson.databind.ObjectMapper`)로 직접 한다(Kafka용 Jackson 직렬화 설정을 따로 다루지 않기 위해) |
 | 문서 | 새 이벤트·필드는 [이벤트 카탈로그](../02-design/05-events.md)와 일치해야 한다(Claude가 리뷰 때 문서를 맞춘다) |
 
 ### Q. 비동기 테스트
@@ -144,7 +145,7 @@ spring:
 | 클래스 | 규격 |
 |---|---|
 | `EventEnvelope` | `public record EventEnvelope(UUID eventId, String eventType, Instant occurredAt, UUID aggregateId, String traceId, JsonNode payload)` (`tools.jackson.databind.JsonNode`) |
-| `OutboxPublisher` | `@Component`. `@Transactional(propagation = Propagation.MANDATORY) public void publish(String topic, String aggregateType, UUID aggregateId, Object event)` — `JdbcTemplate`으로 INSERT(READY, `next_attempt_at = now`, `trace_id = MDC.get(TraceIds.MDC_KEY)`, payload는 `jsonMapper.writeValueAsString(event)`를 `?::jsonb`로) |
+| `OutboxPublisher` | `@Component`. `@Transactional(propagation = Propagation.MANDATORY) public void publish(String topic, String aggregateType, UUID aggregateId, Object event)` — `JdbcTemplate`으로 INSERT(READY, `next_attempt_at = now`, `trace_id = MDC.get(TraceIds.MDC_KEY)`, payload는 `objectMapper.writeValueAsString(event)`를 `?::jsonb`로) |
 | `OutboxRelay` | `@Component`. `public int relayOnce()` (아래). 스케줄은 `OutboxRelayJob`(`@Scheduled(fixedDelay = 1000)` → `jobRunner.run("outbox-relay", relay::relayOnce)`) |
 | `EventEnvelopes` | `@Component`. `<T> TypedEnvelope<T> parse(String json, Class<T> payloadType)` → `record TypedEnvelope<T>(EventEnvelope envelope, T payload)`. 파싱 실패는 `tools.jackson.core.JacksonException`을 그대로 던진다(3-2에서 재시도하지 않을 예외로 분류) |
 | `EventContext` | `public final class`. `static void run(EventEnvelope envelope, Runnable action)` → MDC에 `traceId`(봉투 값, 없으면 새로), `eventId` 넣고 실행 후 제거 |

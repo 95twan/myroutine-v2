@@ -1,6 +1,7 @@
 # Part 2. 주문과 돈
 
-> 버전 0.6 · 2026-10-09 · **구현된 Part 1 코드와 정합·사실 확인**: `TestFixtures`의 실제 헬퍼 이름, `ProductApi`·`ShopApi` 반환 필드에서 `CheckoutLine`·`ReserveItem`으로 옮기는 방법, 1-10 규칙(키는 Result, URL은 web)에 따른 장바구니·주문 상세의 `thumbnailUrl`, 결제 모듈 API에 남아 있던 `(ORDER, orderId)` 인자 잔재 제거, AOP 스타터 이름(`spring-boot-starter-aspectj`)·Jackson 3의 모르는 필드 무시·Toss API(엔드포인트·Basic 인증·멱등키 15일)·불확실 코드 목록을 확인해 확정, `RestClient.exchange`로 응답을 분류하는 호출 형태를 적었다
+> 버전 0.7 · 2026-10-10 · **Part 1에서 배운 것 반영**: 공통 규칙 P(검증 메시지, 요청 DTO 원시 타입, `@Validated`, `TestFixtures.token`, 응답 경로 단언, 일부러 깨뜨려 확인, Hibernate 컬렉션 fetch, jsonb의 Jackson 2, 배포 전 환경변수, 롤백과 마이그레이션 호환, 422 상수) 추가. 직접 실행해 확인한 것으로 2-2 상세 조회의 "확인 필요"를 바꾸고(`List` 두 개 동시 fetch는 `MultipleBagFetchException`) N+1 테스트를 더했다. `@Idempotent`를 붙이면 고쳐야 하는 기존 테스트·curl, 체크아웃 `orderId`와 1-9 멱등 규칙의 관계, 2-3 Toss 키를 운영 `.env`에 먼저 넣는 순서, JSON 변환 타입을 `ObjectMapper`로 통일(Part 1 코드와 같은 타입, Part 3도 같음), 수동 결제 확인 페이지의 인증, 시작 전 결정 항목(`subscribable`)을 적었다
+> 0.6 · 2026-10-09 · **구현된 Part 1 코드와 정합·사실 확인**: `TestFixtures`의 실제 헬퍼 이름, `ProductApi`·`ShopApi` 반환 필드에서 `CheckoutLine`·`ReserveItem`으로 옮기는 방법, 1-10 규칙(키는 Result, URL은 web)에 따른 장바구니·주문 상세의 `thumbnailUrl`, 결제 모듈 API에 남아 있던 `(ORDER, orderId)` 인자 잔재 제거, AOP 스타터 이름(`spring-boot-starter-aspectj`)·Jackson 3의 모르는 필드 무시·Toss API(엔드포인트·Basic 인증·멱등키 15일)·불확실 코드 목록을 확인해 확정, `RestClient.exchange`로 응답을 분류하는 호출 형태를 적었다
 > 0.5 · 2026-10-02 · **덜어내기**: 주문번호·바로 구매·멱등 키 재점유와 정리 잡·PG 호출 로그 테이블·트랜잭션 안 호출 가드·결제창 실패 통지 API·대사 백오프·판매자 주문 기간 필터를 "제안"으로 옮기고, 제약 이름 매핑을 없앴다
 > 0.4 · 2026-10-02 · **예치금(지갑) 제거**: 2-1·2-2(지갑)·2-9(충전) 삭제, 결제는 Toss 단일 수단, 환불은 PG 부분취소만. 단계 번호를 다시 매김(이전 2-3 → 2-1 …)
 > 0.3 · 이 문서만 보고 개발할 수 있게 구체화
@@ -9,6 +10,7 @@
 > **인프라 추가**: 없음 (Toss는 테스트용 가짜 PG 서버로 대체, 실제 Toss 테스트 키는 수동 확인용)
 > **이 Part가 프로젝트의 핵심이다.** 이력서의 "정합성" 이야기는 대부분 여기서 나온다.
 > **릴리스**: `v0.2.0`
+> **시작 전에 정할 것**: 상품 등록 요청의 `subscribable` 필수/선택 정책([Part 1 완료](part1-foundation.md#part-1-완료) 체크리스트). Part 2의 요청 DTO는 같은 문제가 생기지 않게 공통 규칙 P-2를 따른다.
 
 | 단계 | 제목 | 크기 |
 |---|---|---|
@@ -69,7 +71,7 @@ return tx.execute(status -> applier.apply(...));          // 트랜잭션 2: 결
 ### N. 테스트 지원 (Part 2에서 추가)
 | 클래스 | 위치 | 단계 |
 |---|---|---|
-| `TestFixtures` 확장 | `support/TestFixtures` | 이미 있는 것(Part 1): `signup(email)` → memberId, `token(email)`(가입 + access 토큰), `login(email)`, `changeStatus(memberId, status)`, `openShop(memberId, businessNumber)`, `closeShop(shopId)`, `registerProduct(memberId, shopId)`(가격 10,000·재고 10), `registerProduct(memberId, shopId, category, initialStock)`, `hideProduct`·`discontinueProduct(productId)`. 단계마다 추가: `registerProduct(memberId, shopId, long price, int stock)`(2-1), `address(memberId)` → addressId(2-2, `MemberAddressService.register(memberId, AddressCommand)`), `checkout(token, cartItemIds, addressId)`(2-2) 등. 같은 이름의 오버로드는 인자 타입이 겹치지 않게 한다 |
+| `TestFixtures` 확장 | `support/TestFixtures` | 이미 있는 것(Part 1): `signup(email)` → memberId, `token(email)`(가입 + access 토큰), `login(email)`, `changeStatus(memberId, status)`, `openShop(memberId, businessNumber)`, `closeShop(shopId)`, `registerProduct(memberId, shopId)`(가격 10,000·재고 10), `registerProduct(memberId, shopId, category, initialStock)`, `hideProduct`·`discontinueProduct(productId)`, `registerProductImage(memberId, shopId, productId)`(1-10, 업로드·등록까지), `putToStorage(uploadUrl, headers, body)`. 이미 가입한 이메일의 토큰은 `token`이 아니라 `login`으로 받는다(공통 규칙 P-4). 단계마다 추가: `registerProduct(memberId, shopId, long price, int stock)`(2-1), `address(memberId)` → addressId(2-2, `MemberAddressService.register(memberId, AddressCommand)`), `checkout(token, cartItemIds, addressId)`(2-2) 등. 같은 이름의 오버로드는 인자 타입이 겹치지 않게 한다 |
 | `FakePgServer` | `support/FakePgServer`, `support/Behavior` | 2-3 |
 | `ConcurrencyRunner` | `support/ConcurrencyRunner` | 2-1(장바구니 동시성 테스트에서 처음 사용): `static <T> List<Result<T>> run(int threads, Callable<T> task)` — `record Result<T>(T value, Throwable error) { boolean ok() { return error == null; } }`. 스레드 풀 + latch 3개(ready·start·done)로 동시에 출발시키고 결과를 모아 반환한다. 1-9의 `StockReservationConcurrencyTest`에 있는 latch 코드를 여기로 옮겨 재사용한다(1-9 테스트를 바꿀지는 선택) |
 
@@ -96,6 +98,24 @@ return tx.execute(status -> applier.apply(...));          // 트랜잭션 2: 결
 | `RETURN_NOT_ALLOWED` | 409 | 반품을 요청할 수 없는 품목입니다. | `OrderErrorCode` | 2-9 |
 
 - `PAYMENT_FAILED`·`PG_ERROR`·`AMOUNT_MISMATCH`는 order와 payment가 함께 쓰므로 `CommonErrorCode`에 둔다.
+
+### P. Part 1에서 확인된 함정 (구현·테스트 때 함께 지킨다)
+
+> Part 1 구현·리뷰에서 실제로 걸렸거나 직접 실행해 확인한 것이다. 리뷰 기준에 포함된다.
+
+| # | 함정 | 규칙 | 근거 |
+|---|---|---|---|
+| 1 | 검증 어노테이션에 `message`가 없으면 오류 응답 `details`에 영어 기본 문구와 정규식이 그대로 나간다 | 이 문서 규격 표의 제약(`@NotNull`·`@NotBlank`·`@Size`·`@Pattern`·`@Min`·`@Max`, 쿼리 파라미터 포함)에는 [공통 규칙 E](part1-foundation.md#e-컨트롤러dto)의 표준 문구를 `message`로 붙인다. 규격 표에서는 문구를 생략한다 | Part 1 최종 리뷰(#22) |
+| 2 | 요청 DTO의 원시 타입(`boolean`·`int`·`long`)은 생략하면 역직렬화 단계에서 400이 되고 `details`가 비어 원인을 알 수 없다 | 요청 DTO 필드는 래퍼 타입(`Boolean`·`Integer`·`Long`)으로 받는다. 필수면 `@NotNull`, 선택이면 생략했을 때의 값을 규격에 적는다 | 1-7 `subscribable` |
+| 3 | 컨트롤러 클래스에 `@Validated`를 붙이면 쿼리 파라미터 검증 실패가 500이 된다 | `@Min`·`@Max`는 메서드 파라미터에만 붙인다(Part 1의 `HandlerMethodValidationException` 핸들러가 400으로 바꾼다) | 1-7 |
+| 4 | `TestFixtures.token(email)`은 **가입까지** 한다. 이미 `signup(email)`한 이메일로 부르면 중복 가입 예외가 난다 | 가입한 회원의 토큰은 `login(email)`로 받는다 | Part 1 테스트 |
+| 5 | `jsonPath(...).doesNotExist()`는 경로가 응답 모양과 맞지 않아도 통과한다(객체 응답에 `$[0].x`, 배열 응답에 `$.x`) | 값은 `value(...)`로 단언한다. null 확인은 `value(nullValue())` — 경로가 틀리면 실패한다(2026-10-10 확인). 응답이 객체인지 배열인지 먼저 본다 | 1-5 재수정(#21) |
+| 6 | 통과하는 테스트가 실제로 결함을 막는지는 통과만으로 알 수 없다 | 핵심 장치(정렬·CAS 조건·멱등 키·검증 어노테이션)를 일부러 지우고 테스트가 실패하는지 본다. 1-9 데드락 테스트는 정렬을 지우면 50/50회 실패했다 | [공통 완료 기준](README.md#4-공통-완료-기준-모든-단계) |
+| 7 | 한 쿼리에서 `List` 컬렉션 두 개 이상(중첩 포함)을 fetch하면 `MultipleBagFetchException`이 난다 | `@EntityGraph`에는 한 단계의 `List`만 넣고, 그 아래는 `default_batch_fetch_size`로 `IN` 한 번에 읽는다(2-2 상세 조회) | 2026-10-10 확인(Hibernate 7.4.5) |
+| 8 | `@JdbcTypeCode(SqlTypes.JSON)` jsonb 매핑은 Boot의 Jackson 3이 아니라 Hibernate가 찾은 **Jackson 2**(`JacksonJsonFormatMapper`, `jjwt-jackson`이 끌어온 `jackson-databind` 2.19.2)로 직렬화한다 | 문자열 필드만 있는 record(`ShippingAddress`)는 그대로 저장·조회된다(확인함). 날짜·enum을 jsonb에 넣거나 jjwt 의존성이 바뀌면 다시 확인한다 | 2026-10-10 확인 |
+| 9 | develop에 머지하면 VM에 자동 배포된다. 새 **필수 설정**(`@NotBlank` 프로퍼티·환경변수)이 VM `.env`에 없으면 기동 실패 → 자동 롤백 → CD 빨간불 | 필수 설정을 추가하는 PR은 **머지 전에** VM `/opt/myroutine/.env`와 `.env.ops.example`에 키를 넣는다(2-3 `TOSS_SECRET_KEY`) | 1-11 롤백 확인 |
+| 10 | 자동 롤백은 이미지만 되돌리고 마이그레이션은 되돌리지 않는다 | 이전 버전 앱이 새 스키마에서 그대로 동작하게 만든다. 새 테이블·인덱스 추가는 안전하고, 기존 테이블에 `NOT NULL` 컬럼을 넣을 때는 `DEFAULT`를 둔다 | 1-11 |
+| 11 | 422 상수 이름이 바뀌었다 | 422는 `HttpStatus.UNPROCESSABLE_CONTENT`(Spring 7, Part 1 코드와 같음). 402는 `PAYMENT_REQUIRED`, 502는 `BAD_GATEWAY` | Part 1 코드 |
 
 ---
 
@@ -259,17 +279,18 @@ DO UPDATE SET quantity = LEAST(orders.cart_item.quantity + EXCLUDED.quantity, 99
 `IdempotencyAspect.around(ProceedingJoinPoint pjp)` 순서
 1. `HttpServletRequest`는 `RequestContextHolder`에서, memberId는 `SecurityContextHolder`의 `AuthClaims`에서 얻는다
 2. 헤더 `Idempotency-Key`가 없거나 1~100자가 아니면 `BusinessException(IDEMPOTENCY_KEY_REQUIRED)`
-3. `hash` = SHA-256(`HTTP 메서드 + " " + 요청 URI + "\n" + 메서드 인자 중 @RequestBody가 붙은 인자의 JSON`). JSON은 주입받은 `JsonMapper`로 만든다
+3. `hash` = SHA-256(`HTTP 메서드 + " " + 요청 URI + "\n" + 메서드 인자 중 @RequestBody가 붙은 인자의 JSON`). JSON은 주입받은 `ObjectMapper`(`tools.jackson.databind.ObjectMapper`. Part 1의 `RestAuthenticationEntryPoint`와 같은 타입으로 통일한다)로 만든다
 4. `claim` 성공 → 5로 / 실패 → `find`:
    - 해시가 다르면 `IDEMPOTENCY_KEY_REUSED`
-   - COMPLETED이고 만료 전 → 저장된 응답 반환: `ResponseEntity.status(responseStatus).body(jsonMapper.readTree(responseBody))`
+   - COMPLETED이고 만료 전 → 저장된 응답 반환: `ResponseEntity.status(responseStatus).body(objectMapper.readTree(responseBody))`
    - 만료됐으면 `delete` 후 `claim`을 한 번 더 → 성공하면 5로
    - 그 외(PROCESSING) → `IDEMPOTENCY_IN_PROGRESS`
 5. `result = pjp.proceed()` — 예외가 나면 `delete` 후 다시 던진다
-6. `result`는 `ResponseEntity<?>`여야 한다(아니면 `IllegalStateException`). 2xx면 `complete(..., status, jsonMapper.writeValueAsString(body))`, 아니면 `delete`
+6. `result`는 `ResponseEntity<?>`여야 한다(아니면 `IllegalStateException`). 2xx면 `complete(..., status, objectMapper.writeValueAsString(body))`, 아니면 `delete`
 7. `result` 반환
 - `@Idempotent` 메서드에는 반드시 `@CurrentMember`가 있어 인증된 요청이다.
 - **이 단계에서 붙일 곳**: `POST /api/shops`(1-6), `POST /api/shops/{shopId}/products`(1-7), `POST .../stock-adjustments`(1-8), `POST /api/orders/checkout`
+- **붙이면 기존 호출이 깨진다**: 헤더 없이 부르는 요청은 400 `IDEMPOTENCY_KEY_REQUIRED`가 된다. 이 API를 MockMvc로 부르는 Part 1 테스트(`ShopControllerTest` 3곳, `SellerProductControllerTest` 7곳: 상품 등록 5·재고 조정 2)에 `.header("Idempotency-Key", UUID.randomUUID().toString())`를 더한다. `TestFixtures`는 서비스를 직접 부르므로 영향이 없다. 로드맵 1-11의 VM 풀스택 `curl`(가게·상품 등록)에도 `-H "Idempotency-Key: $(uuidgen)"`가 필요해진다. CORS는 1-11에서 `Idempotency-Key` 헤더를 이미 허용했다
 
 **2) member.api — 배송지 조회**
 ```java
@@ -343,7 +364,7 @@ public record ShippingAddressInfo(String recipient, String phone, String zipcode
 | `OrderStatus` | 전이: `PENDING_PAYMENT → {PAYMENT_IN_PROGRESS, EXPIRED, PAYMENT_FAILED}`, `PAYMENT_IN_PROGRESS → {PAID, PAYMENT_FAILED}` (결제는 항상 승인 시작을 거친다) |
 | `ShopOrderStatus` | `PENDING → {PAID, CANCELLED}`, `PAID → {SHIPPED, CANCELLED}`, `SHIPPED → {DELIVERED}`, `DELIVERED → {COMPLETED}` |
 | `OrderLineStatus` | `PENDING → {PAID, CANCELLED}`, `PAID → {SHIPPED, CANCELLED}`, `SHIPPED → {DELIVERED}`, `DELIVERED → {CONFIRMED, RETURN_REQUESTED}`, `RETURN_REQUESTED → {DELIVERED, RETURNED}` |
-| `ShippingAddress` | `public record ShippingAddress(String recipient, String phone, String zipcode, String address1, String address2)` — `Order`에 `@JdbcTypeCode(SqlTypes.JSON) @Column(columnDefinition = "jsonb")`로 매핑 |
+| `ShippingAddress` | `public record ShippingAddress(String recipient, String phone, String zipcode, String address1, String address2)` — `Order`에 `@JdbcTypeCode(SqlTypes.JSON) @Column(columnDefinition = "jsonb")`로 매핑. 문자열 필드 record의 jsonb 저장·조회는 확인했다(Hibernate가 Jackson 2로 직렬화, 공통 규칙 P-8) |
 | `CheckoutLine` | `public record CheckoutLine(UUID productId, UUID shopId, String shopName, String productName, String thumbnailKey, Money unitPrice, int quantity)` |
 | `Order` | `@Entity @Table(name = "orders", schema = "orders")`, `extends BaseTimeEntity`. 필드는 컬럼과 1:1(`Money totalAmount`). `@OneToMany(cascade = CascadeType.ALL) @JoinColumn(name = "order_id", nullable = false, updatable = false) @OrderBy("createdAt") private List<ShopOrder> shopOrders = new ArrayList<>();` |
 | `ShopOrder` | `@Entity`, `extends BaseTimeEntity`. 같은 방식으로 `@OneToMany(cascade = ALL) @JoinColumn(name = "shop_order_id", nullable = false, updatable = false) List<OrderLine> lines`. 조회용으로 `@Column(name = "order_id", insertable = false, updatable = false) private UUID orderId;` |
@@ -365,7 +386,7 @@ public record ShippingAddressInfo(String recipient, String phone, String zipcode
 `OrderRepository`
 - `Order save(Order o)`, `Optional<Order> findById(UUID id)`, `Optional<Order> findByIdAndMemberId(UUID id, UUID memberId)`
 - 목록: `findByMemberFirstPage(UUID memberId, Limit limit)`, `findByMemberNextPage(UUID memberId, Instant cursorCreatedAt, UUID cursorId, Limit limit)` (keyset)
-- 확인 필요: `@OneToMany` 컬렉션을 읽을 때 N+1이 없도록 상세 조회에 `@EntityGraph(attributePaths = {"shopOrders", "shopOrders.lines"})`를 쓴다. 목록 조회는 주문 행만 읽고 가게주문은 `IN` 쿼리로 한 번에 읽는다(`spring.jpa.properties.hibernate.default_batch_fetch_size: 100`을 `application.yaml`에 추가)
+- 상세 조회는 `@EntityGraph(attributePaths = "shopOrders")`로 주문과 가게주문을 함께 읽고, 품목(`shopOrders.lines`)은 `spring.jpa.properties.hibernate.default_batch_fetch_size: 100`(`application.yaml`에 추가)으로 `IN` 쿼리 한 번에 읽는다. `{"shopOrders", "shopOrders.lines"}`처럼 `List` 두 개를 한 번에 fetch하면 `MultipleBagFetchException`이 난다(2026-10-10 Hibernate 7.4.5로 확인, 공통 규칙 P-7). 목록 조회는 주문 행만 읽고 가게주문은 같은 배치 설정으로 `IN` 한 번에 읽는다
 
 **5) order.application — 체크아웃**
 
@@ -384,7 +405,7 @@ public record ShippingAddressInfo(String recipient, String phone, String zipcode
 5. 가게 소유자가 나(memberId)인 가게가 있으면 `OWN_SHOP_PRODUCT` (details.productIds)
 6. `address = memberApi.getAddress(memberId, addressId)`
 7. `Order.checkout(...)` → `orderRepository.save(order)`
-8. `productApi.reserve(order.getId(), items, order.getExpiresAt())` — 재고 부족이면 422 `OUT_OF_STOCK`. `items`는 `List<ReserveItem>`(`new ReserveItem(productId, quantity)`)이다. `reserve`는 같은 상품이 두 번 들어 있으면 `IllegalArgumentException`을 던지는데, 장바구니는 상품당 한 행이라 겹치지 않는다
+8. `productApi.reserve(order.getId(), items, order.getExpiresAt())` — 재고 부족이면 422 `OUT_OF_STOCK`. `items`는 `List<ReserveItem>`(`new ReserveItem(productId, quantity)`)이다. `reserve`는 같은 상품이 두 번 들어 있으면 `IllegalArgumentException`을 던지는데, 장바구니는 상품당 한 행이라 겹치지 않는다. `orderId`는 `Order.checkout`이 매번 새로 만든다 — `reserve`는 같은 `orderId`의 예약이 하나라도 있으면(해제·만료된 것 포함) 아무것도 하지 않고 돌아오므로(1-9 멱등 규칙), 주문 ID를 재사용하면 예약 없이 성공한 것처럼 보인다
 9. `cartItemRepository.deleteAll(cartItems)`
 10. `CheckoutResult` 반환 (status PENDING_PAYMENT)
 - 8에서 예외가 나면 7의 주문까지 롤백되고 장바구니도 그대로다. 여러 상품 중 일부만 예약된 상태도 남지 않는다. 이게 "한 트랜잭션"의 의미다.
@@ -424,7 +445,7 @@ public record ShippingAddressInfo(String recipient, String phone, String zipcode
 | `common/idempotency/IdempotencyAspectTest` (API 통합, 1-6 가게 개설 API로 검증) | [ ] 키 없이 → 400 `IDEMPOTENCY_KEY_REQUIRED` / [ ] 같은 키·같은 바디 두 번 → 가게 1개, 두 응답 바디가 같다 / [ ] 같은 키·다른 바디 → 422 `IDEMPOTENCY_KEY_REUSED` / [ ] 사업자번호 중복으로 409를 받은 요청의 키는 지워진다: 같은 키·같은 바디로 다시 보내면 저장된 응답이 아니라 다시 처리되어 또 409 / [ ] 만료된 키(JDBC로 `expires_at`을 과거로)와 같은 키로 요청 → 새로 처리됨 |
 | `order/web/OrderControllerTest` (checkout) | [ ] 체크아웃 → 201 PENDING_PAYMENT, `stock.reserved` 증가, `pgOrderId = "ORD-" + orderId`, 주문한 장바구니 항목 삭제 / [ ] 요청 JSON에 `"price": 1`을 넣어도 서버 가격으로 계산 / [ ] **상품 2개 중 두 번째가 재고 부족 → 422 `OUT_OF_STOCK`, 주문 0건, 첫 번째 상품 reserved 0(예약도 롤백), 장바구니 그대로** / [ ] 자기 가게 상품 → 422 `OWN_SHOP_PRODUCT` / [ ] CLOSED 가게 상품 → 422 `SHOP_NOT_ACTIVE` / [ ] 남의 배송지 → 404 / [ ] 남의 장바구니 항목 ID → 404 `CART_ITEM_NOT_FOUND` / [ ] 같은 `Idempotency-Key`로 두 번 → 주문 1건, 같은 응답 |
 | `order/application/CheckoutIdempotencyConcurrencyTest` | [ ] **같은 키로 동시에 10번**(MockMvc) → 주문 1건, 상태 코드는 201과 409(`IDEMPOTENCY_IN_PROGRESS`)뿐 |
-| `order/web/OrderQueryTest` | [ ] 내 주문 목록 커서 페이징 / [ ] 상세에 가게주문·품목 / [ ] 남의 주문 상세 → 404 |
+| `order/web/OrderQueryTest` | [ ] 내 주문 목록 커서 페이징 / [ ] 상세에 가게주문·품목 / [ ] 남의 주문 상세 → 404 / [ ] **상세 조회 SQL 수가 가게주문 1개일 때와 3개일 때 같다**(1-7의 Hibernate statistics 방식, 공통 규칙 P-7) |
 | `ModularityTest` | [ ] 통과 (order → product·shop·member의 api만 참조) |
 
 **제안 (선택)**
@@ -479,6 +500,7 @@ public record ShippingAddressInfo(String recipient, String phone, String zipcode
 - `payment.infrastructure.TossProperties`: `@ConfigurationProperties("myroutine.toss") @Validated record TossProperties(@NotBlank String baseUrl, @NotBlank String secretKey, String clientKey, @NotNull Duration connectTimeout, @NotNull Duration readTimeout)`
 - `application.yaml`: `base-url: https://api.tosspayments.com`, `secret-key: ${TOSS_SECRET_KEY}`, `client-key: ${TOSS_CLIENT_KEY:}`, `connect-timeout: 3s`, `read-timeout: 10s`
 - `application-test.yaml`: `secret-key: test_sk_dummy`, `read-timeout: 500ms` (`base-url`은 가짜 서버 주소를 테스트 베이스에서 주입)
+- **운영 VM 먼저**: `secret-key`가 필수(`@NotBlank`)라 VM `/opt/myroutine/.env`에 `TOSS_SECRET_KEY`가 없으면 머지 후 자동 배포에서 기동이 실패해 롤백된다(공통 규칙 P-9). 이 PR을 머지하기 **전에** VM `.env`에 Toss **테스트** 시크릿 키를 넣고, `.env.ops.example`에 키 이름을 추가한다
 
 **2) payment.domain — 결과 타입**
 ```java
@@ -560,12 +582,13 @@ public sealed interface PgResult permits PgResult.Approved, PgResult.Rejected, P
 protected static final FakePgServer pg = FakePgServer.start();
 
 @DynamicPropertySource
-static void pgProperties(DynamicPropertyRegistry registry) {
+static void storageProperties(DynamicPropertyRegistry registry) {   // 1-10에서 만든 메서드에 한 줄 추가
+    // 기존 MinIO 등록 4줄
     registry.add("myroutine.toss.base-url", pg::baseUrl);
 }
 
 @AfterEach
-void resetPg() { pg.reset(); }
+void resetPg() { pg.reset(); }    // 기존 truncateAllTables 옆에 둔다
 ```
 
 ### 완료 확인
@@ -700,7 +723,7 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 |---|---|---|
 | `POST /api/orders/{id}/payment/confirm` `@Idempotent` | `ConfirmPaymentRequest(@NotBlank String paymentKey, @NotBlank String pgOrderId, @NotNull @Min(1) Long amount)` | 200 `{orderId, status: "PAID"}` / 202 `{orderId, status: "PAYMENT_IN_PROGRESS"}` / 402·409·422 공통 에러 |
 
-**6) (선택) 실제 Toss로 수동 확인**: Toss 결제위젯 예제 HTML을 `src/main/resources/static/toss-test.html`로 두고 로컬에서 결제창 → successUrl에서 받은 paymentKey로 confirm을 직접 호출해 본다. 클라이언트 키는 공개용이지만 파일에 넣지 말고 실행할 때 입력한다. 결과는 PR에 스크린샷으로.
+**6) (선택) 실제 Toss로 수동 확인**: Toss 결제위젯 예제 HTML을 `src/main/resources/static/toss-test.html`로 두고 로컬에서 결제창 → successUrl에서 받은 paymentKey로 confirm을 직접 호출해 본다. 클라이언트 키는 공개용이지만 파일에 넣지 말고 실행할 때 입력한다. 결과는 PR에 스크린샷으로. `SecurityConfig`는 허용 목록에 없는 경로를 모두 인증 요구하므로 이 페이지도 그대로는 401이다 — 확인하는 동안만 로컬에서 `permitAll`에 추가하고 커밋하지 않는다
 
 ### 완료 확인
 
@@ -1224,3 +1247,4 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 ## Part 2 완료
 - [ ] develop → main, 태그 `v0.2.0`. Release 노트에 "결제 불확실성 처리"와 "품목 단위 환불" 요약
 - [ ] Part 3 문서 다듬기
+- [ ] Release 노트용 "알려진 한계"를 Part 1처럼 이 절에 표로 모아 둔다
