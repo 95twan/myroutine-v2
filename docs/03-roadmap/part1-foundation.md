@@ -1,6 +1,7 @@
 # Part 1. 뼈대와 첫 기능
 
-> 버전 0.22 · 2026-10-10 · **구현으로 해소된 "확인 필요" 3건 정리**: 1-4 JSON 변환 주입 타입(`ObjectMapper`), 1-7 쿼리 파라미터 검증 예외 매핑(`HandlerMethodValidationException` → 400), 1-10 `TransactionTemplate` 생성자 주입. 실제 코드·테스트와 대조해 확인한 것만 고쳤다
+> 버전 0.23 · 2026-10-10 · **Part 1 마무리 문서 정리**: 남은 "확인 필요" 4건을 직접 확인해 확정(감사 시각 `Instant`, S3 없는 키 삭제, 저장소 장애 시 기동 실패, cascade INSERT 전 select 없음), 공통 규칙 E에 검증 메시지 표준 문구를 추가(메시지 없는 제약이 영어 기본 문구·정규식을 응답에 내보내던 문제), "수정 사항" 절 구현 완료 표기, "Part 1 완료"에 Part 2 시작 전 결정(`subscribable`)과 Release 노트용 알려진 한계 추가
+> 0.22 · 2026-10-10 · **구현으로 해소된 "확인 필요" 3건 정리**: 1-4 JSON 변환 주입 타입(`ObjectMapper`), 1-7 쿼리 파라미터 검증 예외 매핑(`HandlerMethodValidationException` → 400), 1-10 `TransactionTemplate` 생성자 주입. 실제 코드·테스트와 대조해 확인한 것만 고쳤다
 > 0.21 · 2026-10-10 · **1-11 "할 일"을 S1~S8 순서(맥에서 확인 가능한 것부터)로 재구성**: 기존 규격(1~6)과 따라 하기 절을 하나로 합쳐 단계마다 규격·호출 형태·확인 명령·흔한 실패를 한곳에 두고, 맥 리허설(롤백 포함), 기본 브랜치가 `develop`이라 `cd.yml`은 머지 후에야 시험된다는 점, `.gitignore`의 `.env*` 때문에 `.env.ops.example`이 빠지는 문제, 운영 compose `name:`·`${IMAGE_TAG:?}`·이미지 `LABEL` 보강, 풀스택 curl 순서
 > 0.20 · 2026-10-09 · **1-11 구체화·사실 확인**: 운영 MinIO는 `chainguard/minio`를 digest로 고정하고 `mc ready local`로 헬스체크(직접 실행해 확인), JRE 이미지(`eclipse-temurin:25-jre`)에 curl이 없음을 확인해 설치하도록 정함, compose 변수 치환에 `--env-file`이 필요한 점, 관리 포트(8081)를 호스트에서 못 부르는 점, `workflow_run`이 포크 PR의 CI 완료에도 실행되는 점과 거르는 조건, 배포 job에 checkout이 빠진 점, 운영 `.env` 키 이름(로컬과 같은 `SPRING_DATASOURCE_*`)을 고치고 deploy.sh·워크플로·CORS를 호출 형태 수준으로 풀어 적었다
 > 0.19 · 2026-10-09 · **1-10 MinIO 이미지 교체·구체화**(실제 코드와 대조해 `ImageResult`의 url/key 불일치, `SellerProductResponse`에 없는 썸네일 필드, 단종 상품 이미지 삭제 규칙 누락, `TransactionTemplate`·`BucketInitializer`·상세 조회 이미지 로딩 설명 부족을 고쳤다). 1-1~1-9는 구현된 코드와 맞췄다(설정 파일 `.yaml`·환경변수 이름, 테스트 메서드 camelCase, `TestFixtures` 이름, 확정된 jjwt·Modulith·AWS SDK 버전, 가리키는 곳이 없는 `:113` 참조): 공식 `minio/minio`가 2026-09-11 Docker Hub에서 삭제되어(소스만 배포) `chainguard/minio`로 바꿨다(호환 확인 완료). 의존성 버전 확정, 단계의 목적·흐름과 `S3ObjectStorage`의 호출 형태·반환 타입·예외를 풀어 적었다
@@ -124,7 +125,8 @@ public enum XxxStatus {
 - 금액은 응답에서 `long`(원)으로 내보낸다. `Money`를 JSON에 그대로 내보내지 않는다.
 - 시각은 `Instant` 그대로 내보낸다(ISO-8601 UTC, 예: `2026-10-02T06:00:00Z`).
 - PATCH 요청의 필드는 모두 선택이고, **null이면 바꾸지 않는다**.
-- 검증 메시지는 한국어로 `message` 속성에 적는다(예: `@NotBlank(message = "이메일을 입력해 주세요.")`).
+- 검증 메시지는 한국어로 `message` 속성에 적는다. **모든 제약**(`@NotBlank`·`@NotNull`·`@Size`·`@Pattern`·`@Email`·`@Min`·`@Max`, 쿼리 파라미터 포함)에 붙인다. 붙이지 않으면 오류 응답 `details`에 영어 기본 문구와 정규식(`must match ".*\S.*"`)이 그대로 나간다.
+  - 표준 문구: 필수 `필수 값입니다.` / 공백만 있는 값 `공백만 입력할 수 없습니다.` / 길이 `{항목}은 {n}자 이하여야 합니다.` / 범위 `{n} 이상이어야 합니다.`·`{n} 이하여야 합니다.` / 이메일 `이메일 형식이 아닙니다.` / 전화번호 `전화번호는 숫자와 하이픈으로 9~20자입니다.` / 우편번호 `우편번호는 5자리 숫자입니다.`
 
 ### F. 에러 응답
 ```json
@@ -341,7 +343,7 @@ curl -s localhost:8081/actuator/health          # {"status":"UP"}
 
 - `DateTimeProvider`를 직접 주는 이유: 기본값은 `LocalDateTime.now()`(JVM 시간대)라서 "현재 시각은 `Clock` 빈으로만"(공통 규칙 B) 규칙과 어긋난다. 한 줄로 `Clock`에 맞춘다.
 - `@EnableJpaAuditing`은 메인 클래스가 아니라 이 설정 클래스에 둔다(웹 슬라이스 테스트에서 JPA 설정이 없어 깨지는 것을 막기 위해).
-- 확인 필요: Spring Data Auditing이 `DateTimeProvider`의 `Instant`를 `Instant` 필드에 그대로 넣는지(지원한다고 알고 있음). 1-3 가입 테스트에서 `created_at`이 채워지면 확인된 것이다.
+- 확인함(1-3 구현): `DateTimeProvider`가 돌려준 `Instant`가 `Instant` 필드에 그대로 들어간다. `AuthControllerTest.signUp`이 `created_at`·`updated_at`이 채워짐을 검증한다.
 
 **3) common.error — 에러 응답**
 
@@ -1494,7 +1496,7 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 
 `delete(key)` — 저장소에서 파일을 지운다(이미지 삭제 때). 네트워크 호출이 있다. 반환 타입 `void`.
 - 호출 한 줄: `s3Client.deleteObject(b -> b.bucket(properties.bucket()).key(key));`
-- S3 규약상 없는 키를 지워도 예외 없이 성공한다(확인 필요: 이 이미지에서 직접 시험하지 않았다). `try-catch`를 쓰지 않고 예외를 그대로 던진다. 삼킬지(`log.warn`)는 호출하는 서비스가 정한다(아래 5의 `delete`).
+- S3 규약상 없는 키를 지워도 예외 없이 성공한다(확인함 2026-10-10: `chainguard/minio`에서 없는 키를 지워도 예외가 나지 않는다). `try-catch`를 쓰지 않고 예외를 그대로 던진다. 삼킬지(`log.warn`)는 호출하는 서비스가 정한다(아래 5의 `delete`).
 
 공통: 이 클래스에는 `@Transactional`을 붙이지 않고, 서비스에서도 `head`·`delete`를 트랜잭션 안에서 부르지 않는다.
 
@@ -1505,7 +1507,7 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 | 1 | 버킷이 있는지 보고, 없으면 만든다 | `try { s3Client.headBucket(b -> b.bucket(bucket)); } catch (NoSuchBucketException e) { s3Client.createBucket(b -> b.bucket(bucket)); }` (없는 버킷에 `headBucket`하면 `NoSuchBucketException`이 나는 것을 확인했다) |
 | 2 | 공개 읽기 정책을 건다. 이미 있어도 같은 정책으로 덮어쓴다 | `s3Client.putBucketPolicy(b -> b.bucket(bucket).policy(정책JSON))` — 아래 JSON의 `{bucket}`을 `properties.bucket()`으로 치환한 문자열 |
 
-- 저장소가 꺼져 있으면 이 단계에서 예외가 나 기동이 실패할 수 있다(확인 필요). 로컬에서는 MinIO를 먼저 띄운다.
+- 저장소가 꺼져 있으면 이 단계에서 예외가 나 기동이 실패한다(확인함 2026-10-10: 저장소에 닿지 못하면 `SdkClientException`, 원인 연결 거부로 앱이 기동에 실패한다). 로컬에서는 MinIO를 먼저 띄운다.
 
 버킷 정책 (공개 읽기, `products/` 아래만)
 ```json
@@ -1576,7 +1578,7 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 1. `shopApi.verifyOwnerOfActiveShop`
 2. 키 검사: `objectKey.startsWith(Product.objectKeyPrefix(productId))`이고 정규식 `^products/[0-9a-f-]{36}/[0-9a-f-]{36}\.(jpg|png|webp)$`에 맞아야 한다. 아니면 `INVALID_REQUEST`(남의 상품 경로나 이상한 경로를 등록하지 못하게 한다)
 3. **(트랜잭션 밖)** `storage.exists(objectKey)`가 `false`면 `IMAGE_NOT_UPLOADED`
-4. (트랜잭션) `findByIdAndShopId`(없으면 `PRODUCT_NOT_FOUND`) → `ProductImage image = product.addImage(objectKey)` → `new ImageResult(image.getId(), image.getObjectKey(), image.getSortOrder())` 반환. `ProductImage`는 `save()`를 따로 부르지 않는다. 영속 상태의 `product.images`에 넣어 두면 트랜잭션이 끝날 때(커밋 직전 flush) JPA가 cascade로 INSERT한다. INSERT는 `addImage` 호출 시점이 아니라 커밋 시점에 나가고, UNIQUE 위반 같은 DB 오류도 그때 난다(`transactionTemplate.execute` 밖으로 전파되어 409로 변환). `id`는 `ProductImage.of`가 이미 채우므로 `image.getId()`는 바로 쓸 수 있다. 확인 필요: `id`를 직접 채운 엔티티를 cascade로 저장할 때 Hibernate가 INSERT 앞에 `select ... from product.product_image where id=?`를 날리는지(쿼리 로그로 확인, 나가도 기능은 정상)
+4. (트랜잭션) `findByIdAndShopId`(없으면 `PRODUCT_NOT_FOUND`) → `ProductImage image = product.addImage(objectKey)` → `new ImageResult(image.getId(), image.getObjectKey(), image.getSortOrder())` 반환. `ProductImage`는 `save()`를 따로 부르지 않는다. 영속 상태의 `product.images`에 넣어 두면 트랜잭션이 끝날 때(커밋 직전 flush) JPA가 cascade로 INSERT한다. INSERT는 `addImage` 호출 시점이 아니라 커밋 시점에 나가고, UNIQUE 위반 같은 DB 오류도 그때 난다(`transactionTemplate.execute` 밖으로 전파되어 409로 변환). `id`는 `ProductImage.of`가 이미 채우므로 `image.getId()`는 바로 쓸 수 있다. 확인함(2026-10-10, 쿼리 로그): `id`를 직접 채운 엔티티를 cascade로 저장해도 INSERT 앞에 `select ... where id=?`는 나가지 않는다. 나가는 것은 `images`를 `product_id`로 읽는 select 한 번과 INSERT 한 번이다
 
 `void delete(UUID memberId, UUID shopId, UUID productId, UUID imageId)` — 이미지 삭제
 
@@ -2138,12 +2140,25 @@ docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml e
 ## Part 1 완료
 - [ ] develop → main PR(merge commit), 태그 `v0.1.0`, GitHub Release에 완료 단계와 동시성 테스트 결과 요약, **배포 환경에서 돌려본 결과(1-11 완료 확인)** 링크
 - [ ] Part 2 문서를 다시 읽고, Part 1에서 배운 점을 반영해 다듬는다(필요하면 Claude에게 요청)
+- [ ] **Part 2 시작 전에 결정**: 상품 등록 요청에서 `subscribable`을 생략하면 400이고 `details`가 `{}`다(원시 `boolean`이 역직렬화 단계에서 거절된다). (a) `Boolean`+`@NotNull`로 필수 처리 / (b) 생략 시 `false`(DB 기본값과 같음, 권장). 정하면 1-7 `RegisterProductRequest` 규격부터 고친다
+
+### Release 노트에 적을 알려진 한계
+
+| 한계 | 내용 | 해소 |
+|---|---|---|
+| 토큰 즉시 차단 불가 | refresh·로그아웃·강제 차단이 없고 Access 토큰은 만료(1시간)까지 유효하다 | Part 4 |
+| `subscribable` 생략 시 400 | `details`가 비어 있어 원인을 알 수 없다 | Part 2 시작 전 결정 |
+| 지원하지 않는 `Content-Type`이 500 | `text/plain` 등으로 요청하면 415가 아니라 500 `INTERNAL_ERROR`와 ERROR 로그가 나간다 | 선택(415 매핑) |
+| 저장소 객체 잔류 | URL만 받고 등록하지 않은 객체, 삭제 후 저장소 삭제에 실패한 객체가 남는다. 파일 내용(매직 바이트)도 검증하지 않는다 | Stage 1 범위 밖(회고) |
+| 앱이 MinIO root 계정으로 접속 | 서비스 계정을 분리하지 않았다 | Stage 1 범위 밖(회고) |
+| 로컬·테스트 MinIO 버전 미고정 | `chainguard/minio:latest`(운영은 digest로 고정) | — |
+| 롤백은 이미지만 | 마이그레이션은 앞으로만 간다. 이전 앱이 새 스키마에서 동작해야 롤백이 안전하다 | 1-11 문서 참고 |
 
 ---
 
 ## 수정 사항 (1-6 리뷰에서 발견)
 
-> 2026-10-06 · "null은 유지" 방식의 부분 수정 API는 `@NotBlank`를 쓸 수 없어서(`null`도 막는다), `@Size(max)`만으로는 **빈 문자열이 통과해 `NOT NULL` 컬럼에 빈 값이 저장**된다. 1-6(가게 수정)은 규격에 반영했고(`UpdateShopRequest`), 이미 끝난 1-5의 두 수정 API에도 같은 정책을 적용한다. 구현은 사용자가 직접 한다.
+> 2026-10-06 · "null은 유지" 방식의 부분 수정 API는 `@NotBlank`를 쓸 수 없어서(`null`도 막는다), `@Size(max)`만으로는 **빈 문자열이 통과해 `NOT NULL` 컬럼에 빈 값이 저장**된다. 1-6(가게 수정)은 규격에 반영했고(`UpdateShopRequest`), 이미 끝난 1-5의 두 수정 API에도 같은 정책을 적용한다. 구현은 사용자가 직접 했다(2026-10-10 완료, PR #21).
 
 **공통 규칙**: 수정 요청의 각 필드는 `null`(변경 없음)이거나 값이 있어야 한다. 빈 문자열·공백만 있는 문자열은 400 `INVALID_REQUEST`.
 
