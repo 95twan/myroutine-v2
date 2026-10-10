@@ -52,7 +52,11 @@ public class MemberAddress extends BaseTimeEntity {
         memberAddress.phone = phone;
         memberAddress.zipcode = zipcode;
         memberAddress.address1 = address1;
-        memberAddress.address2 = address2;
+        if (address2 != null) {
+            memberAddress.address2 = address2.isEmpty() ? null : address2;
+        } else {
+            memberAddress.address2 = null;
+        }
         memberAddress.isDefault = false;
         return memberAddress;
     }
@@ -71,7 +75,7 @@ public class MemberAddress extends BaseTimeEntity {
             this.address1 = address1;
         }
         if (address2 != null) {
-            this.address2 = address2;
+            this.address2 = address2.isEmpty() ? null : address2;
         }
     }
 

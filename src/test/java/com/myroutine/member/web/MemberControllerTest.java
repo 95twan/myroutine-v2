@@ -155,4 +155,20 @@ class MemberControllerTest extends IntegrationTestSupport {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk());
     }
+
+    @Test
+    @DisplayName("내 정보 수정을 실패한다. (이름이 공백만 있음)")
+    void changeProfileWithBlankName() throws Exception {
+        // Given
+        String token = testFixtures.token("test@test.com");
+        ChangeProfileRequest request = new ChangeProfileRequest("test", " ", "010-2222-2222");
+
+        // When & Then
+        mockMvc.perform(patch("/api/members/me")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
 }

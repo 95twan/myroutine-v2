@@ -1,6 +1,7 @@
 # Part 1. 뼈대와 첫 기능
 
-> 버전 0.21 · 2026-10-10 · **1-11 "할 일"을 S1~S8 순서(맥에서 확인 가능한 것부터)로 재구성**: 기존 규격(1~6)과 따라 하기 절을 하나로 합쳐 단계마다 규격·호출 형태·확인 명령·흔한 실패를 한곳에 두고, 맥 리허설(롤백 포함), 기본 브랜치가 `develop`이라 `cd.yml`은 머지 후에야 시험된다는 점, `.gitignore`의 `.env*` 때문에 `.env.ops.example`이 빠지는 문제, 운영 compose `name:`·`${IMAGE_TAG:?}`·이미지 `LABEL` 보강, 풀스택 curl 순서
+> 버전 0.22 · 2026-10-10 · **구현으로 해소된 "확인 필요" 3건 정리**: 1-4 JSON 변환 주입 타입(`ObjectMapper`), 1-7 쿼리 파라미터 검증 예외 매핑(`HandlerMethodValidationException` → 400), 1-10 `TransactionTemplate` 생성자 주입. 실제 코드·테스트와 대조해 확인한 것만 고쳤다
+> 0.21 · 2026-10-10 · **1-11 "할 일"을 S1~S8 순서(맥에서 확인 가능한 것부터)로 재구성**: 기존 규격(1~6)과 따라 하기 절을 하나로 합쳐 단계마다 규격·호출 형태·확인 명령·흔한 실패를 한곳에 두고, 맥 리허설(롤백 포함), 기본 브랜치가 `develop`이라 `cd.yml`은 머지 후에야 시험된다는 점, `.gitignore`의 `.env*` 때문에 `.env.ops.example`이 빠지는 문제, 운영 compose `name:`·`${IMAGE_TAG:?}`·이미지 `LABEL` 보강, 풀스택 curl 순서
 > 0.20 · 2026-10-09 · **1-11 구체화·사실 확인**: 운영 MinIO는 `chainguard/minio`를 digest로 고정하고 `mc ready local`로 헬스체크(직접 실행해 확인), JRE 이미지(`eclipse-temurin:25-jre`)에 curl이 없음을 확인해 설치하도록 정함, compose 변수 치환에 `--env-file`이 필요한 점, 관리 포트(8081)를 호스트에서 못 부르는 점, `workflow_run`이 포크 PR의 CI 완료에도 실행되는 점과 거르는 조건, 배포 job에 checkout이 빠진 점, 운영 `.env` 키 이름(로컬과 같은 `SPRING_DATASOURCE_*`)을 고치고 deploy.sh·워크플로·CORS를 호출 형태 수준으로 풀어 적었다
 > 0.19 · 2026-10-09 · **1-10 MinIO 이미지 교체·구체화**(실제 코드와 대조해 `ImageResult`의 url/key 불일치, `SellerProductResponse`에 없는 썸네일 필드, 단종 상품 이미지 삭제 규칙 누락, `TransactionTemplate`·`BucketInitializer`·상세 조회 이미지 로딩 설명 부족을 고쳤다). 1-1~1-9는 구현된 코드와 맞췄다(설정 파일 `.yaml`·환경변수 이름, 테스트 메서드 camelCase, `TestFixtures` 이름, 확정된 jjwt·Modulith·AWS SDK 버전, 가리키는 곳이 없는 `:113` 참조): 공식 `minio/minio`가 2026-09-11 Docker Hub에서 삭제되어(소스만 배포) `chainguard/minio`로 바꿨다(호환 확인 완료). 의존성 버전 확정, 단계의 목적·흐름과 `S3ObjectStorage`의 호출 형태·반환 타입·예외를 풀어 적었다
 > 0.18 · 2026-10-09 · **1-9 멱등 INSERT 근거 보강**: `restore`에서 이력 INSERT를 UPDATE보다 먼저 하는 이유(행 락은 줄 세울 뿐 중복을 판정하지 못함, `ON CONFLICT DO NOTHING`은 예외·롤백이 없음)와 `insertReservation`은 일반 INSERT, `insertMovement`는 `ON CONFLICT DO NOTHING`인 이유를 적었다
@@ -571,7 +572,7 @@ runtimeOnly 'io.jsonwebtoken:jjwt-jackson:{버전}'
 
 `RestAuthenticationEntryPoint.commence`
 - 응답: status 401, `Content-Type: application/json;charset=UTF-8`, 본문 `ErrorResponse.of(UNAUTHORIZED, Map.of())`를 JSON으로 써서 내보낸다
-- JSON 변환은 Boot가 만든 Jackson 3 빈을 주입받는다: `tools.jackson.databind.json.JsonMapper`. 확인 필요: 주입 타입이 `JsonMapper`인지 `ObjectMapper`인지(둘 중 컴파일·주입되는 쪽 사용)
+- JSON 변환은 Boot가 만든 Jackson 3 빈을 생성자 주입으로 받는다. 주입 타입은 `tools.jackson.databind.ObjectMapper`다(1-4 구현에서 이 타입으로 주입·동작함을 확인했다. `JsonMapper`로 받을 수 있는지는 확인하지 않았다)
 - `RestAccessDeniedHandler`도 같은 방식, 코드는 `FORBIDDEN`
 
 `SecurityConfig` 변경
@@ -1123,7 +1124,7 @@ public record Money(long amount) implements Comparable<Money> { ... }
 - [ ] 판매자 목록 `size=0`, `size=51` → 400 `INVALID_REQUEST`, `details`에 `size` 키가 있다 (공개 목록과 같은 규칙. 컨트롤러 클래스에 `@Validated`가 남아 있으면 500이 된다)
 
 `ProductControllerTest`
-- [ ] `size=0`, `size=51` → 400 `INVALID_REQUEST`, `details`에 `size` 키가 있다 (쿼리 파라미터 검증 예외가 500이 아니라 400으로 매핑되는지 확인. 실패하면 실제 예외 타입을 로그로 확인해 `GlobalExceptionHandler`와 위 6)의 "확인 필요"를 고친다)
+- [ ] `size=0`, `size=51` → 400 `INVALID_REQUEST`, `details`에 `size` 키가 있다 (쿼리 파라미터 검증 예외가 500이 아니라 400으로 매핑되는지 확인한다. 위 6)의 `HandlerMethodValidationException` 핸들러가 이 케이스를 처리한다)
 - [ ] 커서 페이징: 상품 5개, size 2로 첫 페이지 → 새 상품 1개 추가 → 이어서 끝까지 조회 → 처음 5개가 중복·누락 없이 정확히 한 번씩 나오고, 모아 둔 순서가 등록 순서의 역순(최신순)이다. 순서가 가끔 깨지면 `created_at` 동률이 원인이므로 JDBC로 `created_at`을 서로 다르게 덮어써서 결정적으로 만든다
 - [ ] HIDDEN 상품(JDBC로 상태 변경)은 목록에 없고 상세 404
 - [ ] 상세 조회 응답에 `status`(`ON_SALE`)와 `inStock`(초기 재고가 있으면 true)이 내려온다
@@ -1553,7 +1554,7 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 
 **5) product.application** — `ProductImageService`: 위 조각들을 엮어 이미지 업로드의 **업무 흐름**(허가증 발급 → 등록 → 삭제)을 만든다. 상품 DB와 보관소를 함께 다루므로 아래 규칙을 지킨다.
 
-- **클래스에 `@Transactional`을 붙이지 않는다.** 붙이면 메서드 전체가 한 트랜잭션이라 `storage.exists`·`delete`(네트워크 호출)가 DB 커넥션을 쥔 채 실행된다. 그 대신 DB를 쓰는 구간만 `TransactionTemplate`으로 감싼다. `TransactionTemplate`은 Spring Boot가 자동 등록하는 빈이라 생성자 주입으로 받는다(확인 필요: 주입이 안 되면 `new TransactionTemplate(transactionManager)`). 반환값이 있으면 `transactionTemplate.execute(status -> { ...; return 값; })`, 없으면 `transactionTemplate.executeWithoutResult(status -> { ... })`. 읽기 구간도 같은 템플릿을 쓴다.
+- **클래스에 `@Transactional`을 붙이지 않는다.** 붙이면 메서드 전체가 한 트랜잭션이라 `storage.exists`·`delete`(네트워크 호출)가 DB 커넥션을 쥔 채 실행된다. 그 대신 DB를 쓰는 구간만 `TransactionTemplate`으로 감싼다. `TransactionTemplate`은 Spring Boot가 자동 등록하는 빈이라 생성자 주입으로 받는다(1-10 구현에서 그대로 주입됨을 확인했다). 반환값이 있으면 `transactionTemplate.execute(status -> { ...; return 값; })`, 없으면 `transactionTemplate.executeWithoutResult(status -> { ... })`. 읽기 구간도 같은 템플릿을 쓴다.
 - **의존성**: `ShopApi`, `ProductRepository`, `ObjectStorage`, `StorageProperties`, `TransactionTemplate` (`@Service @RequiredArgsConstructor`)
 - **서비스 안의 상수 2개** (`private static final`)
   - `Map<String, String> EXTENSIONS = Map.of("image/jpeg", "jpg", "image/png", "png", "image/webp", "webp")` — 허용 형식 검사(`containsKey`)와 키 끝의 확장자(`get`)에 쓴다
