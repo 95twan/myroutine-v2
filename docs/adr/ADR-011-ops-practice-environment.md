@@ -10,7 +10,7 @@
 - **제약**: 새로 학습할 기술은 ELK, Prometheus/Grafana, k6로 한정한다([CLAUDE.md §3](../../CLAUDE.md)). Proxmox·Docker·GitHub Actions는 이미 아는 도구다. 새로 배우는 것은 **self-hosted runner(설치·설정 정도)** 하나이고 2026-10-07 사용자가 승인했다.
 
 ## 결정
-1. **환경**: Proxmox에 Ubuntu Server VM 1대를 만들고 Docker Engine + compose로 앱과 인프라를 모두 올린다. VM 자원은 RAM 약 20GB를 기준으로 시작하고(호스트에 몇 GB를 남김) 실제 사용량은 7-1(ELK) 때 측정해서 조정한다(확인 필요).
+1. **환경**: Proxmox에 Ubuntu Server VM 1대를 만들고 Docker Engine + compose로 앱과 인프라를 모두 올린다. VM 자원은 RAM 16GB·vCPU 8로 시작하고(호스트 RAM이 24GB이고 증설할 수 없어 8GB를 Proxmox·캐시용으로 남긴다. 2026-10-10 20GB에서 낮춤) 실제 사용량은 7-1(ELK) 때 측정해서 조정한다(확인 필요).
 2. **파이프라인**:
    - CI(`ci.yml`)는 지금처럼 GitHub 호스티드 러너에서 PR·push마다 `./gradlew build`.
    - CD(`cd.yml`)는 `develop`에 push되고 CI가 통과한 뒤 `workflow_run`으로 실행된다: ① 호스티드 러너가 Docker 이미지를 빌드해 GHCR에 `{sha}` 태그로 올린다 → ② VM의 self-hosted 러너가 해당 sha 이미지를 pull해 `docker compose up -d`로 교체한다 → ③ 헬스체크가 실패하면 직전 sha로 되돌린다.
@@ -18,7 +18,7 @@
    - 배포 대상 브랜치를 `develop`으로 한 이유: `main`은 Part가 끝날 때만 갱신돼(Git 정책 §7) 배포가 7번뿐이다. 이 환경은 단계마다 합쳐진 결과를 계속 돌려보는 용도다. `main` 릴리스(태그)와 배포는 별개다.
 3. **public 리포에서 self-hosted runner를 쓰는 안전 장치** (필수):
    - 배포 job은 `pull_request` 이벤트로는 절대 실행되지 않는다(`workflow_run`과 `workflow_dispatch`만). 포크 PR의 코드가 VM에서 돌 수 없어야 한다.
-   - **`workflow_run`은 포크 PR로 돈 CI가 끝나도 발생한다.** 그래서 배포 job은 `github.event.workflow_run.event == 'push'`이고 `conclusion == 'success'`일 때만 실행한다(`branches: [develop]` 필터만으로는 포크의 같은 이름 브랜치를 거르지 못한다). 구현 규격은 로드맵 1-11 §5.
+   - **`workflow_run`은 포크 PR로 돈 CI가 끝나도 발생한다.** 그래서 배포 job은 `github.event.workflow_run.event == 'push'`이고 `conclusion == 'success'`일 때만 실행한다(`branches: [develop]` 필터만으로는 포크의 같은 이름 브랜치를 거르지 못한다). 구현 규격은 로드맵 1-11 S7.
    - 저장소 설정 Settings → Actions → General → "Approval for running fork pull request workflows from contributors"를 "Require approval for all external contributors"로 둔다(메뉴 이름은 2026-10-09 GitHub 문서로 확인).
    - 배포 job은 GitHub Environment `ops`를 쓰고, 배포 가능한 브랜치를 `develop`·`main`으로 제한한다.
    - 러너는 전용 비root 사용자로 실행하고, VM에는 이 프로젝트 외의 중요한 데이터를 두지 않는다. (docker 그룹은 사실상 root 권한이다. VM을 격리된 용도로만 쓰는 것으로 위험을 받아들인다.)

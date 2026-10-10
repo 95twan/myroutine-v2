@@ -1,6 +1,7 @@
 # Part 1. 뼈대와 첫 기능
 
-> 버전 0.20 · 2026-10-09 · **1-11 구체화·사실 확인**: 운영 MinIO는 `chainguard/minio`를 digest로 고정하고 `mc ready local`로 헬스체크(직접 실행해 확인), JRE 이미지(`eclipse-temurin:25-jre`)에 curl이 없음을 확인해 설치하도록 정함, compose 변수 치환에 `--env-file`이 필요한 점, 관리 포트(8081)를 호스트에서 못 부르는 점, `workflow_run`이 포크 PR의 CI 완료에도 실행되는 점과 거르는 조건, 배포 job에 checkout이 빠진 점, 운영 `.env` 키 이름(로컬과 같은 `SPRING_DATASOURCE_*`)을 고치고 deploy.sh·워크플로·CORS를 호출 형태 수준으로 풀어 적었다
+> 버전 0.21 · 2026-10-10 · **1-11 "할 일"을 S1~S8 순서(맥에서 확인 가능한 것부터)로 재구성**: 기존 규격(1~6)과 따라 하기 절을 하나로 합쳐 단계마다 규격·호출 형태·확인 명령·흔한 실패를 한곳에 두고, 맥 리허설(롤백 포함), 기본 브랜치가 `develop`이라 `cd.yml`은 머지 후에야 시험된다는 점, `.gitignore`의 `.env*` 때문에 `.env.ops.example`이 빠지는 문제, 운영 compose `name:`·`${IMAGE_TAG:?}`·이미지 `LABEL` 보강, 풀스택 curl 순서
+> 0.20 · 2026-10-09 · **1-11 구체화·사실 확인**: 운영 MinIO는 `chainguard/minio`를 digest로 고정하고 `mc ready local`로 헬스체크(직접 실행해 확인), JRE 이미지(`eclipse-temurin:25-jre`)에 curl이 없음을 확인해 설치하도록 정함, compose 변수 치환에 `--env-file`이 필요한 점, 관리 포트(8081)를 호스트에서 못 부르는 점, `workflow_run`이 포크 PR의 CI 완료에도 실행되는 점과 거르는 조건, 배포 job에 checkout이 빠진 점, 운영 `.env` 키 이름(로컬과 같은 `SPRING_DATASOURCE_*`)을 고치고 deploy.sh·워크플로·CORS를 호출 형태 수준으로 풀어 적었다
 > 0.19 · 2026-10-09 · **1-10 MinIO 이미지 교체·구체화**(실제 코드와 대조해 `ImageResult`의 url/key 불일치, `SellerProductResponse`에 없는 썸네일 필드, 단종 상품 이미지 삭제 규칙 누락, `TransactionTemplate`·`BucketInitializer`·상세 조회 이미지 로딩 설명 부족을 고쳤다). 1-1~1-9는 구현된 코드와 맞췄다(설정 파일 `.yaml`·환경변수 이름, 테스트 메서드 camelCase, `TestFixtures` 이름, 확정된 jjwt·Modulith·AWS SDK 버전, 가리키는 곳이 없는 `:113` 참조): 공식 `minio/minio`가 2026-09-11 Docker Hub에서 삭제되어(소스만 배포) `chainguard/minio`로 바꿨다(호환 확인 완료). 의존성 버전 확정, 단계의 목적·흐름과 `S3ObjectStorage`의 호출 형태·반환 타입·예외를 풀어 적었다
 > 0.18 · 2026-10-09 · **1-9 멱등 INSERT 근거 보강**: `restore`에서 이력 INSERT를 UPDATE보다 먼저 하는 이유(행 락은 줄 세울 뿐 중복을 판정하지 못함, `ON CONFLICT DO NOTHING`은 예외·롤백이 없음)와 `insertReservation`은 일반 INSERT, `insertMovement`는 `ON CONFLICT DO NOTHING`인 이유를 적었다
 > 0.17 · 2026-10-09 · **1-9 `ProductApiImplTest` 완료 확인에 release 성공 경로·restore 사전 조건 실패 추가**: 기존 케이스는 "COMMITTED를 release하면 변화 없음"뿐이라 `HELD → RELEASED/EXPIRED`와 `stock.release`(INV-04: 해제·만료된 예약의 재고는 가용재고로 복귀)를 실행하는 테스트가 없었다. `restore`의 사전 조건 실패(예약 상태, 수량 범위)도 구현 규격에 있으나 검증이 없어 추가했다
@@ -1658,13 +1659,13 @@ curl -s -X POST localhost:8080/api/shops/$SHOP/products/$PRODUCT/images/presigne
 
 **왜 지금**: Postgres(1-1)와 MinIO(1-10)까지 있어 "최소 풀스택"이 갖춰졌다. 여기서 배포 파이프라인을 만들어 두면 Kafka(Part 3)·Redis(Part 4)·ES(Part 6)는 compose에 서비스를 추가하는 것만으로 같은 파이프라인에 올라탄다. 늦추면 환경 차이 문제(접속 주소, 시크릿 주입)를 한꺼번에 만난다.
 
-**흐름**: 아래 할 일 1)~5)가 각각 한 칸이다.
+**흐름**: 아래 할 일 S2~S7이 각각 한 칸이다.
 ```
 develop 머지 → CI(ci.yml, GitHub 호스티드 러너) 성공
-  → cd.yml 시작 (workflow_run)                                             (5)
-     ① build-image  호스티드 러너: 그 sha로 이미지 빌드 → ghcr.io/95twan/myroutine:{sha} push   (1)
-     ② deploy       VM의 self-hosted 러너: 리포 checkout → scripts/deploy.sh {sha}            (4)
-          → 운영 compose로 새 이미지 기동, 헬스체크 통과까지 대기                             (2)(3)
+  → cd.yml 시작 (workflow_run)                                             (S7)
+     ① build-image  호스티드 러너: 그 sha로 이미지 빌드 → ghcr.io/95twan/myroutine:{sha} push   (S2)
+     ② deploy       VM의 self-hosted 러너: 리포 checkout → scripts/deploy.sh {sha}            (S4)
+          → 운영 compose로 새 이미지 기동, 헬스체크 통과까지 대기                             (S3)(S4)
           → 스모크 성공: deployed-sha 갱신 / 실패: 직전 sha로 다시 기동, Actions 빨간불
 ```
 
@@ -1678,7 +1679,7 @@ develop 머지 → CI(ci.yml, GitHub 호스티드 러너) 성공
 | GitHub Environment | 배포 job이 쓰는 환경 이름(`ops`). 배포할 수 있는 브랜치를 제한한다 | |
 | 헬스체크 + 롤백 | 배포 직후 앱이 정상인지 확인하고, 아니면 직전 이미지로 되돌린다 | |
 
-> **왜 public 리포에서 self-hosted runner가 위험한가**: 누구나 포크해서 PR을 올릴 수 있고, 그 PR의 워크플로가 **내 VM에서** 실행되면 외부 코드가 집 네트워크 안에서 돈다. 그래서 배포 job은 `pull_request`로 실행되지 않게 하고, `workflow_run`의 원인이 develop **push**인지 확인하고(5)), 브랜치를 제한한다.
+> **왜 public 리포에서 self-hosted runner가 위험한가**: 누구나 포크해서 PR을 올릴 수 있고, 그 PR의 워크플로가 **내 VM에서** 실행되면 외부 코드가 집 네트워크 안에서 돈다. 그래서 배포 job은 `pull_request`로 실행되지 않게 하고, `workflow_run`의 원인이 develop **push**인지 확인하고(S7), 브랜치를 제한한다.
 
 **정책 (이 단계에서 정함)**
 - 배포 대상: `develop` push. 트리거는 `develop` push로 돈 CI가 성공한 뒤(`workflow_run`)와 수동(`workflow_dispatch`, 입력 `sha`). `main` 릴리스(태그)는 배포와 별개다.
@@ -1691,91 +1692,423 @@ develop 머지 → CI(ci.yml, GitHub 호스티드 러너) 성공
 
 ### 할 일
 
-**0) VM 준비 (사용자, 절차는 [`docs/ops/vm-setup.md`](../ops/vm-setup.md))**
-- Proxmox에 Ubuntu Server VM 생성(RAM 약 20GB, vCPU는 호스트 여유에 맞춰), 고정 IP(DHCP 예약), Docker Engine + compose 플러그인 설치
-- 전용 사용자(비root, docker 그룹)로 GitHub Actions runner를 설치하고 **systemd 서비스**로 등록, 러너 라벨 `ops`
-- `/opt/myroutine/.env` 작성(권한 600), 배포 상태 파일 경로 `/opt/myroutine/deployed-sha`
+**S1 → S8 순서로 한다.** 내 맥에서 확인할 수 있는 것부터라, 문제가 생겼을 때 원인이 맥·GitHub·VM 중 어디인지 좁힐 수 있다. `{VM_IP}`는 VM의 고정 IP다.
 
-**1) 앱 이미지** — `docker/Dockerfile` + 리포 루트 `.dockerignore`(`.git`, `build`, `.gradle`, `.env*` 제외)
+| 순서 | 만드는 것 | 확인하는 곳 |
+|---|---|---|
+| S1 | CORS (코드+테스트) | 맥, `./gradlew test` |
+| S2 | `.dockerignore`, `Dockerfile` | 맥, `docker build` |
+| S3 | `docker-compose.ops.yml`, `.env.ops.example` | 맥 리허설 |
+| S4 | `deploy.sh`, `smoke.sh` | 맥 리허설 (롤백 포함) |
+| S5 | VM 준비 | VM. S1~S4와 **병행해도 된다** |
+| S6 | GitHub 저장소 설정 | GitHub |
+| S7 | `cd.yml` → 첫 배포 | GitHub + VM |
+| S8 | 완료 확인 실행 | LAN의 다른 PC |
 
-| 스테이지 | 규격 |
-|---|---|
-| 빌드 | `FROM eclipse-temurin:25-jdk AS build` → 소스 복사 → `./gradlew bootJar --no-daemon` → 결과 `build/libs/myroutine-0.0.1-SNAPSHOT.jar`(`rootProject.name` + version). 같은 폴더의 `*-plain.jar`는 실행할 수 없는 jar라 복사하지 않는다 |
-| 실행 | `FROM eclipse-temurin:25-jre` → `apt-get install -y --no-install-recommends curl`(헬스체크용, 아래 참고) → 전용 사용자 `useradd --system --uid 10001 app` 후 `USER app` → jar만 복사 → `ENTRYPOINT ["java", "-jar", "/app/app.jar"]`, `EXPOSE 8080 8081` |
+커밋은 S1 / S2 / S3 / S4 / S7을 각각 따로 한다(관련 없는 변경 섞지 않기. `.gitignore`의 `.claude/worktrees/` 줄은 이 단계와 무관하니 별도 커밋).
 
-- `eclipse-temurin:25-jre`(2026-10-09 기준 Ubuntu 26.04 기반)에는 **curl·wget이 없다**(직접 확인). 그래서 실행 스테이지에서 curl을 설치한다. 이미지에 기본으로 있는 `ubuntu` 사용자는 sudo 그룹이라 쓰지 않는다.
-- 이미지에 설정값·시크릿을 굽지 않는다(전부 환경변수). `SPRING_PROFILES_ACTIVE`도 compose에서 준다.
+#### S1. CORS
 
-**2) 운영 compose** — `docker/docker-compose.ops.yml` (로컬 `docker-compose.yml`과 분리)
+**목적**: 브라우저는 다른 주소(오리진)의 API 호출을 기본으로 막는다. 프론트가 `http://192.168.0.20:5173`, API가 `http://{VM_IP}:8080`이면 오리진이 달라서 서버가 "이 오리진은 허용"이라고 응답해야 한다. 지금까지는 같은 곳에서만 불러서 필요 없었다. `*`는 쓰지 않는다(NFR-SEC-04, 개발 가이드 §15).
+
+1. `common.security.CorsProperties` — `@ConfigurationProperties("myroutine.web") @Validated record (List<String> corsAllowedOrigins)`. `JwtProperties`와 같은 모양이다. 환경변수의 쉼표 구분 문자열은 Boot가 `List`로 바꿔 준다. 환경변수가 비어 있으면 `null`로 들어오므로, compact constructor에서 `null`이면 `List.of()`로 바꾼다.
+2. `SecurityConfig`의 `@EnableConfigurationProperties`에 `CorsProperties.class`를 추가한다(`{ JwtProperties.class, CorsProperties.class }`).
+3. `SecurityConfig`에 `@Bean CorsConfigurationSource corsConfigurationSource(CorsProperties properties)`를 만든다. 타입은 `org.springframework.web.cors` 패키지다.
+
+   | 호출 | 값 |
+   |---|---|
+   | `CorsConfiguration config = new CorsConfiguration()` | |
+   | `config.setAllowedOrigins(properties.corsAllowedOrigins())` | 목록이 비어 있으면 어떤 오리진도 허용되지 않는다 |
+   | `config.setAllowedMethods(List.of("GET","POST","PATCH","DELETE","OPTIONS"))` | |
+   | `config.setAllowedHeaders(List.of("Authorization","Content-Type","Idempotency-Key"))` | |
+   | `config.setExposedHeaders(List.of("X-Request-Id"))` | 브라우저 JS가 읽을 수 있는 응답 헤더 |
+   | `UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource()` | |
+   | `source.registerCorsConfiguration("/api/**", config)` → `return source` | `/api/**`에만 적용 |
+4. `securityFilterChain` 안에 `.cors(Customizer.withDefaults())`를 추가한다(`org.springframework.security.config.Customizer`). `withDefaults()`는 같은 타입의 빈(3번)을 찾아 쓴다. **이게 없으면 3번 빈을 만들어도 적용되지 않는다.** CORS 필터는 인증 검사보다 먼저 돌기 때문에 `Authorization` 헤더 없이 오는 preflight가 401로 막히지 않는다.
+5. `src/main/resources/application-prod.yaml`을 **새로 만든다**(지금은 없다). 내용은 `myroutine.web.cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:}` 한 값(YAML 중첩으로). `application-local.yaml`의 값은 가져오지 않는다. `.env.local` import는 운영이 실제 환경변수를 쓰므로, `datasource.*`는 Boot가 환경변수 `SPRING_DATASOURCE_URL` 등을 `spring.datasource.*`에 자동으로 바인딩(relaxed binding)하므로 필요 없고, `format_sql`과 `org.hibernate.SQL`·`bind` 로그는 개발용이며 바인딩 값(개인정보)이 로그에 남으므로 넣지 않는다. `JWT_SECRET`·`MINIO_ROOT_*`·`STORAGE_*`는 `application.yaml`이 이미 환경변수로 읽는다. graceful shutdown은 Boot 4.1.1 기본값(`server.shutdown=graceful`, 단계별 대기 `spring.lifecycle.timeout-per-shutdown-phase=30s`, 2026-10-09 jar 메타데이터로 확인)이라 설정하지 않는다.
+6. 테스트(`SecurityConfigTest`의 빈 메서드 두 개를 채운다):
+   - test 프로필에는 허용 오리진이 없다. 클래스에 `@TestPropertySource(properties = "myroutine.web.cors-allowed-origins=http://localhost:5173")`를 붙여 값을 준다.
+   - preflight 요청의 모양: `mockMvc.perform(options("/api/products").header("Origin", "http://localhost:5173").header("Access-Control-Request-Method", "GET"))` (`MockMvcRequestBuilders.options`).
+   - 허용: `status().isOk()` + `header().string("Access-Control-Allow-Origin", "http://localhost:5173")`. 불허(`Origin: http://evil.example`): `status().isForbidden()` (거절된 preflight에 Spring이 403을 준다).
+
+**확인**: `./gradlew test --tests '*SecurityConfigTest'` 통과 → 전체 `./gradlew test` 통과(다른 통합 테스트가 깨지지 않았는지).
+
+#### S2. 앱 이미지
+
+**목적**: jar를 실행에 필요한 것만 담은 작은 이미지로 포장한다. 빌드용 이미지(JDK)에서 jar를 만들고, 실행용 이미지(JRE)에는 jar만 복사한다(멀티 스테이지).
+
+1. **`.dockerignore`** (리포 루트): 한 줄에 하나씩 `.git`, `build`, `.gradle`, `.env*`, `.idea`, `docs`. `COPY . .`가 이 목록을 뺀 나머지를 이미지 빌드에 보낸다. `.env*`가 빠지면 시크릿이 이미지에 구워진다.
+2. **`docker/Dockerfile`** — 줄 단위:
+
+   | 줄 | 왜 |
+   |---|---|
+   | `FROM eclipse-temurin:25-jdk AS build` | 빌드용 스테이지 시작(JDK는 크다) |
+   | `WORKDIR /workspace` / `COPY . .` | 소스 전체 복사 |
+   | `RUN ./gradlew bootJar --no-daemon` | `build`가 아니라 `bootJar`. 테스트는 CI가 이미 돌렸고, Testcontainers는 이미지 빌드 안에서 돌 수도 없다. `--no-daemon`은 일회용 컨테이너라 Gradle 데몬이 필요 없어서. 결과는 `build/libs/myroutine-0.0.1-SNAPSHOT.jar`(`rootProject.name` + version). 같은 폴더의 `*-plain.jar`는 실행할 수 없는 jar라 복사하지 않는다 |
+   | `FROM eclipse-temurin:25-jre` | **새 스테이지**. 앞 스테이지는 `COPY --from`으로 가져온 것만 남고 버려진다 |
+   | `LABEL org.opencontainers.image.source=https://github.com/95twan/myroutine-v2` | GHCR 패키지를 이 리포에 연결한다(확인 필요: GitHub 문서 "Working with the Container registry"). 이미지 이름(`myroutine`)과 리포 이름(`myroutine-v2`)이 달라서 필요하다 |
+   | `RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*` | 헬스체크용 curl. `eclipse-temurin:25-jre`(2026-10-09 기준 Ubuntu 26.04 기반)에는 curl·wget이 없다(직접 확인). 한 `RUN`에 묶어야 임시 파일이 레이어에 남지 않는다 |
+   | `RUN useradd --system --uid 10001 app` | 비root 실행 사용자. 이미지에 기본으로 있는 `ubuntu` 사용자는 sudo 그룹이라 쓰지 않는다 |
+   | `WORKDIR /app` / `COPY --from=build /workspace/build/libs/myroutine-0.0.1-SNAPSHOT.jar app.jar` | 파일명을 정확히 써서 `-plain.jar`가 섞이지 않게 한다. 버전을 바꾸면 이 줄도 고친다 |
+   | `USER app` | 이 줄 아래부터 비root |
+   | `EXPOSE 8080 8081` | 문서 용도(실제 publish는 compose가 한다) |
+   | `ENTRYPOINT ["java", "-jar", "/app/app.jar"]` | **배열 형태**여야 종료 신호(SIGTERM)가 java에 바로 전달돼 graceful shutdown이 동작한다. 문자열 형태는 셸을 거친다 |
+
+   이미지에 설정값·시크릿을 굽지 않는다(전부 환경변수). `SPRING_PROFILES_ACTIVE`도 compose에서 준다.
+
+**확인** (맥, Docker Desktop은 켜 둔다. 처음 빌드는 의존성을 받느라 몇 분 걸린다):
+```bash
+docker build -f docker/Dockerfile -t myroutine:local .
+docker run --rm --entrypoint id myroutine:local                    # uid=10001(app) — root가 아니다
+docker run --rm --entrypoint sh myroutine:local -c 'which curl; ls -a /app'   # curl 경로, /app에 app.jar만
+docker history --no-trunc myroutine:local | grep -i -E 'secret|password' ; echo "grep exit=$?"   # 1이면 없음
+```
+> 이 맥은 arm64이고 GitHub 호스티드 러너와 VM은 보통 amd64(x86_64)다(VM에서 `uname -m`으로 확인 필요). 맥에서 만든 이미지는 **로컬 리허설용**이다. GHCR에는 올리지 않는다(CD가 amd64 러너에서 다시 빌드한다).
+
+#### S3. 운영 compose와 설정
+
+**목적**: 앱·Postgres·MinIO를 한 번에 켜고 끄는 주문서다. 로컬 `docker-compose.yml`과 분리한 `docker/docker-compose.ops.yml`을 만든다. 최상단에 `name: myroutine-ops`를 둔다. 로컬이 `name: myroutine`이라 이름이 같으면 **볼륨과 컨테이너가 섞여** 로컬 DB에 다른 비밀번호로 붙으려다 인증이 실패한다.
 
 | 서비스 | 규격 |
 |---|---|
-| `app` | `image: ghcr.io/95twan/myroutine:${IMAGE_TAG}`(GHCR 이름은 소문자), `env_file: /opt/myroutine/.env`, `environment: SPRING_PROFILES_ACTIVE: prod`, 포트 `8080:8080`만, `restart: unless-stopped`, `depends_on`: `postgres`·`minio` 모두 `condition: service_healthy`(MinIO가 늦게 뜨면 1-10의 `BucketInitializer`가 실패해 앱이 안 뜬다), `healthcheck: test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health"]`, `interval: 10s`, `timeout: 3s`, `retries: 6`, `start_period: 60s`(Flyway·기동 시간) |
-| `postgres` | 로컬과 같은 `pgvector/pgvector:pg17`, 환경변수는 로컬 compose와 같게 `POSTGRES_USER: ${SPRING_DATASOURCE_USERNAME}`, `POSTGRES_PASSWORD: ${SPRING_DATASOURCE_PASSWORD}`, `POSTGRES_DB: my_routine`, named volume, **`ports` 없음**, `healthcheck: test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d my_routine"]` |
-| `minio` | 로컬과 같은 이미지를 **digest로 고정**: `chainguard/minio@sha256:f74600a1a46330cdbda1ef760d17a96bd6e0f4a6f0a2c49792ca3ee7e4c6fa18`(2026-10-09의 `latest`, MinIO `RELEASE.2026-09-22T19-25-18Z`). `command: server /data --console-address ":9001"`, `MINIO_ROOT_USER: ${MINIO_ROOT_USER}`, `MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}`, named volume `/data`, 포트 `9000:9000`만(콘솔 9001은 publish하지 않는다), `healthcheck: test: ["CMD", "mc", "ready", "local"]` |
+| `app` | `image: ghcr.io/95twan/myroutine:${IMAGE_TAG:?IMAGE_TAG를 지정하세요}`(GHCR 이름은 소문자. `:?`는 변수가 비었을 때 즉시 에러를 내서 태그 없이 엉뚱한 이미지가 뜨는 것을 막는다), `env_file: /opt/myroutine/.env`, `environment: SPRING_PROFILES_ACTIVE: prod`, 포트 `8080:8080`만, `restart: unless-stopped`, `depends_on`: `postgres`·`minio` 모두 `condition: service_healthy`(MinIO가 늦게 뜨면 1-10의 `BucketInitializer`가 실패해 앱이 안 뜬다), `healthcheck: test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health"]`, `interval: 10s`, `timeout: 3s`, `retries: 6`, `start_period: 60s`(Flyway·기동 시간) |
+| `postgres` | 로컬과 같은 `pgvector/pgvector:pg17`, `restart: unless-stopped`, 환경변수는 로컬 compose와 같게 `POSTGRES_USER: ${SPRING_DATASOURCE_USERNAME}`, `POSTGRES_PASSWORD: ${SPRING_DATASOURCE_PASSWORD}`, `POSTGRES_DB: my_routine`, named volume, **`ports` 없음**, `healthcheck: test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d my_routine"]` |
+| `minio` | 로컬과 같은 이미지를 **digest로 고정**: `chainguard/minio@sha256:f74600a1a46330cdbda1ef760d17a96bd6e0f4a6f0a2c49792ca3ee7e4c6fa18`(2026-10-09의 `latest`, MinIO `RELEASE.2026-09-22T19-25-18Z`). `command: server /data --console-address ":9001"`, `MINIO_ROOT_USER: ${MINIO_ROOT_USER}`, `MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}`, named volume `/data`, `restart: unless-stopped`, 포트 `9000:9000`만(콘솔 9001은 publish하지 않는다), `healthcheck: test: ["CMD", "mc", "ready", "local"]` |
 
+- **세 서비스 모두 `restart: unless-stopped`**: VM이 재부팅되면 Docker는 이 정책이 있는 컨테이너만 다시 띄운다. `app`에만 있으면 재부팅 뒤 앱만 올라와 DB 없이 죽고 다시 시작하기를 반복한다(`depends_on`은 `up` 때만 순서를 지키고 재시작에는 적용되지 않는다). 완료 확인의 "재부팅 복구"가 이걸 본다.
 - **digest로 고정하는 이유**: `chainguard/minio`는 `latest`·`latest-dev` 태그만 있고 매일 다시 빌드된다. 태그로 두면 재배포·롤백 때마다 다른 MinIO가 뜰 수 있다. 올릴 때는 `docker pull chainguard/minio:latest` → `docker image inspect --format '{{index .RepoDigests 0}}' chainguard/minio:latest`로 새 digest를 얻어 이 파일을 고치는 커밋을 만든다(로컬 compose는 `latest` 그대로).
 - MinIO 이미지 확인 결과(2026-10-09, 위 digest): 실행 사용자 uid 65532(비root)이고 named volume `/data` 쓰기는 정상이다. 이미지에 `mc`는 있고 `curl`은 없다. `mc ready local`은 서버가 준비될 때까지 기다렸다가 0으로 끝나는 것을 직접 확인했다(`local`은 `mc`에 기본으로 들어 있는 `http://localhost:9000` 별칭).
-- **변수 치환 주의**: `env_file:`은 **컨테이너 안**의 환경변수만 채운다. compose 파일 안의 `${SPRING_DATASOURCE_USERNAME}` 같은 치환은 셸 환경변수나 `--env-file`로 준 파일에서만 읽는다(로컬에서 `--env-file .env.local`을 붙이는 이유와 같다). 그래서 4)의 스크립트는 항상 `--env-file /opt/myroutine/.env`를 붙인다. `IMAGE_TAG`는 셸 환경변수로 주며, 셸 값이 `--env-file` 값보다 우선한다.
+- **변수 치환 주의**: `env_file:`은 **컨테이너 안**의 환경변수만 채운다. compose 파일 안의 `${SPRING_DATASOURCE_USERNAME}` 같은 치환은 셸 환경변수나 `--env-file`로 준 파일에서만 읽는다(로컬에서 `--env-file .env.local`을 붙이는 이유와 같다). 그래서 S4의 스크립트는 항상 `--env-file /opt/myroutine/.env`를 붙인다. `IMAGE_TAG`는 셸 환경변수로 주며, 셸 값이 `--env-file` 값보다 우선한다. **`up`뿐 아니라 `ps`·`logs`·`exec`·`down`도 파일을 읽을 때 `${IMAGE_TAG:?}`를 치환하므로 `IMAGE_TAG`가 없으면 전부 같은 에러로 막힌다.** 그래서 스크립트는 `export IMAGE_TAG=...`로 하위 프로세스(`smoke.sh`)까지 물려주고, 사람이 VM에서 확인할 때는 `IMAGE_TAG=$(cat /opt/myroutine/deployed-sha)`를 앞에 붙인다.
 - Part 3 이후 인프라가 늘어나면 이 파일에 서비스를 추가한다. 관측 스택은 `profiles: ["observability"]`로 분리한다([아키텍처 §6](../02-design/02-architecture-stage1.md)).
 
-**3) 운영 설정** — `application-prod.yaml` + `/opt/myroutine/.env` + 키 이름만 적은 `.env.ops.example`(커밋)
+**운영 설정 — `.env.ops.example`** (키 이름만 적어 커밋하는 파일. 진짜 값은 VM의 `/opt/myroutine/.env`에만 둔다)
 
-`.env.ops.example`의 키 (`application.yaml`이 이미 읽는 이름을 그대로 쓴다. 새 이름을 만들지 않는다)
+1. **`.gitignore` 확인**: 지금 `.env*`가 무시되고 `!.env.example`만 예외다. 이대로면 `.env.ops.example`이 **커밋에서 조용히 빠진다.** `!.env.ops.example`을 추가하고, `git check-ignore .env.ops.example`이 **아무것도 출력하지 않고 종료 코드 1**인 것을 확인한다(`-v`를 붙이면 예외 규칙 `!.env.ops.example` 줄이 출력되어 헷갈린다).
+2. `.env.ops.example`에 아래 키를 적는다(`application.yaml`이 이미 읽는 이름을 그대로 쓴다. 새 이름을 만들지 않는다). 값은 비워 두거나 형태만 적는다.
 
 | 키 | 운영 값의 형태 |
 |---|---|
 | `SPRING_DATASOURCE_URL` | `jdbc:postgresql://postgres:5432/my_routine` (compose 서비스 이름이 호스트 이름) |
-| `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` | 앱 접속과 postgres 컨테이너 초기화에 함께 쓴다(2)의 `postgres` |
+| `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` | 앱 접속과 postgres 컨테이너 초기화에 함께 쓴다 |
 | `JWT_SECRET` | `openssl rand -base64 48` |
 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | 앱의 `myroutine.storage.access-key`·`secret-key`와 minio 컨테이너가 함께 쓴다 |
-| `STORAGE_ENDPOINT`, `STORAGE_PUBLIC_BASE_URL` | `http://{VM LAN IP}:9000`, `http://{VM LAN IP}:9000/myroutine` (아래 ⚠) |
+| `STORAGE_ENDPOINT`, `STORAGE_PUBLIC_BASE_URL` | `http://{VM_IP}:9000`, `http://{VM_IP}:9000/myroutine` (아래 ⚠) |
 | `CORS_ALLOWED_ORIGINS` | 쉼표로 구분한 오리진 목록, 예: `http://192.168.0.20:5173` |
 
 - ⚠ **presigned URL의 호스트는 `STORAGE_ENDPOINT`로 서명된다.** 컨테이너 내부 주소(`http://minio:9000`)로 두면 클라이언트가 받은 업로드 URL을 열 수 없다. 앱도 같은 LAN 주소로 MinIO에 접근한다(포트 9000이 publish돼 있으므로 컨테이너에서도 닿는다).
-- `application-prod.yaml`: `myroutine.web.cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:}`. 그 외 값은 이미 `application.yaml`이 환경변수로 읽으므로 다시 적지 않는다. graceful shutdown은 Boot 4.1.1 기본값(`server.shutdown=graceful`, 단계별 대기 `spring.lifecycle.timeout-per-shutdown-phase=30s`, 2026-10-09 jar 메타데이터로 확인)이라 설정하지 않는다.
-- **CORS** (지금까지 없었다. `*`는 쓰지 않는다 — NFR-SEC-04, 개발 가이드 §15)
 
-| 대상 | 규격 |
+**맥 리허설** (VM 없이 같은 파일을 맥에서 그대로 돌려 본다. S4도 이 준비를 쓴다)
+```bash
+sudo mkdir -p /opt/myroutine && sudo chown "$(whoami)" /opt/myroutine   # 운영과 같은 경로
+cp .env.ops.example /opt/myroutine/.env     # 열어서 값을 채운다 (아래 표)
+docker compose -f docker/docker-compose.yml down     # 로컬 개발 compose가 9000 포트를 쥐고 있으면 끈다 (-v 금지: 로컬 데이터 유지). bootRun도 끈다
+```
+| 키 | 리허설 값 |
 |---|---|
-| `common.security.CorsProperties` | `@ConfigurationProperties("myroutine.web") @Validated record (List<String> corsAllowedOrigins)` — 쉼표로 구분한 문자열은 Boot가 `List`로 바꿔 준다. `null`이면 `List.of()`로 본다. 등록은 `JwtProperties`처럼 `SecurityConfig`의 `@EnableConfigurationProperties`에 추가한다 |
-| `SecurityConfig` | `@Bean CorsConfigurationSource`: `CorsConfiguration`에 `setAllowedOrigins(origins)`, `setAllowedMethods(List.of("GET","POST","PATCH","DELETE","OPTIONS"))`, `setAllowedHeaders(List.of("Authorization","Content-Type","Idempotency-Key"))`, `setExposedHeaders(List.of("X-Request-Id"))` → `UrlBasedCorsConfigurationSource.registerCorsConfiguration("/api/**", config)`. 체인에 `http.cors(Customizer.withDefaults())`(같은 이름의 빈을 찾아 쓴다). 목록이 비어 있으면 어떤 오리진도 허용되지 않는다 |
-| 테스트 | `SecurityConfig` 쪽 MockMvc 1건: 허용 오리진의 preflight(`OPTIONS` + `Origin` + `Access-Control-Request-Method`) → 200과 `Access-Control-Allow-Origin`, 다른 오리진 → 403 |
+| `SPRING_DATASOURCE_URL` | `jdbc:postgresql://postgres:5432/my_routine` |
+| `SPRING_DATASOURCE_USERNAME/PASSWORD`, `MINIO_ROOT_*` | 아무 값(8자 이상) |
+| `JWT_SECRET` | `openssl rand -base64 48` |
+| `STORAGE_ENDPOINT`, `STORAGE_PUBLIC_BASE_URL` | 맥의 LAN IP 사용: `http://$(ipconfig getifaddr en0):9000`, 뒤에 `/myroutine`을 붙인 것 (유선이면 `en0`이 아닐 수 있다 — 확인 필요). `localhost`는 **컨테이너 안에서** 자기 자신이라 MinIO에 닿지 않는다 |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` |
 
-**4) 배포 스크립트** — `scripts/deploy.sh {sha}`, `scripts/smoke.sh` (리포 루트 기준 경로, `set -euo pipefail`)
+```bash
+docker build -t ghcr.io/95twan/myroutine:rehearsal -f docker/Dockerfile .      # S2에서 만든 Dockerfile
+# 변수가 아니라 함수로 만든다: zsh(맥 기본 셸)는 따옴표 없는 $변수를 공백으로 쪼개지 않아 "no such file or directory"가 난다
+compose() { docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml "$@"; }
+export IMAGE_TAG=rehearsal                                     # 이 터미널에서 ps·logs·down 등에도 필요하다
+compose config > /dev/null && echo OK                          # 문법·변수 치환 오류 확인
+compose up -d --wait --wait-timeout 180
+compose ps                                                    # 세 서비스 모두 healthy
+curl -fsS localhost:8080/api/products                          # 공개 API → 200
+compose exec -T app curl -fsS http://localhost:8081/actuator/health   # {"status":"UP"...}
+nc -vz -w 3 localhost 5432; nc -vz -w 3 localhost 8081; nc -vz -w 3 localhost 9001   # 모두 실패해야 한다
+```
+정리: `compose down -v` (이름이 `myroutine-ops`라 로컬 볼륨은 지워지지 않는다).
 
-공통: `COMPOSE="docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml"`
+| 증상 | 확인 | 흔한 원인 |
+|---|---|---|
+| `up`이 실패, `app`이 `unhealthy`/종료 | `compose logs app` | `.env` 값 누락(JWT_SECRET 비어 있음 등), MinIO 접속 실패(`STORAGE_ENDPOINT`가 `localhost`) |
+| `postgres` 인증 실패 | `compose logs postgres` | Postgres는 **볼륨을 처음 만들 때만** `POSTGRES_PASSWORD`를 읽는다. `.env`의 비밀번호를 바꿨다면 `down -v`로 볼륨을 지우고 다시 |
+| `healthy`가 안 된다 | `docker inspect --format '{{json .State.Health}}' <컨테이너>` | 헬스체크 명령의 오타, `start_period` 안에 기동이 안 끝남 |
 
+#### S4. 배포 스크립트
+
+**목적**: 새 이미지를 올리고, 정상인지 확인하고, 아니면 직전 버전으로 되돌리는 일을 스크립트 하나로 한다. `scripts/deploy.sh {sha}`, `scripts/smoke.sh` (리포 루트 기준 경로). 공통: `COMPOSE="docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml"`
+
+**`deploy.sh`의 흐름**
 1. `PREV=$(cat /opt/myroutine/deployed-sha 2>/dev/null || true)` — 비어 있으면 첫 배포
-2. `IMAGE_TAG={sha} $COMPOSE up -d --wait --wait-timeout 180` — `--wait`는 모든 서비스가 running(헬스체크가 있으면 healthy)이 될 때까지 기다리고, 실패하면 0이 아닌 종료 코드를 낸다(로컬 Docker Compose v5.5.1의 `up --help`로 확인. VM에 설치한 버전에서 `docker compose up --help | grep wait`로 한 번 더 본다)
+2. `export IMAGE_TAG={sha}` 후 `$COMPOSE up -d --wait --wait-timeout 180` — `--wait`는 모든 서비스가 running(헬스체크가 있으면 healthy)이 될 때까지 기다리고, 실패하면 0이 아닌 종료 코드를 낸다(로컬 Docker Compose v5.5.1의 `up --help`로 확인. VM에 설치한 버전에서 `docker compose up --help | grep wait`로 한 번 더 본다)
 3. `scripts/smoke.sh` — 관리 포트 8081은 호스트에 publish하지 않으므로 호스트에서 `curl localhost:8081`은 안 된다. 컨테이너 안에서 부른다: `$COMPOSE exec -T app curl -fsS http://localhost:8081/actuator/health`, 공개 API는 호스트에서 `curl -fsS http://localhost:8080/api/products`
 4. 2·3이 모두 성공하면 `echo {sha} > /opt/myroutine/deployed-sha`, 종료 코드 0
-5. 2·3 중 하나라도 실패하면: `PREV`가 있으면 `IMAGE_TAG=$PREV $COMPOSE up -d --wait` → 종료 코드 1(Actions 빨간불, `deployed-sha`는 그대로). `PREV`가 없으면 되돌릴 버전이 없으므로 그냥 종료 코드 1
+5. 2·3 중 하나라도 실패하면: `PREV`가 있으면 `export IMAGE_TAG=$PREV` 후 `$COMPOSE up -d --wait` → 종료 코드 1(Actions 빨간불, `deployed-sha`는 그대로). `PREV`가 없으면 되돌릴 버전이 없으므로 그냥 종료 코드 1
 
-- `set -e` 아래에서 실패를 잡아 5로 가려면 2·3을 `if ! ...; then rollback; fi` 형태로 감싼다.
+**셸 스크립트를 처음 쓴다면** — 스크립트는 터미널에서 칠 명령을 파일에 순서대로 적어 둔 것이다. 이 단계에 쓰는 문법은 아래가 전부다.
 
-**5) 워크플로** — `.github/workflows/cd.yml`
+| 문법 | 뜻 | 예 |
+|---|---|---|
+| `#!/usr/bin/env bash` | 파일 맨 첫 줄. "이 파일은 bash로 실행하라"는 표시. 맥 터미널은 zsh라서 이 줄이 없으면 동작이 달라진다 | |
+| `set -euo pipefail` | 안전장치 한 줄. `-e` 명령이 하나라도 실패하면 거기서 스크립트 종료, `-u` 정의 안 한 변수를 쓰면 에러, `pipefail` 파이프(`a \| b`) 중간 실패도 실패로 본다 | |
+| `변수=값` / `$변수` | 값을 저장하고 꺼내 쓴다. **`=` 양옆에 공백을 넣지 않는다.** 값에 공백이 있을 수 있으면 `"$변수"`처럼 따옴표로 감싼다 | `SHA=abc` → `echo "$SHA"` |
+| `$1` | 스크립트를 부를 때 준 첫 번째 인자 | `scripts/deploy.sh good`이면 `$1`은 `good` |
+| `$(명령)` | 그 명령의 **출력**을 값으로 쓴다 | `PREV=$(cat 파일)` |
+| `A && B` / `A \|\| B` | A가 성공하면 B 실행 / A가 실패하면 B 실행 | `cat 파일 \|\| true` → 파일이 없어도 "성공"으로 친다 |
+| `if 명령; then ... fi` | 명령이 **성공(종료 코드 0)** 하면 안쪽 실행. 안쪽이 아닌 조건 자리에서 실패해도 `set -e`로 종료되지 않는다 | `if [ -n "$PREV" ]; then ... fi` (`-n` = 비어 있지 않다) |
+| 종료 코드 | 모든 명령은 끝나면 숫자를 남긴다. 0 = 성공, 그 외 = 실패. `$?`로 직전 값을 본다. `exit 숫자`로 스크립트가 직접 정한다. **GitHub Actions는 이 숫자로 초록/빨강을 정한다** | `exit 1` |
+| `>`, `>&2` | `echo x > 파일`은 파일에 덮어쓰기, `echo x >&2`는 에러 출력 쪽으로 보내기 | |
 
-| 항목 | 규격 |
+**`deploy.sh`를 조각으로 쓰기** — 위에서 아래로 한 조각씩 이어 붙인다. 각 조각이 위 "흐름"의 몇 번인지 같이 적었다.
+
+1. **머리 (준비)**
+   ```bash
+   #!/usr/bin/env bash
+   set -euo pipefail
+   cd "$(dirname "$0")/.."
+   SHA=${1:?usage: scripts/deploy.sh <sha>}
+   ```
+   - `$0`은 이 스크립트 자신의 경로, `dirname`은 그 폴더(`scripts`), `/..`로 한 단계 위인 리포 루트로 이동한다. 어디서 부르든 `docker/docker-compose.ops.yml` 같은 상대 경로가 맞게 하려는 것이다.
+   - `${1:?메시지}`는 인자가 없으면 메시지를 찍고 종료한다.
+2. **compose 명령 정해 두기**
+   ```bash
+   export COMPOSE="docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml"
+   ```
+   `export`를 붙이면 이 스크립트가 부르는 `smoke.sh`도 같은 변수를 쓸 수 있다. **빼먹으면** `up`은 성공하는데 `smoke.sh: line 4: COMPOSE: unbound variable`로 실패해 정상 배포가 롤백(또는 첫 배포면 실패)으로 끝난다. `IMAGE_TAG`도 마찬가지로 `export`로 준다. 이후 `$COMPOSE up ...`처럼 **따옴표 없이** 쓰면 bash가 공백으로 쪼개 `docker compose --env-file ...`로 펼친다(zsh는 안 쪼개므로 터미널에서 직접 칠 때는 S3의 `compose` 함수를 쓴다).
+3. **흐름 1 — 직전 버전 기억**
+   ```bash
+   PREV=$(cat /opt/myroutine/deployed-sha 2>/dev/null || true)
+   ```
+   파일이 없으면(첫 배포) `cat`이 실패하는데, `|| true` 덕분에 `set -e`로 죽지 않고 `PREV`가 빈 값이 된다. `2>/dev/null`은 "파일 없음" 에러 메시지를 버린다.
+4. **흐름 2~4 — 배포하고 성공하면 기록**
+   ```bash
+   export IMAGE_TAG=$SHA
+   if $COMPOSE up -d --wait --wait-timeout 180 && scripts/smoke.sh; then
+     echo "$SHA" > /opt/myroutine/deployed-sha
+     echo "deployed $SHA"
+     exit 0
+   fi
+   ```
+   - `export IMAGE_TAG`를 먼저 하는 이유: 한 줄 접두(`IMAGE_TAG=x 명령`)는 그 명령에만 적용돼서 뒤따르는 `smoke.sh`의 `$COMPOSE exec`가 `IMAGE_TAG is missing`으로 실패한다.
+   - `up`이 실패하거나 `smoke.sh`가 실패하면 `if`가 거짓이라 안쪽을 건너뛰고 다음 조각(롤백)으로 간다. `if`로 감싸야 `set -e`로 여기서 죽지 않는다.
+5. **흐름 5 — 실패하면 되돌리고 실패로 끝내기**
+   ```bash
+   echo "deploy failed: $SHA" >&2
+   if [ -n "$PREV" ]; then
+     export IMAGE_TAG=$PREV
+     $COMPOSE up -d --wait
+     echo "rolled back to $PREV" >&2
+   else
+     echo "no previous version to roll back to" >&2
+   fi
+   exit 1
+   ```
+   롤백을 했어도 **반드시 `exit 1`로 끝난다.** 0으로 끝나면 Actions가 초록불이라 배포가 실패한 걸 모른다. 롤백 `up`이 로컬에 없는 이미지를 쓰면 GHCR에서 받으므로 `docker login`이 `deploy.sh` 앞에 있어야 한다(S7의 `cd.yml`이 한다).
+
+**`smoke.sh`** — "정말 동작하나?" 확인만 한다. 하나라도 실패하면 스크립트가 실패한다(`set -e`).
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+$COMPOSE exec -T app curl -fsS http://localhost:8081/actuator/health
+curl -fsS http://localhost:8080/api/products > /dev/null
+```
+- `exec -T app`은 실행 중인 `app` 컨테이너 **안에서** 명령을 실행한다(`-T`는 터미널을 붙이지 않는 옵션. Actions에는 터미널이 없어서 필요). 8081 관리 포트는 호스트에 열려 있지 않아서 컨테이너 안에서 불러야 한다.
+- `curl -fsS`: `-f` HTTP 에러(4xx/5xx)면 실패 코드, `-sS` 진행바는 끄고 에러 메시지는 보여준다.
+- `COMPOSE`와 `IMAGE_TAG`는 `deploy.sh`가 `export`한 값을 쓴다. 그래서 `smoke.sh`만 단독으로 부르면 `$COMPOSE: command not found`가 난다(정상. 단독 테스트는 `export`를 먼저 해 준다).
+
+**만든 뒤**
+1. 문법만 먼저 검사(실행하지 않는다): `bash -n scripts/deploy.sh && bash -n scripts/smoke.sh` → 아무것도 안 나오면 통과.
+2. 무슨 일이 일어나는지 보고 싶으면 `bash -x scripts/deploy.sh good`: 실행되는 명령을 `+`로 한 줄씩 보여준다.
+3. 실행 권한: `chmod +x scripts/*.sh`. 커밋 전에 `git ls-files -s scripts/deploy.sh`(add 이후)가 `100755`로 나오는지 본다. 권한이 git에 안 들어가면 VM에서 `Permission denied`.
+
+**확인 — 맥 리허설** (S3의 준비를 쓴다. 롤백이 실제로 도는지 이 단계에서 확인한다)
+```bash
+docker build -t ghcr.io/95twan/myroutine:good -f docker/Dockerfile .
+printf 'FROM eclipse-temurin:25-jre\nCMD ["false"]\n' | docker build -t ghcr.io/95twan/myroutine:bad -   # 뜨자마자 종료하는 "고장난" 이미지
+
+rm -f /opt/myroutine/deployed-sha
+scripts/deploy.sh good; echo "exit=$?"        # exit=0, cat /opt/myroutine/deployed-sha → good
+scripts/deploy.sh bad;  echo "exit=$?"        # exit=1, deployed-sha 여전히 good. 확인: IMAGE_TAG=$(cat /opt/myroutine/deployed-sha) compose ps → app 이미지 태그 good·healthy
+rm /opt/myroutine/deployed-sha; scripts/deploy.sh bad; echo "exit=$?"   # 첫 배포 실패: 되돌릴 버전 없음 → exit=1
+```
+세 경우가 위 결과와 다르면 S5로 넘어가지 말고 고친다. 정리는 `down -v`.
+
+#### S5. VM 준비 (사용자, 절차는 [`vm-setup.md`](../ops/vm-setup.md))
+
+- Proxmox에 Ubuntu Server VM 생성(RAM 16GB·vCPU 8·디스크 100GB, 호스트 RAM이 24GB라 8GB를 호스트에 남긴다), 고정 IP(DHCP 예약), Docker Engine + compose 플러그인 설치
+- 전용 사용자(비root, docker 그룹)로 GitHub Actions runner를 설치하고 **systemd 서비스**로 등록, 러너 라벨 `ops`
+- `/opt/myroutine/.env` 작성(권한 600), 배포 상태 파일 경로 `/opt/myroutine/deployed-sha`
+
+`vm-setup.md`를 §1부터 §8 "준비 완료 확인"까지 따른다. 막히면 어느 절의 어느 명령인지 알려 달라(문서를 고친다). 이 단계의 끝은 §8 표의 모든 항목 체크 + `uname -m`(amd64면 `x86_64`) 확인이다.
+
+#### S6. GitHub 저장소 설정 (사람이 한 번)
+
+1. Settings → Environments → **New environment**, 이름 `ops` → *Deployment branches and tags*를 *Selected branches and tags*로 바꾸고 `develop`, `main` 추가. 확인: `gh api repos/95twan/myroutine-v2/environments/ops`의 `deployment_branch_policy`가 비어 있지 않다.
+2. Settings → Actions → General → *Approval for running fork pull request workflows from contributors* → *Require approval for all external contributors*(2026-10-09 GitHub 문서로 메뉴 이름 확인). 이 리포의 현재 값은 `first_time_contributors`이고 `gh api repos/95twan/myroutine-v2/actions/permissions/fork-pr-contributor-approval`로 확인한다. 바꾼 뒤 값은 `all_external_contributors`(2026-10-10 직접 확인).
+3. 두 화면을 스크린샷으로 남긴다(완료 확인 "포크 PR 안전"에 쓴다).
+
+`environment: ops`를 쓰는 job은 환경이 없으면 **제한 없이 자동 생성**되므로 `cd.yml`을 올리기 전에 이 단계를 끝내야 한다.
+
+#### S7. 워크플로 `cd.yml`과 첫 배포
+
+**목적**: develop 머지 → 이미지 빌드 → VM 배포를 자동으로 잇는다. `.github/workflows/cd.yml` (YAML은 들여쓰기가 문법이다. 공백 2칸, 탭 금지)
+
+```yaml
+name: CD
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [develop]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "배포할 커밋의 전체 sha (40자리)"
+        required: true
+
+env:
+  SHA: ${{ github.event.workflow_run.head_sha || inputs.sha }}
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  build-image:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+      - name: GHCR 로그인
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: 이미지 빌드
+        run: docker build -f docker/Dockerfile -t ghcr.io/95twan/myroutine:$SHA .
+      - name: 이미지 push
+        run: docker push ghcr.io/95twan/myroutine:$SHA
+
+  deploy:
+    needs: build-image
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: [self-hosted, ops]
+    environment: ops
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+      - name: GHCR 로그인
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: 배포
+        run: scripts/deploy.sh $SHA
+```
+
+| 항목 | 뜻과 이유 |
 |---|---|
-| 트리거 | `on: workflow_run: { workflows: ["CI"], types: [completed], branches: [develop] }` + `workflow_dispatch: { inputs: { sha: { required: true } } }`. `"CI"`는 `ci.yml`의 `name:` 값이다 |
-| 대상 sha | `SHA: ${{ github.event.workflow_run.head_sha || inputs.sha }}` (workflow 수준 `env`) |
-| 실행 조건 (두 job 모두) | `if: github.event_name == 'workflow_dispatch' \|\| (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')` |
-| `concurrency` | `{ group: deploy, cancel-in-progress: false }`: 배포가 겹치지 않게 한다 |
-| `build-image` | `runs-on: ubuntu-latest`, `permissions: { contents: read, packages: write }`. `actions/checkout`(`ref: ${{ env.SHA }}`) → `echo "${{ secrets.GITHUB_TOKEN }}" \| docker login ghcr.io -u ${{ github.actor }} --password-stdin` → `docker build -f docker/Dockerfile -t ghcr.io/95twan/myroutine:$SHA .` → `docker push` |
-| `deploy` | `needs: build-image`, `runs-on: [self-hosted, ops]`, `environment: ops`, `permissions: { contents: read, packages: read }`. `actions/checkout`(`ref: ${{ env.SHA }}` — compose 파일과 스크립트가 리포에 있으므로 **배포 job도 checkout이 필요하다**) → GHCR 로그인(같은 방식) → `scripts/deploy.sh $SHA` |
+| `name: CD` | Actions 탭에 보이는 이름 |
+| `on.workflow_run` | **CI 워크플로가 끝나면** 이 워크플로를 시작한다. `workflows: ["CI"]`는 `ci.yml`의 `name: CI`와 글자까지 같아야 한다. `types: [completed]`는 성공·실패 모두 "끝남"이라 아래 `if`에서 성공만 거른다. `branches: [develop]`은 develop에서 돈 CI만 |
+| `on.workflow_dispatch.inputs.sha` | Actions 화면의 *Run workflow* 버튼으로 **수동 실행**. 이전 sha를 넣어 그 버전으로 되돌릴 때 쓴다 |
+| `env.SHA` | 배포할 커밋. `workflow_run`일 때는 앞쪽 값(CI를 돌린 커밋)이 있고, 수동일 때는 그 값이 비어 `\|\|` 뒤의 `inputs.sha`가 쓰인다. 이후 모든 단계는 이 하나만 쓴다 |
+| `concurrency` | 같은 `group`의 실행은 **한 번에 하나**. 머지가 연달아 일어나도 배포 둘이 겹치지 않는다. `cancel-in-progress: false`는 진행 중인 배포를 도중에 끊지 않는다(끊으면 반쯤 배포된 상태가 된다). 대기 중인 실행이 여러 개면 최신 것만 남고 중간 것은 건너뛴다 |
+| `if: ...` (두 job 모두) | 수동 실행이거나, **CI가 성공했고 그 CI가 `push`로 돈 것**일 때만. `workflow_run.event == 'push'`가 보안의 핵심이다(아래 ⚠). `needs`가 있는 `deploy`에도 따로 넣는다 |
+| `build-image.runs-on: ubuntu-latest` | GitHub가 빌려 주는 일회용 서버에서 이미지를 빌드한다(내 VM의 자원을 안 쓴다) |
+| `permissions` | 이 job의 `GITHUB_TOKEN` 권한을 **필요한 만큼만**. 빌드는 이미지를 올려야 하니 `packages: write`, 배포는 받기만 하니 `packages: read`, 둘 다 코드 내려받기용 `contents: read` |
+| `actions/checkout@v4` + `ref: ${{ env.SHA }}` | 소스를 내려받는다. 기본값은 최신 develop이라, CI를 통과한 **그 커밋**을 정확히 쓰려면 `ref`를 지정한다. `deploy`에도 필요하다: 운영 compose 파일과 `deploy.sh`가 리포 안에 있고, VM에는 그 파일들이 없기 때문 |
+| GHCR 로그인 | `GITHUB_TOKEN`을 stdin(`--password-stdin`)으로 넘겨 로그인한다. 명령행 인자로 주면 프로세스 목록·로그에 남는다. 별도 비밀번호를 만들 필요가 없다 |
+| `docker build ... -t ghcr.io/95twan/myroutine:$SHA .` | 이미지 이름 끝에 sha를 붙인다(소문자만 허용). 맨 끝 `.`은 `.dockerignore`를 적용한 빌드 컨텍스트 |
+| `docker push` | GHCR에 올린다. 패키지가 처음이면 이때 만들어지고, Dockerfile의 `LABEL`로 리포와 연결된다 |
+| `deploy.runs-on: [self-hosted, ops]` | 내 VM의 러너. **두 라벨을 모두 가진** 러너만 일을 받는다 |
+| `needs: build-image` | 이미지가 push된 뒤에 시작. 앞이 실패하면 배포는 건너뛴다 |
+| `environment: ops` | S6에서 만든 환경. 배포 가능한 브랜치(develop·main)를 여기서 제한한다. `workflow_run`으로 돈 job의 브랜치는 기본 브랜치(develop)라 통과한다 |
+| `scripts/deploy.sh $SHA` | S4에서 만든 스크립트가 실제 배포, 확인, 롤백을 한다. 실패하면 종료 코드 1로 끝나 이 단계가 빨간불이 된다 |
 
 - ⚠ **`workflow_run`은 포크에서 온 PR의 CI가 끝나도 실행된다.** 이때 워크플로 파일은 기본 브랜치(develop)의 것이 쓰이고 저장소 권한으로 돈다. 그래서 위 실행 조건의 `workflow_run.event == 'push'`가 필수다(PR로 돈 CI는 `event`가 `pull_request`). `branches: [develop]` 필터만으로는 부족하다 — 포크의 브랜치 이름도 `develop`일 수 있다.
 - `cd.yml`에는 `pull_request`·`pull_request_target` 트리거를 두지 않는다.
-- 저장소 설정(사람이 한 번): Environment `ops`의 배포 브랜치를 `develop`·`main`으로 제한, Settings → Actions → General → **Approval for running fork pull request workflows from contributors**를 **Require approval for all external contributors**로(2026-10-09 GitHub 문서로 메뉴 이름 확인. 이 리포의 현재 값은 `first_time_contributors` — `gh api repos/95twan/myroutine-v2/actions/permissions/fork-pr-contributor-approval`로 확인했다)
 
-**6) 문서 (Claude)**: `docs/ops/vm-setup.md`(VM 준비 절차), 7-5의 README에 "운영 환경과 배포 흐름" 절 포함
+**먼저 알아둘 것**: 이 리포의 기본 브랜치는 `develop`이다. `workflow_run`과 `workflow_dispatch`는 **기본 브랜치에 있는 워크플로 파일**로 동작한다. 그래서 feature 브랜치에서는 `cd.yml`을 시험할 수 없고(YAML 오류도 머지 후에야 Actions 탭에 `workflow file issue`로 보인다), **PR을 develop에 머지하는 순간이 첫 실행**이다.
+
+머지 전 체크리스트 (하나라도 빠지면 첫 실행이 실패하거나 무한 대기한다)
+- [ ] S1~S4가 맥에서 통과했고, S5 VM 준비가 끝났다(러너가 Idle이 아니면 `deploy`가 *Waiting for a runner*로 멈춘다)
+- [ ] `/opt/myroutine/.env`가 VM에 있다
+- [ ] S6의 Environment `ops`가 있다
+- [ ] `cd.yml` 점검: `workflows: ["CI"]`의 문자열이 `ci.yml`의 `name: CI`와 정확히 같다 / `deploy` job에 `actions/checkout`이 있다 / `pull_request` 트리거가 없다 / 실행 조건 `workflow_run.event == 'push'`가 두 job 모두에 있다 / 이미지 이름이 전부 소문자다
+
+머지 후
+```bash
+gh run list --workflow=cd.yml --limit 3     # 상태
+gh run watch                                 # 진행 보기
+gh run view --log-failed                     # 실패 로그
+```
+| 실패 지점 | 흔한 원인 |
+|---|---|
+| `build-image`의 push `denied` | `permissions: packages: write` 누락, 이미지 이름 대문자 |
+| `deploy`가 시작을 안 함 | 러너 Offline/라벨 불일치(`ops`), Environment 브랜치 제한에서 거절 |
+| `deploy`의 `docker login`/pull 실패 | `permissions: packages: read` 누락, 패키지가 리포에 연결되지 않음(S2의 `LABEL`) |
+| `deploy.sh` `Permission denied` | 실행 권한이 git에 없음(S4-1) |
+| `up --wait` 실패 | VM에서 `IMAGE_TAG=$SHA docker compose ... logs app` — 대부분 `.env` 값 문제 |
+
+> 수동 배포·롤백 확인에는 **이전 sha**가 필요하다. 이전 sha는 **Dockerfile이 이미 있는 커밋**이어야 한다(그 전 커밋은 이미지를 빌드할 수 없다). 그러니 첫 배포 이후 작은 PR을 하나 더 머지해 배포를 **두 번** 만들어 둔다.
+
+#### S8. 완료 확인 실행
+
+아래 "완료 확인" 표의 항목별 실행 방법이다. 모두 **VM이 아닌 다른 PC**에서 한다(LAN 접근이 진짜 되는지 보는 것이므로).
+
+**풀스택** — `jq`가 필요하다(없으면 응답을 눈으로 읽어 값을 옮긴다)
+```bash
+BASE=http://{VM_IP}:8080
+curl -s -X POST $BASE/api/auth/signup -H 'Content-Type: application/json' \
+  -d '{"email":"ops@test.com","password":"pass1234","nickname":"opsuser","name":"운영테스트"}'
+TOKEN=$(curl -s -X POST $BASE/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"ops@test.com","password":"pass1234"}' | jq -r .accessToken)
+SHOP=$(curl -s -X POST $BASE/api/shops -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"운영가게","businessNumber":"1234567890","email":"shop@test.com","phone":"010-1234-5678","address":"서울"}' | jq -r .shopId)
+PRODUCT=$(curl -s -X POST $BASE/api/shops/$SHOP/products -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"테스트상품","description":"설명","category":"FOOD","price":1000,"initialStock":10,"subscribable":false}' | jq -r .productId)
+SIZE=$(wc -c < a.png)                       # a.png: 아무 이미지 파일 (서버는 내용을 검증하지 않는다)
+R=$(curl -s -X POST $BASE/api/shops/$SHOP/products/$PRODUCT/images/presigned-url -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d "{\"contentType\":\"image/png\",\"contentLength\":$SIZE}")
+UPLOAD=$(echo "$R" | jq -r .uploadUrl); KEY=$(echo "$R" | jq -r .objectKey)
+echo "$UPLOAD"                              # 호스트가 http://{VM_IP}:9000 인지 본다 (minio 면 STORAGE_ENDPOINT 오류)
+curl -i -X PUT "$UPLOAD" -H "Content-Type: image/png" --data-binary @a.png      # 200
+IMG=$(curl -s -X POST $BASE/api/shops/$SHOP/products/$PRODUCT/images -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d "{\"objectKey\":\"$KEY\"}" | jq -r .url)
+curl -s -o /dev/null -w '%{http_code}\n' "$IMG"                                  # 200
+```
+(같은 이메일·사업자번호로 두 번 돌리면 중복 에러가 난다. 다시 돌릴 땐 값을 바꾼다.)
+
+**노출 제한**: `nc -vz -w 3 {VM_IP} 5432`, `8081`, `9001`은 실패, `8080`·`9000`은 성공.
+
+**자동 롤백**: ① 새 브랜치에서 `application-prod.yaml`에 기본값 없는 플레이스홀더를 하나 넣는다(예: `myroutine.web.dummy: ${DOES_NOT_EXIST}`). test 프로필에서는 안 읽혀서 **CI는 통과**하고, 운영(`prod`)에서만 부팅이 실패한다. ② develop에 머지. ③ CD가 빨간불, VM에서 `cat /opt/myroutine/deployed-sha`는 이전 sha 그대로, `IMAGE_TAG=$(cat /opt/myroutine/deployed-sha) docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml ps`의 앱 이미지 태그도 이전 sha, 위 풀스택 `curl`의 `/api/products`는 계속 200. ④ Actions 로그를 PR에 붙이고 revert PR로 되돌린다.
+
+**수동 배포**: Actions → CD → *Run workflow*에 이전 40자리 sha 입력 → VM의 앱 이미지 태그가 그 sha로 바뀐다. 이후 다시 최신 sha로 수동 배포해 원상 복구한다.
+
+**마이그레이션**: VM에서
+```bash
+IMAGE_TAG=$(cat /opt/myroutine/deployed-sha) \
+docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml exec -T postgres \
+  sh -c 'psql -U "$POSTGRES_USER" -d my_routine -c "select version, description, success from flyway_schema_history order by installed_rank"'
+```
+마지막 줄이 최신 버전이고 `success`가 `t`.
+
+**시크릿**: `git ls-files | grep -i '\.env'`는 `.env.example`, `.env.ops.example`만. VM에서 `docker history --no-trunc ghcr.io/95twan/myroutine:{sha}`와 `docker image inspect --format '{{.Config.Env}}' ...`에 `.env`의 값이 없다. GitHub Secrets 목록에 운영 값이 없다.
+
+**재부팅 복구**: VM에서 `sudo reboot` → 2~3분 뒤 GitHub Runners에서 Idle, 다른 PC에서 `curl $BASE/api/products` 200(사람이 `compose up`을 치지 않았는데 올라와 있어야 한다. `restart: unless-stopped`와 `systemctl enable docker`가 이걸 한다).
+
+**포크 PR 안전**: 파일 점검(`grep -n "self-hosted" .github/workflows/*.yml`에서 `ci.yml`이 없고 `cd.yml`만, `grep -n "workflow_run.event" .github/workflows/cd.yml`) + 아무 PR 하나를 올려 CI가 끝난 뒤 Actions의 CD 항목이 **Skipped**로 표시되는지 보기 + S6의 스크린샷.
+
+**러너 권한**: [`vm-setup.md` §5](../ops/vm-setup.md)의 두 점검 명령.
+
+**문서 (Claude)**: `docs/ops/vm-setup.md`(VM 준비 절차), 7-5의 README에 "운영 환경과 배포 흐름" 절 포함
 
 ### 완료 확인
 
 | 확인 | 방법 |
 |---|---|
-| [ ] 머지 → 자동 배포 | develop에 머지 → Actions에서 CI 후 CD가 순서대로 성공 → VM에서 `docker compose ps`의 앱 이미지 태그 = 머지 sha |
+| [ ] 머지 → 자동 배포 | develop에 머지 → Actions에서 CI 후 CD가 순서대로 성공 → VM에서 `IMAGE_TAG=$(cat /opt/myroutine/deployed-sha) docker compose ... ps`의 앱 이미지 태그 = 머지 sha |
 | [ ] 풀스택 동작 | **LAN의 다른 PC**에서 `curl`로 가입 → 로그인 → 가게 → 상품 → presigned URL 발급 → **그 URL로 PUT** → 등록 → 이미지 URL GET 200 |
 | [ ] 노출 제한 | 다른 PC에서 `nc -vz {VM IP} 5432`, `8081`, `9001` 모두 실패 / `8080`, `9000`은 성공 |
 | [ ] 자동 롤백 | 일부러 부팅이 실패하는 커밋(예: 필수 환경변수 누락)을 머지 → 헬스체크 실패 → Actions 빨간불 → 앱은 직전 sha로 계속 응답, `deployed-sha` 그대로 (확인 후 되돌림, PR에 로그) |
