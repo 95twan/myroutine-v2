@@ -1,0 +1,54 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [develop]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "배포할 커밋의 전체 sha (40자리)"
+        required: true
+
+env:
+  SHA: ${{ github.event.workflow_run.head_sha || inputs.sha }}
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  build-image:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+      - name: GHCR 로그인
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: 이미지 빌드
+        run: docker build -f docker/Dockerfile -t ghcr.io/95twan/myroutine:$SHA .
+      - name: 이미지 push
+        run: docker push ghcr.io/95twan/myroutine:$SHA
+
+  deploy:
+    needs: build-image
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: [self-hosted, ops]
+    environment: ops
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+      - name: GHCR 로그인
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: 배포
+        run: scripts/deploy.sh $SHA

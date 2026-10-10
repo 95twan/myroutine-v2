@@ -8,7 +8,7 @@
 - ADR-011에서 Stage 1 동안은 compose + 자동 CD로 가고, 최종 목표를 쿠버네티스 무중단 배포로 정했다.
 - 사용자 결정: **Stage 1 완료(`v1.0.0`) 후, Stage 2 시작 전**에 옮긴다.
 - 이유(제안): Stage 2의 성능 측정(k6 Baseline 등)을 **최종 배포 환경에서** 하면 수치의 기준이 한 번만 정해진다. 환경을 Stage 2 중간에 바꾸면 이전 수치와 비교할 수 없게 된다.
-- 제약: 호스트 RAM이 24GB다. compose VM(약 20GB)과 k3s VM을 **동시에 켤 수 없다**. 전환 후 compose VM은 끈다(스냅샷으로 보존).
+- 제약: 호스트 RAM이 24GB다. compose VM(16GB)과 k3s VM을 **동시에 켤 수 없다**. 전환 후 compose VM은 끈다(스냅샷으로 보존).
 - 새로 학습할 도구라 [CLAUDE.md §3](../../CLAUDE.md)에 따라 학습 비용과 대안을 적는다. 원 프로젝트에서 K3s를 써 봤다(As-Is: replicas 1, HPA·Ingress·PDB 없음, hostPath 볼륨) — 이번에는 그 결함을 고치는 것이 목표다.
 
 ## 결정 (제안 포함)
@@ -17,7 +17,7 @@
 3. **매니페스트**: plain YAML + `kubectl apply -k`(Kustomize는 kubectl 1.14부터 내장 — Kubernetes 문서 "Declarative Management of Kubernetes Objects Using Kustomize", 2026-10-09 확인). Helm·Operator는 쓰지 않는다(새 도구를 더 늘리지 않는다).
 4. **상태 있는 서비스**(Postgres·Redis·Kafka·ES·MinIO): 같은 클러스터에서 단순한 StatefulSet + PVC(k3s 기본 local-path)로 시작한다. 데이터 안전성은 compose와 같은 수준(VM 백업)이다. 운영형 DB(Operator)는 범위 밖.
    - **MinIO**: 공식 `minio/minio` 이미지는 2026-09-11 Docker Hub에서 삭제됐다. compose(1-11)와 같은 `chainguard/minio`를 **같은 digest**로 쓴다(태그가 `latest`·`latest-dev`뿐이라 digest로 고정). 인자 `server /data --console-address :9001`. 이 이미지는 uid 65532(비root)로 돈다 → PVC에 쓰기 권한이 필요하다(`securityContext.fsGroup: 65532`가 필요한지 local-path에서 확인 필요). probe는 HTTP `GET /minio/health/live`(liveness)·`/minio/health/ready`(readiness), 포트 9000 — 두 경로 모두 200을 돌려주는 것을 2026-10-09 이 이미지로 확인했다.
-   - presigned URL의 호스트 문제(1-11 §3)는 그대로다: `STORAGE_ENDPOINT`는 클러스터 내부 서비스 이름이 아니라 클라이언트가 닿는 주소(NodePort 또는 Ingress)여야 한다.
+   - presigned URL의 호스트 문제(1-11 S3)는 그대로다: `STORAGE_ENDPOINT`는 클러스터 내부 서비스 이름이 아니라 클라이언트가 닿는 주소(NodePort 또는 Ingress)여야 한다.
 5. **CD**: 같은 self-hosted runner를 새 VM에 옮긴다. 배포 job이 `kubectl set image`(sha 태그) → `kubectl rollout status` → 실패 시 `kubectl rollout undo`. 러너의 kubeconfig는 **전용 네임스페이스만 다루는 ServiceAccount**로 제한한다(확인 필요: RBAC 구성).
 6. **무중단 조건** (이게 갖춰져야 "무중단"이라고 말할 수 있다):
 
