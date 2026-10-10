@@ -100,6 +100,7 @@ sudo ufw default allow outgoing
 sudo ufw allow from 192.168.10.0/24 to any port 22 proto tcp     # 이 환경의 LAN 대역 (맥 192.168.10.10, VM 192.168.10.13 기준)
 sudo ufw allow from 192.168.10.0/24 to any port 8080 proto tcp
 sudo ufw allow from 192.168.10.0/24 to any port 9000 proto tcp
+sudo ufw allow from 172.16.0.0/12 to any port 9000 proto tcp   # 앱 컨테이너(Docker 브리지 172.x)가 호스트의 LAN IP로 MinIO에 접속할 때. 없으면 앱이 기동 때 ApiCallTimeoutException으로 죽는다
 sudo ufw enable
 ```
 > ⚠ **Docker가 publish한 포트는 ufw 규칙을 우회한다**. Docker는 컨테이너 트래픽을 nat 테이블에서 돌려 ufw가 쓰는 INPUT·OUTPUT 체인에 닿기 전에 보낸다(Docker 문서 "Packet filtering and firewalls → Docker and ufw", 2026-10-09 확인). ufw만 믿지 말고, **compose에서 아예 publish하지 않는 것**이 1차 방어다(1-11 정책: Postgres·8081·MinIO 콘솔은 publish 없음). ufw는 2차 방어다.
