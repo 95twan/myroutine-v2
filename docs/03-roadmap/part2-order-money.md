@@ -1,6 +1,7 @@
 # Part 2. 주문과 돈
 
-> 버전 0.7 · 2026-10-10 · **Part 1에서 배운 것 반영**: 공통 규칙 P(검증 메시지, 요청 DTO 원시 타입, `@Validated`, `TestFixtures.token`, 응답 경로 단언, 일부러 깨뜨려 확인, Hibernate 컬렉션 fetch, jsonb의 Jackson 2, 배포 전 환경변수, 롤백과 마이그레이션 호환, 422 상수) 추가. 직접 실행해 확인한 것으로 2-2 상세 조회의 "확인 필요"를 바꾸고(`List` 두 개 동시 fetch는 `MultipleBagFetchException`) N+1 테스트를 더했다. `@Idempotent`를 붙이면 고쳐야 하는 기존 테스트·curl, 체크아웃 `orderId`와 1-9 멱등 규칙의 관계, 2-3 Toss 키를 운영 `.env`에 먼저 넣는 순서, JSON 변환 타입을 `ObjectMapper`로 통일(Part 1 코드와 같은 타입, Part 3도 같음), 수동 결제 확인 페이지의 인증, 시작 전 결정 항목(`subscribable`)을 적었다
+> 버전 0.8 · 2026-10-11 · 시작 전 할 일을 `subscribable` 결정(생략 시 `false`)에 맞춰 바꿨다
+> 0.7 · 2026-10-10 · **Part 1에서 배운 것 반영**: 공통 규칙 P(검증 메시지, 요청 DTO 원시 타입, `@Validated`, `TestFixtures.token`, 응답 경로 단언, 일부러 깨뜨려 확인, Hibernate 컬렉션 fetch, jsonb의 Jackson 2, 배포 전 환경변수, 롤백과 마이그레이션 호환, 422 상수) 추가. 직접 실행해 확인한 것으로 2-2 상세 조회의 "확인 필요"를 바꾸고(`List` 두 개 동시 fetch는 `MultipleBagFetchException`) N+1 테스트를 더했다. `@Idempotent`를 붙이면 고쳐야 하는 기존 테스트·curl, 체크아웃 `orderId`와 1-9 멱등 규칙의 관계, 2-3 Toss 키를 운영 `.env`에 먼저 넣는 순서, JSON 변환 타입을 `ObjectMapper`로 통일(Part 1 코드와 같은 타입, Part 3도 같음), 수동 결제 확인 페이지의 인증, 시작 전 결정 항목(`subscribable`)을 적었다
 > 0.6 · 2026-10-09 · **구현된 Part 1 코드와 정합·사실 확인**: `TestFixtures`의 실제 헬퍼 이름, `ProductApi`·`ShopApi` 반환 필드에서 `CheckoutLine`·`ReserveItem`으로 옮기는 방법, 1-10 규칙(키는 Result, URL은 web)에 따른 장바구니·주문 상세의 `thumbnailUrl`, 결제 모듈 API에 남아 있던 `(ORDER, orderId)` 인자 잔재 제거, AOP 스타터 이름(`spring-boot-starter-aspectj`)·Jackson 3의 모르는 필드 무시·Toss API(엔드포인트·Basic 인증·멱등키 15일)·불확실 코드 목록을 확인해 확정, `RestClient.exchange`로 응답을 분류하는 호출 형태를 적었다
 > 0.5 · 2026-10-02 · **덜어내기**: 주문번호·바로 구매·멱등 키 재점유와 정리 잡·PG 호출 로그 테이블·트랜잭션 안 호출 가드·결제창 실패 통지 API·대사 백오프·판매자 주문 기간 필터를 "제안"으로 옮기고, 제약 이름 매핑을 없앴다
 > 0.4 · 2026-10-02 · **예치금(지갑) 제거**: 2-1·2-2(지갑)·2-9(충전) 삭제, 결제는 Toss 단일 수단, 환불은 PG 부분취소만. 단계 번호를 다시 매김(이전 2-3 → 2-1 …)
@@ -10,7 +11,7 @@
 > **인프라 추가**: 없음 (Toss는 테스트용 가짜 PG 서버로 대체, 실제 Toss 테스트 키는 수동 확인용)
 > **이 Part가 프로젝트의 핵심이다.** 이력서의 "정합성" 이야기는 대부분 여기서 나온다.
 > **릴리스**: `v0.2.0`
-> **시작 전에 정할 것**: 상품 등록 요청의 `subscribable` 필수/선택 정책([Part 1 완료](part1-foundation.md#part-1-완료) 체크리스트). Part 2의 요청 DTO는 같은 문제가 생기지 않게 공통 규칙 P-2를 따른다.
+> **시작 전에 할 것**: 상품 등록 요청의 `subscribable`을 `Boolean`으로 바꾸고 생략·`null`이면 `false`로 등록한다(2026-10-11 결정, [Part 1 수정 사항](part1-foundation.md#수정-사항-part-2-시작-전)). Part 2의 요청 DTO는 같은 문제가 생기지 않게 공통 규칙 P-2를 따른다.
 
 | 단계 | 제목 | 크기 |
 |---|---|---|
