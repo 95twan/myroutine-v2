@@ -40,3 +40,5 @@ out/
 !.env.example
 !.env.ops.example
 .DS_Store
+
+.claude/worktrees/
