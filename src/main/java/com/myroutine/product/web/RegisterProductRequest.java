@@ -21,9 +21,16 @@ public record RegisterProductRequest(
         @Min(value = 0, message = "0 이상의 값을 입력해주세요.")
         @Max(value = 1_000_000, message = "1,000,000 이하의 값을 입력해주세요.")
         Integer initialStock,
-        boolean subscribable
+        Boolean subscribable
 ) {
     public RegisterProductCommand toCommand() {
-            return new RegisterProductCommand(name, description, category, price, initialStock, subscribable);
+        return new RegisterProductCommand(
+                name,
+                description,
+                category,
+                price,
+                initialStock,
+                subscribable != null && subscribable
+        );
     }
 }

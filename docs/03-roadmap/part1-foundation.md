@@ -1,6 +1,8 @@
 # Part 1. 뼈대와 첫 기능
 
-> 버전 0.25 · 2026-10-11 · **`subscribable` 정책 결정**: 상품 등록에서 생략·`null`이면 `false`로 등록한다. 1-7 규격을 고치고 "수정 사항 (Part 2 시작 전)" 절(구현 규격·테스트)을 추가했다. "Part 1 완료"의 결정 항목·알려진 한계 표를 갱신했다
+> 버전 0.27 · 2026-10-11 · **`subscribable` 수정 구현 완료 반영**: PR #26으로 구현·머지, "Part 1 완료" 체크리스트(릴리스 `v0.1.0`, Part 2 문서 점검, 구현)와 "수정 사항 (Part 2 시작 전)" 테스트 체크박스를 완료 표기했다
+> 0.26 · 2026-10-11 · **`subscribable` 수정 사항 테스트 검증 범위 명확화**: 완료 확인의 "상세 조회의 `subscribable`"을 "`product.product.subscribable` 저장값(JDBC)"으로 고쳤다(구현·리뷰에서 응답 노출이 아닌 저장 검증으로 충분하다고 결정)
+> 0.25 · 2026-10-11 · **`subscribable` 정책 결정**: 상품 등록에서 생략·`null`이면 `false`로 등록한다. 1-7 규격을 고치고 "수정 사항 (Part 2 시작 전)" 절(구현 규격·테스트)을 추가했다. "Part 1 완료"의 결정 항목·알려진 한계 표를 갱신했다
 > 0.24 · 2026-10-11 · 1-4 JSON 변환 주입 타입: Boot 빈의 실제 타입이 `JsonMapper`임을 확인했고, 프로젝트는 `ObjectMapper`로 통일한다고 적었다(Part 2 재검토 중 확인·결정)
 > 0.23 · 2026-10-10 · **Part 1 마무리 문서 정리**: 남은 "확인 필요" 4건을 직접 확인해 확정(감사 시각 `Instant`, S3 없는 키 삭제, 저장소 장애 시 기동 실패, cascade INSERT 전 select 없음), 공통 규칙 E에 검증 메시지 표준 문구를 추가(메시지 없는 제약이 영어 기본 문구·정규식을 응답에 내보내던 문제), "수정 사항" 절 구현 완료 표기, "Part 1 완료"에 Part 2 시작 전 결정(`subscribable`)과 Release 노트용 알려진 한계 추가
 > 0.22 · 2026-10-10 · **구현으로 해소된 "확인 필요" 3건 정리**: 1-4 JSON 변환 주입 타입(`ObjectMapper`), 1-7 쿼리 파라미터 검증 예외 매핑(`HandlerMethodValidationException` → 400), 1-10 `TransactionTemplate` 생성자 주입. 실제 코드·테스트와 대조해 확인한 것만 고쳤다
@@ -2140,17 +2142,17 @@ docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml e
 ---
 
 ## Part 1 완료
-- [ ] develop → main PR(merge commit), 태그 `v0.1.0`, GitHub Release에 완료 단계와 동시성 테스트 결과 요약, **배포 환경에서 돌려본 결과(1-11 완료 확인)** 링크
-- [ ] Part 2 문서를 다시 읽고, Part 1에서 배운 점을 반영해 다듬는다(필요하면 Claude에게 요청)
+- [x] develop → main PR(merge commit), 태그 `v0.1.0`, GitHub Release에 완료 단계와 동시성 테스트 결과 요약, **배포 환경에서 돌려본 결과(1-11 완료 확인)** 링크
+- [x] Part 2 문서를 다시 읽고, Part 1에서 배운 점을 반영해 다듬는다(필요하면 Claude에게 요청)
 - [x] **Part 2 시작 전에 결정**: 상품 등록 요청에서 `subscribable`을 생략하면 400이고 `details`가 `{}`다(원시 `boolean`이 역직렬화 단계에서 거절된다). (a) `Boolean`+`@NotNull`로 필수 처리 / (b) 생략 시 `false` → **(b)로 결정**(2026-10-11). 1-7 규격을 고쳤고 구현은 아래 "수정 사항 (Part 2 시작 전)"
-- [ ] 위 결정의 구현(2-1 착수 전)
+- [x] 위 결정의 구현(2-1 착수 전, PR #26)
 
 ### Release 노트에 적을 알려진 한계
 
 | 한계 | 내용 | 해소 |
 |---|---|---|
 | 토큰 즉시 차단 불가 | refresh·로그아웃·강제 차단이 없고 Access 토큰은 만료(1시간)까지 유효하다 | Part 4 |
-| `subscribable` 생략 시 400 | `details`가 비어 있어 원인을 알 수 없다 | 생략 시 `false`로 결정(2026-10-11), 2-1 착수 전 구현 |
+| `subscribable` 생략 시 400 | `details`가 비어 있어 원인을 알 수 없다 | 생략 시 `false`로 수정(2026-10-11, PR #26) |
 | 지원하지 않는 `Content-Type`이 500 | `text/plain` 등으로 요청하면 415가 아니라 500 `INTERNAL_ERROR`와 ERROR 로그가 나간다 | 선택(415 매핑) |
 | 저장소 객체 잔류 | URL만 받고 등록하지 않은 객체, 삭제 후 저장소 삭제에 실패한 객체가 남는다. 파일 내용(매직 바이트)도 검증하지 않는다 | Stage 1 범위 밖(회고) |
 | 앱이 MinIO root 계정으로 접속 | 서비스 계정을 분리하지 않았다 | Stage 1 범위 밖(회고) |
@@ -2191,7 +2193,7 @@ docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml e
 
 ## 수정 사항 (Part 2 시작 전)
 
-> 2026-10-11 · Part 1 최종 리뷰에서 발견. `RegisterProductRequest.subscribable`이 원시 `boolean`이라, 요청에서 빠지면 역직렬화 단계에서 400이 되고 `details`가 `{}`여서 원인을 알 수 없었다. **생략하거나 `null`이면 `false`(구독 불가)로 등록**하기로 정했다(DB 컬럼 `DEFAULT false`와 같은 의미). 구현은 사용자가 2-1 착수 전에 한다.
+> 2026-10-11 · Part 1 최종 리뷰에서 발견. `RegisterProductRequest.subscribable`이 원시 `boolean`이라, 요청에서 빠지면 역직렬화 단계에서 400이 되고 `details`가 `{}`여서 원인을 알 수 없었다. **생략하거나 `null`이면 `false`(구독 불가)로 등록**하기로 정했다(DB 컬럼 `DEFAULT false`와 같은 의미). 구현은 사용자가 직접 했다(2026-10-11 완료, PR #26).
 
 | 대상 | 현재 | 수정 |
 |---|---|---|
@@ -2202,7 +2204,7 @@ docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml e
 
 | 테스트 클래스 | 케이스 |
 |---|---|
-| `product/web/SellerProductControllerTest` | [ ] `subscribable`을 뺀 JSON으로 등록 → 201, 상세 조회의 `subscribable`이 `false` / [ ] `"subscribable": true`로 등록 → 상세 조회 `true` |
+| `product/web/SellerProductControllerTest` | [x] `subscribable`을 뺀 JSON으로 등록 → 201, 저장된 `product.subscribable`이 `false` / [x] `"subscribable": true`로 등록 → 저장된 `product.subscribable`이 `true` (JDBC로 `product.product`를 조회해 확인한다) |
 
 - "필드가 없는" 요청은 JSON 문자열로 직접 만든다. `RegisterProductRequest`에 `null`을 넣어 직렬화하면 `"subscribable": null`이 되어 필드가 빠진 경우와 다르다(결과는 둘 다 `false`).
 
