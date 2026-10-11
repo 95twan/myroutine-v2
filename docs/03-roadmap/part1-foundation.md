@@ -1,6 +1,7 @@
 # Part 1. 뼈대와 첫 기능
 
-> 버전 0.25 · 2026-10-11 · **`subscribable` 정책 결정**: 상품 등록에서 생략·`null`이면 `false`로 등록한다. 1-7 규격을 고치고 "수정 사항 (Part 2 시작 전)" 절(구현 규격·테스트)을 추가했다. "Part 1 완료"의 결정 항목·알려진 한계 표를 갱신했다
+> 버전 0.26 · 2026-10-11 · **`subscribable` 수정 사항 테스트 검증 범위 명확화**: 완료 확인의 "상세 조회의 `subscribable`"을 "`product.product.subscribable` 저장값(JDBC)"으로 고쳤다(구현·리뷰에서 응답 노출이 아닌 저장 검증으로 충분하다고 결정)
+> 0.25 · 2026-10-11 · **`subscribable` 정책 결정**: 상품 등록에서 생략·`null`이면 `false`로 등록한다. 1-7 규격을 고치고 "수정 사항 (Part 2 시작 전)" 절(구현 규격·테스트)을 추가했다. "Part 1 완료"의 결정 항목·알려진 한계 표를 갱신했다
 > 0.24 · 2026-10-11 · 1-4 JSON 변환 주입 타입: Boot 빈의 실제 타입이 `JsonMapper`임을 확인했고, 프로젝트는 `ObjectMapper`로 통일한다고 적었다(Part 2 재검토 중 확인·결정)
 > 0.23 · 2026-10-10 · **Part 1 마무리 문서 정리**: 남은 "확인 필요" 4건을 직접 확인해 확정(감사 시각 `Instant`, S3 없는 키 삭제, 저장소 장애 시 기동 실패, cascade INSERT 전 select 없음), 공통 규칙 E에 검증 메시지 표준 문구를 추가(메시지 없는 제약이 영어 기본 문구·정규식을 응답에 내보내던 문제), "수정 사항" 절 구현 완료 표기, "Part 1 완료"에 Part 2 시작 전 결정(`subscribable`)과 Release 노트용 알려진 한계 추가
 > 0.22 · 2026-10-10 · **구현으로 해소된 "확인 필요" 3건 정리**: 1-4 JSON 변환 주입 타입(`ObjectMapper`), 1-7 쿼리 파라미터 검증 예외 매핑(`HandlerMethodValidationException` → 400), 1-10 `TransactionTemplate` 생성자 주입. 실제 코드·테스트와 대조해 확인한 것만 고쳤다
@@ -2202,7 +2203,7 @@ docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml e
 
 | 테스트 클래스 | 케이스 |
 |---|---|
-| `product/web/SellerProductControllerTest` | [ ] `subscribable`을 뺀 JSON으로 등록 → 201, 상세 조회의 `subscribable`이 `false` / [ ] `"subscribable": true`로 등록 → 상세 조회 `true` |
+| `product/web/SellerProductControllerTest` | [ ] `subscribable`을 뺀 JSON으로 등록 → 201, 저장된 `product.subscribable`이 `false` / [ ] `"subscribable": true`로 등록 → 저장된 `product.subscribable`이 `true` (JDBC로 `product.product`를 조회해 확인한다) |
 
 - "필드가 없는" 요청은 JSON 문자열로 직접 만든다. `RegisterProductRequest`에 `null`을 넣어 직렬화하면 `"subscribable": null`이 되어 필드가 빠진 경우와 다르다(결과는 둘 다 `false`).
 
