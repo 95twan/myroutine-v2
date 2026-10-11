@@ -16,6 +16,7 @@
 - **Claude는 `src/`, `build.gradle`, `docker/`, `.github/workflows/` 등 구현물을 직접 만들거나 고치지 않는다.** 사용자가 명시적으로 요청할 때만 예시 스니펫을 답변으로 보여준다.
 - **예외 — 테스트 골격(1-9부터, 2026-10-08 사용자 승인)**: 사용자가 단계 착수("N-M 진행할게")를 알리면, 로드맵 해당 단계 "완료 확인" 표의 케이스마다 **빈 테스트 메서드**(`@Test` + `@DisplayName` + 메서드명, 본문 없음)를 `src/test/`에 만들어 둔다. 클래스가 없으면 클래스 선언과 필요한 상속(`IntegrationTestSupport` 등)·`@ParameterizedTest` 여부까지만 잡는다. Given/When/Then 본문, 단언, 픽스처 호출은 쓰지 않는다 — 사용자가 채운다. 메서드명·DisplayName은 기존 테스트 규칙(성공은 "~한다.", 실패는 "~를 실패한다. (사유)")을 따른다.
 - **예외 — CD 워크플로(1-11, 2026-10-10 사용자 승인)**: 로드맵에 항목별 설명까지 적은 `.github/workflows/cd.yml`은 "따라 쓰기"에 가까워 학습 가치가 낮다는 이유로, 사용자가 **명시적으로 요청하면** Claude가 파일을 직접 작성한다. 이 예외는 `.github/workflows/`의 배포 워크플로에 한정하며, `src/`·`build.gradle`·`docker/`·`scripts/` 등 다른 구현물은 그대로 이 문서의 기본 규칙(사용자 작성, Claude는 리뷰)을 따른다. 작성해도 커밋·푸시는 하지 않는다.
+- **예외 — 검증 메시지(2-1, 2026-10-12 사용자 승인)**: 요청 DTO(`web` 패키지의 Request record)의 Bean Validation 어노테이션에 한국어 `message`를 붙이는 일은 기계적이고 문구가 이미 정해져 있어([Part 1 공통 규칙 E](docs/03-roadmap/part1-foundation.md), [Part 2 공통 규칙 P-1](docs/03-roadmap/part2-order-money.md)), 사용자가 요청하지 않아도 Claude가 직접 넣는다(리뷰에서 누락을 찾았을 때 포함). `message` 속성만 고치며, 제약 값(`@Min`·`@Max`·`@Size`의 숫자)·로직·테스트 본문은 바꾸지 않는다. 고쳤으면 어느 파일을 바꿨는지 알려준다.
 - **문서는 Claude가 직접 고친다**: `docs/`, `README.md`, `CLAUDE.md`, `.github/pull_request_template.md`. 리뷰 중 문서 반영이 필요하면 사용자의 feature 브랜치 작업 트리에 수정해 두고, 무엇을 바꿨는지 알려준다. **커밋은 사용자가 한다**(Claude는 커밋·푸시하지 않음).
 - 사용자가 직접 개발해서 면접에서 모든 코드를 설명할 수 있게 하는 것이 목적이다. "대신 짜주는" 방향으로 흐르지 않게 한다.
 
