@@ -14,12 +14,12 @@ public record RegisterProductRequest(
         @NotNull(message = "필수 값입니다.")
         ProductCategory category,
         @NotNull(message = "필수 값입니다.")
-        @Min(value = 1, message = "1 이상의 값을 입력해주세요.")
-        @Max(value = 100_000_000, message = "100,000,000 이하의 값을 입력해주세요.")
+        @Min(value = 1, message = "1 이상이어야 합니다.")
+        @Max(value = 100_000_000, message = "100,000,000 이하여야 합니다.")
         Long price,
         @NotNull(message = "필수 값입니다.")
-        @Min(value = 0, message = "0 이상의 값을 입력해주세요.")
-        @Max(value = 1_000_000, message = "1,000,000 이하의 값을 입력해주세요.")
+        @Min(value = 0, message = "0 이상이어야 합니다.")
+        @Max(value = 1_000_000, message = "1,000,000 이하여야 합니다.")
         Integer initialStock,
         Boolean subscribable
 ) {

@@ -2,6 +2,7 @@
 
 > 버전 0.27 · 2026-10-11 · **`subscribable` 수정 구현 완료 반영**: PR #26으로 구현·머지, "Part 1 완료" 체크리스트(릴리스 `v0.1.0`, Part 2 문서 점검, 구현)와 "수정 사항 (Part 2 시작 전)" 테스트 체크박스를 완료 표기했다
 > 0.26 · 2026-10-11 · **`subscribable` 수정 사항 테스트 검증 범위 명확화**: 완료 확인의 "상세 조회의 `subscribable`"을 "`product.product.subscribable` 저장값(JDBC)"으로 고쳤다(구현·리뷰에서 응답 노출이 아닌 저장 검증으로 충분하다고 결정)
+> 0.26 · 2026-10-12 · **검증 문구 표준 통일**: 범위 길이 문구를 `{항목}은 {n}~{m}자여야 합니다.`로 정하고(공통 규칙 E), 표준에서 벗어난 `이상의 값을 입력해주세요`·`이름을 입력해 주세요.`를 맞췄다(코드·1-4 표)
 > 0.25 · 2026-10-11 · **`subscribable` 정책 결정**: 상품 등록에서 생략·`null`이면 `false`로 등록한다. 1-7 규격을 고치고 "수정 사항 (Part 2 시작 전)" 절(구현 규격·테스트)을 추가했다. "Part 1 완료"의 결정 항목·알려진 한계 표를 갱신했다
 > 0.24 · 2026-10-11 · 1-4 JSON 변환 주입 타입: Boot 빈의 실제 타입이 `JsonMapper`임을 확인했고, 프로젝트는 `ObjectMapper`로 통일한다고 적었다(Part 2 재검토 중 확인·결정)
 > 0.23 · 2026-10-10 · **Part 1 마무리 문서 정리**: 남은 "확인 필요" 4건을 직접 확인해 확정(감사 시각 `Instant`, S3 없는 키 삭제, 저장소 장애 시 기동 실패, cascade INSERT 전 select 없음), 공통 규칙 E에 검증 메시지 표준 문구를 추가(메시지 없는 제약이 영어 기본 문구·정규식을 응답에 내보내던 문제), "수정 사항" 절 구현 완료 표기, "Part 1 완료"에 Part 2 시작 전 결정(`subscribable`)과 Release 노트용 알려진 한계 추가
@@ -130,7 +131,7 @@ public enum XxxStatus {
 - 시각은 `Instant` 그대로 내보낸다(ISO-8601 UTC, 예: `2026-10-02T06:00:00Z`).
 - PATCH 요청의 필드는 모두 선택이고, **null이면 바꾸지 않는다**.
 - 검증 메시지는 한국어로 `message` 속성에 적는다. **모든 제약**(`@NotBlank`·`@NotNull`·`@Size`·`@Pattern`·`@Email`·`@Min`·`@Max`, 쿼리 파라미터 포함)에 붙인다. 붙이지 않으면 오류 응답 `details`에 영어 기본 문구와 정규식(`must match ".*\S.*"`)이 그대로 나간다.
-  - 표준 문구: 필수 `필수 값입니다.` / 공백만 있는 값 `공백만 입력할 수 없습니다.` / 길이 `{항목}은 {n}자 이하여야 합니다.` / 범위 `{n} 이상이어야 합니다.`·`{n} 이하여야 합니다.` / 이메일 `이메일 형식이 아닙니다.` / 전화번호 `전화번호는 숫자와 하이픈으로 9~20자입니다.` / 우편번호 `우편번호는 5자리 숫자입니다.`
+  - 표준 문구: 필수 `필수 값입니다.` / 공백만 있는 값 `공백만 입력할 수 없습니다.` / 길이 `{항목}은 {n}자 이하여야 합니다.`(범위는 `{항목}은 {n}~{m}자여야 합니다.`) / 범위 `{n} 이상이어야 합니다.`·`{n} 이하여야 합니다.` / 이메일 `이메일 형식이 아닙니다.` / 전화번호 `전화번호는 숫자와 하이픈으로 9~20자입니다.` / 우편번호 `우편번호는 5자리 숫자입니다.`
 
 ### F. 에러 응답
 ```json
@@ -458,8 +459,8 @@ curl -s localhost:8081/actuator/health          # {"status":"UP"}
 |---|---|---|
 | email | `@NotBlank @Email @Size(max = 255)` | 이메일 형식이 아닙니다. |
 | password | `@NotBlank @Size(min = 8, max = 64) @Pattern(regexp = "^(?=.*[A-Za-z])(?=.*\\d).+$")` | 비밀번호는 8~64자, 영문과 숫자를 포함해야 합니다. |
-| nickname | `@NotBlank @Size(min = 2, max = 20)` | 닉네임은 2~20자입니다. |
-| name | `@NotBlank @Size(max = 50)` | 이름을 입력해 주세요. |
+| nickname | `@NotBlank @Size(min = 2, max = 20)` | 닉네임은 2~20자여야 합니다. |
+| name | `@NotBlank @Size(max = 50)` | 필수 값입니다. |
 
 - `SignupRequest.toCommand()`, `SignupResponse(UUID memberId)`, `SignupResponse.from(SignupResult)`
 - `AuthController`: `@RestController @RequestMapping("/api/auth") @RequiredArgsConstructor`. `@PostMapping("/signup")` → `ResponseEntity.status(HttpStatus.CREATED).body(...)`
