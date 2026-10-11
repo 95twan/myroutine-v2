@@ -183,6 +183,58 @@ class SellerProductControllerTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("subscribable을 생략하고 상품을 등록하면 구독 불가(false)로 저장된다.")
+    void registerProductWithoutSubscribable() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("test@test.com");
+        String token = testFixtures.login("test@test.com");
+        UUID shopId = testFixtures.openShop(memberId, "1111111111");
+
+        // When & Then
+        MvcResult result = mockMvc.perform(post("/api/shops/{shopId}/products", shopId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"테스트상품\",\"description\":\"설명\",\"category\":\"FOOD\",\"price\":1000,\"initialStock\":10}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        UUID productId = UUID.fromString(JsonPath.read(result.getResponse().getContentAsString(), "$.productId"));
+
+        Boolean subscribable = jdbcTemplate.queryForObject("SELECT subscribable FROM product.product WHERE id = ?", Boolean.class, productId);
+        assertThat(subscribable).isFalse();
+    }
+
+    @Test
+    @DisplayName("subscribable을 true로 상품을 등록하면 구독 가능(true)으로 저장된다.")
+    void registerProductWithSubscribableTrue() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("test@test.com");
+        String token = testFixtures.login("test@test.com");
+        UUID shopId = testFixtures.openShop(memberId, "1111111111");
+        RegisterProductRequest request = new RegisterProductRequest(
+                "product",
+                "product description",
+                ProductCategory.ETC,
+                10000L,
+                100,
+                true
+        );
+
+        // When & Then
+        MvcResult result = mockMvc.perform(post("/api/shops/{shopId}/products", shopId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        UUID productId = UUID.fromString(JsonPath.read(result.getResponse().getContentAsString(), "$.productId"));
+
+        Boolean subscribable = jdbcTemplate.queryForObject("SELECT subscribable FROM product.product WHERE id = ?", Boolean.class, productId);
+        assertThat(subscribable).isTrue();
+    }
+
+    @Test
     @DisplayName("판매자 상품 목록을 조회한다.")
     void getShopProducts() throws Exception {
         // Given
