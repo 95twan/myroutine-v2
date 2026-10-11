@@ -77,18 +77,6 @@ public class TestFixtures {
         return loginService.login(new LoginCommand(email, "pass1234")).accessToken();
     }
 
-    public UUID registerProduct(UUID memberId, UUID shopId, ProductCategory category, int initialStock) {
-        RegisterProductCommand command = new RegisterProductCommand(
-                "product",
-                "description",
-                category,
-                10000,
-                initialStock,
-                false
-        );
-        return registerProductService.register(memberId, shopId, command);
-    }
-
     public UUID registerProduct(UUID memberId, UUID shopId) {
         RegisterProductCommand command = new RegisterProductCommand(
                 "product",
@@ -96,6 +84,30 @@ public class TestFixtures {
                 ProductCategory.ETC,
                 10000,
                 10,
+                false
+        );
+        return registerProductService.register(memberId, shopId, command);
+    }
+
+    public UUID registerProduct(UUID memberId, UUID shopId, long price, int initialStock) {
+        RegisterProductCommand command = new RegisterProductCommand(
+                "product",
+                "description",
+                ProductCategory.ETC,
+                price,
+                initialStock,
+                false
+        );
+        return registerProductService.register(memberId, shopId, command);
+    }
+
+    public UUID registerProduct(UUID memberId, UUID shopId, ProductCategory category, int initialStock) {
+        RegisterProductCommand command = new RegisterProductCommand(
+                "product",
+                "description",
+                category,
+                10000,
+                initialStock,
                 false
         );
         return registerProductService.register(memberId, shopId, command);
