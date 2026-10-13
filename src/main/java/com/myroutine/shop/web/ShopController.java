@@ -1,5 +1,6 @@
 package com.myroutine.shop.web;
 
+import com.myroutine.common.idempotency.Idempotent;
 import com.myroutine.common.security.CurrentMember;
 import com.myroutine.shop.application.OpenShopService;
 import com.myroutine.shop.application.ShopQueryService;
@@ -23,6 +24,7 @@ public class ShopController {
     private final ShopQueryService shopQueryService;
 
     @PostMapping
+    @Idempotent
     public ResponseEntity<ShopIdResponse> open(@CurrentMember UUID memberId, @Valid @RequestBody OpenShopRequest request) {
         UUID shopId = openShopService.open(memberId, request.toCommand());
         return ResponseEntity.status(HttpStatus.CREATED).body(new ShopIdResponse(shopId));

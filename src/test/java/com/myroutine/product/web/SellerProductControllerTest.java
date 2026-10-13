@@ -64,6 +64,7 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         // When & Then
         MvcResult result = mockMvc.perform(post("/api/shops/" + shopId + "/products")
                         .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -104,6 +105,7 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         // When & Then
         mockMvc.perform(post("/api/shops/" + shopId + "/products")
                         .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isForbidden());
@@ -129,6 +131,7 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         // When & Then
         mockMvc.perform(post("/api/shops/" + shopId + "/products")
                         .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isUnprocessableContent())
@@ -152,6 +155,7 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         // When & Then
         mockMvc.perform(post("/api/shops/" + UUID.randomUUID() + "/products")
                         .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound())
@@ -179,7 +183,8 @@ class SellerProductControllerTest extends IntegrationTestSupport {
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
     @Test
@@ -193,6 +198,7 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         // When & Then
         MvcResult result = mockMvc.perform(post("/api/shops/{shopId}/products", shopId)
                         .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"테스트상품\",\"description\":\"설명\",\"category\":\"FOOD\",\"price\":1000,\"initialStock\":10}"))
                 .andExpect(status().isCreated())
@@ -223,6 +229,7 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         // When & Then
         MvcResult result = mockMvc.perform(post("/api/shops/{shopId}/products", shopId)
                         .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -425,6 +432,7 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         // When & Then
         mockMvc.perform(post("/api/shops/" + shopId + "/products/" + productId + "/stock-adjustments")
                         .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isUnprocessableContent())

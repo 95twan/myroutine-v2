@@ -1,5 +1,6 @@
 package com.myroutine.product.web;
 
+import com.myroutine.common.idempotency.Idempotent;
 import com.myroutine.common.security.CurrentMember;
 import com.myroutine.common.storage.ImageUrls;
 import com.myroutine.common.web.CursorPage;
@@ -25,6 +26,7 @@ public class SellerProductController {
     private final ImageUrls imageUrls;
 
     @PostMapping
+    @Idempotent
     public ResponseEntity<ProductIdResponse> register(@CurrentMember UUID memberId, @PathVariable UUID shopId, @RequestBody @Valid RegisterProductRequest request) {
         UUID productId = registerProductService.register(memberId, shopId, request.toCommand());
         return ResponseEntity.status(HttpStatus.CREATED).body(new ProductIdResponse(productId));
@@ -63,6 +65,7 @@ public class SellerProductController {
         return ResponseEntity.ok(ProductDetailResponse.from(result, imageUrls));
     }
 
+    @Idempotent
     @PostMapping("/{id}/stock-adjustments")
     public ResponseEntity<StockResponse> adjust(
             @CurrentMember UUID memberId,
