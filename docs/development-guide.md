@@ -3,6 +3,7 @@
 > 코드를 작성할 때 따르는 규칙이자 **코드 리뷰 기준**이다. 리뷰에서 지적하는 항목은 이 문서의 절 번호로 표시한다(예: `§6.2 위반`).
 > 규칙을 바꿔야 할 이유가 생기면 코드보다 이 문서를 먼저 고친다.
 > 근거: [02-design](02-design/README.md), [ADR](adr/)
+> 2026-10-12 · §3.2 계층 표의 `api` 행을 구현된 컨벤션에 맞췄다: 공개 DTO의 `from(엔티티)` 변환 팩토리는 같은 모듈 `domain`을 참조해도 된다(엔티티 노출은 계속 금지). Stage 3 분리 시 옮긴다는 주석을 더했다
 > 2026-10-10 · Part 1 완료에 맞춰 §1.1 확정 버전 표에 AWS SDK·MinIO 이미지·`testcontainers-minio`(1-10)를 옮겼다
 > 2026-10-09 · §1.1 확정 버전에 구현된 Modulith·jjwt와 이후 Part의 확인된 호환 버전을 적고, 설정 파일 확장자(`.yaml`)·`pg_call_log`(선택 사항) 표기를 로드맵과 맞췄다
 
@@ -176,7 +177,9 @@ web ──> application ──> domain <── infrastructure
 | application | 유스케이스 서비스, Command/Result DTO, 다른 모듈 api 호출, outbox 발행, 소유권 검사, 트랜잭션 | domain, 다른 모듈 api, common | 컨트롤러 DTO, JPA 구현체 직접 사용 |
 | web | 컨트롤러, Request/Response DTO, 검증 어노테이션 | application | domain 엔티티 반환, 리포지토리 호출 |
 | infrastructure | Spring Data 구현, native 쿼리, 외부 API 클라이언트, Kafka listener, 스케줄러 | domain, application | 비즈니스 규칙 판단 |
-| api | 다른 모듈용 인터페이스(구현은 application), 공개 DTO, 이벤트 record | common | 엔티티 노출 |
+| api | 다른 모듈용 인터페이스(구현은 application), 공개 DTO, 이벤트 record | common, 같은 모듈 domain(공개 DTO의 `from(엔티티)` 변환 팩토리 인자에 한정) | 엔티티를 필드·반환 타입·인터페이스 메서드 시그니처로 노출 |
+
+- `api`의 공개 DTO는 같은 모듈 엔티티를 받는 `from(엔티티)` 정적 팩토리를 둘 수 있다(`ShopInfo.from(Shop)`, `ProductForCheckout`, `ShippingAddressInfo.from(MemberAddress)`). 다른 모듈은 엔티티 인스턴스를 얻을 수 없고 `member.domain` 같은 내부 패키지를 참조하면 `ModularityTest`가 막으므로 엔티티가 노출되지 않는다. **Stage 3에서 `api`를 별도 아티팩트(클라이언트 라이브러리)로 분리할 때는 `domain` 의존을 끊어야 하므로 이 변환을 `application`의 매퍼로 옮긴다.**
 
 ### 3.3 규칙이 거의 없는 모듈
 notification, search처럼 비즈니스 규칙이 적은 모듈은 `domain`을 생략하고 `application` + `infrastructure`만 둬도 된다. 계층을 위한 계층은 만들지 않는다.
@@ -456,7 +459,7 @@ interface JpaOrderRepository extends JpaRepository<Order, UUID>, OrderRepository
   ```java
   sealed interface PgResult permits PgResult.Approved, PgResult.Rejected, PgResult.Unknown { ... }
   ```
-- 모든 호출을 로그 한 줄에 지연시간과 함께 남긴다(결제 감사 테이블 `pg_call_log`는 선택 사항, 로드맵 2-3 제안).
+- 모든 호출을 로그 한 줄에 지연시간과 함께 남긴다(결제 감사 테이블 `pg_call_log`는 선택 사항, 로드맵 2-3 추가 항목).
 - 호출 결과와 지연시간은 Micrometer `Timer`로 기록한다(`pg_call_seconds{operation, result}`).
 - 테스트는 가짜 PG 서버로 한다(§13.4). 실제 Toss 테스트 키는 로컬 수동 확인용으로만 쓴다.
 
@@ -758,7 +761,7 @@ public class TraceIdFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws ServletException, IOException {
-        String traceId = TraceIds.newId();   // 항상 서버가 만든다 (클라이언트 헤더를 이어 쓰는 것은 로드맵 1-3의 제안)
+        String traceId = TraceIds.newId();   // 항상 서버가 만든다 (클라이언트 헤더를 이어 쓰는 것은 로드맵 1-3 추가 항목)
         MDC.put(TraceIds.MDC_KEY, traceId);
         res.setHeader(TraceIds.HEADER, traceId);
         try { chain.doFilter(req, res); }

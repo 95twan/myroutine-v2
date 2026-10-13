@@ -1,6 +1,7 @@
 # Part 3. 이벤트
 
-> 버전 0.7 · 2026-10-11 · JSON 변환 타입을 `ObjectMapper`로 통일(Part 1 코드·Part 2 멱등 장치와 같은 타입)
+> 버전 0.8 · 2026-10-12 · **용어 정리**: 단계 끝 "제안 (선택)"을 "추가 항목"으로 바꿨다. "제안"은 리뷰어의 의견(근거 없는 지적)에만 쓴다. 내용은 그대로다
+> 0.7 · 2026-10-11 · JSON 변환 타입을 `ObjectMapper`로 통일(Part 1 코드·Part 2 멱등 장치와 같은 타입)
 > 0.6 · 2026-10-09 · **사실 확인·정합**: Kafka 이미지 태그(`apache/kafka:4.2.2`)·Boot 4 스타터 이름·`CommonErrorHandler` 자동 연결을 확인해 확정, 테스트 컨테이너 기동에 1-10의 MinIO 포함, 정산 테이블에 빠져 있던 `payout_reference` 컬럼과 `markPaid` 인자 통일, Part 2에서 제안으로 옮긴 `FailPaymentService` 잔재 제거
 > 0.5 · 2026-10-02 · **덜어내기**: 가게 개설·폐업 advisory lock 제거(재조회로 충분), 폐업 이벤트의 남은 가게 수 필드 제거, 재시도 간격은 고정값으로(백오프는 제안), 회원 역할은 단일 `role`
 > 0.4 · 2026-10-02 · 예치금 제거: 정산 지급은 `PayoutGateway`(은행 송금 Mock), 충전 이벤트·지갑 탈퇴 조건 삭제
@@ -275,7 +276,7 @@ consumer
 | `common/config/KafkaDltTest` | [ ] 항상 예외를 던지는 테스트용 리스너(`src/test`의 `@Component`, 테스트 전용 토픽 `test.always-fail.v1`) → 4번 시도 후 `test.always-fail.v1.dlt`에 메시지 / [ ] 깨진 JSON → 재시도 없이 바로 DLT(시도 1번) |
 | `shop/web/CloseShopTest` | [ ] 진행 중(PAID) 가게주문이 있는 가게 폐업 → 422 `SHOP_HAS_ACTIVE_ORDERS` / [ ] 폐업 → 204, outbox `shop.shop-closed.v1` 1건 → 릴레이 → 상품 전부 DISCONTINUED / [ ] 가게 2개 중 1개 폐업 → SELLER 유지, 나머지 폐업 → 회수 / [ ] **같은 회원의 가게 2개를 동시에 폐업 → 둘 다 성공하고 최종적으로 SELLER 회수** / [ ] 같은 shop-closed 이벤트를 두 번 소비(테스트에서 같은 메시지를 직접 두 번 send) → 처리 1번 |
 
-**제안 (선택)**
+**추가 항목**
 - 같은 회원의 가게 개설·폐업을 `pg_advisory_xact_lock(hashtext('shop-member:' + memberId))`로 줄 세우기 — SELLER 판단은 consumer 재조회로 이미 안전하므로, 줄 세우기는 "동시에 열고 닫는" 이상한 요청을 막는 용도
 - 재시도 간격을 실패 횟수에 따라 늘리기(지수 백오프) — 릴레이·알림 발송 공통
 
@@ -325,7 +326,7 @@ consumer
 | 상품 상태 (1-8) | `UpdateProductService.changeStatus` | `PRODUCT_UPSERTED`, DISCONTINUED면 `PRODUCT_DISCONTINUED`(reason `SELLER`) | `PRODUCT` / productId |
 | 가게 폐업 단종 (3-2) | `ProductDiscontinueService.discontinueAllByShop` | 상품마다 `PRODUCT_UPSERTED` + `PRODUCT_DISCONTINUED`(reason `SHOP_CLOSED`) | `PRODUCT` / productId |
 | 결제 완료 (2-4 승인, 2-6 대사) | `OrderEventPublisher.paid(order)` — `OrderPaymentApplier.complete`에서 호출 | `ORDER_PAID` | `ORDER` / orderId |
-| 만료·결제 실패 (2-4, 2-5, 2-6) | `OrderEventPublisher.closed(order, reason)` — `OrderPaymentApplier.fail`, `OrderExpirationService.expireOne` (2-4 제안의 결제창 실패 통지 API를 만들었다면 그 서비스도) | `ORDER_EXPIRED` | `ORDER` / orderId |
+| 만료·결제 실패 (2-4, 2-5, 2-6) | `OrderEventPublisher.closed(order, reason)` — `OrderPaymentApplier.fail`, `OrderExpirationService.expireOne` (2-4의 결제 전 주문 취소 `PendingOrderCancelService`는 **발행하지 않는다** — 구매자가 직접 한 일이라 알림이 필요 없고 소비자가 알림뿐이다) | `ORDER_EXPIRED` | `ORDER` / orderId |
 | 발송·배송완료 (2-7) | `ShipmentService.ship` / `deliver` | `SHOP_ORDER_SHIPPED` / `SHOP_ORDER_DELIVERED` | `ORDER` / orderId (같은 주문 이벤트 순서 유지) |
 | 환불 완료 (2-8, 2-9) | `RefundCompleter.complete` | `ORDER_LINE_REFUNDED` | `ORDER` / orderId |
 | 구매확정 (2-10) | `ConfirmPurchaseService.confirm`, `AutoConfirmService`(품목마다) | `ORDER_LINE_CONFIRMED` | `ORDER` / orderId |

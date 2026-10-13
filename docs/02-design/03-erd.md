@@ -1,5 +1,7 @@
 # 03. ERD (Stage 1)
 
+> 2026-10-13: `order_line(shop_order_id)` 인덱스를 인덱스 목록에 더했다(주문 상세의 품목 배치 로딩, 로드맵 2-2)
+> 2026-10-12: 장바구니와 주문은 연결하지 않는다 — 체크아웃은 장바구니를 건드리지 않고(주문 품목으로 복사), 결제 완료 때 주문 수량만큼 차감(로드맵 2-2·2-4)
 > 2026-10-09: 로드맵 4-x와 맞춤 — Redis 키 이름(`auth:email-code:{purpose}:{email}`, 쿨다운·시간당 키, OAuth 키, 세션 = family라 `familyId` 없음), `member.ban_reason`·`social_account.provider_email` 추가
 > 2026-10-02 덜어내기: 회원 역할은 단일 `role`, 주문번호·`from_cart`·`pg_call_log`·대사 백오프 컬럼·구독 재시도 회차·회차 리스·리뷰 임베딩 삭제.
 > 2026-10-02: 예치금(wallet) 제거 — wallet schema 삭제, 주문·환불·구독의 예치금 컬럼 삭제, payment는 주문 전용(`order_id` UK). 상품 이미지는 MinIO(S3 호환)에 저장하고 `product_image.object_key`만 DB에.
@@ -176,7 +178,7 @@ erDiagram
     uuid id PK
     uuid member_id
     varchar type "NORMAL, SUBSCRIPTION"
-    varchar status "PENDING_PAYMENT, PAYMENT_IN_PROGRESS, PAID, PAYMENT_FAILED, EXPIRED"
+    varchar status "PENDING_PAYMENT, PAYMENT_IN_PROGRESS, PAID, PAYMENT_FAILED, EXPIRED, CANCELLED"
     bigint total_amount "INV-01, = PG 결제 금액"
     jsonb shipping_address "스냅샷"
     timestamptz expires_at
@@ -253,6 +255,8 @@ erDiagram
     varchar failure_reason
   }
 ```
+- 장바구니 차감: `cart_item`과 `orders` 사이에 FK·연결 컬럼을 두지 않는다. 결제 완료 때 `(cart_id, product_id)`로 찾아 주문 수량만큼 뺀다(`DELETE ... quantity <= q` 후 `UPDATE ... quantity - q`, 이 순서). 결제 실패·만료는 장바구니에 할 일이 없다.
+- 주문 상세 조회: 인덱스 `order_line(shop_order_id)` (품목을 가게주문 ID `IN (...)`으로 읽는다. FK에는 인덱스가 자동으로 생기지 않는다). 주문 목록은 `orders(member_id, created_at DESC, id DESC)`.
 - 주문 만료 스윕: `WHERE status = 'PENDING_PAYMENT' AND expires_at < now()` → 인덱스 `(status, expires_at)`.
 - 가게주문 조회: 인덱스 `shop_order(shop_id, status, created_at)` (must #1·2).
 - 자동 구매확정: 인덱스 `shop_order(status, delivered_at)`.

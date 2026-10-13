@@ -1,6 +1,8 @@
 # 07. API 명세 (Stage 1)
 
 > 엔드포인트 목록과 핵심 API의 요청·응답 계약. 필드 단위 상세는 구현 시 springdoc(OpenAPI)로 생성하고, 이 문서와 어긋나면 이 문서를 갱신한다.
+> 2026-10-13 · 결제 전 주문 취소 `POST /api/orders/{id}/cancel`을 필수로 올림(기존 선택 API `payment/fail`을 합침, 상태는 `CANCELLED`, §3.2.1)
+> 2026-10-12 · 장바구니는 체크아웃 때 건드리지 않고 결제 완료 때 주문 수량만큼 차감(§3.1)
 > 2026-10-09 · 로드맵과 맞춤: 품목 취소에서 남의 주문은 404 `ORDER_NOT_FOUND`(2-8), DLT 재처리 경로에 파티션(7-3)
 
 ## 1. 공통 규약
@@ -98,7 +100,7 @@
 | POST/PATCH/DELETE | `/api/cart/items[/{id}]` | U | 담기·수량·삭제 | FR-PRD-06 |
 | POST | `/api/orders/checkout` | U, IK | 주문서 생성 (재고 예약) | FR-ORD-01~03 |
 | POST | `/api/orders/{id}/payment/confirm` | O, IK | PG 승인 | FR-ORD-03~06, FR-PAY-01·02 |
-| POST | `/api/orders/{id}/payment/fail` | O | (선택) PG 결제창 실패·취소 통지 → 즉시 해제. 없으면 만료 잡이 정리 | FR-ORD-04 |
+| POST | `/api/orders/{id}/cancel` | O | 결제 전 주문 취소(`PENDING_PAYMENT`만) → 재고 예약 즉시 해제. 결제창 이탈 통지도 이 API | FR-ORD-04 |
 | GET | `/api/orders` | U | 내 주문 목록 | FR-ORD-07 |
 | GET | `/api/orders/{id}` | O | 상세 (가게주문·품목·환불) | FR-ORD-07 |
 | POST | `/api/orders/{id}/lines/{lineId}/cancel` | O, IK | 발송 전 취소 | FR-ORD-08 |
@@ -176,7 +178,7 @@ Idempotency-Key: 7c9e...
 }
 ```
 - 클라이언트는 **가격을 보내지 않는다** (POL-17). 상품·수량은 장바구니 항목에서 가져온다.
-- 주문에 쓴 장바구니 항목은 체크아웃 때 바로 삭제한다. 장바구니를 거치지 않는 바로 구매(`items`)는 선택 사항이다.
+- 체크아웃은 장바구니를 **건드리지 않는다**(항목은 주문 품목으로 복사된다). 결제가 완료되면 주문한 수량만큼 장바구니에서 빠지고, 실패·만료면 그대로 남는다. 같은 항목으로 다시 체크아웃하면 주문이 하나 더 만들어진다(중복을 막지 않는다. 둘 다 결제하면 별개의 주문 두 건이고, 의도하지 않았다면 결제 전에는 주문 취소(§3.2.1)로 바로 풀고, 결제됐다면 발송 전 품목 취소로 환불된다). 장바구니를 거치지 않는 바로 구매(`items`)는 선택 사항이다.
 
 ```json
 201 Created
@@ -191,7 +193,7 @@ Idempotency-Key: 7c9e...
   ]
 }
 ```
-에러: 422 `OUT_OF_STOCK`(details.productIds), `PRODUCT_NOT_ON_SALE`, `SHOP_NOT_ACTIVE`, `OWN_SHOP_PRODUCT`.
+에러: 422 `OUT_OF_STOCK`(details.productIds), `PRODUCT_NOT_ON_SALE`, `SHOP_NOT_ACTIVE`, `OWN_SHOP_PRODUCT` / 404 `CART_ITEM_NOT_FOUND`(남의 항목 포함).
 
 ### 3.2 POST /api/orders/{id}/payment/confirm
 ```json
@@ -206,6 +208,13 @@ Idempotency-Key: 7c9e...
 | 409 `ORDER_EXPIRED` | 승인 시작 전에 만료 | 재주문 안내 (PG 승인 없음) |
 | 409 `ORDER_ALREADY_PAID` | 중복 요청 (다른 Idempotency-Key) | 완료 화면 |
 | 422 `AMOUNT_MISMATCH` | amount ≠ totalAmount | 위변조 의심, 로그 |
+
+### 3.2.1 POST /api/orders/{id}/cancel
+결제 전 주문 취소. 본문 없음, `Idempotency-Key` 불필요.
+```json
+200 { "orderId": "...", "status": "CANCELLED" }
+```
+에러: 404 `ORDER_NOT_FOUND`(없거나 본인 주문이 아님), 409 `INVALID_STATE_TRANSITION`(결제가 시작·완료됐거나 이미 만료·취소됨). 결제 후 취소는 §3.3. 취소된 주문에 `payment/confirm`을 보내면 PG를 부르지 않고 409 `INVALID_STATE_TRANSITION`.
 
 ### 3.3 POST /api/orders/{id}/lines/{lineId}/cancel
 ```json
