@@ -1,6 +1,7 @@
 # Part 1. 뼈대와 첫 기능
 
-> 버전 0.27 · 2026-10-11 · **`subscribable` 수정 구현 완료 반영**: PR #26으로 구현·머지, "Part 1 완료" 체크리스트(릴리스 `v0.1.0`, Part 2 문서 점검, 구현)와 "수정 사항 (Part 2 시작 전)" 테스트 체크박스를 완료 표기했다
+> 버전 0.28 · 2026-10-12 · **용어 정리**: 단계 끝 "제안 (선택)"을 "추가 항목"으로 바꿨다. "제안"은 리뷰어의 의견(근거 없는 지적)에만 쓴다. 내용은 그대로다
+> 0.27 · 2026-10-11 · **`subscribable` 수정 구현 완료 반영**: PR #26으로 구현·머지, "Part 1 완료" 체크리스트(릴리스 `v0.1.0`, Part 2 문서 점검, 구현)와 "수정 사항 (Part 2 시작 전)" 테스트 체크박스를 완료 표기했다
 > 0.26 · 2026-10-11 · **`subscribable` 수정 사항 테스트 검증 범위 명확화**: 완료 확인의 "상세 조회의 `subscribable`"을 "`product.product.subscribable` 저장값(JDBC)"으로 고쳤다(구현·리뷰에서 응답 노출이 아닌 저장 검증으로 충분하다고 결정)
 > 0.26 · 2026-10-12 · **검증 문구 표준 통일**: 범위 길이 문구를 `{항목}은 {n}~{m}자여야 합니다.`로 정하고(공통 규칙 E), 표준에서 벗어난 `이상의 값을 입력해주세요`·`이름을 입력해 주세요.`를 맞췄다(코드·1-4 표)
 > 0.25 · 2026-10-11 · **`subscribable` 정책 결정**: 상품 등록에서 생략·`null`이면 `false`로 등록한다. 1-7 규격을 고치고 "수정 사항 (Part 2 시작 전)" 절(구현 규격·테스트)을 추가했다. "Part 1 완료"의 결정 항목·알려진 한계 표를 갱신했다
@@ -54,7 +55,7 @@
 > **이 문서만 보고 개발할 수 있게** 필요한 규칙을 여기에 모았다. 원본은 [개발 가이드](../development-guide.md)이고, 두 문서가 다르면 Claude가 둘 다 맞춘다.
 > **리뷰 기준**: 리뷰에서는 ① 단계의 "구현 규격"·"완료 확인", ② 아래 공통 규칙에 어긋나는 것만 지적한다. 근거가 없는 의견은 지적하지 않고 "제안"으로 따로 적으며, 반영 여부는 사용자가 정한다.
 > **확인 필요** 표시는 Boot 4 / Hibernate 7에서 동작을 직접 확인하지 못한 부분이다. 막히면 우회하지 말고 알려 주면 문서를 고친다.
-> **제안 (선택)**: 각 단계 끝의 "제안"은 해 보면 좋지만 **하지 않아도 그 단계는 완료**다. 리뷰에서도 하지 않았다고 지적하지 않는다.
+> **추가 항목**: 각 단계 끝의 "추가 항목"은 완료 확인에 들어 있지 않은 항목이다. **하지 않아도 그 단계는 완료**이고, 리뷰에서도 하지 않았다고 지적하지 않는다. 검토 후 하지 않기로 한 선택지는 이 칸이 아니라 단계의 "정책"에 이유와 함께 적는다. "제안"은 리뷰어의 의견에만 쓴다.
 
 ### A. 패키지
 ```
@@ -497,7 +498,7 @@ curl -i -X POST localhost:8080/api/auth/signup -H 'Content-Type: application/jso
   -d '{"email":"buyer@test.com","password":"pass1234","nickname":"buyer","name":"김구매"}'
 ```
 
-**제안 (선택)**
+**추가 항목**
 - 클라이언트가 보낸 `X-Request-Id`를 traceId로 이어 쓰기 — 프런트·게이트웨이와 같은 ID로 추적할 수 있다. 단, 받은 값이 그대로 로그에 들어가므로 형식 검사(`^[A-Za-z0-9-]{1,64}$`)를 같이 한다
 - `SecurityConfigTest`: 보호된 경로가 302(로그인 페이지)나 `WWW-Authenticate`(Basic)를 내리지 않는지 확인
 - 상태 전이 실패 응답의 `details`에 `{from, to}`를 담기
@@ -667,7 +668,7 @@ TOKEN=$(curl -s -X POST localhost:8080/api/auth/login -H 'Content-Type: applicat
 curl -s localhost:8080/api/members/me -H "Authorization: Bearer $TOKEN"
 ```
 
-**제안 (선택)**
+**추가 항목**
 - 만료된 토큰에만 401 `TOKEN_EXPIRED`를 따로 주기(클라이언트가 "다시 로그인" 대신 "갱신"을 고를 수 있다) — refresh가 생기는 4-1 이후에 의미가 있다. 필터가 만료 여부를 요청 속성에 담고 entry point가 읽는 방식
 
 **리뷰 때 물어볼 것**
@@ -926,7 +927,7 @@ public record ShopInfo(UUID shopId, UUID ownerId, String name) {}
 | `shop/web/ShopControllerTest` | [ ] 개설 → 201, 내 가게 목록에 보임 / [ ] 토큰 없이 `GET /api/shops/{id}` → 200 / [ ] 토큰 없이 `GET /api/shops/me` → 401 / [ ] 소유자가 일부 필드(예: `name`)만 PATCH → 200, 보낸 필드만 바뀌고 나머지는 유지(`null`은 유지 규칙) / [ ] `name`을 빈 문자열로 PATCH → 400 `INVALID_REQUEST` / [ ] 다른 회원이 PATCH → 403 `FORBIDDEN` / [ ] 사업자번호 중복 → 409 / [ ] CLOSED 가게(JDBC로 상태 변경) PATCH → 422 `SHOP_NOT_ACTIVE` / [ ] 사업자번호 9자리 → 400 |
 | `shop/application/ShopApiImplTest` | [ ] `verifyOwnerOfActiveShop`: 없는 가게 404 / 남의 가게 403 / CLOSED 422 / 정상 통과 / [ ] `requireActiveShops`: 모두 ACTIVE면 전부 반환 / CLOSED 하나 → `SHOP_NOT_ACTIVE`, `details.shopIds`에 그 ID / **없는 ID 하나(나머지는 ACTIVE)** → 같은 에러, `details.shopIds`에 그 ID / CLOSED와 없음이 섞이면 둘 다 `details.shopIds`에 / 중복 ID를 넘겨도 반환은 가게당 하나 / 빈 입력 → 빈 리스트 |
 
-**제안 (선택)**
+**추가 항목**
 - 낙관적 락 충돌을 결정적으로 재현하는 테스트: 바깥 `TransactionTemplate`에서 가게를 읽고, 안쪽 `PROPAGATION_REQUIRES_NEW` 트랜잭션이 같은 가게를 먼저 수정·커밋한 뒤 바깥에서 수정·커밋 → `ObjectOptimisticLockingFailureException`
 
 **리뷰 때 물어볼 것**
@@ -1138,7 +1139,7 @@ public record Money(long amount) implements Comparable<Money> { ... }
 - [ ] 카테고리 필터
 - [ ] **N+1 없음**: 상품 3개일 때와 10개일 때 목록 조회의 SQL 실행 수가 같다. `application-test.yaml`에 `spring.jpa.properties.hibernate.generate_statistics: true`, 테스트에서 `entityManagerFactory.unwrap(SessionFactory.class).getStatistics()`를 `clear()` 후 요청하고 `getPrepareStatementCount()` 비교
 
-**제안 (선택)**
+**추가 항목**
 - 재고 저장 실패 시 상품도 롤백되는지 증명하는 테스트(`@MockitoSpyBean StockRepository`로 `insertStock`이 예외를 던지게) — 원 프로젝트에서 상품·재고가 따로 저장되던 결함(CAT-04)의 반증
 
 **리뷰 때 물어볼 것**
@@ -1645,7 +1646,7 @@ curl -s -X POST localhost:8080/api/shops/$SHOP/products/$PRODUCT/images/presigne
 # → uploadUrl로 PUT 후 objectKey 등록
 ```
 
-**제안 (선택)**
+**추가 항목**
 - `product/application/ProductImageConcurrencyTest`: 9장인 상품에 업로드해 둔 이미지 2개를 스레드 2개가 `CountDownLatch`로 동시에 `register`하면 **DB에 정확히 10건**, 성공 1건, 실패 1건이다. 실패한 쪽은 `ObjectOptimisticLockingFailureException`(두 트랜잭션이 겹친 경우)이나 `PRODUCT_IMAGE_LIMIT_EXCEEDED`(한쪽이 먼저 커밋한 뒤 읽은 경우) 둘 다 정상이므로 핵심 단언은 "10건, 성공 1건"이다. 겹침이 매번 일어나지 않으므로 `@RepeatedTest(10)`. (Hibernate가 컬렉션 변경 시 `Product.version`을 올리는지 확인하는 의미도 있다. 확인함: 10회 모두 실패한 쪽이 `ObjectOptimisticLockingFailureException`이었다)
 
 **리뷰 때 물어볼 것**
@@ -2129,7 +2130,7 @@ docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml e
 | [ ] 재부팅 복구 | VM 재부팅 후 러너 서비스와 compose가 사람 개입 없이 올라온다 |
 | [ ] 러너 권한 | 러너 서비스가 root가 아닌 전용 사용자로 돈다 |
 
-**제안 (선택)**
+**추가 항목**
 - 배포 결과(성공·실패, sha)를 Actions Job Summary에 남기기 — Part 7에서 배포 이력을 보기 쉬워진다
 
 **리뷰 때 물어볼 것**

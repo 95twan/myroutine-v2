@@ -13,6 +13,7 @@
 | [06-sequences.md](06-sequences.md) | 체크아웃, 결제 승인·대사, 만료, 취소, 구독 회차, 정산, 가게, 상품 이미지 업로드, 인증 |
 | [07-api-spec.md](07-api-spec.md) | 공통 규약, 에러 코드, 엔드포인트 목록, 핵심 API 계약 |
 | [08-stock-design-evolution.md](08-stock-design-evolution.md) | 재고 설계의 진화: 가장 단순한 구조 → 조건부 UPDATE → 예약 → CAS → 이력 → 데드락 회피, 면접 Q&A |
+| [09-order-flow.md](09-order-flow.md) | 주문 프로세스 한눈에 보기: 장바구니 담기 → 체크아웃(주문·재고 예약) → 결제 승인 → 거절·불확실·만료 처리, 숫자로 따라가기 |
 | [../adr/](../adr/) | 설계 결정 기록 12건 (005는 폐기) |
 
 ## 핵심 결정 요약

@@ -1,6 +1,7 @@
 # Part 5. 구독
 
-> 버전 0.6 · 2026-10-09 · **사실 확인·정합**: Toss 빌링 API(발급·승인·삭제 엔드포인트와 응답 필드)를 개발자센터 문서와 대조해 확정, Part 2에서 제안으로 옮긴 `pg_call_log` 잔재를 로그 확인으로 바꿨다
+> 버전 0.7 · 2026-10-12 · 참조 문구를 Part 2의 "추가 항목" 용어에 맞췄다
+> 0.6 · 2026-10-09 · **사실 확인·정합**: Toss 빌링 API(발급·승인·삭제 엔드포인트와 응답 필드)를 개발자센터 문서와 대조해 확정, Part 2에서 제안으로 옮긴 `pg_call_log` 잔재를 로그 확인으로 바꿨다
 > 0.5 · 2026-10-02 · **덜어내기**: 회차 선점(PROCESSING 리스·재시도 회차·시도 수) 제거 — 회차 INSERT와 주문 생성을 한 트랜잭션으로
 > 0.4 · 2026-10-02 · 예치금 제거: 구독의 "예치금 우선 사용" 옵션 삭제, 회차 결제는 항상 빌링
 > 0.3 · 이 문서만 보고 개발할 수 있게 구체화(빌링·구독·회차의 구현 규격과 테스트 케이스)
@@ -87,7 +88,7 @@
 **3) TossClient 추가** (2-3 분류표 그대로)
 - `BillingIssueResult issueBillingKey(String authKey, String customerKey)` → `sealed interface BillingIssueResult { Issued(String billingKey, String cardSummary); Rejected(String code); Unknown(String reason) }`. 응답 본문은 `TossBillingResponse(String billingKey, String customerKey, String cardCompany, String cardNumber)` + `@JsonIgnoreProperties(ignoreUnknown = true)`로 받는다. 분류(2xx·4xx·5xx·타임아웃)와 호출 형태는 2-3과 같다
 - `PgResult billingCharge(UUID paymentId, String billingKey, String customerKey, String pgOrderId, Money amount, String orderName)` — `Idempotency-Key: paymentId`
-- 2-3의 로그 한 줄(`log.info("pg {} ...")`)에 작업 이름 `BILLING_ISSUE`, `BILLING`을 쓴다. **빌링키·authKey·customerKey는 로그에 남기지 않는다**(감사 테이블 `pg_call_log`는 Part 2에서 제안으로 옮겼다)
+- 2-3의 로그 한 줄(`log.info("pg {} ...")`)에 작업 이름 `BILLING_ISSUE`, `BILLING`을 쓴다. **빌링키·authKey·customerKey는 로그에 남기지 않는다**(감사 테이블 `pg_call_log`는 Part 2에서 추가 항목으로 옮겼다)
 - `FakePgServer`에 두 경로의 기본 동작 추가: 발급(`/v1/billing/authorizations/issue`)은 `{billingKey: "bk_" + 랜덤, customerKey: 요청값, cardCompany: "신한", cardNumber: "1234****5678"}`, 결제(`/v1/billing/{billingKey}`)는 승인 경로와 같은 방식(승인 기록·멱등). 경로 접두어가 `/v1/billing/`로 겹치므로 발급 경로를 먼저 판별한다
 
 **4) payment**
@@ -265,7 +266,7 @@
 - `Order place(PlaceOrderCommand command)` — **호출자 트랜잭션 안에서**: `Order.checkout(...)` → save → `productApi.reserve` → order 반환
 - `PlaceOrderCommand(UUID memberId, OrderType type, List<CheckoutLine> lines, ShippingAddress address)`
 - `Order.checkout`에 `OrderType type` 인자 추가(NORMAL / SUBSCRIPTION)
-- `CheckoutService`는 상품·가게·배송지 확인 후 `OrderPlacer.place`를 호출하도록 바꾼다(장바구니 삭제는 `CheckoutService`에 남는다). **2-2 테스트가 그대로 통과**해야 한다(리팩터링)
+- `CheckoutService`는 상품·가게·배송지 확인 후 `OrderPlacer.place`를 호출하도록 바꾼다(체크아웃은 장바구니를 건드리지 않으므로 `CheckoutService`에 남길 장바구니 처리가 없다. 대신 2-4의 결제 완료 때 장바구니 차감(`OrderPaymentApplier.complete`)에 **`type == NORMAL` 조건을 더한다** — 구독 회차 주문이 구매자의 장바구니를 건드리면 안 된다). **2-2 테스트가 그대로 통과**해야 한다(리팩터링)
 
 **3) payment 추가**
 - `StartPayment`에 `UUID billingKeyId` 추가(일반 결제는 null), `payment.billing_key_id`에 저장
