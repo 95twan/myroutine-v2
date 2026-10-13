@@ -1,6 +1,10 @@
 package com.myroutine.support;
 
 import com.myroutine.member.application.*;
+import com.myroutine.order.application.CartService;
+import com.myroutine.order.application.CheckoutCommand;
+import com.myroutine.order.application.CheckoutResult;
+import com.myroutine.order.application.CheckoutService;
 import com.myroutine.product.application.*;
 import com.myroutine.product.domain.ProductCategory;
 import com.myroutine.shop.application.OpenShopCommand;
@@ -9,24 +13,24 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.Map;
-import java.util.Random;
-import java.util.UUID;
+import java.util.*;
 
 @Component
 @RequiredArgsConstructor
 public class TestFixtures {
 
     private final SignupService signupService;
+    private final MemberAddressService memberAddressService;
     private final OpenShopService openShopService;
     private final RegisterProductService registerProductService;
     private final ProductImageService productImageService;
     private final LoginService loginService;
+    private final CartService cartService;
+    private final CheckoutService checkoutService;
     private final JdbcTemplate jdbcTemplate;
 
     public UUID signup(String email) {
@@ -147,6 +151,34 @@ public class TestFixtures {
         });
 
         return httpClient.send(putBuilder.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    public UUID address(UUID memberId) {
+        return memberAddressService.register(memberId, new AddressCommand(
+                "recipient",
+                "010-1213-1234",
+                "30382",
+                "address1",
+                "address2",
+                true
+        ));
+    }
+
+    public UUID addToCart(UUID memberId, UUID productId, int quantity) {
+        return cartService.addItem(memberId, productId, quantity);
+    }
+
+    public CheckoutResult checkout(UUID memberId, List<UUID> cartItemIds, UUID addressId) {
+        return checkoutService.checkout(memberId, new CheckoutCommand(cartItemIds, addressId));
+    }
+
+    public StockSnapshot stockOf(UUID productId) {
+        String sql = "SELECT available, reserved, sold FROM product.stock WHERE product_id = ?";
+        return jdbcTemplate.queryForObject(sql, (rs, rowNum) -> new StockSnapshot(
+                rs.getInt("available"),
+                rs.getInt("reserved"),
+                rs.getInt("sold")
+        ), productId);
     }
 
 }
