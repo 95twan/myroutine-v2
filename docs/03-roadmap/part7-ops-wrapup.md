@@ -1,6 +1,7 @@
 # Part 7. 관측 · 운영 · 마무리
 
-> 버전 0.5 · 2026-10-09 · **버전 확인·운영 환경 반영**: logstash-logback-encoder `9.0`(Jackson 3·Logback 1.5 기반), ELK·Prometheus·Grafana 이미지 태그를 확인해 고정, Spring Boot가 Kafka 클라이언트 지표를 자동 등록하는 것을 확인, 1-11 운영 VM에서는 Prometheus가 `app:8081`을 긁도록 적었다
+> 버전 0.6 · 2026-10-14 · **표현 정리**(설계·동작 변경 없음): 7-1 MDC 예시의 `var`를 명시 타입으로(리포 코드에 `var`가 없다), 7-2 서비스 개요 대시보드의 긴 항목을 하위 항목으로 풀었다
+> 0.5 · 2026-10-09 · **버전 확인·운영 환경 반영**: logstash-logback-encoder `9.0`(Jackson 3·Logback 1.5 기반), ELK·Prometheus·Grafana 이미지 태그를 확인해 고정, Spring Boot가 Kafka 클라이언트 지표를 자동 등록하는 것을 확인, 1-11 운영 VM에서는 Prometheus가 `app:8081`을 긁도록 적었다
 > 0.4 · 2026-10-02 · 예치금 제거: 원장 점검 → 재고 대조 점검, E2E 시나리오에서 예치금 삭제
 > 0.3 · 이 문서만 보고 개발할 수 있게 구체화(로그 필드, 메트릭 목록과 계산식, 운영 API, E2E 시나리오)
 
@@ -50,7 +51,7 @@
 |---|---|---|
 | `traceId` | `TraceIdFilter`, `JobRunner`, `EventContext`/`InboxGuard` (이미 있음) | 각자 finally |
 | `memberId` | `JwtAuthenticationFilter` 인증 성공 직후 | `TraceIdFilter`의 finally에서 함께 제거 |
-| `orderId` | 주문 흐름 서비스(`ConfirmPaymentService`, `OrderPaymentApplier`, `CancelOrderLineService`, 만료·대사 잡의 주문별 처리)에서 `try (var c = MDC.putCloseable("orderId", ...))` | try-with-resources가 제거 |
+| `orderId` | 주문 흐름 서비스(`ConfirmPaymentService`, `OrderPaymentApplier`, `CancelOrderLineService`, 만료·대사 잡의 주문별 처리)에서 `try (MDC.MDCCloseable c = MDC.putCloseable("orderId", ...))` | try-with-resources가 제거 |
 | `job` | `JobRunner` (이미 있음) | |
 
 **3) docker**
@@ -117,7 +118,9 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
   - 로컬(앱은 IDE·`bootRun`으로 호스트에서 실행): `host.docker.internal:8081` — Docker Desktop(macOS)에서는 그대로 된다. Linux에서 호스트의 앱을 긁으려면 prometheus 서비스에 `extra_hosts: ["host.docker.internal:host-gateway"]`가 필요하다
   - 운영 VM(1-11 `docker-compose.ops.yml`의 `observability` 프로필): 앱도 컨테이너이므로 `app:8081`(관리 포트는 호스트에 publish하지 않지만 같은 compose 네트워크에서는 닿는다). 파일을 둘로 두거나(`prometheus.yml`, `prometheus.ops.yml`) 대상만 바꾼다
 - `docker/grafana/provisioning/datasources/prometheus.yml`, `dashboards/*.json` 3개
-  - **서비스 개요**: 요청률·에러율·p95(`http_server_requests_seconds`), JVM 힙, HikariCP 활성 커넥션, Kafka consumer lag — Boot 4.1.1은 Kafka consumer·producer 팩토리에 Micrometer 리스너(`MicrometerConsumerListener`)를 자동으로 붙인다(jar로 확인). Kafka 클라이언트 지표 `records-lag-max`가 Prometheus에서는 `kafka_consumer_fetch_manager_records_lag_max`로 보일 것으로 예상한다(확인 필요: `/actuator/prometheus` 출력에서 `lag`로 검색해 실제 이름을 쓴다)
+  - **서비스 개요**: 요청률·에러율·p95(`http_server_requests_seconds`), JVM 힙, HikariCP 활성 커넥션, Kafka consumer lag
+    - Boot 4.1.1은 Kafka consumer·producer 팩토리에 Micrometer 리스너(`MicrometerConsumerListener`)를 자동으로 붙인다(jar로 확인)
+    - Kafka 클라이언트 지표 `records-lag-max`는 Prometheus에서 `kafka_consumer_fetch_manager_records_lag_max`로 보일 것으로 예상한다(확인 필요: `/actuator/prometheus` 출력에서 `lag`로 검색해 실제 이름을 쓴다)
   - **결제·정합성**: `payment_unknown_*`, `saga_stuck_count`, `stock_balance_mismatch_count`, `pg_call_seconds` p95·결과별 비율, `stock_reservation_expired_total` 증가율
   - **Kafka·Outbox**: `outbox_*`, `kafka_dlt_records_total`
 - `docker/grafana/provisioning/alerting/rules.yml` (Grafana 알림 규칙을 파일로)

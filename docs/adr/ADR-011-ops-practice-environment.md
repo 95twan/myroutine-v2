@@ -1,6 +1,6 @@
 # ADR-011. 운영 환경 연습: Proxmox VM 1대 + Docker Compose, GitHub Actions self-hosted runner로 자동 배포
 
-- 상태: 승인 (2026-10-07, 개정: 쿠버네티스를 최종 목표로 기록 / 2026-10-09: "확인 필요" 항목을 공식 문서·실행으로 확인, `workflow_run` 트리거의 안전 조건과 인프라 이미지 고정 방식 추가)
+- 상태: 승인 (2026-10-07, 개정: 쿠버네티스를 최종 목표로 기록 / 2026-10-09: "확인 필요" 항목을 공식 문서·실행으로 확인, `workflow_run` 트리거의 안전 조건과 인프라 이미지 고정 방식 추가 / 2026-10-14: 운영 MinIO를 VM에서 시놀로지 NAS(DS720+)로 이전 — §5·§6 수정, §8 추가)
 - 관련: 로드맵 [1-11](../03-roadmap/part1-foundation.md), NFR-SEC-01, [ADR-010](ADR-010-observability.md), [Git 정책 §7](../git-policy.md)
 
 ## 맥락
@@ -23,10 +23,17 @@
    - 배포 job은 GitHub Environment `ops`를 쓰고, 배포 가능한 브랜치를 `develop`·`main`으로 제한한다.
    - 러너는 전용 비root 사용자로 실행하고, VM에는 이 프로젝트 외의 중요한 데이터를 두지 않는다. (docker 그룹은 사실상 root 권한이다. VM을 격리된 용도로만 쓰는 것으로 위험을 받아들인다.)
 4. **시크릿**: 운영 `.env`는 VM의 고정 경로(예: `/opt/myroutine/.env`)에 사람이 한 번 만든다. 리포와 GitHub Secrets에는 두지 않는다(NFR-SEC-01, 공격면 축소). 배포는 이 파일을 읽기만 한다. GHCR 로그인은 워크플로의 `GITHUB_TOKEN`을 쓴다. push하는 job은 `permissions: packages: write`, pull만 하는 배포 job은 `packages: read`(GitHub 문서 "Publishing Docker images"의 예시와 같다, 2026-10-09 확인).
-5. **접속**: 집 네트워크(LAN) 안에서만. 앱 포트와 MinIO 포트만 LAN에 열고, DB·Redis·Kafka·ES와 actuator 관리 포트(8081)는 호스트에 publish하지 않는다(MEM-05). 외부 접속은 **보류**한다(아래).
-6. **데이터**: Postgres·MinIO 등은 named volume. 백업은 Stage 1 범위 밖이고 회고에 남긴다.
+5. **접속**: 집 네트워크(LAN) 안에서만. VM은 앱 포트(8080)만 LAN에 열고, DB·Redis·Kafka·ES와 actuator 관리 포트(8081)는 호스트에 publish하지 않는다(MEM-05). MinIO API(9000)는 NAS가 LAN에 연다(§8). 외부 접속은 **보류**한다(아래).
+6. **데이터**: Postgres 등은 VM의 named volume, MinIO는 NAS 로컬 볼륨(§8). 백업은 Stage 1 범위 밖이고 회고에 남긴다.
    - 인프라 이미지도 고정한다: 버전 태그가 있으면 태그로(예: `pgvector/pgvector:pg17`), 태그가 `latest`뿐인 이미지(`chainguard/minio`, 2026-09-11 공식 `minio/minio` 삭제 후 사용)는 **digest**(`image@sha256:...`)로. 매일 다시 빌드되는 `latest`로 두면 롤백해도 인프라 버전이 바뀐다.
 7. **스키마와 롤백**: 롤백은 이미지만 되돌린다(Flyway는 되돌리지 않는다). 따라서 **이전 버전 앱이 새 스키마에서 동작해야** 한다. 컬럼 삭제·이름 변경 같은 파괴적 마이그레이션은 "추가 → 코드 전환 → 삭제"의 두 번 이상의 배포로 나눈다.
+
+8. **MinIO는 NAS에서 돌린다** (2026-10-14): 시놀로지 DS720+(x86_64, Container Manager)에 같은 `chainguard/minio` digest로 띄운다. 절차는 [ops/nas-minio.md](../ops/nas-minio.md).
+   - 이유: 이미지 데이터를 VM 밖으로 빼서 VM을 지우거나 되돌려도 남기고, NAS의 디스크 보호를 쓴다. VM 백업(vzdump)도 가벼워진다.
+   - 코드 변경은 없다. `STORAGE_ENDPOINT`·`STORAGE_PUBLIC_BASE_URL`(환경변수)이 NAS 주소를 가리키고, 운영 compose에서 `minio` 서비스와 `app.depends_on.minio`가 빠진다.
+   - 대가: 앱이 VM과 NAS 두 장비에 의존한다(NAS가 꺼지면 업로드 실패, 앱 재시작 시 기동 실패). 실습 환경이라 받아들인다.
+   - 로컬 개발·테스트(`docker/docker-compose.yml`, Testcontainers)는 그대로 로컬 MinIO를 쓴다.
+   - 기존 운영 이미지 데이터는 옮기지 않고 새로 시작한다(사용자 결정, 테스트 데이터뿐).
 
 ## 고려한 대안
 | 대안 | 결정 |
@@ -36,6 +43,7 @@
 | Actions → Tailscale → SSH | 도메인 없이 되지만 Tailscale이라는 또 다른 도구를 배워야 한다 |
 | VM이 이미지를 당겨가기(cron, Watchtower) | 포트가 필요 없고 단순하지만, 배포 성공·실패가 Actions에 남지 않고 반영이 폴링 주기만큼 늦다 |
 | **self-hosted runner (채택)** | VM에서 GitHub로 나가는 연결만 쓴다. 포트·도메인이 필요 없고, 배포 결과가 Actions에 기록된다. 대가는 public 리포에서의 위 안전 장치 |
+| MinIO를 VM compose에 그대로 둠 (§8의 이전 대안) | 설정이 가장 단순하고 NAS 장애와 무관하지만, 데이터가 VM과 운명을 같이하고 VM 백업에 섞인다. NAS를 이미 갖고 있어 옮기기로 했다 |
 | 처음부터 Kubernetes(k3s) | Stage 1 기능을 만드는 동안 클러스터 운영 부담이 겹친다. 기능이 쌓인 뒤 옮기는 쪽이 비교(compose → k8s)가 쉽다 → **최종 목표로 두고 시기는 뒤에서 정한다**(아래 "진화 경로") |
 
 ## 진화 경로: 최종 목표는 Kubernetes + 무중단 배포

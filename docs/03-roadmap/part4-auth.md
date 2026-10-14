@@ -1,6 +1,7 @@
 # Part 4. 인증 완성
 
-> 버전 0.7 · 2026-10-12 · **용어 정리**: 단계 끝 "제안 (선택)"을 "추가 항목"으로 바꿨다. "제안"은 리뷰어의 의견(근거 없는 지적)에만 쓴다. 내용은 그대로다
+> 버전 0.8 · 2026-10-14 · **표현·구조 정리**(설계·동작 변경 없음): 한 줄 화살표(`→`)로 이어 쓴 흐름(4-2 인증코드·비밀번호, 4-3 소셜 로그인·가입·연결, 4-4 제재·로그인 잠금)을 번호 목록으로 풀고, 정의 없이 쓰던 `StoredSession`·`PendingSocialSignup`을 정의했다
+> 0.7 · 2026-10-12 · **용어 정리**: 단계 끝 "제안 (선택)"을 "추가 항목"으로 바꿨다. "제안"은 리뷰어의 의견(근거 없는 지적)에만 쓴다. 내용은 그대로다
 > 0.6 · 2026-10-09 · **구현된 Part 1 코드와 정합**: `TokenResult`·`TokenResponse`의 실제 필드 이름(`expiresInSeconds`), `TestFixtures`의 실제 헬퍼 이름(`signup`·`token`), 단계마다 늘어나는 `JwtProvider.issue`·`AuthClaims` 인자를 한 줄로 맞췄다. Redis 이미지 태그를 고정하고(`redis:7.4.11`) 테스트 컨테이너 기동에 1-10의 MinIO를 넣었다
 > 0.5 · 2026-10-02 · **덜어내기**: 토큰 거부 코드는 401 `UNAUTHORIZED` 하나로(만료·폐기 구분은 제안), tokenVersion 로컬 캐시와 Redis 장애 정책 제거, 가입 토큰용 인증코드 발송은 별도 API로(선택적 리졸버 제거), 소셜 계정 중복은 사전 조회로
 > 0.4 · 2026-10-02 · 예치금 제거 반영(충전 API·개발용 입금 API 관련 항목 삭제)
@@ -113,6 +114,8 @@
 | `LogoutService` | `void logout(UUID memberId, UUID sessionId, boolean all)` |
 | `MemberErrorCode` | `REFRESH_REUSED` |
 
+- `StoredSession`: `record (UUID memberId, String refreshHash, String device, Instant createdAt, Instant lastUsedAt)` — Redis 해시(공통 규칙 T의 `auth:session:{sessionId}`)의 필드
+
 `rotate.lua`
 ```lua
 -- KEYS[1] = auth:session:{id}, ARGV[1] = expectedHash, ARGV[2] = newHash, ARGV[3] = ttlSeconds, ARGV[4] = now
@@ -190,8 +193,15 @@ return 0
 | `EmailVerificationService` | `void send(UUID memberId)` / `void confirm(UUID memberId, String code)` |
 | `Member.verifyEmail(Instant now)` | 이미 인증됐으면 `EMAIL_ALREADY_VERIFIED`, 아니면 `emailVerifiedAt = now` |
 
-`send`: 회원 조회 → 이미 인증이면 409 → `checkSendLimit` → 코드 생성 → `save` → `mailSender.send(email, "[MyRoutin] 이메일 인증코드", "인증코드: " + code)`
-`confirm`: `verify` false면 `EMAIL_CODE_INVALID` → 트랜잭션으로 `member.verifyEmail(now)`
+`send` 순서
+1. 회원 조회 — 이미 인증됐으면 409 `EMAIL_ALREADY_VERIFIED`
+2. `checkSendLimit(email)`
+3. 코드 생성 → `save`
+4. `mailSender.send(email, "[MyRoutin] 이메일 인증코드", "인증코드: " + code)`
+
+`confirm` 순서
+1. `verify`가 false면 `EMAIL_CODE_INVALID`
+2. 트랜잭션에서 `member.verifyEmail(now)`
 
 **3) 인증 여부로 막기**
 - `AuthClaims`에 `boolean emailVerified` 추가(`ev` 클레임, 4-1의 표), 발급 시 `member.getEmailVerifiedAt() != null`
@@ -202,10 +212,22 @@ return 0
 
 **4) 비밀번호**
 - `Member.changePassword(String encodedPassword)`
-- `PasswordService`
-  - `TokenResult change(UUID memberId, UUID sessionId, String current, String next)`: `passwordHash`가 null이거나 `matches` 실패면 `PASSWORD_MISMATCH` → 변경 → `sessionStore.deleteAllOfExcept(memberId, sessionId)` → 현재 세션용 새 토큰 반환(4-4 이후 tokenVersion이 올라 기존 access가 막히므로)
-  - `void requestReset(String email)`: 회원이 있고 ACTIVE면 `checkSendLimit` → 코드(`RESET_PASSWORD`) 발송. 없으면 아무것도 안 함(응답은 같음)
-  - `void confirmReset(String email, String code, String newPassword)`: `verify` 실패면 `EMAIL_CODE_INVALID` → 변경 → `deleteAllOf(memberId)`
+- `PasswordService` (member.application)
+
+`TokenResult change(UUID memberId, UUID sessionId, String current, String next)` 순서
+1. `passwordHash`가 null이거나 `matches`가 실패하면 `PASSWORD_MISMATCH`
+2. 비밀번호를 바꾼다
+3. `sessionStore.deleteAllOfExcept(memberId, sessionId)`
+4. 현재 세션용 새 토큰을 반환한다(4-4 이후에는 tokenVersion이 올라 기존 access가 막히므로)
+
+`void requestReset(String email)` 순서
+1. 회원이 있고 ACTIVE면 `checkSendLimit` → `RESET_PASSWORD` 코드 발송
+2. 없으면 아무것도 하지 않는다(응답은 같다)
+
+`void confirmReset(String email, String code, String newPassword)` 순서
+1. `verify`가 실패하면 `EMAIL_CODE_INVALID`
+2. 비밀번호를 바꾼다
+3. `deleteAllOf(memberId)`
 
 **5) API**
 
@@ -289,11 +311,28 @@ return 0
 | `Member.signUpWithSocial(String email, String nickname, String name, Instant now)` | `passwordHash = null`, `emailVerifiedAt = now`, 나머지는 `signUp`과 같음 |
 | `SocialAccount` (entity) + `SocialAccountRepository` | `findByProviderAndProviderUserId`, `existsByProviderAndProviderUserId`, `existsByMemberIdAndProvider`, `save` |
 
-`login` 순서: `consume(state, provider)` 실패면 `OAUTH_STATE_INVALID` → `fetchUser` → 소셜 계정이 있으면 회원 `verifyCanLogin` → `issueNewSession` → `LOGGED_IN` / 없으면 가입 토큰 발급 → `SIGNUP_REQUIRED`(email은 제공자 이메일, 없으면 null)
+- `PendingSocialSignup`: `record (OAuthProvider provider, String providerUserId, String email, String nickname)` — Redis 해시(공통 규칙 T의 `auth:oauth-signup:{signupToken}`)의 필드
 
-`signup` 순서: 가입 토큰 조회(없으면 `SIGNUP_TOKEN_INVALID`) → email = 토큰의 이메일 ?: 요청 이메일(둘 다 없으면 `INVALID_REQUEST`) → 정규화 → `emailCodeStore.verify(VERIFY_EMAIL, email, code)` 실패면 `EMAIL_CODE_INVALID` → `existsByEmail`이면 `MEMBER_EMAIL_DUPLICATED`(자동 연결 안 함) → 닉네임 중복 확인 → `Member.signUpWithSocial` + `SocialAccount` 저장(한 트랜잭션) → 가입 토큰 삭제 → `issueNewSession`
+`login` 순서
+1. `consume(state, provider)`가 실패하면 `OAUTH_STATE_INVALID`
+2. `fetchUser`
+3. 소셜 계정이 있으면: 회원 `verifyCanLogin` → `issueNewSession` → `LOGGED_IN`
+4. 없으면: 가입 토큰 발급 → `SIGNUP_REQUIRED`(email은 제공자 이메일, 없으면 null)
 
-`link` 순서: state 확인 → `fetchUser` → 이미 다른 회원에 연결된 소셜 계정이거나 이 회원이 같은 제공자를 이미 가졌으면(`existsByProviderAndProviderUserId`, `existsByMemberIdAndProvider`) `SOCIAL_ACCOUNT_ALREADY_LINKED` → 저장 (동시 요청 경합은 unique 제약 → 409 `DUPLICATE_RESOURCE`)
+`signup` 순서
+1. 가입 토큰 조회 — 없으면 `SIGNUP_TOKEN_INVALID`
+2. email = 토큰의 이메일, 없으면 요청 이메일(둘 다 없으면 `INVALID_REQUEST`) → 정규화
+3. `emailCodeStore.verify(VERIFY_EMAIL, email, code)`가 실패하면 `EMAIL_CODE_INVALID`
+4. `existsByEmail`이면 `MEMBER_EMAIL_DUPLICATED` (자동 연결 안 함)
+5. 닉네임 중복 확인
+6. `Member.signUpWithSocial` + `SocialAccount` 저장 (한 트랜잭션)
+7. 가입 토큰 삭제 → `issueNewSession`
+
+`link` 순서
+1. state 확인 (`login` 1과 같다)
+2. `fetchUser`
+3. 이미 다른 회원에 연결된 소셜 계정이거나 이 회원이 같은 제공자를 이미 가졌으면(`existsByProviderAndProviderUserId`, `existsByMemberIdAndProvider`) `SOCIAL_ACCOUNT_ALREADY_LINKED`
+4. 저장 (동시 요청 경합은 unique 제약 → 409 `DUPLICATE_RESOURCE`)
 
 가입 토큰용 인증코드 발송은 **별도 API**로 둔다: `POST /api/auth/oauth/signup/email-verifications` 바디 `SignupEmailVerificationRequest(@NotBlank String signupToken, @Email String email)` — 토큰의 이메일(없으면 바디 이메일)로 `VERIFY_EMAIL` 코드 발송(4-2의 발송 제한 그대로). 로그인 회원용 `POST /api/auth/email-verifications`는 4-2 그대로 둔다.
 
@@ -364,12 +403,16 @@ return 0
 - 마이그레이션 `V{...}__member_add_ban_reason.sql`: `member.member`에 `ban_reason varchar(200) NULL`
 - `Member.ban(String reason)`: `ACTIVE → BANNED`, `banReason = reason` / `Member.unban()`: `BANNED → ACTIVE`, `banReason = null`
 - 이벤트 `MemberTopics.MEMBER_BANNED = "member.member-banned.v1"`, `MemberBannedEvent(UUID memberId, String reason)` → 3-5 알림 매핑에 `BANNED` 추가
-- `AdminMemberService`: `CursorPage<AdminMemberResult> search(String query, MemberStatus status, String cursor, int size)` / `@Transactional void ban(UUID memberId, String reason)` (ban → bump → 세션 전부 폐기 → 이벤트) / `@Transactional void unban(UUID memberId)`
+- `AdminMemberService`: `CursorPage<AdminMemberResult> search(String query, MemberStatus status, String cursor, int size)` / `@Transactional void ban(UUID memberId, String reason)`(아래 순서) / `@Transactional void unban(UUID memberId)`
+- `ban` 순서: ① `member.ban(reason)` ② `tokenVersionService.bump(member)` ③ 세션 전부 폐기(`sessionStore.deleteAllOf`) ④ `MEMBER_BANNED` 발행
 - API (`/admin/api/members`, ADMIN): `GET ?query=&status=&cursor=&size=` → `AdminMemberResponse(id, email, nickname, name, status, role, emailVerified, createdAt)` / `POST /{id}/ban` `BanRequest(@NotBlank @Size(max=200) String reason)` → 204 / `POST /{id}/unban` → 204
 
 **3) 로그인 잠금**
 - `LoginAttemptStore` (domain 인터페이스) + `RedisLoginAttemptStore`: `Optional<Instant> lockedUntil(String email)`(카운트 ≥ 5면 TTL로 해제 시각 계산), `void recordFailure(String email)`(`INCR`, 1이면 `EXPIRE 900`), `void reset(String email)`
-- `LoginService.login` 변경: 정규화 직후 `lockedUntil`이 있으면 `BusinessException(ACCOUNT_LOCKED, Map.of("unlockAt", ...))` → 비밀번호 확인 실패(이메일 없음 포함) 시 `recordFailure` → 성공 시 `reset`
+- `LoginService.login` 변경
+  1. 이메일 정규화 직후 `lockedUntil`이 있으면 `BusinessException(ACCOUNT_LOCKED, Map.of("unlockAt", ...))`
+  2. 비밀번호 확인이 실패하면(이메일이 없는 경우 포함) `recordFailure`
+  3. 성공하면 `reset`
 
 
 ### 완료 확인

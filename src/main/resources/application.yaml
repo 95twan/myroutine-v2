@@ -31,5 +31,11 @@ myroutine:
     max-upload-bytes: 5242880
   order:
     payment-ttl: 15m
+  toss:
+    base-url: https://api.tosspayments.com
+    secret-key: ${TOSS_SECRET_KEY}
+    client-key: ${TOSS_CLIENT_KEY:}
+    connect-timeout: 3s
+    read-timeout: 10s
 
 logging.pattern.level: "%5p [%X{traceId:-}]"
