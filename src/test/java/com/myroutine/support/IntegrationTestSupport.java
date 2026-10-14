@@ -21,6 +21,8 @@ public abstract class IntegrationTestSupport {
     @Autowired
     JdbcTemplate jdbc;
 
+    protected static final FakePgServer pg = FakePgServer.start();
+
     @ServiceConnection
     static final PostgreSQLContainer postgres = new PostgreSQLContainer("pgvector/pgvector:pg17");
 
@@ -37,6 +39,7 @@ public abstract class IntegrationTestSupport {
         registry.add("myroutine.storage.access-key", minio::getUserName);
         registry.add("myroutine.storage.secret-key", minio::getPassword);
         registry.add("myroutine.storage.public-base-url", () -> minio.getS3URL() + "/myroutine");
+        registry.add("myroutine.toss.base-url", pg::baseUrl);
     }
 
     @AfterEach
@@ -50,5 +53,10 @@ public abstract class IntegrationTestSupport {
             return;
         }
         jdbc.execute("TRUNCATE TABLE " + String.join(", ", tables) + " RESTART IDENTITY CASCADE");
+    }
+
+    @AfterEach
+    void resetPg() {
+        pg.reset();
     }
 }
