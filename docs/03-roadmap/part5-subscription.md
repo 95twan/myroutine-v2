@@ -1,6 +1,7 @@
 # Part 5. 구독
 
-> 버전 0.7 · 2026-10-12 · 참조 문구를 Part 2의 "추가 항목" 용어에 맞췄다
+> 버전 0.8 · 2026-10-14 · **표현·구조 정리**(설계·동작 변경 없음): 5-1 `TossClient` 추가의 참조를 2-3의 `classify`로 맞추고(2-3에서 분류표를 흐름으로 합쳤다), 빌링 결제의 2xx 해석을 적었다. 5-1 삭제 순서·5-2 `subscribe` 순서를 번호 목록으로 풀었다
+> 0.7 · 2026-10-12 · 참조 문구를 Part 2의 "추가 항목" 용어에 맞췄다
 > 0.6 · 2026-10-09 · **사실 확인·정합**: Toss 빌링 API(발급·승인·삭제 엔드포인트와 응답 필드)를 개발자센터 문서와 대조해 확정, Part 2에서 제안으로 옮긴 `pg_call_log` 잔재를 로그 확인으로 바꿨다
 > 0.5 · 2026-10-02 · **덜어내기**: 회차 선점(PROCESSING 리스·재시도 회차·시도 수) 제거 — 회차 INSERT와 주문 생성을 한 트랜잭션으로
 > 0.4 · 2026-10-02 · 예치금 제거: 구독의 "예치금 우선 사용" 옵션 삭제, 회차 결제는 항상 빌링
@@ -85,9 +86,9 @@
 | version | bigint | X | |
 | created_at, updated_at | timestamptz | X | |
 
-**3) TossClient 추가** (2-3 분류표 그대로)
+**3) TossClient 추가** (분류 규칙은 2-3 `classify`와 같다)
 - `BillingIssueResult issueBillingKey(String authKey, String customerKey)` → `sealed interface BillingIssueResult { Issued(String billingKey, String cardSummary); Rejected(String code); Unknown(String reason) }`. 응답 본문은 `TossBillingResponse(String billingKey, String customerKey, String cardCompany, String cardNumber)` + `@JsonIgnoreProperties(ignoreUnknown = true)`로 받는다. 분류(2xx·4xx·5xx·타임아웃)와 호출 형태는 2-3과 같다
-- `PgResult billingCharge(UUID paymentId, String billingKey, String customerKey, String pgOrderId, Money amount, String orderName)` — `Idempotency-Key: paymentId`
+- `PgResult billingCharge(UUID paymentId, String billingKey, String customerKey, String pgOrderId, Money amount, String orderName)` — `Idempotency-Key: paymentId`. 2xx 해석은 승인과 같다(`status == "DONE"`이면 `Approved`)
 - 2-3의 로그 한 줄(`log.info("pg {} ...")`)에 작업 이름 `BILLING_ISSUE`, `BILLING`을 쓴다. **빌링키·authKey·customerKey는 로그에 남기지 않는다**(감사 테이블 `pg_call_log`는 Part 2에서 추가 항목으로 옮겼다)
 - `FakePgServer`에 두 경로의 기본 동작 추가: 발급(`/v1/billing/authorizations/issue`)은 `{billingKey: "bk_" + 랜덤, customerKey: 요청값, cardCompany: "신한", cardNumber: "1234****5678"}`, 결제(`/v1/billing/{billingKey}`)는 승인 경로와 같은 방식(승인 기록·멱등). 경로 접두어가 `/v1/billing/`로 겹치므로 발급 경로를 먼저 판별한다
 
@@ -101,8 +102,11 @@
 | `payment.api.BillingKeyDeletionPrecondition` | `interface { void check(UUID billingKeyId); }` — 구독은 order 데이터라 payment가 직접 볼 수 없다(의존 역전, 3-2와 같은 방식). order가 구현 |
 | `PaymentApi` 추가 | `BillingKeyInfo getActiveBillingKey(UUID memberId, UUID billingKeyId)` (없거나 남의 것·DELETED면 `BILLING_KEY_NOT_FOUND`), `record BillingKeyInfo(UUID id, String cardSummary)` |
 
-- `register`: `Rejected` → `BILLING_KEY_ISSUE_FAILED`, `Unknown` → `PG_ERROR`
-- `delete`: 소유 확인(아니면 404) → `preconditions.forEach(p -> p.check(id))` → `delete(now)`
+- `register`: 발급 결과가 `Rejected`면 `BILLING_KEY_ISSUE_FAILED`, `Unknown`이면 `PG_ERROR`
+- `delete` 순서
+  1. 소유 확인 — 아니면 404 `BILLING_KEY_NOT_FOUND`
+  2. `preconditions.forEach(p -> p.check(id))`
+  3. `billingKey.delete(now)`
 - `OrderBillingKeyDeletionPrecondition` (order.application): 이 빌링키를 쓰는 ACTIVE·PAUSED·SUSPENDED 구독이 있으면 `BILLING_KEY_IN_USE` (5-2에서 구독 테이블이 생기면 동작. 5-1 시점에는 클래스만 두고 5-2에서 쿼리를 채운다)
 - `member-withdrawn` consumer (payment.infrastructure, consumer `payment.member-withdrawn`): 회원의 ACTIVE 빌링키 전부 DELETED
 
@@ -187,10 +191,18 @@
 
 | 메서드 | 규격 |
 |---|---|
-| `@Transactional UUID subscribe(UUID memberId, SubscribeCommand command)` | 시작일 ≤ 오늘이면 `INVALID_REQUEST` → `products = productApi.getPurchasable(List.of(productId))` → `subscribable == false`면 `PRODUCT_NOT_SUBSCRIBABLE` → `shopApi.requireActiveShops` → 가게 주인이 나면 `OWN_SHOP_PRODUCT` → `memberApi.getAddress` → `paymentApi.getActiveBillingKey` → `Subscription.subscribe(...)` |
+| `@Transactional UUID subscribe(UUID memberId, SubscribeCommand command)` | 아래 순서 |
 | `@Transactional(readOnly = true)` `getMine(memberId, cursor, size)`, `getOne(memberId, id)` | `findByIdAndMemberId` 없으면 `SUBSCRIPTION_NOT_FOUND` (남의 것도 404, As-Is ORD-08) |
 | `@Transactional SubscriptionResult change(UUID memberId, UUID id, ChangeSubscriptionCommand command)` | addressId가 있으면 `memberApi.getAddress`로 새 스냅샷, billingKeyId가 있으면 `getActiveBillingKey`로 확인 |
 | `@Transactional` `pause`, `resume`, `cancel` (memberId, id) | 각 도메인 메서드 |
+
+`subscribe` 순서
+1. 시작일이 오늘 이전이거나 오늘이면 `INVALID_REQUEST`
+2. `products = productApi.getPurchasable(List.of(productId))` — `subscribable == false`면 `PRODUCT_NOT_SUBSCRIBABLE`
+3. `shopApi.requireActiveShops` — 가게 주인이 본인이면 `OWN_SHOP_PRODUCT`
+4. `memberApi.getAddress`
+5. `paymentApi.getActiveBillingKey`
+6. `Subscription.subscribe(...)` → 저장
 
 - `SubscribeCommand(UUID productId, int quantity, CycleType cycleType, int cycleValue, UUID addressId, UUID billingKeyId, LocalDate startDate)`
 - `SubscriptionResult(UUID id, UUID productId, UUID shopId, int quantity, CycleType cycleType, int cycleValue, ShippingAddress shippingAddress, UUID billingKeyId, long unitPrice, Long pendingUnitPrice, LocalDate pendingEffectiveDate, SubscriptionStatus status, LocalDate nextRunDate, int consecutiveFailures, Instant createdAt)`

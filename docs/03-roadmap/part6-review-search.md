@@ -1,6 +1,7 @@
 # Part 6. 리뷰 · 검색 · 추천
 
-> 버전 0.6 · 2026-10-12 · **용어 정리**: 단계 끝 "제안 (선택)"을 "추가 항목"으로 바꿨다. "제안"은 리뷰어의 의견(근거 없는 지적)에만 쓴다. 내용은 그대로다
+> 버전 0.7 · 2026-10-14 · **표현·구조 정리**(설계·동작 변경 없음): 6-1 리뷰 작성·좋아요와 6-4 상품 이벤트 consumer의 순서를 한 줄·표 셀에서 번호 목록으로 풀었다
+> 0.6 · 2026-10-12 · **용어 정리**: 단계 끝 "제안 (선택)"을 "추가 항목"으로 바꿨다. "제안"은 리뷰어의 의견(근거 없는 지적)에만 쓴다. 내용은 그대로다
 > 0.5 · 2026-10-09 · **버전·설정 확인**: Spring Data Elasticsearch(Boot BOM 6.1.1, 클라이언트 9.4.5)에 맞춘 ES 이미지 `9.4.8`, Spring AI `2.0.1`(Boot 4.1.1 스타터에 의존)과 OpenAI 설정 키, Spring AI 2.0의 OpenAI 클라이언트가 **자체 재시도(기본 3회)**를 한다는 점(테스트의 호출 횟수에 영향), pgvector `avg` 집계를 확인해 확정. 1-10 규칙에 따라 추천 응답의 `thumbnailKey`를 `thumbnailUrl`로
 > 0.4 · 2026-10-02 · **덜어내기**: 6-3 무중단 재색인은 선택 단계로, 리뷰 임베딩 제거(요약은 단순 선택), 제재 회원 문의 허용은 제안으로, 리뷰 중복은 사전 조회로
 > 0.3 · 이 문서만 보고 개발할 수 있게 구체화(모듈 경계, ES·pgvector·OpenAI 사용 규격, 테스트 케이스)
@@ -114,9 +115,17 @@ ON CONFLICT (product_id) DO UPDATE SET
   ... r5까지 ..., updated_at = :now
 ```
 
-`write` 순서: `orderApi.getConfirmedLine(memberId, orderLineId)` → `existsByOrderLineId`면 `REVIEW_ALREADY_EXISTS` → `Review.write` save → `add` → `publish(REVIEW_CREATED)` — 같은 품목 동시 작성은 커밋 시 unique 위반 → 409 (트랜잭션 안에서 잡지 않는다, As-Is SUP-05)
+`write` 순서
+1. `orderApi.getConfirmedLine(memberId, orderLineId)`
+2. `existsByOrderLineId`면 `REVIEW_ALREADY_EXISTS`
+3. `Review.write` → save
+4. `ReviewStatRepository.add`
+5. `publish(REVIEW_CREATED)`
 
-`like`: `insertIgnoringConflict` → 1이면 `increaseLikeCount` / `unlike`: 삭제 행 수 1이면 `decreaseLikeCount`
+- 같은 품목 동시 작성은 커밋 시 unique 위반 → 409다. 트랜잭션 안에서 잡지 않는다(As-Is SUP-05)
+
+`like` 순서: `insertIgnoringConflict`가 1이면 `increaseLikeCount`
+`unlike` 순서: `deleteByReviewIdAndMemberId`가 1이면 `decreaseLikeCount`
 
 이벤트: `review.api.event.ReviewTopics.REVIEW_CREATED = "review.review-created.v1"`, `ReviewCreatedEvent(UUID reviewId, UUID productId, String content)`
 
@@ -284,9 +293,16 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 | consumer | 처리 순서 |
 |---|---|
-| `product-upserted` (consumer `recommendation.product-upserted`) | ① `processed_message` 조회만 해서 이미 처리했으면 종료 ② status가 ON_SALE이 아니면 → `runOnce`로 `status = INACTIVE`만 ③ 해시 계산 → 저장된 해시와 같으면 `runOnce`로 status만 ACTIVE ④ **트랜잭션 밖에서** `embeddingModel.embed(입력)` ⑤ `runOnce`로 upsert(`ON CONFLICT (product_id) DO UPDATE`) |
+| `product-upserted` (consumer `recommendation.product-upserted`) | 아래 순서 |
 | `order-paid` (consumer `recommendation.order-paid`) | `runOnce` → 품목 상품마다 `member_purchase` upsert → Redis 캐시 삭제 |
 | `member-withdrawn` (consumer `recommendation.member-withdrawn`) | `runOnce` → `member_purchase` 삭제 → 캐시 삭제 |
+
+`product-upserted` consumer 순서
+1. `processed_message`를 조회만 해서 이미 처리했으면 종료
+2. status가 ON_SALE이 아니면 `runOnce`로 `status = INACTIVE`만 바꾸고 종료
+3. 본문 해시를 계산해 저장된 해시와 같으면 `runOnce`로 status만 ACTIVE로 바꾸고 종료
+4. **트랜잭션 밖에서** `embeddingModel.embed(입력)`
+5. `runOnce`로 upsert(`ON CONFLICT (product_id) DO UPDATE`)
 
 `RecommendationService.recommend(UUID memberId)` (`@Transactional(readOnly = true)` 아님 — Redis를 먼저 본다)
 1. Redis 캐시 있으면 반환

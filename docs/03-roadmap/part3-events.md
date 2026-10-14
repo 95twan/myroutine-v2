@@ -1,6 +1,7 @@
 # Part 3. 이벤트
 
-> 버전 0.8 · 2026-10-12 · **용어 정리**: 단계 끝 "제안 (선택)"을 "추가 항목"으로 바꿨다. "제안"은 리뷰어의 의견(근거 없는 지적)에만 쓴다. 내용은 그대로다
+> 버전 0.9 · 2026-10-14 · **표현·구조 정리**(설계·동작 변경 없음): 3-3 `OrderEventPublisher`와 3-4 `SettlementPaidEvent`를 쓰는 표·순서 앞에서 정의하고, 3-4 `SettlementSum`·`SettlementItemService`를 정의했으며, 한 셀에 몰려 있던 저장소 메서드를 목록으로 풀었다
+> 0.8 · 2026-10-12 · **용어 정리**: 단계 끝 "제안 (선택)"을 "추가 항목"으로 바꿨다. "제안"은 리뷰어의 의견(근거 없는 지적)에만 쓴다. 내용은 그대로다
 > 0.7 · 2026-10-11 · JSON 변환 타입을 `ObjectMapper`로 통일(Part 1 코드·Part 2 멱등 장치와 같은 타입)
 > 0.6 · 2026-10-09 · **사실 확인·정합**: Kafka 이미지 태그(`apache/kafka:4.2.2`)·Boot 4 스타터 이름·`CommonErrorHandler` 자동 연결을 확인해 확정, 테스트 컨테이너 기동에 1-10의 MinIO 포함, 정산 테이블에 빠져 있던 `payout_reference` 컬럼과 `markPaid` 인자 통일, Part 2에서 제안으로 옮긴 `FailPaymentService` 잔재 제거
 > 0.5 · 2026-10-02 · **덜어내기**: 가게 개설·폐업 advisory lock 제거(재조회로 충분), 폐업 이벤트의 남은 가게 수 필드 제거, 재시도 간격은 고정값으로(백오프는 제안), 회원 역할은 단일 `role`
@@ -318,6 +319,9 @@ consumer
 
 **2) 발행 위치** — 모두 **해당 상태 변경과 같은 트랜잭션** 안, 도메인 메서드 호출 직후
 
+- `OrderEventPublisher` (order.application, `@Component`): Order 애그리거트를 받아 이벤트 record를 만들어 `OutboxPublisher`로 보내는 메서드 모음(`paid`, `closed`, `shipped`, `delivered`, `lineRefunded`, `lineConfirmed`). 이벤트 조립 코드가 서비스마다 흩어지지 않게 한다.
+- `Order.autoConfirm`은 확정한 품목 목록을 반환하도록 바꾼다(이벤트를 품목마다 내기 위해).
+
 | 흐름 | 클래스·메서드 | 발행 | aggregateType / aggregateId |
 |---|---|---|---|
 | 가입 (1-3) | `SignupService.signUp` | `MEMBER_REGISTERED` | `MEMBER` / memberId |
@@ -331,8 +335,6 @@ consumer
 | 환불 완료 (2-8, 2-9) | `RefundCompleter.complete` | `ORDER_LINE_REFUNDED` | `ORDER` / orderId |
 | 구매확정 (2-10) | `ConfirmPurchaseService.confirm`, `AutoConfirmService`(품목마다) | `ORDER_LINE_CONFIRMED` | `ORDER` / orderId |
 
-- `OrderEventPublisher` (order.application, `@Component`): Order 애그리거트를 받아 이벤트 record를 만들어 `OutboxPublisher`로 보내는 메서드 모음(`paid`, `closed`, `shipped`, `delivered`, `lineRefunded`, `lineConfirmed`). 이벤트 조립 코드가 서비스마다 흩어지지 않게 한다.
-- `Order.autoConfirm`은 확정한 품목 목록을 반환하도록 바꾼다(이벤트를 품목마다 내기 위해).
 
 ### 완료 확인
 
@@ -417,8 +419,19 @@ consumer
 | `SettlementProperties` | `@ConfigurationProperties("myroutine.settlement") record (@Min(0) @Max(10000) int feeRateBp)` |
 | `common.config.BusinessProperties` | 업무 시간대 설정을 처음 쓰는 곳이라 여기서 만든다: `@ConfigurationProperties("myroutine") record (@NotNull ZoneId businessZone)` — `application.yaml`의 `myroutine.business-zone: Asia/Seoul`, `ClockConfig`에 `@EnableConfigurationProperties` |
 | `SettlementPeriod` | `record (LocalDate start, LocalDate end)`. `static SettlementPeriod of(YearMonth month)`, `Instant fromInclusive(ZoneId zone)`, `Instant toExclusive(ZoneId zone)` — 단위 테스트 대상 |
-| `SettlementItemRepository` | native `int insertIgnoringConflict(...)` (`ON CONFLICT ON CONSTRAINT uk_settlement_item_order_line DO NOTHING`), `List<UUID> findShopIdsToSettle(Instant from, Instant to, UUID afterShopId, int limit)`, `int assign(UUID settlementId, UUID shopId, Instant from, Instant to, Instant now)`, `SettlementSum sumBySettlementId(UUID settlementId)` |
-| `SettlementRepository` | native `int insertIfAbsent(UUID id, UUID shopId, LocalDate start, LocalDate end, int bp, Instant now)` (`ON CONFLICT ON CONSTRAINT uk_settlement_shop_period DO NOTHING`), `findById`, `List<UUID> findIdsToPay(Collection<SettlementStatus> statuses, UUID afterId, Limit limit)` |
+| `SettlementItemRepository` | 메서드는 표 아래 목록 |
+| `SettlementRepository` | 메서드는 표 아래 목록 |
+
+`SettlementItemRepository`
+- native `int insertIgnoringConflict(...)` — `ON CONFLICT ON CONSTRAINT uk_settlement_item_order_line DO NOTHING`
+- `List<UUID> findShopIdsToSettle(Instant from, Instant to, UUID afterShopId, int limit)`
+- `int assign(UUID settlementId, UUID shopId, Instant from, Instant to, Instant now)`
+- `SettlementSum sumBySettlementId(UUID settlementId)` — `record SettlementSum(long grossAmount, int itemCount)`
+
+`SettlementRepository`
+- native `int insertIfAbsent(UUID id, UUID shopId, LocalDate start, LocalDate end, int bp, Instant now)` — `ON CONFLICT ON CONSTRAINT uk_settlement_shop_period DO NOTHING`
+- `findById`
+- `List<UUID> findIdsToPay(Collection<SettlementStatus> statuses, UUID afterId, Limit limit)`
 
 ```sql
 -- findShopIdsToSettle: 미정산 품목이 있는 가게 ID를 keyset으로
@@ -431,7 +444,7 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 ```
 - 첫 페이지의 `afterShopId`는 `'00000000-0000-0000-0000-000000000000'`
 
-**3) 적재 consumer** — `OrderEventConsumer` (settlement.infrastructure): `@KafkaListener(topics = OrderTopics.ORDER_LINE_CONFIRMED, groupId = "settlement")` → `inboxGuard.runOnce("settlement.order-line-confirmed", ...)` → `SettlementItemService.register(event)` → `insertIgnoringConflict`
+**3) 적재 consumer** — `OrderEventConsumer` (settlement.infrastructure): `@KafkaListener(topics = OrderTopics.ORDER_LINE_CONFIRMED, groupId = "settlement")` → `inboxGuard.runOnce("settlement.order-line-confirmed", ...)` → `SettlementItemService.register(OrderLineConfirmedEvent event)`(settlement.application, `@Transactional`) → `insertIgnoringConflict`
 
 **4) 정산 실행** — `SettlementService` (`@Transactional` 없음)
 - `public SettlementRunResult run(YearMonth month)` → `SettlementRunResult(int settledShops, int paid, int payoutFailed)`
@@ -443,7 +456,7 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 1. `id = Ids.newId()`, `insertIfAbsent(id, shopId, ...)` → 0이면 return(이미 이 기간 정산이 있음)
 2. `assign(id, shopId, from, to, now)`
 3. `sum = sumBySettlementId(id)` (`SELECT COALESCE(SUM(amount), 0), COUNT(*)`)
-4. `settlement.calculate(gross, bp, count)` → fee·net 계산, CALCULATED
+4. `settlement = findById(id)` → `settlement.calculate(sum.grossAmount(), bp, sum.itemCount())` → fee·net 계산, CALCULATED
 
 - `SettlementJob` (settlement.infrastructure): `@Scheduled(cron = "0 0 3 5 * *", zone = "Asia/Seoul")` → `jobRunner.run("settlement", () -> service.run(전월).settledShops())`
 - `settlement/package-info.java`: 공통 규칙 S의 의존
@@ -458,13 +471,14 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 | `MockPayoutGateway` (settlement.infrastructure) | `@Component @Profile("!prod")`. `ConcurrentHashMap<UUID, String>`에 settlementId → `"PAYOUT-" + Ids.newId()`를 기록하고 로그를 남긴다. 실제 은행 연동은 범위 밖(POL-12) |
 | `support/FakePayoutGateway` (테스트) | `@Component @Primary`. 호출 기록, `failNext(int)`, 멱등 동작은 Mock과 같게 |
 
+이벤트: `settlement.api.event.SettlementTopics.SETTLEMENT_PAID = "settlement.settlement-paid.v1"`, `SettlementPaidEvent(UUID settlementId, UUID shopId, long netAmount, LocalDate periodStart, LocalDate periodEnd)` (3-5 알림용)
+
 `SettlementService.payoutAll()` — `findIdsToPay({CALCULATED, PAYOUT_FAILED}, after, Limit.of(500))` keyset 루프, 정산마다 try/catch:
 1. 정산 조회(짧은 읽기). `net == 0`이면 트랜잭션에서 `markPaid(null, now)` + `publish(SETTLEMENT_PAID)` 후 다음으로
 2. **트랜잭션 밖**: `reference = payoutGateway.payout(settlementId, shopId, net)`
 3. 성공 → 트랜잭션: `settlement.markPaid(reference, now)` + `publish(SETTLEMENT_PAID)`
 4. 실패 → 트랜잭션: `markPayoutFailed(e.getMessage())`, `payout_attempts + 1`
 - 2와 3 사이에 죽으면 정산은 CALCULATED로 남는다 → 다음 실행에서 같은 settlementId로 다시 부르고, 게이트웨이가 같은 참조 ID를 돌려주므로 두 번 지급되지 않는다.
-- 이벤트: `settlement.api.event.SettlementTopics.SETTLEMENT_PAID = "settlement.settlement-paid.v1"`, `SettlementPaidEvent(UUID settlementId, UUID shopId, long netAmount, LocalDate periodStart, LocalDate periodEnd)` (3-5 알림용)
 
 **6) 조회 API** — `SettlementController`
 
