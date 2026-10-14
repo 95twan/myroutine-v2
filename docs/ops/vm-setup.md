@@ -1,6 +1,7 @@
 # 운영 환경 VM 준비 가이드 (Proxmox + Docker + Actions runner)
 
-> 버전 0.3 · 2026-10-10 · VM이 처음인 경우를 위해 §1-1(ISO 준비·VM 생성·Ubuntu 설치 순서) 추가, RAM을 호스트 24GB에 맞춰 16GB로 변경
+> 버전 0.4 · 2026-10-14 · **MinIO를 NAS로 이전**(ADR-011 §8): VM 디스크·ufw 9000 규칙·`STORAGE_*` 주소·백업 범위를 고치고 [nas-minio.md](nas-minio.md)를 연결했다
+> 0.3 · 2026-10-10 · VM이 처음인 경우를 위해 §1-1(ISO 준비·VM 생성·Ubuntu 설치 순서) 추가, RAM을 호스트 24GB에 맞춰 16GB로 변경
 > 0.2 · 2026-10-09 · OS 버전·ufw 우회·러너 토큰 만료·`svc.sh` 인자·포크 PR 승인 메뉴 이름을 공식 문서로 확인해 확정, `.env` 키 이름을 1-11의 `.env.ops.example`(로컬과 같은 `SPRING_DATASOURCE_*`)에 맞춤
 > 0.1 · 2026-10-07 · 로드맵 [1-11](../03-roadmap/part1-foundation.md)의 "0) VM 준비" 절차. 결정 근거는 [ADR-011](../adr/ADR-011-ops-practice-environment.md).
 > 이 문서의 명령은 VM에서 **직접 실행해 검증한 것이 아니다.** 메뉴 이름·옵션 중 공식 문서로 확인한 것은 날짜를 적었고, 확인하지 못한 곳은 "확인 필요"로 남겼다. 다르면 이 문서를 고치게 알려 달라.
@@ -20,7 +21,7 @@ flowchart LR
 | OS | Ubuntu Server 26.04 LTS | Docker Engine 설치 문서의 지원 목록에 22.04·24.04·26.04가 있다(2026-10-09 확인). 앱 이미지 `eclipse-temurin:25-jre`도 26.04 기반 |
 | vCPU | 8~10, CPU 타입 `host` | 호스트 16코어 중 일부는 Proxmox와 다른 VM용으로 남긴다 |
 | RAM | 16GB, **Ballooning 끔** | 호스트 RAM이 24GB이고 증설할 수 없다. Proxmox 자체와 캐시용으로 8GB를 남긴다(20GB를 주면 호스트가 스왑에 들어갈 수 있다). ES·Kafka가 메모리를 한 번에 잡는다. 줄었다 늘었다 하면 OOM 원인이 된다. 실사용량은 7-1(ELK) 때 측정해서 조정 |
-| 디스크 | 100GB, VirtIO SCSI, (SSD면) Discard 켬 | 이미지·Postgres·ES·MinIO 볼륨 |
+| 디스크 | 100GB, VirtIO SCSI, (SSD면) Discard 켬 | 이미지·Postgres·ES 볼륨 (MinIO는 NAS, [nas-minio.md](nas-minio.md)) |
 | 네트워크 | VirtIO, 브릿지 `vmbr0` | 집 LAN에서 바로 접근 |
 | QEMU Guest Agent | 옵션에서 켬 | Proxmox가 IP 확인·안전한 종료·스냅샷을 할 수 있다 |
 
@@ -68,7 +69,7 @@ flowchart LR
 
 **2-1. 고정 IP**
 - 공유기에서 VM의 MAC 주소에 **DHCP 예약**으로 고정 IP를 준다(VM 안에서 정적 설정을 하지 않아도 되고, 나중에 IP를 바꾸기 쉽다). 이 IP를 문서에서 `{VM_IP}`라고 부른다.
-- `STORAGE_ENDPOINT`·`STORAGE_PUBLIC_BASE_URL`·프론트의 API 주소가 이 IP를 쓰므로 **바뀌면 안 된다**.
+- 프론트의 API 주소가 이 IP를 쓰므로 **바뀌면 안 된다**. (`STORAGE_*`는 VM이 아니라 NAS 주소를 쓴다. [nas-minio.md](nas-minio.md))
 
 **2-2. 사용자와 SSH**
 ```bash
@@ -99,11 +100,9 @@ sudo ufw default deny incoming
 sudo ufw default allow outgoing
 sudo ufw allow from 192.168.10.0/24 to any port 22 proto tcp     # 이 환경의 LAN 대역 (맥 192.168.10.10, VM 192.168.10.13 기준)
 sudo ufw allow from 192.168.10.0/24 to any port 8080 proto tcp
-sudo ufw allow from 192.168.10.0/24 to any port 9000 proto tcp
-sudo ufw allow from 172.16.0.0/12 to any port 9000 proto tcp   # 앱 컨테이너(Docker 브리지 172.x)가 호스트의 LAN IP로 MinIO에 접속할 때. 없으면 앱이 기동 때 ApiCallTimeoutException으로 죽는다
 sudo ufw enable
 ```
-> ⚠ **Docker가 publish한 포트는 ufw 규칙을 우회한다**. Docker는 컨테이너 트래픽을 nat 테이블에서 돌려 ufw가 쓰는 INPUT·OUTPUT 체인에 닿기 전에 보낸다(Docker 문서 "Packet filtering and firewalls → Docker and ufw", 2026-10-09 확인). ufw만 믿지 말고, **compose에서 아예 publish하지 않는 것**이 1차 방어다(1-11 정책: Postgres·8081·MinIO 콘솔은 publish 없음). ufw는 2차 방어다.
+> ⚠ **Docker가 publish한 포트는 ufw 규칙을 우회한다**. Docker는 컨테이너 트래픽을 nat 테이블에서 돌려 ufw가 쓰는 INPUT·OUTPUT 체인에 닿기 전에 보낸다(Docker 문서 "Packet filtering and firewalls → Docker and ufw", 2026-10-09 확인). ufw만 믿지 말고, **compose에서 아예 publish하지 않는 것**이 1차 방어다(1-11 정책: Postgres·8081은 publish 없음). ufw는 2차 방어다.
 
 ## 3. Docker 설치
 
@@ -164,13 +163,13 @@ sudo -u runner touch /opt/myroutine/.env && sudo chmod 600 /opt/myroutine/.env
 |---|---|---|
 | DB | `SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/my_routine`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` | 로컬과 같은 이름이다. 운영 compose가 이 값으로 postgres 컨테이너도 초기화한다(`POSTGRES_USER: ${SPRING_DATASOURCE_USERNAME}`). 비밀번호: `openssl rand -base64 32` |
 | JWT 서명 키 | `JWT_SECRET` | `openssl rand -base64 48` |
-| MinIO | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | 비밀번호: `openssl rand -base64 32` |
-| 저장소 주소 | `STORAGE_ENDPOINT=http://{VM_IP}:9000`, `STORAGE_PUBLIC_BASE_URL=http://{VM_IP}:9000/myroutine` | **컨테이너 내부 주소를 쓰지 않는다**(presigned URL 때문. 1-11 S3) |
+| MinIO 접속 키 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | 비밀번호: `openssl rand -base64 32`. **NAS의 MinIO에도 같은 값**을 넣는다([nas-minio.md](nas-minio.md) §3) |
+| 저장소 주소 | `STORAGE_ENDPOINT=http://{NAS_IP}:9000`, `STORAGE_PUBLIC_BASE_URL=http://{NAS_IP}:9000/myroutine` | **컨테이너 내부 주소를 쓰지 않는다**(presigned URL 때문. 1-11 S3) |
 | CORS | `CORS_ALLOWED_ORIGINS=http://{프론트 주소}` | `*` 금지 |
 
-**한 번에 만들기** — 비밀번호를 직접 짓지 않고, 값이 화면·셸 기록에 남지 않게 만든다(`tee ... > /dev/null`이라 출력이 없고, `$(openssl ...)`는 명령 글자만 기록에 남는다). `VM_IP`와 `CORS_ALLOWED_ORIGINS`만 환경에 맞게 바꾼다(프론트가 아직 없으면 `http://localhost:5173` 그대로 둔다. curl로만 시험하면 CORS는 영향이 없다).
+**한 번에 만들기** — 비밀번호를 직접 짓지 않고, 값이 화면·셸 기록에 남지 않게 만든다(`tee ... > /dev/null`이라 출력이 없고, `$(openssl ...)`는 명령 글자만 기록에 남는다). `NAS_IP`와 `CORS_ALLOWED_ORIGINS`만 환경에 맞게 바꾼다(프론트가 아직 없으면 `http://localhost:5173` 그대로 둔다. curl로만 시험하면 CORS는 영향이 없다).
 ```bash
-VM_IP=192.168.10.13
+NAS_IP=192.168.10.20   # 예시 값. 실제 NAS의 고정 IP로 바꾼다
 sudo -u runner tee /opt/myroutine/.env > /dev/null <<EOF
 SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/my_routine
 SPRING_DATASOURCE_USERNAME=myroutine
@@ -178,8 +177,8 @@ SPRING_DATASOURCE_PASSWORD=$(openssl rand -base64 32)
 JWT_SECRET=$(openssl rand -base64 48)
 MINIO_ROOT_USER=myroutine
 MINIO_ROOT_PASSWORD=$(openssl rand -base64 32)
-STORAGE_ENDPOINT=http://$VM_IP:9000
-STORAGE_PUBLIC_BASE_URL=http://$VM_IP:9000/myroutine
+STORAGE_ENDPOINT=http://$NAS_IP:9000
+STORAGE_PUBLIC_BASE_URL=http://$NAS_IP:9000/myroutine
 CORS_ALLOWED_ORIGINS=http://localhost:5173
 EOF
 sudo chmod 600 /opt/myroutine/.env
@@ -230,7 +229,8 @@ sudo bash -c 'cd /home/runner/actions-runner && ./svc.sh status'
 ## 7. 스냅샷과 백업
 
 - **기본 스냅샷**: §2~5를 마치고 앱을 올리기 전에 Proxmox에서 스냅샷 `base-ready`를 만든다. 설정이 꼬이면 여기로 돌아온다.
-- **VM 백업**: Proxmox의 백업(vzdump)을 주기 실행으로 건다. 저장 위치로 시놀로지 NAS(NFS/SMB 스토리지로 Proxmox에 연결)를 쓸 수 있다(확인 필요: Proxmox의 스토리지 추가 메뉴). 백업 안에는 Postgres·MinIO 볼륨(= 데이터)과 `.env`가 들어 있으므로 **NAS 접근 권한을 제한**한다.
+- **VM 백업**: Proxmox의 백업(vzdump)을 주기 실행으로 건다. 저장 위치로 시놀로지 NAS(NFS/SMB 스토리지로 Proxmox에 연결)를 쓸 수 있다(확인 필요: Proxmox의 스토리지 추가 메뉴). 백업 안에는 Postgres 볼륨(= 데이터)과 `.env`가 들어 있으므로 **NAS 접근 권한을 제한**한다.
+- MinIO 데이터는 NAS에 있어 VM 백업에 들어가지 않는다. NAS 쪽 백업은 [nas-minio.md §7](nas-minio.md)을 본다.
 - Stage 1의 DB 백업(`pg_dump` 등)은 범위 밖이다. VM 백업이 대신하고 회고에 남긴다(ADR-011 §6).
 
 ## 8. 준비 완료 확인
