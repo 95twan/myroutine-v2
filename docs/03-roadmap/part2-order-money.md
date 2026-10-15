@@ -1,6 +1,9 @@
 # Part 2. 주문과 돈
 
-> 버전 0.47 · 2026-10-15 · **2-4 교차 락 테스트를 `ProductApi` 직접 호출로 바꿨다**(테스트 작성 중 확인): HTTP 경로는 항목을 HashMap으로 모아 넘겨 요청 순서가 락 순서를 정하지 못하므로, `reserve`의 정렬을 지워도 통과했다. `releaseReservation`과 `reserve(orderB, [y, x])`를 동시에 실행하는 형태로 정했다(정렬을 지우면 20회 모두 실패). 그 밖의 규격은 0.46과 같다
+> 버전 0.50 · 2026-10-15 · **2-5 `expireOne` 2번에서 `ReleaseReason.PAYMENT_FAILED` 비교 문장을 지웠다**(구현에 필요 없는 참고 설명). 그 밖의 규격은 0.49와 같다
+> 0.49 · 2026-10-15 · **2-5 `expire`가 0행이 되는 경우를 정확히 고쳤다**(구현 중 질문): "후보를 읽은 뒤 승인을 시작했다"는 `startPayment`의 `expires_at > :now`에 막혀 일어나지 않는다. 실제 경우는 구매자 취소, 커밋 전이던 승인 시작(행 락 대기 후 재평가), 다른 실행의 선처리다. 그 밖의 규격은 0.48과 같다
+> 0.48 · 2026-10-15 · **2-5 만료 조건을 `expiresAt <= :now`로 바꿨다**(착수 중 결정): `expires_at`은 "그 시각에 만료"이므로 정확히 같은 시각도 만료로 본다. 결제 시작 CAS의 `expires_at > :now`와 한 시각도 겹치지 않고 빠지지 않게 맞물린다(`findExpiredIds`·`expire`). 그 밖의 규격은 0.47과 같다
+> 0.47 · 2026-10-15 · **2-4 교차 락 테스트를 `ProductApi` 직접 호출로 바꿨다**(테스트 작성 중 확인): HTTP 경로는 항목을 HashMap으로 모아 넘겨 요청 순서가 락 순서를 정하지 못하므로, `reserve`의 정렬을 지워도 통과했다. `releaseReservation`과 `reserve(orderB, [y, x])`를 동시에 실행하는 형태로 정했다(정렬을 지우면 20회 모두 실패). 그 밖의 규격은 0.46과 같다
 > 0.46 · 2026-10-15 · **2-4 장바구니 변경 케이스의 수량을 2→5에서 2→3으로 바꿨다**(테스트 작성 중 확인): 차감 순서(`deleteIfQuantityAtMost` 먼저)를 뒤집어도 2→5는 통과해 순서 규칙을 보호하지 못했다. 남는 수량(1)이 주문 수량(2) 이하가 되는 2→3으로 바꿨다. 그 밖의 규격은 0.45와 같다
 > 0.45 · 2026-10-15 · **2-4 `ConfirmPaymentService` 트랜잭션 1의 0행 처리를 구체화했다**(구현 중 질문): `startPayment`의 `from`은 `PENDING_PAYMENT` 고정, 람다가 돌려줄 값(`paymentId` 또는 조기 결과), `EXPIRED`·`PAYMENT_FAILED`는 409 `INVALID_STATE_TRANSITION`으로 정했다. 그 밖의 규격은 0.44와 같다
 > 0.44 · 2026-10-15 · **공통 규칙 J 표의 payment 허용 의존에 `member::api`(5-1부터)를 더했다**(리뷰 결정). 그 밖의 규격은 0.43과 같다
@@ -1230,8 +1233,8 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 
 | 메서드 | 하는 일 | 입력 → 반환 |
 |---|---|---|
-| `@Query("select o.id from Order o where o.status = :status and o.expiresAt < :now order by o.expiresAt") List<UUID> findExpiredIds(OrderStatus status, Instant now, Limit limit)` | 만료 후보 주문의 **ID만** 오래된 순으로 읽는다. 처리는 건별 트랜잭션에서 CAS 뒤에 주문을 다시 읽으므로 후보 목록에는 ID면 충분하다 | 상태·기준 시각·`Limit`(`org.springframework.data.domain.Limit`) → ID 목록 |
-| `@Modifying(clearAutomatically = true) @Query("update Order o set o.status = :to, o.version = o.version + 1, o.updatedAt = :now where o.id = :id and o.status = :from and o.expiresAt < :now") int expire(UUID id, OrderStatus from, OrderStatus to, Instant now)` | 주문 상태를 `from`일 때만 `to`로 바꾸는 CAS(공통 규칙 L). 후보를 읽은 뒤 구매자가 승인을 시작(2-4 `startPayment`)했거나 취소했다면 `status = :from`이 맞지 않아 0행이 된다 | → **1이면 내가 만료시킴, 0이면 그사이 다른 흐름이 바꿈** |
+| `@Query("select o.id from Order o where o.status = :status and o.expiresAt <= :now order by o.expiresAt") List<UUID> findExpiredIds(OrderStatus status, Instant now, Limit limit)` | 만료 후보 주문의 **ID만** 오래된 순으로 읽는다. 처리는 건별 트랜잭션에서 CAS 뒤에 주문을 다시 읽으므로 후보 목록에는 ID면 충분하다 | 상태·기준 시각·`Limit`(`org.springframework.data.domain.Limit`) → ID 목록 |
+| `@Modifying(clearAutomatically = true) @Query("update Order o set o.status = :to, o.version = o.version + 1, o.updatedAt = :now where o.id = :id and o.status = :from and o.expiresAt <= :now") int expire(UUID id, OrderStatus from, OrderStatus to, Instant now)` | 주문 상태를 `from`일 때만 `to`로 바꾸는 CAS(공통 규칙 L). 후보를 읽은 뒤 구매자가 취소했거나, 만료 시각 직전에 시작된 승인(2-4 `startPayment`)이 아직 커밋 전이었다면 `status = :from`이 맞지 않아 0행이 된다(커밋 전이면 이 UPDATE가 행 락에서 기다렸다가 커밋 뒤 `status`를 다시 평가한다. 후보를 읽은 **뒤에** 새로 시작하는 승인은 `startPayment`의 `expires_at > :now`에서 거절되므로 여기까지 오지 않는다) | → **1이면 내가 만료시킴, 0이면 그사이 다른 흐름이 바꿈** |
 
 `expireBatch` 순서 → 반환: 만료시킨 건수(`int`)
 1. `List<UUID> ids = findExpiredIds(PENDING_PAYMENT, now, Limit.of(100))` — `now`는 `clock.instant()`
@@ -1239,8 +1242,8 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 3. 만료시킨 건수 반환
 
 `expireOne(id)` — `expireBatch`의 private 메서드. `tx.execute` 안에서 불리므로 **트랜잭션 안**이다(별도 `@Transactional` 불필요). 반환 `boolean`
-1. `expire(id, PENDING_PAYMENT, EXPIRED, now)` → 0이면 return false (그사이 결제가 시작됐거나 이미 처리됨. 이 건은 만료시키지 않는다)
-2. `productApi.releaseReservation(id, ReleaseReason.EXPIRED)` — 예약된 재고를 `reserved → available`로 돌리고 예약을 `EXPIRED`로 만든다(`void`, 멱등. `ReleaseReason.PAYMENT_FAILED`면 예약이 `RELEASED`가 된다)
+1. `expire(id, PENDING_PAYMENT, EXPIRED, now)` → 0이면 return false (그사이 구매자가 취소했거나, 커밋 전이던 승인 시작이 반영됐거나, 다른 실행이 이미 만료시킴. 이 건은 만료시키지 않는다)
+2. `productApi.releaseReservation(id, ReleaseReason.EXPIRED)` — 예약된 재고를 `reserved → available`로 돌리고 예약을 `EXPIRED`로 만든다(`void`, 멱등)
 3. `Order order = findById(id)` (**CAS 뒤에** 읽는다: `expire`의 `clearAutomatically`가 영속성 컨텍스트를 비우므로 CAS 앞에 읽은 엔티티는 낡은 상태다) → `order.cancelPendingChildren()` — 주문 상태는 이미 `EXPIRED`이고, 이 호출이 `PENDING`인 가게주문·품목을 `CANCELLED`로 바꾼다. 저장은 커밋 때 더티 체킹이라 `save`를 부르지 않는다
 4. return true
 

@@ -1,5 +1,6 @@
 # 06. 핵심 시퀀스
 
+> 2026-10-15: 만료 잡 조회 조건을 `expires_at <= now()`로 맞췄다(로드맵 2-5)
 > 2026-10-12: 장바구니는 체크아웃 때 건드리지 않고 결제 완료(§2, 대사 포함) 때 주문 수량만큼 차감. 중복 체크아웃은 막지 않는다(§1)
 > 2026-10-09: 로드맵·실제 모듈 API와 맞춤 — §2에 남아 있던 예치금 "보류" 잔재 삭제, 대사·만료·구독 회차의 호출 이름(`queryOutcome`, `releaseReservation`, `callBillingCharge`)과 대사 대상·보상 조건, refresh 재사용 시 폐기 범위(그 세션), 이미지 업로드 응답 필드
 > 2026-10-02: 예치금 제거 반영(체크아웃·만료·환불·구독·정산에서 wallet 삭제, §8 충전 → 상품 이미지 업로드로 교체)
@@ -110,7 +111,7 @@ sequenceDiagram
   participant J as 만료 잡 (1분)
   participant O as order
   participant PR as product
-  J->>O: PENDING_PAYMENT AND expires_at < now() LIMIT 100
+  J->>O: PENDING_PAYMENT AND expires_at <= now() LIMIT 100
   loop 주문별 트랜잭션
     rect rgba(80,140,255,0.12)
       O->>O: CAS PENDING_PAYMENT → EXPIRED (0건이면 skip: 결제 진행 중)
