@@ -1,6 +1,15 @@
 # Part 2. 주문과 돈
 
-> 버전 0.38 · 2026-10-14 · **2-4~2-10 표현·구조 정리**(설계·정책 변경 없음): 2-4에 승인 흐름(`ConfirmPaymentService`)의 순서와 `ConfirmPaymentCommand`·`ConfirmResult`를 적었다(테스트 준비에서만 쓰이고 정의가 없던 이름. 0행일 때 상태별 응답은 2-4 기존 서술·[주문 흐름](../02-design/09-order-flow.md)을 모은 것이고, `EXPIRED`·`PAYMENT_FAILED` 상태는 문서에 없어 "확인 필요"로 남겼다). 2-4 장바구니 차감 표, 2-5 `OrderRepository` 표, 2-6 `cancel` 순서, 2-7 공통 앞단·`ship`/`deliver`, 2-9 `request`/`reject`를 번호 목록으로 풀었다. 2-5·2-6 서비스의 의존성(`tx`, `applier`)과 2-10 `OrderLineResult`를 정의하고, 2-10의 150건 테스트 설명 중복을 합쳤다
+> 버전 0.47 · 2026-10-15 · **2-4 교차 락 테스트를 `ProductApi` 직접 호출로 바꿨다**(테스트 작성 중 확인): HTTP 경로는 항목을 HashMap으로 모아 넘겨 요청 순서가 락 순서를 정하지 못하므로, `reserve`의 정렬을 지워도 통과했다. `releaseReservation`과 `reserve(orderB, [y, x])`를 동시에 실행하는 형태로 정했다(정렬을 지우면 20회 모두 실패). 그 밖의 규격은 0.46과 같다
+> 0.46 · 2026-10-15 · **2-4 장바구니 변경 케이스의 수량을 2→5에서 2→3으로 바꿨다**(테스트 작성 중 확인): 차감 순서(`deleteIfQuantityAtMost` 먼저)를 뒤집어도 2→5는 통과해 순서 규칙을 보호하지 못했다. 남는 수량(1)이 주문 수량(2) 이하가 되는 2→3으로 바꿨다. 그 밖의 규격은 0.45와 같다
+> 0.45 · 2026-10-15 · **2-4 `ConfirmPaymentService` 트랜잭션 1의 0행 처리를 구체화했다**(구현 중 질문): `startPayment`의 `from`은 `PENDING_PAYMENT` 고정, 람다가 돌려줄 값(`paymentId` 또는 조기 결과), `EXPIRED`·`PAYMENT_FAILED`는 409 `INVALID_STATE_TRANSITION`으로 정했다. 그 밖의 규격은 0.44와 같다
+> 0.44 · 2026-10-15 · **공통 규칙 J 표의 payment 허용 의존에 `member::api`(5-1부터)를 더했다**(리뷰 결정). 그 밖의 규격은 0.43과 같다
+> 0.43 · 2026-10-15 · **2-6 `cancel`의 재생 확인을 상태 검사보다 앞에 두고, 보상 테스트의 완료 실패 주입 방법과 환불 PG 취소의 시도별 멱등 키를 정했다**(리뷰 결정): ① `cancel`: 같은 키의 `DONE`·`FAILED` 재생을 payment 상태 검사보다 먼저 한다(전액 취소 뒤 복구 잡이 `DONE`을 받는다). ② 보상 테스트: `breakReservedStock`은 보상의 재고 반환도 막으므로 가게주문을 JDBC로 `CANCELLED`로 만들어 `markPaid`가 실패하게 한다. ③ `refund.pg_attempts`와 `Refund.pgIdempotencyKey()`를 더해 관리자 재시도가 새 키로 PG까지 가게 했다(7-3). ④ 빌링 결제의 `paymentKey`는 5-3에서 `PgOutcome`에 더하는 것으로 정했고 2-4 구현은 지금 바꾸지 않는다. 2-4·2-6 외 규격·동작은 0.42와 같다
+> 0.42 · 2026-10-15 · **2-5~2-10 클래스·메서드 설명을 풀어 썼다**(구현 중 "뭔지 모르겠다" 지적): 표 한 줄 요약이던 `JobLock`·`JobRunner`·`expireBatch`·`queryOutcome`·`cancel`·`reconcileBatch`·`Order.ship`·`Refund`·`Order`의 환불 메서드·`RefundProcessor`·`RefundCompleter`·`CancelOrderLineService`·`ReturnService`·`autoConfirm`·`confirmBatch`에 목적, 누가 부르는지, 입력과 반환, 단계별 타입·예외, 함정(품목이 이미 취소된 가게주문에 `ShopOrder.markCancelled()`를 부르면 예외 등)을 적었다. 문서에 정해져 있지 않아 "확인 필요"로 남긴 것: `payment_cancel` 엔티티·리포지토리와 `reconcile_attempts` 증가 방식, 같은 키로 전액 취소를 다시 부를 때 `cancel`의 검사 순서, 보상 취소(`failOrder`)가 테스트의 "재고 망가뜨리기"에서도 실패하는 문제, 판매자 목록 행의 빠진 칸, `RefundResponse` 정의, 반품 승인의 가게 확인 순서. 규격·동작은 0.41과 같다
+> 0.41 · 2026-10-15 · **2-4 `OrderPaymentApplier`를 메서드별로 풀어 썼다**(구현 중 "뭔지 모르겠다" 지적): 표 한 줄 요약이던 `apply`·`applyPaymentState`·`failOrder`·`complete`·`fail`에 목적, 호출하는 곳, 단계별 반환 타입과 예외, 가드(`PAYMENT_IN_PROGRESS`가 아니면 그대로 반환)의 이유를 적었다. `order` 없음은 `IllegalStateException`으로 정했다(0.39와 같은 이유). 규격·동작은 0.40과 같다
+> 0.40 · 2026-10-15 · **2-4 `payment.api`의 `@NamedInterface("api")`를 항목으로 적었다**(구현 중 질문): 공통 규칙 J에는 있었지만 2-4 `payment.api` 항목에는 빠져 있어(2-2 `member.api`는 적혀 있음) 놓치기 쉬웠다. 규격·동작은 0.39와 같다
+> 0.39 · 2026-10-14 · **2-4 `callConfirm`의 payment 없음 처리를 적었다**(구현 중 질문): 2-4 규격에 payment를 못 찾았을 때가 없었다. `IllegalStateException`으로 두고(2-6과 같음), `PaymentErrorCode`는 만들지 않는다고 적었다. 규격·동작은 0.38과 같다
+> 0.38 · 2026-10-14 · **2-4~2-10 표현·구조 정리**(설계·정책 변경 없음): 2-4에 승인 흐름(`ConfirmPaymentService`)의 순서와 `ConfirmPaymentCommand`·`ConfirmResult`를 적었다(테스트 준비에서만 쓰이고 정의가 없던 이름. 0행일 때 상태별 응답은 2-4 기존 서술·[주문 흐름](../02-design/09-order-flow.md)을 모은 것이고, `EXPIRED`·`PAYMENT_FAILED` 상태는 문서에 없어 "확인 필요"로 남겼다). 2-4 장바구니 차감 표, 2-5 `OrderRepository` 표, 2-6 `cancel` 순서, 2-7 공통 앞단·`ship`/`deliver`, 2-9 `request`/`reject`를 번호 목록으로 풀었다. 2-5·2-6 서비스의 의존성(`tx`, `applier`)과 2-10 `OrderLineResult`를 정의하고, 2-10의 150건 테스트 설명 중복을 합쳤다
 > 0.37 · 2026-10-14 · **2-3 `TossClient` 설명을 `classify` → public 메서드 순으로 정리했다**(구현 중 질문): `classify`가 호출 형태 표에 이름만 나오고 정의가 없었고, 이후 순서표에 `classify` 내부 단계가 섞여 어디까지가 무엇의 일인지 알 수 없었다. ① `classify`를 시그니처와 위에서 아래로 읽는 한 흐름(상태 코드별 분기, 작업별 2xx 규칙 포함)으로 적고, ② public 메서드 5단계 순서표에는 `classify` 호출만 남겼다. 조회의 `Rejected(status)`는 필드 두 개인 `PgResult.Rejected`에 맞춰 `Rejected(status, status)`로, `Approved`를 만들 때 `approvedAt`이 `null`이면 `Unknown("INVALID_BODY")`로 분류하도록 적었다. `classify`에 `throws IOException`을 적고 `TossClientConfig`의 `var`는 명시 타입으로 맞췄다. 같은 기준으로 `TossClientConfig`를 단계 목록으로, 불확실 코드 목록을 `classify` 뒤로, public 메서드의 작업별 요청(`cancel` 바디 포함)을 목록으로, 가짜 PG 서버를 "요청 하나를 처리하는 순서"와 `Behavior` 팩토리 표로 정리했다. `PgResult` 결과별 뜻과 시크릿 키 안내를 더했다. `bodyTo`가 `null`(빈 본문)이면 2xx·4xx 모두 `Unknown("INVALID_BODY")`로 분류한다고 적었다. 로그에 남기는 식별자를 `orderId`에서 `paymentId`로 바꿨다(`cancel`에는 `pgOrderId`가 없고, `cancel`·`queryByOrderId`의 `paymentId`는 이 로그용이다). 4xx 본문에 `code`가 없을 때(`null`) `Unknown("HTTP_4xx")`로 분류한다고 적었다. 로그의 `status={}`를 `reason={}`로 바꾸고 `result`·`reason`의 값을 정의했다(HTTP 상태 코드는 `classify` 밖에서 알 수 없어서). 가짜 서버 `Behavior`의 필드 `drop`·`approve`가 팩토리 `drop()`·`approve()`와 record accessor로 충돌해 `dropConnection`·`defaultHandling`으로 바꿨다. `FakePgServer`는 두 곳 이상에서 쓰는 `ok`·`notFound`만 따로 두고 나머지는 `handle` 안에 쓰도록 했다(한 곳에서만 쓰는 함수는 나누지 않는다). 요청 바디 읽기(`readValue(Map)`)·`mapper` 필드·`StoredResponse` 용도·`InterruptedException` 처리를 적었다. `FakePgServer`를 필드·메서드·핸들러 처리 순서 세 덩어리로 정리하고, 구현에 필요한 JDK `HttpServer` 사용법, 내부 타입(`ApprovedPayment`·`StoredResponse`), 멱등 키 저장 상태, 작업을 가르는 경로 규칙, 결제 객체 JSON 필드값을 처리 순서 안에 적었다. 정의 없이 쓰던 `handler`를 `handle(HttpExchange)` 메서드로 정의했다. 테스트 준비에서 `pg.requests`(받은 요청 기록)와 PG의 승인 기록(`queryByOrderId`로 확인)을 구분했다. 분류 결과는 0.34와 같다
 > 0.34 · 2026-10-14 · `deleteExpired` 구현 반영: 반환 타입을 `void`로 맞췄다(호출하는 `around`는 반환값을 쓰지 않고 뒤따르는 `claim`의 결과로 판단한다). 규격·동작은 0.33과 같다
 > 0.33 · 2026-10-13 · **멱등 키 만료 처리의 경합을 막는 `deleteExpired`를 규격에 더했다**(최종 리뷰 질문): 만료된 키를 두 요청이 동시에 읽으면 조건 없는 `delete`가 먼저 새로 점유한 요청의 키를 지워 같은 키가 두 번 처리될 수 있었다. `around` 4-2는 만료 조건이 SQL에 있는 `deleteExpired`를 쓴다(예외 시 `delete`는 그대로)
@@ -68,7 +77,7 @@
 | member | `common` | `MemberApi` (2-2) |
 | shop | `common` | `ShopApi` |
 | product | `common`, `shop::api` | `ProductApi` |
-| payment | `common` | `PaymentApi` (2-4) |
+| payment | `common`, `member::api`(5-1부터. 탈퇴 consumer가 `MemberTopics`를 쓴다) | `PaymentApi` (2-4) |
 | order | `common`, `product::api`, `shop::api`, `member::api`, `payment::api` | 없음 (Part 3에서 추가) |
 
 - `{module}/api/package-info.java`에 `@NamedInterface("api")`. 구현체 `XxxApiImpl`은 `{module}.application`의 **package-private** 클래스다.
@@ -977,11 +986,12 @@ public interface PaymentApi {
 }
 public record StartPayment(UUID orderId, UUID memberId, Money amount, String pgOrderId, String paymentKey) {}
 public enum PaymentState { IN_PROGRESS, APPROVED, FAILED, UNKNOWN, PARTIAL_CANCELLED, CANCELLED }
-public record PgOutcome(PgOutcomeType type, String code, String method, Instant approvedAt) {}   // 승인이 아니면 method·approvedAt은 null
+public record PgOutcome(PgOutcomeType type, String code, String method, Instant approvedAt) {}   // 승인이 아니면 method·approvedAt은 null. 빌링 결제를 붙이는 5-3에서 `paymentKey`가 더해진다(지금은 넣지 않는다)
 public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 ```
-- `PaymentApiImpl.callConfirm`: payment를 읽어(짧은 읽기 트랜잭션) `tossClient.confirm(...)` → `PgResult`를 `PgOutcome`으로 변환
+- `PaymentApiImpl.callConfirm`: payment를 읽어(짧은 읽기 트랜잭션) `tossClient.confirm(...)` → `PgResult`를 `PgOutcome`으로 변환. payment가 없으면 `IllegalStateException`(`paymentId`는 호출자가 방금 `begin`으로 받은 내부 값이라 없으면 클라이언트 잘못이 아니라 버그다. 2-6 `queryOutcome`·`cancel`과 같다). 이 단계에는 `PaymentErrorCode`를 만들지 않는다(payment 전용 에러 코드는 5-1의 `BILLING_KEY_*`가 처음이다)
 - `applyOutcome`: APPROVED → `markApproved(id, {IN_PROGRESS, UNKNOWN}, ...)`, REJECTED → `markFailed(id, {IN_PROGRESS, UNKNOWN}, code)`, UNKNOWN → `markUnknown(id, now)` → 다시 읽어 현재 상태 반환. 반영 행 수가 0이어도 예외 없이 현재 상태를 반환한다(다른 흐름이 먼저 반영함)
+- `payment/api/package-info.java`에 `@NamedInterface("api")` (공통 규칙 J. 없으면 order가 `payment::api`를 쓰는 순간 `ModularityTest`가 실패한다)
 - `payment/package-info.java`: `allowedDependencies = {"common"}`, `order/package-info.java`에 `"payment::api"` 추가
 
 **4) order — 결제 승인**
@@ -991,15 +1001,44 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 
 `OrderErrorCode` 추가: `ORDER_EXPIRED`, `ORDER_ALREADY_PAID`. `CommonErrorCode` 추가: `PAYMENT_FAILED`, `PG_ERROR`, `AMOUNT_MISMATCH`
 
-`OrderPaymentApplier` (`@Service`, 2-6에서 재사용)
+`OrderPaymentApplier` (order.application, `@Service`) — **PG 결과를 받아 주문 쪽 후속 처리를 하는 곳**
 
-| 메서드 | 규격 |
-|---|---|
-| `@Transactional public OrderStatus apply(UUID orderId, UUID paymentId, PgOutcome outcome)` | ① `state = paymentApi.applyOutcome(paymentId, outcome)` ② `applyPaymentState(orderId, state, outcome.code())` 반환 |
-| `@Transactional public OrderStatus applyPaymentState(UUID orderId, PaymentState state, String failureCode)` | `order = findById` → status가 PAYMENT_IN_PROGRESS가 아니면 그대로 반환(이미 처리됨) → APPROVED면 `complete(order)`, FAILED면 `fail(order, "PG 거절: " + failureCode)`, 그 외는 아무것도 안 함 → `order.getStatus()` |
-| `@Transactional public void failOrder(UUID orderId, String reason)` | `order = findById` → `fail(order, reason)` (2-6 보상에서 사용) |
-| private `complete(Order order)` | `productApi.commitReservation(id)` → `order.markPaid(now)` → `cartService.deductOrdered(order.getMemberId(), order.quantitiesByProduct())` (장바구니에서 주문 수량만큼 뺀다. 아래) |
-| private `fail(Order order, String reason)` | `productApi.releaseReservation(id, PAYMENT_FAILED)` → `order.markPaymentFailed(reason)` (장바구니는 건드리지 않는다) |
+- **왜 필요한가**: payment 모듈은 주문을 모른다(허용 의존이 `common`뿐). `PaymentApi.applyOutcome`은 결제 상태만 바꿔 `PaymentState`를 돌려주므로, 그 결과에 따라 **재고 확정·주문 PAID·장바구니 차감**(성공) 또는 **재고 반환·주문 실패 처리**(거절)를 하는 일은 order가 맡는다.
+- **어디서 불리나**: `ConfirmPaymentService`의 트랜잭션 2가 `apply`를 부른다. 2-6 대사 잡도 같은 클래스를 재사용한다(결제가 나중에 확정돼도 같은 규칙이 적용되도록).
+- **의존성**: `PaymentApi`, `OrderRepository`, `ProductApi`, `CartService`, `Clock`(`markPaid`에 넘길 `Instant now`는 `clock.instant()`)
+- 메서드마다 `@Transactional`이 붙지만 서로 `this.`로 부르므로(공통 규칙 K) 새 트랜잭션이 열리는 게 아니라 **호출한 쪽 트랜잭션 안에서 실행**된다. 바깥(트랜잭션 2)이 이미 트랜잭션이라 그대로 동작한다.
+
+| 메서드 | 한 줄 설명 | 입력 → 반환 |
+|---|---|---|
+| `@Transactional public OrderStatus apply(UUID orderId, UUID paymentId, PgOutcome outcome)` | PG 결과를 payment에 반영하고, 그 결과로 주문을 처리한다 | `PgOutcome` → 처리 뒤 주문 상태 |
+| `@Transactional public OrderStatus applyPaymentState(UUID orderId, PaymentState state, String failureCode)` | **결제 상태만 알 때** 주문을 처리한다. 대사는 PG를 직접 조회해 `PaymentState`를 이미 알아서 `PgOutcome`이 없다 | `PaymentState` → 처리 뒤 주문 상태 |
+| `@Transactional public void failOrder(UUID orderId, String reason)` | 주문을 실패로 만든다(재고 반환 + `PAYMENT_FAILED`). 2-6에서 쓴다 | 사유 문자열 → 없음 |
+| private `void complete(Order order)` | 결제가 승인됐을 때의 주문 처리 | 주문 → 없음 |
+| private `void fail(Order order, String reason)` | 결제가 실패했을 때의 주문 처리 | 주문, 사유 → 없음 |
+
+**`apply`** 순서
+1. `PaymentState state = paymentApi.applyOutcome(paymentId, outcome)` — payment를 `IN_PROGRESS·UNKNOWN`일 때만 바꾸고 **반영 뒤 현재 상태**를 받는다(다른 흐름이 먼저 반영했으면 그 상태가 온다)
+2. `return applyPaymentState(orderId, state, outcome.code())` — `outcome.code()`는 거절이면 거절 코드, 승인이면 null
+
+**`applyPaymentState`** 순서
+1. `Order order = orderRepository.findById(orderId)` — 없으면 `IllegalStateException`(이 메서드가 존재를 확인하는 건 아니고, 호출자가 이미 DB에서 확인한 ID만 넘긴다: confirm은 트랜잭션 1의 `findByIdAndMemberId`, 대사는 `findStuckIds`가 읽은 ID. 주문은 삭제하지 않으므로 없으면 버그다. 이때 트랜잭션 2가 통째로 롤백돼 `applyOutcome`이 반영한 payment 상태도 취소된다)
+2. `order.getStatus() != PAYMENT_IN_PROGRESS`면 **아무것도 하지 않고 `order.getStatus()`를 반환**한다(이미 처리됨. 같은 결과를 두 번 반영해도 재고·장바구니가 두 번 바뀌지 않게 하는 장치)
+3. `state`에 따라
+   - `APPROVED` → `complete(order)`
+   - `FAILED` → `fail(order, "PG 거절: " + failureCode)`
+   - 그 밖(`IN_PROGRESS`, `UNKNOWN`, 취소 계열) → 아무것도 하지 않는다. 주문은 `PAYMENT_IN_PROGRESS`로 남고 대사가 이어서 확정한다
+4. `return order.getStatus()` — `complete`·`fail`이 같은 `order` 인스턴스의 상태를 바꿨으므로 바뀐 값이 나온다. 저장은 커밋 때 더티 체킹으로 되니 `save`는 부르지 않는다
+
+**`complete(order)`** — 순서대로 세 가지
+1. `productApi.commitReservation(order.getId())` — 예약된 재고를 `reserved → sold`로 확정한다(`void`, 멱등)
+2. `order.markPaid(clock.instant())` — 주문·가게주문·품목을 `PAID`로, `paidAt`을 기록한다. 이미 처리된 주문이면 `INVALID_STATE_TRANSITION`이 나므로 위 2번 가드가 먼저 막아야 한다
+3. `cartService.deductOrdered(order.getMemberId(), order.quantitiesByProduct())` — 장바구니에서 **주문한 수량만큼** 뺀다(아래). `quantitiesByProduct()`는 `Map<UUID, Integer>`(상품 ID → 수량)다
+
+**`fail(order, reason)`** — 순서대로 두 가지
+1. `productApi.releaseReservation(order.getId(), ReleaseReason.PAYMENT_FAILED)` — 예약했던 재고를 `available`로 돌려준다(`void`, 멱등)
+2. `order.markPaymentFailed(reason)` — 주문을 `PAYMENT_FAILED`로 바꾸고 `failure_reason`에 사유를 적고 가게주문·품목을 `CANCELLED`로 만든다(사유는 200자까지만 저장된다). **장바구니는 건드리지 않는다**(구매자가 같은 항목으로 다시 체크아웃할 수 있게)
+
+**`failOrder`**: `findById`(없으면 `IllegalStateException`) → `fail(order, reason)`. `applyPaymentState`의 2번 가드는 거치지 않으므로, 호출하는 2-6 쪽이 상태를 확인하고 부른다
 
 **장바구니 차감** — 2-1 코드에 더한다
 
@@ -1027,13 +1066,14 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 1. **트랜잭션 1** (커밋)
    1. `orderRepository.findByIdAndMemberId(orderId, memberId)` — 없으면(남의 주문 포함) 404 `ORDER_NOT_FOUND`
    2. `command.amount()`가 주문 총액과 다르거나 `command.pgOrderId()`가 `order.pgOrderId()`와 다르면 422 `AMOUNT_MISMATCH` (PG를 부르지 않는다)
-   3. `startPayment(orderId, PENDING_PAYMENT, PAYMENT_IN_PROGRESS, now)`. **0행이면** 주문을 다시 읽어 상태로 응답을 정한다. PG는 부르지 않는다
+   3. `startPayment(orderId, PENDING_PAYMENT, PAYMENT_IN_PROGRESS, now)` — `from`은 **항상 `PENDING_PAYMENT`로 고정**한다(1번에서 읽은 `order.getStatus()`를 넘기면 CAS가 아니라 "지금 상태가 뭐든 바꾼다"가 되어 `PAID` 주문도 `PAYMENT_IN_PROGRESS`로 되돌린다). **0행이면** 주문을 다시 읽어(`findById`. 소유는 1번에서 확인했다. 이 조회는 `clearAutomatically`로 캐시가 비워진 뒤라 DB의 새 상태를 읽는다) 상태로 응답을 정한다. 1번에서 읽은 주문이라 없을 수 없고 주문은 삭제하지 않으므로 못 찾으면 `IllegalStateException`(버그)이다. PG는 부르지 않는다
       - `PAID` → 409 `ORDER_ALREADY_PAID`
       - `PAYMENT_IN_PROGRESS` → 다른 요청이 승인 중이므로 `ConfirmResult(PAYMENT_IN_PROGRESS)`(202)
       - `PENDING_PAYMENT`인데 `expires_at`이 지났다 → 409 `ORDER_EXPIRED`
       - `CANCELLED` → 409 `INVALID_STATE_TRANSITION` (아래 "결제 전 주문 취소"가 먼저 이겼다)
-      - 그 밖의 상태(`EXPIRED`, `PAYMENT_FAILED`)의 응답은 문서에 정해져 있지 않다(확인 필요)
+      - `EXPIRED`·`PAYMENT_FAILED` → 409 `INVALID_STATE_TRANSITION`(이미 끝난 주문이라 `CANCELLED`와 같게 처리한다)
    4. 1행이면 `paymentApi.begin(new StartPayment(orderId, memberId, 주문 총액, pgOrderId, paymentKey))` → `paymentId`
+   - **트랜잭션 1이 돌려주는 값**: `tx.execute`의 람다는 값을 돌려줘야 하고, 이 트랜잭션은 "결제를 시작했다(`paymentId`로 2번을 이어 간다)"와 "여기서 끝낸다(3번의 202 `ConfirmResult`)" 두 갈래다. 둘 중 하나를 담는 작은 값(예: `record Started(UUID paymentId, ConfirmResult early)`, 한쪽은 null. 이름은 권장안)을 돌려주고, `early`가 있으면 2·3을 건너뛰고 그 결과를 반환한다. 409·422는 `BusinessException`을 던지면 트랜잭션 1이 롤백된다
 2. **트랜잭션 밖**: `paymentApi.callConfirm(paymentId)` → `PgOutcome`
 3. **트랜잭션 2** (커밋): `orderPaymentApplier.apply(orderId, paymentId, outcome)` → `OrderStatus`
 4. 결과를 응답으로 바꾼다
@@ -1105,7 +1145,7 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 - [ ] **같은 주문 confirm 동시 2건**(서로 다른 Idempotency-Key, `delay(300)`) → PG 승인 요청 1건, 응답은 200 하나 + 202 하나
 - [ ] **금액 위변조**(amount + 1) → 422 `AMOUNT_MISMATCH`, PG 요청 0건, 주문 PENDING_PAYMENT 그대로
 - [ ] 이미 PAID인 주문 confirm(다른 키) → 409 `ORDER_ALREADY_PAID`
-- [ ] **결제 중 장바구니 변경**: 2개 체크아웃 후 같은 상품을 3개 더 담고(2→5) 승인 → 장바구니에 3개 남음 / 수량을 1개로 줄이고(2→1) 승인 → 항목 삭제, 오류 없이 PAID / 항목을 직접 삭제하고 승인 → 오류 없이 PAID
+- [ ] **결제 중 장바구니 변경**: 2개 체크아웃 후 같은 상품을 1개 더 담고(2→3) 승인 → 장바구니에 1개 남음(남은 수량이 주문 수량 이하여도 지워지면 안 된다. `deleteIfQuantityAtMost`를 `deductQuantity`보다 먼저 부르는 순서를 이 케이스가 지킨다. 2→5처럼 남는 수량이 주문 수량보다 크면 순서를 뒤집어도 통과해 못 잡는다) / 수량을 1개로 줄이고(2→1) 승인 → 항목 삭제, 오류 없이 PAID / 항목을 직접 삭제하고 승인 → 오류 없이 PAID
 
 `OrderCancelTest` (43,000원 주문을 `createPendingOrder`로 만들어 시작. 호출은 `POST /api/orders/{id}/cancel`)
 - [ ] **취소** → 200 **CANCELLED**(`PAYMENT_FAILED`가 아니다), `failure_reason`은 null, 재고 available 원복·예약 RELEASED, 가게주문·품목 CANCELLED, 장바구니 그대로, PG 요청 0건
@@ -1116,7 +1156,7 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 - [ ] 이미 취소·만료된 주문 → 409, 재고가 두 번 풀리지 않는다
 - [ ] **같은 주문 동시 취소 2건**(`ConcurrencyRunner.run(2, ...)`) → 200 하나 + 409 하나, `stock.available`이 1회분만 원복
 - [ ] **취소된 주문에 confirm** → 409 `INVALID_STATE_TRANSITION`, PG 요청 0건
-- [ ] **교차 락**: 같은 두 상품(x, y)이 든 주문 A의 취소와, 두 상품을 y, x 순서로 담은 주문 B의 체크아웃을 동시에 실행 → 둘 다 정상 종료(데드락 예외 없음). 20회 반복해도 같다
+- [ ] **교차 락**: 상품 x, y를 `productApi.reserve(orderA, [x, y], expiresAt)`로 예약해 둔 주문 A를 만들고, `productApi.releaseReservation(orderA, PAYMENT_FAILED)`(취소가 부르는 메서드)와 `productApi.reserve(orderB, [y, x], expiresAt)`(항목 순서를 뒤집어 **직접** 넘긴다)를 `ConcurrencyRunner.run(List.of(...))`로 동시에 실행 → 둘 다 예외 없이 끝남. 20회 반복해도 같다. **HTTP로 하지 않는 이유**: 체크아웃은 장바구니 항목을 `Collectors.toMap`(HashMap)으로 모아 `reserve`에 넘기므로 요청의 항목 순서가 락 순서를 정하지 못한다(2026-10-15 확인: HTTP로 항목 순서를 뒤집고 `reserve`의 정렬을 지워도 20회 모두 통과했다. `[y, x]`를 직접 넘기면 정렬을 지웠을 때 20회 모두 실패했다)
 
 **리뷰 때 물어볼 것**
 - 트랜잭션 1과 2 사이에서 앱이 죽으면 무엇이 남고, 누가 이어서 처리하나? (→ 2-6)
@@ -1144,24 +1184,30 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 
 ### 할 일
 
-**1) common.job**
+**1) common.job — 잡 공통 장치**
 
-| 클래스 | 규격 |
-|---|---|
-| `JobLock` | `@Component`, 의존성 `DataSource`. `boolean runExclusively(String jobName, Runnable task)` |
-| `JobRunner` | `@Component`, 의존성 `JobLock`. `void run(String jobName, Supplier<Integer> task)` |
-| `common.config.SchedulingConfig` | `@Configuration @EnableScheduling @ConditionalOnProperty(prefix = "myroutine.scheduling", name = "enabled", havingValue = "true", matchIfMissing = true)` |
+스케줄 잡(만료 2-5, 대사 2-6, 환불 복구 2-8b, 자동 확정 2-10)은 모두 "락을 잡고 → 작업을 돌리고 → 건수를 로그로 남기고 → 예외는 삼킨다"는 같은 틀을 쓴다. 틀을 한 번만 만들어 두고, 각 잡은 아래 흐름의 맨 앞 `XxxJob`만 갖는다.
 
-`JobLock.runExclusively` 순서
-1. `try (Connection c = dataSource.getConnection())` — 이 커넥션은 락 전용이다(작업은 다른 커넥션을 쓴다)
-2. `SELECT pg_try_advisory_lock(hashtext(?))`, 파라미터 `"job:" + jobName` → false면 `return false`
-3. `try { task.run(); } finally { SELECT pg_advisory_unlock(hashtext(?)) }` → `return true`
+`XxxJob`(`@Scheduled`) → `JobRunner.run`(로그·예외 처리) → `JobLock.runExclusively`(서버 간 중복 방지) → `XxxService.xxxBatch()`(실제 처리)
+
+| 클래스 | 하는 일 | 규격 |
+|---|---|---|
+| `JobLock` | 서버가 여러 대여도 같은 이름의 잡이 한 곳에서만 돌게 한다. 락을 잡은 서버만 작업을 실행하고 못 잡은 서버는 건너뛴다 | `@Component`, 의존성 `DataSource`. `boolean runExclusively(String jobName, Runnable task)` — 입력: 잡 이름, 실행할 작업. 반환: 작업을 실행했으면 `true`, 다른 서버가 락을 쥐고 있어 건너뛰었으면 `false` |
+| `JobRunner` | 잡 한 번의 실행을 감싼다: 로그에 추적 ID·잡 이름을 붙이고, 락 안에서 작업을 돌리고, 건수·시간을 남기고, 예외를 삼킨다 | `@Component`, 의존성 `JobLock`. `void run(String jobName, Supplier<Integer> task)` — `task`는 **처리한 건수**를 돌려준다 |
+| `common.config.SchedulingConfig` | `@Scheduled`를 켠다. 테스트 중에는 스케줄러가 끼어들지 않도록 프로퍼티로 끈다 | `@Configuration @EnableScheduling @ConditionalOnProperty(prefix = "myroutine.scheduling", name = "enabled", havingValue = "true", matchIfMissing = true)` — `myroutine.scheduling.enabled`가 `false`이면 이 설정이 등록되지 않아 `@Scheduled`가 동작하지 않는다(생략하면 켜진다) |
+
+`JobLock.runExclusively` 순서 — `Runnable`은 값을 돌려주지 못하므로 처리 건수는 `JobRunner`가 따로 받는다(아래 2번)
+1. `try (Connection c = dataSource.getConnection())` — 이 커넥션은 **락 전용**이다. 작업(`task.run()`)은 풀에서 다른 커넥션을 꺼내 쓰므로 `c`를 작업에 넘기지 않는다(잡이 도는 동안 풀의 커넥션 한 개가 락에 묶인다)
+2. `PreparedStatement`로 `SELECT pg_try_advisory_lock(hashtext(?))`를 실행한다(파라미터 `"job:" + jobName`). `ResultSet.getBoolean(1)`이 false면 다른 서버가 쥐고 있으므로 작업을 실행하지 않고 `return false`
+3. `try { task.run(); } finally { c로 SELECT pg_advisory_unlock(hashtext(?)) }` → `return true`
 - **unlock을 빼먹으면** 커넥션이 풀로 돌아가도 락이 남는다(세션 레벨 락은 커넥션이 닫힐 때까지 유지). 그래서 finally에서 반드시 푼다.
+- **unlock은 락을 잡은 같은 커넥션 `c`로 한다.** 세션 락은 잡은 세션의 것이라 다른 커넥션에서 풀면 `false`만 돌아오고 락은 남는다.
+- `SQLException`은 체크 예외인데 시그니처에 `throws`가 없다. 잡아서 비검사 예외로 감싸 던진다. 예외 종류는 문서에 정해져 있지 않다(확인 필요) — `JobRunner`가 어떤 예외든 로그로 남기고 삼킨다.
 
 `JobRunner.run` 순서
-1. `MDC.put(TraceIds.MDC_KEY, TraceIds.newId())`, `MDC.put("job", jobName)`
-2. 시작 시각 → `jobLock.runExclusively(jobName, () -> count.set(task.get()))` — 람다 안에서는 지역 변수에 대입할 수 없으므로 `AtomicInteger count`에 담는다
-3. 실행했으면 `log.info("job {} processed {} in {}ms", ...)`, 락을 못 잡았으면 `log.debug("job {} skipped: locked", ...)`
+1. `MDC.put(TraceIds.MDC_KEY, TraceIds.newId())`, `MDC.put("job", jobName)` — 요청이 없는 스케줄 스레드에서도 로그에 `traceId`가 찍히게 한다(`org.slf4j.MDC`, `TraceIds`는 `common.web`)
+2. 시작 시각 → `boolean ran = jobLock.runExclusively(jobName, () -> count.set(task.get()))` — 람다 안에서는 지역 변수에 대입할 수 없으므로 `AtomicInteger count`에 담는다
+3. `ran`이면 `log.info("job {} processed {} in {}ms", ...)`, 아니면(락을 못 잡음) `log.debug("job {} skipped: locked", ...)`
 4. 예외는 `log.error("job {} failed", jobName, e)`로 남기고 다시 던지지 않는다(다음 주기에 재실행)
 5. `finally`에서 MDC 두 키 제거
 
@@ -1171,24 +1217,31 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 
 | 대상 | 규격 |
 |---|---|
-| 마이그레이션 | `db/migration/order/V{...}__order_add_orders_status_expires_at_index.sql`: `CREATE INDEX idx_orders_status_expires_at ON orders.orders (status, expires_at)` |
+| 마이그레이션 | `db/migration/order/V{...}__order_add_orders_status_expires_at_index.sql`: `CREATE INDEX idx_orders_status_expires_at ON orders.orders (status, expires_at)` — 아래 `findExpiredIds`의 `status`·`expires_at` 조건을 받친다 |
 | `OrderRepository` | 쿼리 두 개를 더한다(아래) |
-| `OrderExpirationService` (order.application) | 클래스에 `@Transactional` 없음. 의존성 `OrderRepository`, `ProductApi`, `TransactionTemplate tx`. `public int expireBatch()` |
+| `OrderExpirationService` (order.application) | 클래스에 `@Transactional` 없음. 의존성 `OrderRepository`, `ProductApi`, `TransactionTemplate tx`, `Clock`(`now`는 `clock.instant()`). `public int expireBatch()` |
 | `OrderExpirationJob` (order.infrastructure) | `@Component`. `@Scheduled(fixedDelay = 60_000) void run() { jobRunner.run("expire-orders", expirationService::expireBatch); }` |
 
-`OrderRepository` 추가
-- `@Query("select o.id from Order o where o.status = :status and o.expiresAt < :now order by o.expiresAt") List<UUID> findExpiredIds(OrderStatus status, Instant now, Limit limit)`
-- `@Modifying(clearAutomatically = true) @Query("update Order o set o.status = :to, o.version = o.version + 1, o.updatedAt = :now where o.id = :id and o.status = :from and o.expiresAt < :now") int expire(UUID id, OrderStatus from, OrderStatus to, Instant now)`
+**`OrderExpirationJob`**: 스케줄러가 부르는 진입점이다. 로직은 없고 잡 이름(락 이름이자 로그의 `job` 값)과 실제 처리 메서드(`expireBatch`)만 `JobRunner`에 넘긴다. `fixedDelay = 60_000`은 "이전 실행이 끝나고 60초 뒤에 다시"라 서버 한 대 안에서는 실행이 겹치지 않는다.
 
-`expireBatch` 순서
-1. `ids = findExpiredIds(PENDING_PAYMENT, now, Limit.of(100))`
-2. 각 ID마다 `try { tx.execute(s -> expireOne(id)) } catch (Exception e) { log.error("expire failed orderId={}", id, e); }`
+**`OrderExpirationService.expireBatch`**: 결제 대기 시간(15분)이 지난 `PENDING_PAYMENT` 주문을 최대 100건 만료시킨다. 서비스 전체를 한 트랜잭션으로 묶지 않고, 외부 호출이 없어도 **주문 한 건마다 트랜잭션**을 연다(`TransactionTemplate tx`). 한 건이 실패해도 그 건만 롤백되고 나머지는 처리된다.
+
+`OrderRepository` 추가 — 시그니처는 `order.domain`의 `OrderRepository`에, `@Query`·`@Modifying`은 `order.infrastructure`의 `JpaOrderRepository`에 둔다(2-2 `OrderRepository` 구조)
+
+| 메서드 | 하는 일 | 입력 → 반환 |
+|---|---|---|
+| `@Query("select o.id from Order o where o.status = :status and o.expiresAt < :now order by o.expiresAt") List<UUID> findExpiredIds(OrderStatus status, Instant now, Limit limit)` | 만료 후보 주문의 **ID만** 오래된 순으로 읽는다. 처리는 건별 트랜잭션에서 CAS 뒤에 주문을 다시 읽으므로 후보 목록에는 ID면 충분하다 | 상태·기준 시각·`Limit`(`org.springframework.data.domain.Limit`) → ID 목록 |
+| `@Modifying(clearAutomatically = true) @Query("update Order o set o.status = :to, o.version = o.version + 1, o.updatedAt = :now where o.id = :id and o.status = :from and o.expiresAt < :now") int expire(UUID id, OrderStatus from, OrderStatus to, Instant now)` | 주문 상태를 `from`일 때만 `to`로 바꾸는 CAS(공통 규칙 L). 후보를 읽은 뒤 구매자가 승인을 시작(2-4 `startPayment`)했거나 취소했다면 `status = :from`이 맞지 않아 0행이 된다 | → **1이면 내가 만료시킴, 0이면 그사이 다른 흐름이 바꿈** |
+
+`expireBatch` 순서 → 반환: 만료시킨 건수(`int`)
+1. `List<UUID> ids = findExpiredIds(PENDING_PAYMENT, now, Limit.of(100))` — `now`는 `clock.instant()`
+2. 각 ID마다 `try { tx.execute(s -> expireOne(id)) } catch (Exception e) { log.error("expire failed orderId={}", id, e); }` — `tx.execute`가 `Boolean`(만료시켰으면 true)을 돌려주므로 true인 것만 센다. 건별 트랜잭션 안에서 예외가 나면 그 건의 CAS까지 롤백되어 주문은 `PENDING_PAYMENT`로 남고 다음 주기에 다시 후보가 된다(테스트의 "한 건 실패 주입"이 이 경우다)
 3. 만료시킨 건수 반환
 
-`expireOne(id)` (트랜잭션 안)
-1. `expire(id, PENDING_PAYMENT, EXPIRED, now)` → 0이면 return false (그사이 결제가 시작됐거나 이미 처리됨)
-2. `productApi.releaseReservation(id, ReleaseReason.EXPIRED)`
-3. `order = findById(id)` (**CAS 뒤에** 읽는다) → `order.cancelPendingChildren()`
+`expireOne(id)` — `expireBatch`의 private 메서드. `tx.execute` 안에서 불리므로 **트랜잭션 안**이다(별도 `@Transactional` 불필요). 반환 `boolean`
+1. `expire(id, PENDING_PAYMENT, EXPIRED, now)` → 0이면 return false (그사이 결제가 시작됐거나 이미 처리됨. 이 건은 만료시키지 않는다)
+2. `productApi.releaseReservation(id, ReleaseReason.EXPIRED)` — 예약된 재고를 `reserved → available`로 돌리고 예약을 `EXPIRED`로 만든다(`void`, 멱등. `ReleaseReason.PAYMENT_FAILED`면 예약이 `RELEASED`가 된다)
+3. `Order order = findById(id)` (**CAS 뒤에** 읽는다: `expire`의 `clearAutomatically`가 영속성 컨텍스트를 비우므로 CAS 앞에 읽은 엔티티는 낡은 상태다) → `order.cancelPendingChildren()` — 주문 상태는 이미 `EXPIRED`이고, 이 호출이 `PENDING`인 가게주문·품목을 `CANCELLED`로 바꾼다. 저장은 커밋 때 더티 체킹이라 `save`를 부르지 않는다
 4. return true
 
 ### 완료 확인
@@ -1258,7 +1311,11 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 | version | bigint | X | |
 | created_at, updated_at | timestamptz | X | |
 
+- `payment_cancel` 한 행은 **Toss 취소 호출 한 건의 기록**이다. `idempotency_key`가 같은 호출을 식별한다(품목 환불은 `refundId`(관리자 재시도는 `refundId-r{n}`), 보상 취소는 `"order-compensate-" + orderId`). `REQUESTED`는 호출 전·호출 중, `DONE`은 Toss가 취소를 승인, `FAILED`는 명확히 거절, `UNKNOWN`은 결과를 모름(같은 키로 다시 불러 확인한다).
+
 **2) payment — 대사·취소**
+
+**왜 payment가 하는가**: 주문은 PG를 직접 모른다. order는 `PaymentApi`로 "이 주문의 결제가 어떻게 됐는지"를 묻고, "이 주문의 결제를 취소해 달라"고 요청한다. Toss 호출과 `payment`·`payment_cancel` 행 갱신은 모두 payment 모듈 안에서 끝난다.
 
 `PaymentApi` 추가 (`PaymentView`·`CancelOutcome`은 2-4의 `StartPayment`처럼 `payment.api`의 별도 파일)
 ```java
@@ -1271,49 +1328,71 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 ```
 - 결제는 주문 전용이라(`payment.order_id` unique) 모든 메서드는 `orderId` 하나로 결제를 찾는다.
 
-`queryOutcome` 순서
-1. payment 조회 → 없으면 `IllegalStateException`
-2. 이미 APPROVED(취소 포함)면 `PgOutcome(APPROVED, ...)`, FAILED면 `PgOutcome(REJECTED, failureCode, ...)` — PG 호출 없음
-3. `tossClient.queryByOrderId(paymentId, pgOrderId)` → `Approved`면 APPROVED(승인 시각 포함), `Rejected`면 REJECTED
-4. `Unknown`이면 짧은 트랜잭션에서 `reconcile_attempts + 1`, status가 IN_PROGRESS면 UNKNOWN으로 → `PgOutcome(UNKNOWN)`
+| 메서드 | 한 줄 설명 | 입력 → 반환 |
+|---|---|---|
+| `find(orderId)` | 주문의 결제 요약을 읽는다. 대사 잡이 `paymentId`(결과 반영·취소에 필요)와 `amount`(보상 취소 금액)를 얻는 데 쓴다. 읽기 전용이라 트랜잭션 안팎 어디서든 된다 | 주문 ID → `Optional<PaymentView>`(결제가 없으면 empty) |
+| `queryOutcome(orderId)` | Toss에 **조회**해서 이 주문의 결제가 지금 어떻게 됐는지 알아낸다. 결과를 `payment`에 반영하지는 않는다(반영은 2-4 `applyOutcome`, 호출은 `OrderPaymentApplier.apply`가 한다). 조회도 불확실했을 때만 `reconcile_attempts`·`UNKNOWN`을 기록한다 | 주문 ID → `PgOutcome`(2-4와 같은 타입) |
+| `cancel(orderId, amount, reason, idempotencyKey)` | 결제 금액 중 `amount`만큼 Toss에 취소를 요청하고, 결과를 `payment_cancel`·`payment`에 반영한다. 같은 키로 다시 불러도 한 번만 취소된다 | → `CancelOutcome`(`DONE`: 취소됨, `FAILED`: 명확히 거절됨, `UNKNOWN`: 모름) |
 
-`cancel` 순서
-1. 트랜잭션 A
-   1. payment가 APPROVED·PARTIAL_CANCELLED가 아니면 `IllegalStateException`
-   2. `payment_cancel` INSERT(REQUESTED) `ON CONFLICT ON CONSTRAINT uk_payment_cancel_idempotency_key DO NOTHING`
-   3. 행을 다시 읽어 DONE이면 `return DONE`, FAILED면 `return FAILED`
-   4. `amount > payment.amount - cancelled_amount`면 `IllegalArgumentException`
-2. 트랜잭션 밖: `tossClient.cancel(paymentId, paymentKey, amount, reason, idempotencyKey)`
-3. 트랜잭션 B: 결과별로 반영한다
-   - `Approved`: cancel 행 CAS(`REQUESTED`·`UNKNOWN` → DONE)가 성공했을 때만 `payment.cancelled_amount += amount`. status는 누계 = 금액이면 CANCELLED, 아니면 PARTIAL_CANCELLED
-   - `Rejected`: cancel 행을 FAILED(+`failure_code`)로
-   - `Unknown`: cancel 행을 UNKNOWN으로
-4. 결과(`CancelOutcome`) 반환
+- `PaymentView`는 `Payment` 엔티티에서 `paymentId = getId()`, `state = PaymentState.valueOf(getStatus().name())`, `amount·cancelledAmount = Money.amount()`, `approvedAt = getApprovedAt()`로 만든다.
+- 구현체 `PaymentApiImpl`에는 2-4에서 이미 `TransactionTemplate`이 주입돼 있다. `queryOutcome`·`cancel`은 `@Transactional`이 아니며, 필요한 짧은 트랜잭션은 이 템플릿으로 연다(Toss 호출은 트랜잭션 밖. 공통 규칙 K).
+
+`queryOutcome` 순서 → 반환 `PgOutcome(type, code, method, approvedAt)`
+1. `payment = findByOrderId(orderId)` → 없으면 `IllegalStateException`(호출자가 방금 결제를 확인한 주문이라 없으면 버그. 2-4 `callConfirm`과 같은 이유)
+2. 이미 확정된 결제는 **PG를 부르지 않고** 저장된 값으로 답한다. 반환 형태는 2-4의 `PgOutcome` 주석과 같다(승인이 아니면 `method`·`approvedAt`은 null)
+   - `APPROVED`·`PARTIAL_CANCELLED`·`CANCELLED`(취소 포함) → `PgOutcome(APPROVED, null, payment.method, payment.approvedAt)`
+   - `FAILED` → `PgOutcome(REJECTED, payment.failureCode, null, null)`
+3. 그 밖(`IN_PROGRESS`·`UNKNOWN`)이면 `PgResult result = tossClient.queryByOrderId(payment.getId(), payment.getPgOrderId())` (트랜잭션 밖)를 `PgOutcome`으로 바꾼다 — 2-4 `callConfirm`과 같은 변환이다
+   - `Approved` → `PgOutcome(APPROVED, null, approved.method(), approved.approvedAt())`
+   - `Rejected` → `PgOutcome(REJECTED, rejected.code(), null, null)`. 조회에서 Toss에 없는 주문(404 `NOT_FOUND_PAYMENT`)도 여기다(2-3)
+   - `Unknown` → 4번
+4. `Unknown`이면 짧은 트랜잭션(`TransactionTemplate`)에서 `reconcile_attempts + 1`, status가 `IN_PROGRESS`면 `UNKNOWN`으로 바꾼 뒤 `PgOutcome(UNKNOWN, unknown.reason(), null, null)`을 반환한다. 이미 `UNKNOWN`이면 상태는 그대로이고 횟수만 늘어난다. 횟수를 올리는 방법(`markUnknown`처럼 CAS 쿼리를 더할지 엔티티에서 올릴지)은 문서에 정해져 있지 않다(확인 필요) — 이미 있는 `markUnknown`은 횟수를 올리지 않는다
+
+`cancel` 순서 → 반환 `CancelOutcome`
+1. **트랜잭션 A** (`tx.execute`, 커밋. Toss를 부르기 전에 "취소를 시도한다"는 기록을 먼저 남긴다)
+   1. `payment = findByOrderId(orderId)` → 없으면 `IllegalStateException`
+   2. `payment_cancel` INSERT(REQUESTED) `ON CONFLICT ON CONSTRAINT uk_payment_cancel_idempotency_key DO NOTHING` — native 쿼리의 `@Modifying` `int`. 같은 `idempotencyKey`가 이미 있으면 0행이라 **새 행을 만들지 않고** 기존 행을 쓴다(`id`는 `Ids.newId()`, `amount`는 `Money.amount()`, `status`는 `'REQUESTED'`)
+   3. `idempotencyKey`로 행을 다시 읽어 status가 `DONE`이면 `return DONE`, `FAILED`면 `return FAILED` (이미 끝난 호출이라 Toss를 다시 부르지 않는다). `REQUESTED`·`UNKNOWN`이면 계속
+   4. payment status가 `APPROVED`·`PARTIAL_CANCELLED`가 아니면(승인 전이거나 이미 전액 취소) `IllegalStateException`. **3번 뒤에 두는 이유**: 전액 취소가 끝난 payment(`CANCELLED`)에 같은 키로 다시 부르면 3번에서 `DONE`을 돌려줘야 하는데, 상태를 먼저 검사하면 그 전에 예외가 난다. 이 예외로 트랜잭션이 롤백되면 2번의 INSERT도 함께 취소된다
+   5. `amount.isGreaterThan(payment.amount.minus(payment.cancelledAmount))`면 `IllegalArgumentException`(호출 코드의 버그를 드러내는 방어. 같은 트랜잭션이라 위 2의 INSERT도 함께 롤백된다)
+2. **트랜잭션 밖**: `PgResult result = tossClient.cancel(payment.getId(), payment.getPaymentKey(), amount, reason, idempotencyKey)` — A에서 읽은 `payment`의 값을 쓴다(엔티티를 A 밖으로 꺼내도 단순 필드는 읽힌다)
+3. **트랜잭션 B** (`tx.execute`): 결과별로 반영한다
+   - `Approved`: cancel 행 CAS(`UPDATE payment.payment_cancel SET status = 'DONE', version = version + 1, updated_at = :now WHERE id = :id AND status IN ('REQUESTED','UNKNOWN')`. 반환 `int`)가 **1행일 때만** `payment.cancelled_amount += amount`(`Money.plus`)로 올린다. 0행이면 다른 흐름이 이미 반영한 것이라 올리지 않는다(같은 키를 두 번 보내도 한 번만 증가하는 이유). payment status는 `cancelled_amount`와 `amount`가 같으면 `CANCELLED`, 아니면 `PARTIAL_CANCELLED`(`PaymentStatus.transitTo`)
+   - `Rejected`: cancel 행을 `FAILED`로 바꾸고 `failure_code = rejected.code()`
+   - `Unknown`: cancel 행을 `UNKNOWN`으로
+4. 결과(`CancelOutcome`)를 반환: `Approved` → `DONE`, `Rejected` → `FAILED`, `Unknown` → `UNKNOWN`
 - 결과가 UNKNOWN이었던 취소를 같은 키로 다시 부르면 1에서 행이 UNKNOWN이므로 2로 가서 **같은 Idempotency-Key로** Toss를 다시 부른다.
+- 같은 키로 이미 `DONE`인 호출은 payment가 전액 취소로 `CANCELLED`가 된 뒤에도 `DONE`을 돌려준다(3번이 4번의 상태 검사보다 먼저이므로). 2-8 복구 잡이 "PG 취소는 끝났는데 `markPgCancelled`가 실패한 환불"을 다시 처리할 때(그 환불이 주문의 마지막 금액이었을 때) 닿는 경로다.
+- **payment 쪽에 필요한 구현물**(문서에 이름이 정해져 있지 않다. 이름은 권장안이고 확인 필요): `payment_cancel` 엔티티(`PaymentCancel`)와 상태 enum, 리포지토리(`ON CONFLICT` INSERT, `idempotencyKey`로 읽기, 상태 CAS), `Payment`의 `cancelled_amount` 증가와 상태 변경. 증가를 CAS 쿼리로 할지 엔티티 메서드(`@Version`)로 할지는 정해져 있지 않다 — 2-8이 같은 주문의 취소를 주문 행 잠금으로 줄 세운다.
 
 **3) order — 대사 잡**
 
 | 대상 | 규격 |
 |---|---|
-| `OrderRepository` | `@Query("select o.id from Order o where o.status = :status and o.updatedAt < :before order by o.updatedAt") List<UUID> findStuckIds(OrderStatus status, Instant before, Limit limit)` |
-| `OrderReconcileService` (order.application) | 클래스에 `@Transactional` 없음. 의존성 `OrderRepository`, `PaymentApi`, `OrderPaymentApplier`(2-4. 아래 `applier`), `TransactionTemplate tx`. `public int reconcileBatch()` |
-| `OrderReconcileJob` (order.infrastructure) | `@Scheduled(fixedDelay = 60_000)` → `jobRunner.run("reconcile-orders", service::reconcileBatch)` |
+| `OrderRepository` | `@Query("select o.id from Order o where o.status = :status and o.updatedAt < :before order by o.updatedAt") List<UUID> findStuckIds(OrderStatus status, Instant before, Limit limit)` — 시그니처는 `OrderRepository`(domain), `@Query`는 `JpaOrderRepository`(2-5와 같은 구조) |
+| `OrderReconcileService` (order.application) | 클래스에 `@Transactional` 없음. 의존성 `OrderRepository`, `PaymentApi`, `OrderPaymentApplier`(2-4. 아래 `applier`), `TransactionTemplate tx`, `Clock`(`now`는 `clock.instant()`). `public int reconcileBatch()` |
+| `OrderReconcileJob` (order.infrastructure) | `@Scheduled(fixedDelay = 60_000)` → `jobRunner.run("reconcile-orders", service::reconcileBatch)` (2-5 `OrderExpirationJob`과 같은 모양) |
 
-`reconcileBatch` 순서 — `findStuckIds(PAYMENT_IN_PROGRESS, now - 30초, Limit.of(100))`의 각 주문마다 try/catch로 감싸서:
-1. `view = paymentApi.find(orderId)` (없으면 로그 후 다음 주문)
-2. `outcome = paymentApi.queryOutcome(orderId)` → UNKNOWN이면 다음 주문
-3. `try { tx.execute(s -> applier.apply(orderId, view.paymentId(), outcome)) }`
-4. 3이 예외로 실패했고 outcome이 APPROVED이며 `outcome.approvedAt() < now - 5분`이면 **보상**:
-   1. `tx.execute(s -> paymentApi.applyOutcome(paymentId, outcome))` — 승인 사실만 먼저 기록
-   2. `paymentApi.cancel(orderId, Money.of(view.amount()), "주문 완료 실패로 자동 취소", "order-compensate-" + orderId)`
-   3. DONE이면 `tx.execute(s -> { applier.failOrder(orderId, "결제 완료 처리 실패로 자동 취소"); })`, 아니면 다음 주기에 다시
+**`findStuckIds`**: 한 상태로 `before`보다 오래 머문 주문의 ID만 오래된 순으로 읽는다. "머문 시간"은 `updated_at` 기준이다 — 2-4 `startPayment`가 `PAYMENT_IN_PROGRESS`로 바꾸면서 `updated_at = now`를 적으므로 승인을 시작한 시각이 된다. `Limit`·반환 형태는 2-5 `findExpiredIds`와 같다.
+
+**`OrderReconcileService.reconcileBatch`**: 결제 결과가 확정되지 않은 주문을 최대 100건 골라 하나씩 Toss에 조회하고, 결과를 주문에 반영한다. **누가 부르나**: `OrderReconcileJob`(1분마다). **왜 필요한가**: 승인 요청의 응답이 끊겼거나(2-4에서 202), 승인은 됐는데 우리 완료 트랜잭션이 실패한 주문은 `PAYMENT_IN_PROGRESS`로 남는다. 이 잡이 그것을 `PAID`/`PAYMENT_FAILED`로 끝낸다. 결과 반영(재고·주문·장바구니)은 2-4 `OrderPaymentApplier.apply`를 그대로 쓴다. 반환: 이번에 `PAID` 또는 `PAYMENT_FAILED`로 끝낸 건수(`int`).
+
+`reconcileBatch` 순서 — `List<UUID> ids = findStuckIds(PAYMENT_IN_PROGRESS, now - 30초, Limit.of(100))`의 각 주문마다 try/catch로 감싸서(한 주문의 예외가 나머지를 막지 않게. `log.error`로 남기고 다음 주문):
+1. `Optional<PaymentView> view = paymentApi.find(orderId)` (없으면 로그 후 다음 주문. 승인 시작 때 payment가 같은 트랜잭션에서 만들어지므로 보통 있다)
+2. `PgOutcome outcome = paymentApi.queryOutcome(orderId)` (트랜잭션 밖. Toss를 부른다) → `outcome.type()`이 `UNKNOWN`이면 다음 주문(조회도 실패. `reconcile_attempts`는 `queryOutcome`이 이미 올렸다)
+3. `try { OrderStatus status = tx.execute(s -> applier.apply(orderId, view.paymentId(), outcome)); }` — 결과를 payment에 반영하고(`applyOutcome`) 주문을 `PAID`/`PAYMENT_FAILED`로 처리하는 한 트랜잭션이다. `status`가 `PAID`나 `PAYMENT_FAILED`면 처리 건수에 센다. `applier`의 `@Transactional` 메서드는 `tx.execute`가 연 트랜잭션에 합류한다
+4. 3이 예외로 실패했고(예: 재고 확정 실패) outcome이 `APPROVED`이며 `outcome.approvedAt()`이 `now - 5분`보다 이전이면 **보상**한다(PG는 돈을 승인했는데 우리가 주문을 완료하지 못하는 상태가 5분 넘게 이어졌을 때 승인을 되돌린다):
+   1. `tx.execute(s -> paymentApi.applyOutcome(paymentId, outcome))` — 승인 사실만 먼저 기록한다. 3의 트랜잭션은 롤백돼서 payment는 아직 `UNKNOWN`/`IN_PROGRESS`일 수 있는데, `cancel`은 payment가 `APPROVED`여야 하기 때문이다(다음 단계의 트랜잭션 A 1번)
+   2. `CancelOutcome cancelled = paymentApi.cancel(orderId, Money.of(view.amount()), "주문 완료 실패로 자동 취소", "order-compensate-" + orderId)` — 전액 취소. 키가 주문마다 고정이라 다음 주기에 다시 불러도 두 번 취소되지 않는다
+   3. `DONE`이면 `tx.execute(s -> { applier.failOrder(orderId, "결제 완료 처리 실패로 자동 취소"); })` — 재고 반환 + 주문 `PAYMENT_FAILED`(카운트에 센다). `FAILED`·`UNKNOWN`이면 아무것도 하지 않고 다음 주기에 다시
 5. 처리한(PAID 또는 PAYMENT_FAILED가 된) 건수 반환
+- **보상 테스트에서 "완료 실패"를 만드는 방법**: `breakReservedStock`(`reserved`를 0으로)을 쓰지 않는다. `commitReservation`과 `releaseReservation`은 둘 다 `reserved >= quantity`를 조건으로 하므로, 완료가 실패하는 만큼 보상의 `failOrder`가 부르는 재고 반환도 실패해 주문이 `PAYMENT_FAILED`가 되지 못한다. 대신 JDBC로 가게주문 하나를 `CANCELLED`로 바꾼다 — 완료 때 `Order.markPaid`가 가게주문 전이(`CANCELLED → PAID`)를 거부해 `INVALID_STATE_TRANSITION`이 나고, 트랜잭션이 롤백돼 예약이 `HELD`로 돌아가 있으므로 `failOrder`는 성공한다(`markPaymentFailed`의 `cancelPendingChildren`은 `PENDING`인 가게주문만 바꾼다).
 
 ### 완료 확인
 
 | 테스트 클래스 | 케이스 (가짜 PG 서버, 대사 대상이 되도록 JDBC로 주문 `updated_at`을 과거로) |
 |---|---|
-| `payment/application/PaymentCancelTest` | [ ] 전액 취소 → DONE, payment CANCELLED, `cancelled_amount` = 금액 / [ ] 부분 취소 두 번 → PARTIAL_CANCELLED 후 CANCELLED / [ ] 같은 키로 두 번 → 가짜 서버 취소 요청 1건, 두 번째는 DONE 반환 / [ ] 취소 타임아웃 → UNKNOWN → 같은 키로 다시 → DONE, `cancelled_amount` 한 번만 증가 / [ ] 거절 → FAILED |
+| `payment/application/PaymentCancelTest` | [ ] 전액 취소 → DONE, payment CANCELLED, `cancelled_amount` = 금액 / [ ] 부분 취소 두 번 → PARTIAL_CANCELLED 후 CANCELLED / [ ] 같은 키로 두 번 → 가짜 서버 취소 요청 1건, 두 번째는 DONE 반환 / [ ] 취소 타임아웃 → UNKNOWN → 같은 키로 다시 → DONE, `cancelled_amount` 한 번만 증가 / [ ] 거절 → FAILED / [ ] 전액 취소 뒤 같은 키로 다시 → DONE, 가짜 서버 취소 요청 추가 0건 |
 | `order/application/OrderReconcileServiceTest` | 아래 |
 
 `OrderReconcileServiceTest`
@@ -1321,7 +1400,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 - [ ] 승인 타임아웃(`drop`, 승인 기록 없음) → 대사 → 조회 404 → 주문 PAYMENT_FAILED, 재고 원복, 장바구니 그대로
 - [ ] 조회도 실패(`/v1/payments/orders` 경로에 `serverError()`) → 주문 그대로, `reconcile_attempts` 1 → 다시 실행 → `reconcile_attempts` 2
 - [ ] **결과 반영 경쟁**: 같은 주문에 `applier.apply(APPROVED)`를 두 스레드에서 동시에 → 재고 `sold` 한 번만 증가, 재고 이력 COMMIT 1건, 주문 PAID (한쪽은 예외 없이 끝나거나 낙관적 락 예외)
-- [ ] **승인 후 완료 불가 → 보상**: 승인 타임아웃 → JDBC로 재고를 망가뜨려(`reserved`를 0으로, `available`을 그만큼 증가) 완료가 실패하게 하고 `pg.markApproved(..., approvedAt = 10분 전)` → 대사 → 가짜 서버 취소 요청 1건, payment CANCELLED, 주문 PAYMENT_FAILED, 장바구니 그대로
+- [ ] **승인 후 완료 불가 → 보상**: 승인 타임아웃 → JDBC로 가게주문 하나를 `CANCELLED`로 바꿔 완료가 실패하게 하고(`Order.markPaid`가 전이를 거부) `pg.markApproved(..., approvedAt = 10분 전)` → 대사 → 가짜 서버 취소 요청 1건, payment CANCELLED, 주문 PAYMENT_FAILED, 재고 `available` 원복·예약 RELEASED, 장바구니 그대로
 
 **테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
 
@@ -1336,7 +1415,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 - `PaymentCancelTest`: `createPaidOrder(buyerId, productIds...)`로 승인된 결제를 만들고 `paymentApi.cancel(orderId, amount, reason, key)`를 직접 부른다. 취소 타임아웃·거절은 `pg.on("/v1/payments/" + paymentKey, ...)`처럼 그 결제의 경로 접두어로 건다(`paymentKey`는 `confirmPayment`가 정한 값).
 - 대사: `pg.on("/v1/payments/confirm", Behavior.delay(1000))` → `confirmPayment`(202, payment UNKNOWN) → `setOrderUpdatedAt(orderId, now - 1분)` → `reconcileBatch()`. 조회 실패는 `pg.on("/v1/payments/orders", Behavior.serverError())`.
-- 보상: `breakReservedStock(productId)` + `pg.markApproved(pgOrderId, paymentKey, amount, 10분 전)`.
+- 보상: JDBC `UPDATE orders.shop_order SET status = 'CANCELLED' WHERE order_id = ?`(완료 때 `Order.markPaid`가 거부해 완료가 실패한다. 재고를 망가뜨리는 `breakReservedStock`은 쓰지 않는다 — 위 "보상 테스트에서 완료 실패를 만드는 방법") + `pg.markApproved(pgOrderId, paymentKey, amount, 10분 전)`.
 - 결과 반영 경쟁: `paymentApi.find(orderId)`로 `paymentId`를 얻고 `ConcurrencyRunner.run(2, () -> applier.apply(orderId, paymentId, outcome))`.
 
 **리뷰 때 물어볼 것**
@@ -1365,40 +1444,52 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 **2) order.domain — Order에 추가**
 
-| 메서드 | 규격 |
-|---|---|
-| `ShopOrder findShopOrder(UUID shopOrderId)` | 없으면 `BusinessException(SHOP_ORDER_NOT_FOUND)` |
-| `void ship(UUID shopOrderId, String carrier, String trackingNumber, Instant now)` | 가게주문 `PAID → SHIPPED`, carrier·trackingNumber·shippedAt 기록, **CANCELLED가 아닌** 품목 `PAID → SHIPPED` |
-| `void deliver(UUID shopOrderId, Instant now)` | 가게주문 `SHIPPED → DELIVERED`, deliveredAt 기록, SHIPPED 품목 `→ DELIVERED` |
+판매자는 가게주문(`ShopOrder`)을 보지만, 가게주문과 품목은 `Order` 애그리거트의 일부라 상태를 바꾸는 입구는 `Order`다. 가게주문·품목은 지연 로딩이므로 이 메서드들은 열려 있는 트랜잭션 안에서 불린다.
 
-- 가게주문과 품목의 상태를 같이 바꾸는 책임은 **애그리거트 루트(Order)**에 있다. 서비스가 품목 상태를 직접 바꾸지 않는다.
+| 메서드 | 하는 일 | 규격 |
+|---|---|---|
+| `ShopOrder findShopOrder(UUID shopOrderId)` | 이 주문의 가게주문 중 ID가 같은 것을 찾는다(`shopOrders`를 순회). 서비스가 `shopId` 확인과 응답 만들기에 쓴다 | 없으면 `BusinessException(SHOP_ORDER_NOT_FOUND)` |
+| `void ship(UUID shopOrderId, String carrier, String trackingNumber, Instant now)` | 발송 처리: 가게주문과 그 품목을 함께 `SHIPPED`로 | 가게주문 `PAID → SHIPPED`(`ShopOrderStatus.transitTo`라 PAID가 아니면 `INVALID_STATE_TRANSITION` 409), carrier·trackingNumber·shippedAt 기록, **CANCELLED가 아닌** 품목 `PAID → SHIPPED` |
+| `void deliver(UUID shopOrderId, Instant now)` | 배송완료 처리 | 가게주문 `SHIPPED → DELIVERED`(아니면 `INVALID_STATE_TRANSITION`), deliveredAt 기록, SHIPPED 품목 `→ DELIVERED` |
+
+- 가게주문과 품목의 상태를 같이 바꾸는 책임은 **애그리거트 루트(Order)**에 있다. 서비스가 품목 상태를 직접 바꾸지 않는다. 2-2 `markPaid`와 같은 방식이다: `Order`는 `findShopOrder`로 가게주문을 찾아 맡기고, 가게주문이 자기 품목을 순회한다(`ShopOrder`에 두는 메서드 이름은 정해져 있지 않다. 권장 `ship(carrier, trackingNumber, now)`·`deliver(now)`).
+- `ship`에서 **CANCELLED 품목을 거르는 이유**: 발송 전 품목 취소(2-8)로 이미 `CANCELLED`가 된 품목에 `transitTo(SHIPPED)`를 하면 `CANCELLED`에는 허용 전이가 없어 `INVALID_STATE_TRANSITION`이 난다. `deliver`는 `SHIPPED` 품목만 바꾸므로 취소 품목은 자연히 빠진다.
 
 `OrderErrorCode` 추가: `SHOP_ORDER_NOT_FOUND`
 
-**3) order.domain — 조회 쿼리** (`OrderRepository` 또는 `ShopOrderQueryRepository`)
-- `Optional<Order> findByShopOrderId(UUID shopOrderId)`: `select o from Order o join o.shopOrders so where so.id = :shopOrderId`
-- 목록: `ShopOrderListRow(UUID shopOrderId, UUID orderId, ShopOrderStatus status, ShippingAddress shippingAddress, Instant createdAt)` — JPQL `from ShopOrder so join Order o on o.id = so.orderId where so.shopId = :shopId and (:status is null or so.status = :status)` + keyset(1-7 방식). 첫 페이지/다음 페이지 메서드 2개
-- 품목: `List<OrderLine> findLinesByShopOrderIdIn(Collection<UUID> shopOrderIds)` — 페이지의 가게주문 ID를 모아 **한 번에**
+**3) order.domain — 조회 쿼리** (`OrderRepository` 또는 `ShopOrderQueryRepository`. 어느 쪽이든 시그니처는 domain, `@Query`는 infrastructure)
+
+| 메서드 | 쓰는 곳 | 하는 일 |
+|---|---|---|
+| `Optional<Order> findByShopOrderId(UUID shopOrderId)`: `select o from Order o join o.shopOrders so where so.id = :shopOrderId` | `getShopOrder`·`ship`·`deliver`의 앞단, 2-10 자동 확정 | 가게주문 ID로 그 가게주문이 속한 **주문(루트)**을 읽는다. 조인은 찾기 위한 조건이라 `order.getShopOrders()`에는 그 주문의 가게주문이 모두 들어온다 |
+| 목록: `ShopOrderListRow(UUID shopOrderId, UUID orderId, ShopOrderStatus status, ShippingAddress shippingAddress, Instant createdAt)` — JPQL `from ShopOrder so join Order o on o.id = so.orderId where so.shopId = :shopId and (:status is null or so.status = :status)` + keyset(1-7 방식). 첫 페이지/다음 페이지 메서드 2개 | `getShopOrders` | 가게의 가게주문을 상태 필터(없으면 전체)로 최신순(`createdAt desc, id desc`, 위 마이그레이션의 인덱스 순서)으로 읽는다. 배송지는 주문(`Order`)에 있어 조인한다. 엔티티가 아니라 위 `ShopOrderListRow`(조회용 record)로 바로 받는다(`select new ...`). `o.shippingAddress`(jsonb 매핑)를 이 생성자 식에 넣을 수 있는지는 확인하지 못했다(확인 필요) |
+| 품목: `List<OrderLine> findLinesByShopOrderIdIn(Collection<UUID> shopOrderIds)` — 페이지의 가게주문 ID를 모아 **한 번에** | `getShopOrders` | 목록의 품목을 가게주문마다 따로 읽으면 쿼리가 행 수만큼 늘어난다(테스트: 3개와 10개일 때 SQL 수가 같아야 한다). `shop_order_id IN (...)`으로 한 번에 읽어 가게주문별로 묶는다. `OrderLine.getShopOrderId()`가 조회 전용 필드로 이미 있다 |
 
 **4) order.application**
 
 | 클래스 | 메서드 |
 |---|---|
-| `SellerOrderQueryService` (`@Transactional(readOnly = true)`) | `CursorPage<SellerShopOrderResult> getShopOrders(UUID memberId, UUID shopId, ShopOrderStatus status, String cursor, int size)` / `SellerShopOrderResult getShopOrder(UUID memberId, UUID shopId, UUID shopOrderId)` |
-| `ShipmentService` (`@Transactional`) | `SellerShopOrderResult ship(UUID memberId, UUID shopId, UUID shopOrderId, String carrier, String trackingNumber)` / `SellerShopOrderResult deliver(UUID memberId, UUID shopId, UUID shopOrderId)` |
+| `SellerOrderQueryService` (`@Transactional(readOnly = true)`. 의존성 `ShopApi`, `OrderRepository`) | `CursorPage<SellerShopOrderResult> getShopOrders(UUID memberId, UUID shopId, ShopOrderStatus status, String cursor, int size)` — 가게의 가게주문 목록 / `SellerShopOrderResult getShopOrder(UUID memberId, UUID shopId, UUID shopOrderId)` — 상세 한 건 |
+| `ShipmentService` (`@Transactional`. 의존성 `ShopApi`, `OrderRepository`, `Clock`) | `SellerShopOrderResult ship(UUID memberId, UUID shopId, UUID shopOrderId, String carrier, String trackingNumber)` — 발송 / `SellerShopOrderResult deliver(UUID memberId, UUID shopId, UUID shopOrderId)` — 배송완료. 둘 다 처리한 뒤의 가게주문을 돌려준다 |
 
 `SellerShopOrderResult(UUID shopOrderId, UUID orderId, ShopOrderStatus status, ShippingAddress shippingAddress, String carrier, String trackingNumber, Instant shippedAt, Instant deliveredAt, long amount, List<SellerLineResult> lines, Instant createdAt)` — amount는 취소되지 않은 품목 `lineAmount` 합
 `SellerLineResult(UUID orderLineId, UUID productId, String productName, long unitPrice, int quantity, long lineAmount, long refundedAmount, OrderLineStatus status)`
 
-공통 앞단 (`getShopOrder`·`ship`·`deliver`. `getShopOrders`는 1만 한다)
-1. `shopApi.verifyOwner(shopId, memberId)`
-2. `order = findByShopOrderId(shopOrderId)` — 없으면 `SHOP_ORDER_NOT_FOUND`
-3. 그 가게주문의 `shopId`가 요청 `shopId`와 다르면 `SHOP_ORDER_NOT_FOUND` (남의 가게 주문은 없는 것처럼)
+- **`SellerShopOrderResult`를 만드는 곳**: `ShopOrder`(`getId()`, `getOrderId()`, `getStatus()`, `getCarrier()`, `getTrackingNumber()`, `getShippedAt()`, `getDeliveredAt()`, `getCreatedAt()`)와 그 `getLines()`에서 꺼낸다. 배송지는 주문의 `order.getShippingAddress()`다. 2-2의 `OrderDetailResult`와 같이 금액은 `Money.amount()`로 `long`을 만든다. 상세·`ship`·`deliver`는 앞단에서 읽은 `order`로, 목록은 `ShopOrderListRow`와 `findLinesByShopOrderIdIn`의 결과로 같은 모양을 만든다.
+- (확인 필요) 목록 행 `ShopOrderListRow`에는 `carrier`·`trackingNumber`·`shippedAt`·`deliveredAt`이 없는데 `SellerShopOrderResult`에는 있다. 목록에서 이 칸을 비워 두는지, 행에 칸을 더하는지 정해져 있지 않다.
+- (확인 필요) 2-2는 결과 타입에 도메인 `ShippingAddress`를 두지 않고 `ShippingAddressResult`를 쓰는데(web이 domain을 import하지 않게), `SellerShopOrderResult`는 `ShippingAddress`로 적혀 있어 2-2 규칙과 어긋난다.
 
-- `ship`: 앞단 → `order.ship(shopOrderId, carrier, trackingNumber, now)` → `SellerShopOrderResult`
-- `deliver`: 앞단 → `order.deliver(shopOrderId, now)` → `SellerShopOrderResult`
+공통 앞단 (`getShopOrder`·`ship`·`deliver`. `getShopOrders`는 1만 한다) — 요청자가 이 가게의 주인이고 이 가게주문이 이 가게 것임을 확인한다
+1. `shopApi.verifyOwner(shopId, memberId)` — 가게가 없으면 404 `SHOP_NOT_FOUND`, 주인이 아니면 403 `FORBIDDEN`(CLOSED 가게도 통과. 정책)
+2. `Order order = findByShopOrderId(shopOrderId)` — 없으면 `SHOP_ORDER_NOT_FOUND`
+3. `ShopOrder shopOrder = order.findShopOrder(shopOrderId)`의 `shopId`가 요청 `shopId`와 다르면 `SHOP_ORDER_NOT_FOUND` (남의 가게 주문은 없는 것처럼. 403이 아니라 404인 이유: 다른 가게의 주문 ID가 존재하는지 드러내지 않으려고)
 
-**5) order.web** — `SellerOrderController` (`/api/shops/{shopId}/orders`). `SellerShopOrderResponse`는 `SellerShopOrderResult`와 같은 필드를 가진 응답 record다
+- `ship`: 앞단 → `order.ship(shopOrderId, carrier, trackingNumber, clock.instant())` → 이어서 `shopOrder`(같은 인스턴스, 상태가 바뀌어 있다)로 `SellerShopOrderResult`를 만들어 반환. 저장은 커밋 때 더티 체킹이라 `save`를 부르지 않는다
+- `deliver`: 앞단 → `order.deliver(shopOrderId, clock.instant())` → 같은 방식으로 `SellerShopOrderResult`
+- `getShopOrders`: ① `shopApi.verifyOwner` ② `cursor`가 없으면 첫 페이지, 있으면 `Cursor.decode(cursor)`의 `createdAt`·`id`로 다음 페이지를 `Limit.of(size + 1)`로 읽는다 ③ 결과가 `size`를 넘으면 앞의 `size`건만 돌려주고 `nextCursor = new Cursor(돌려주는 마지막 행의 createdAt, shopOrderId).encode()`(2-2 `getMyOrders`와 같은 방식) ④ 돌려줄 행의 `shopOrderId`를 모아 `findLinesByShopOrderIdIn`을 **한 번** 부르고 가게주문별로 묶어 `SellerShopOrderResult`로 만든다
+- 2-8이 `ship`의 앞단 뒤, `order.ship` 앞에 "진행 중 환불이 있으면 `REFUND_IN_PROGRESS`" 검사를 더한다(2-7에서는 비워 둔다).
+
+**5) order.web** — `SellerOrderController` (`/api/shops/{shopId}/orders`). `SellerShopOrderResponse`는 `SellerShopOrderResult`와 같은 필드를 가진 응답 record다. 컨트롤러는 `@CurrentMember UUID memberId`와 `@PathVariable`을 받아 서비스를 부르고 Result를 Response로 바꿔 `ResponseEntity.ok`로 돌려줄 뿐이다(`OrderController`와 같은 방식). 목록의 `size` 기본값·상한은 문서에 정해져 있지 않다(확인 필요. `getMyOrders`는 기본 20, 1~50)
 
 | API | 요청 | 응답 |
 |---|---|---|
@@ -1479,6 +1570,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | amount | bigint | X | `> 0` — PG 부분취소 금액 |
 | status | varchar(20) | X | `ck_refund_status`: `IN ('REQUESTED','APPROVED','PG_CANCELLED','COMPLETED','REJECTED','FAILED')` |
 | reject_reason | varchar(200) | O | |
+| pg_attempts | int | X | DEFAULT 0 — PG 취소를 다시 시도한 횟수(Part 7 관리자 재시도마다 +1). PG 취소 멱등 키를 시도마다 달리하는 데 쓴다 |
 | completed_at | timestamptz | O | |
 | version | bigint | X | |
 | created_at, updated_at | timestamptz | X | |
@@ -1488,63 +1580,97 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 **2) order.domain**
 
+**환불(`Refund`)이 무엇인가**: 품목 하나를 환불하는 **진행 기록**이다. 환불은 "PG 취소 → 재고 복구 → 품목·가게주문 상태 반영"이라는 여러 단계를 거치고 중간에 멈출 수 있어서, 어디까지 했는지를 `status`로 남겨 두고 다음 호출·복구 잡이 이어서 한다. 각 단계는 멱등이라 같은 환불을 몇 번 다시 처리해도 결과가 같다.
+
 | 클래스 | 규격 |
 |---|---|
-| `RefundStatus` | `REQUESTED → {APPROVED, REJECTED}`, `APPROVED → {PG_CANCELLED, COMPLETED, FAILED}`, `PG_CANCELLED → {COMPLETED}` |
-| `RefundReasonType` | `BUYER_CANCEL, RETURN, SYSTEM` |
-| `Refund` | 별도 애그리거트. `@Entity @Table(name = "refund", schema = "orders")`, `extends BaseTimeEntity`, 필드는 컬럼과 1:1 |
-| `RefundRepository` | `save`, `findById`, `boolean existsByShopOrderIdAndStatusIn(UUID shopOrderId, Collection<RefundStatus> statuses)`, `List<Refund> findAllByOrderId(UUID orderId)`, `List<UUID> findStuckIds(RefundStatus status, Instant before, Limit limit)` |
+| `RefundStatus` | `REQUESTED → {APPROVED, REJECTED}`, `APPROVED → {PG_CANCELLED, COMPLETED, FAILED}`, `PG_CANCELLED → {COMPLETED}`. 다른 enum처럼 `transitTo`로 검사한다 |
+| `RefundReasonType` | `BUYER_CANCEL`(구매자 품목 취소), `RETURN`(반품), `SYSTEM`(시스템이 만드는 환불. 이 단계에서 이 값을 쓰는 곳은 문서에 없다) |
+| `Refund` | 별도 애그리거트. `@Entity @Table(name = "refund", schema = "orders")`, `extends BaseTimeEntity`, 필드는 컬럼과 1:1(`Money amount`, `@Version Long version`) |
+| `RefundRepository` | 아래 표 |
 | `OrderErrorCode` | `ORDER_LINE_NOT_FOUND`, `REFUND_IN_PROGRESS` |
 
-`Refund` 메서드
-- `static Refund approveBuyerCancel(UUID orderId, UUID shopOrderId, UUID orderLineId, UUID memberId, Money amount, String reason)` → APPROVED
-- `void markPgCancelled()`, `void complete(Instant now)`, `void fail()`
-- `boolean needsPgCancel()` → `status == APPROVED`
-- `boolean readyToComplete()` → `status == PG_CANCELLED`
+각 상태의 뜻: `REQUESTED` 반품 요청됨(판매자 승인 대기, 2-9) / `APPROVED` 환불 진행 승인됨(PG 취소 전이거나 결과 불확실) / `PG_CANCELLED` PG 취소 끝, 재고·품목 반영 전 / `COMPLETED` 모두 끝 / `REJECTED` 판매자가 반품 거절 / `FAILED` PG가 취소를 명확히 거절(운영자 처리).
 
-`Order`에 추가
-- `@Lock(LockModeType.PESSIMISTIC_WRITE)` 조회 `Optional<Order> findByIdAndMemberIdForUpdate(UUID id, UUID memberId)`, `Optional<Order> findByIdForUpdate(UUID id)` (`OrderRepository`)
-- `OrderLine findLine(UUID lineId)` (없으면 `ORDER_LINE_NOT_FOUND`), `ShopOrder shopOrderOf(UUID lineId)`
-- `void verifyCancellable(UUID lineId)`: 주문 PAID, 품목 PAID, 가게주문 PAID(미발송)가 아니면 `INVALID_STATE_TRANSITION`
-- `void applyRefund(UUID lineId, Money amount, RefundReasonType type, Instant now)`: `refundedAmount += amount`, 품목 `→ CANCELLED`(BUYER_CANCEL) 또는 `→ RETURNED`(RETURN), 이어서 `recalculateShopOrder`
-- `recalculateShopOrder(ShopOrder)` (private): 모든 품목이 CANCELLED면 가게주문 `PAID → CANCELLED` / 가게주문이 DELIVERED이고 모든 품목이 CONFIRMED·RETURNED·CANCELLED 중 하나면 `→ COMPLETED`(completedAt)
+`RefundRepository` (domain 인터페이스, 구현은 `JpaRefundRepository`)
 
-**3) payment — 주문 결제 부분취소**: 2-6의 `PaymentApi.cancel(orderId, amount, reason, idempotencyKey)`를 그대로 쓴다. `idempotencyKey = refundId.toString()`
+| 메서드 | 누가 쓰나 | 입력 → 반환 |
+|---|---|---|
+| `Refund save(Refund)`, `Optional<Refund> findById(UUID)` | 취소·완료·반품 | `JpaRepository`가 같은 시그니처로 제공 |
+| `boolean existsByShopOrderIdAndStatusIn(UUID shopOrderId, Collection<RefundStatus> statuses)` | `ShipmentService.ship`의 발송 가드 | 가게주문 ID·상태들 → 진행 중 환불이 있으면 `true` |
+| `List<Refund> findAllByOrderId(UUID orderId)` | `OrderQueryService.getMyOrder`의 `refunds` | 주문 ID → 그 주문의 환불 전부 |
+| `List<UUID> findStuckIds(RefundStatus status, Instant before, Limit limit)` | 2-8b 복구 잡 | 상태·기준 시각 → `updated_at < before`인 환불 ID(오래된 순). 2-6 `findStuckIds`와 같은 모양 |
+
+`Refund` 메서드 — 상태 전이는 `status.transitTo(...)`로 하고, 어긋나면 `INVALID_STATE_TRANSITION`이다
+
+| 메서드 | 한 줄 설명 |
+|---|---|
+| `static Refund approveBuyerCancel(UUID orderId, UUID shopOrderId, UUID orderLineId, UUID memberId, Money amount, String reason)` | 구매자 품목 취소용 환불을 **만든다**. 구매자 취소는 승인이 필요 없어 `REQUESTED`를 거치지 않고 `APPROVED`로 시작한다. `id = Ids.newId()`, `reasonType = BUYER_CANCEL` |
+| `void markPgCancelled()` | PG 취소가 끝났음을 기록한다 `APPROVED → PG_CANCELLED` |
+| `void complete(Instant now)` | 환불 완료 `→ COMPLETED`, `completedAt = now` |
+| `void fail()` | PG가 취소를 명확히 거절 `APPROVED → FAILED` |
+| `boolean needsPgCancel()` | PG 취소를 아직 안 했나 → `status == APPROVED` |
+| `String pgIdempotencyKey()` | PG 취소 호출에 쓸 멱등 키. `pgAttempts == 0`이면 `id.toString()`, 재시도 뒤에는 `id + "-r" + pgAttempts`. 같은 시도를 다시 처리하면 같은 키라 한 번만 취소되고, 거절(`FAILED`) 뒤의 재시도는 새 키라 Toss까지 간다 |
+| `boolean readyToComplete()` | 재고·품목 반영만 남았나 → `status == PG_CANCELLED` |
+
+**`Order`에 추가** — 환불·취소·반품·구매확정이 모두 `Order`(루트)를 통해 품목·가게주문 상태를 바꾼다
+
+| 메서드 | 한 줄 설명 |
+|---|---|
+| `@Lock(LockModeType.PESSIMISTIC_WRITE)` 조회 `Optional<Order> findByIdAndMemberIdForUpdate(UUID id, UUID memberId)`, `Optional<Order> findByIdForUpdate(UUID id)` (`OrderRepository`. `JpaOrderRepository`에서 `@Lock`을 붙여 선언) | 주문 행을 읽으면서 **잠근다**(`SELECT ... FOR UPDATE`). 잠그는 트랜잭션이 끝날 때까지 같은 주문을 잠그려는 다른 트랜잭션은 기다린다. 소유자 확인이 필요한 요청(구매자 취소·반품 요청)은 앞의 것, 내부 처리(완료·반품 승인)는 뒤의 것 |
+| `OrderLine findLine(UUID lineId)` | 이 주문의 품목 중 ID가 같은 것. 없으면 `ORDER_LINE_NOT_FOUND`(남의 주문의 품목 ID도 이 주문에는 없다) |
+| `ShopOrder shopOrderOf(UUID lineId)` | 그 품목이 속한 가게주문 |
+| `void verifyCancellable(UUID lineId)` | 취소할 수 있는 상태인지 검사한다. 주문 `PAID`, 품목 `PAID`, 가게주문 `PAID`(미발송) 중 하나라도 아니면 `INVALID_STATE_TRANSITION` |
+| `void applyRefund(UUID lineId, Money amount, RefundReasonType type, Instant now)` | 환불 결과를 주문에 반영한다 (아래) |
+
+`applyRefund` 순서
+1. `OrderLine line = findLine(lineId)`, `ShopOrder shopOrder = shopOrderOf(lineId)`
+2. `refundedAmount += amount`(`Money.plus`. DB는 `refunded_amount <= line_amount` CHECK가 최종 방어선)
+3. 품목 상태: `BUYER_CANCEL`이면 `→ CANCELLED`(`PAID`에서), `RETURN`이면 `→ RETURNED`(`RETURN_REQUESTED`에서). `SYSTEM`의 처리는 정해져 있지 않다(확인 필요)
+4. `recalculateShopOrder(shopOrder)`
+
+`recalculateShopOrder(ShopOrder)` (private) — 품목 상태가 바뀐 뒤 가게주문의 상태를 맞춘다. `completedAt`을 적으려면 `now`가 필요한데 시그니처에 없다(`Instant now`를 받도록 한다. 확인 필요). 위에서 아래로 첫 번째만 적용한다
+1. 모든 품목이 `CANCELLED`면 가게주문 `PAID → CANCELLED`. **`ShopOrder.markCancelled()`(2-2)를 부르지 않는다** — 그것은 품목도 `markCancelled()`로 바꾸는데, 이미 `CANCELLED`인 품목은 `CANCELLED`에서 나가는 전이가 없어 `INVALID_STATE_TRANSITION`이 난다. 가게주문 상태만 `transitTo(CANCELLED)`로 바꾼다
+2. 가게주문이 `DELIVERED`이고 모든 품목이 `CONFIRMED`·`RETURNED`·`CANCELLED` 중 하나면 `→ COMPLETED`, `completedAt = now`
+3. 그 밖에는 바꾸지 않는다
+
+**3) payment — 주문 결제 부분취소**: 2-6의 `PaymentApi.cancel(orderId, amount, reason, idempotencyKey)`를 그대로 쓴다. `idempotencyKey = refund.pgIdempotencyKey()` — 첫 시도는 `refundId`, 관리자 재시도(7-3)는 `refundId-r{n}`. 같은 시도를 다시 처리하면 같은 키라 Toss가 같은 취소로 보고, `FAILED`로 끝난 뒤의 재시도는 새 키라 PG까지 간다(`payment_cancel`에 같은 키의 `FAILED` 행이 있으면 `cancel`이 PG를 부르지 않고 `FAILED`를 재생하기 때문).
 
 **4) order.application**
 
 | 클래스 | 규격 |
 |---|---|
-| `RefundCompleter` (`@Service`) | `@Transactional public RefundStatus complete(UUID refundId)` — 아래 |
-| `RefundProcessor` (`@Service`, `@Transactional` 없음) | `public RefundStatus process(UUID refundId)` — PG 취소(필요하면) → 완료. 2-8b 복구 잡, 2-9 반품 승인이 재사용 |
-| `CancelOrderLineService` (`@Transactional` 없음) | `public RefundResult cancel(UUID memberId, UUID orderId, UUID lineId, String reason)` |
-| `RefundResult` | `record (UUID refundId, RefundStatus status, long amount)` |
+| `RefundCompleter` (`@Service`. 의존성 `RefundRepository`, `OrderRepository`, `ProductApi`, `Clock`) | `@Transactional public RefundStatus complete(UUID refundId)` — 환불의 **마지막 단계**(재고 복구 + 품목·가게주문 반영 + `COMPLETED`)를 한 트랜잭션으로 한다. 따로 빈으로 둔 이유는 `RefundProcessor`(트랜잭션 없음)와 복구 잡이 트랜잭션 경계를 `this.` 호출 없이 얻기 위해서다(공통 규칙 K) |
+| `RefundProcessor` (`@Service`, `@Transactional` 없음. 의존성 `RefundRepository`, `PaymentApi`, `RefundCompleter`, `TransactionTemplate tx`) | `public RefundStatus process(UUID refundId)` — **승인된 환불을 끝까지 진행한다**: PG 취소(필요하면) → 완료. 입력 환불 ID → 반환: 진행 뒤 환불 상태. 2-8b 복구 잡, 2-9 반품 승인이 재사용 |
+| `CancelOrderLineService` (`@Transactional` 없음. 의존성 `OrderRepository`, `RefundRepository`, `RefundProcessor`, `TransactionTemplate tx`) | `public RefundResult cancel(UUID memberId, UUID orderId, UUID lineId, String reason)` — 구매자의 품목 취소 요청 한 건의 전체 흐름 |
+| `RefundResult` | `record (UUID refundId, RefundStatus status, long amount)` — `amount`는 `Refund.getAmount().amount()` |
 
 `CancelOrderLineService.cancel` 순서
-1. 트랜잭션 1 (`tx.execute`)
-   1. `order = findByIdAndMemberIdForUpdate` 없으면 `ORDER_NOT_FOUND` — **주문 행을 잠근다**(같은 주문의 다른 취소는 여기서 대기)
-   2. `order.verifyCancellable(lineId)`
-   3. `amount = line.lineAmount - line.refundedAmount`
-   4. `Refund.approveBuyerCancel(...)` save — 같은 품목을 동시에 취소하면 둘 다 2를 통과할 수 있다. 늦은 쪽은 커밋 시 부분 unique 위반 → 409 `DUPLICATE_RESOURCE`
-2. `status = refundProcessor.process(refundId)`
-3. 반환: COMPLETED → 200 / APPROVED(PG 결과 불확실) → 202 / FAILED → `PG_ERROR` 502
+1. 트랜잭션 1 (`tx.execute`, 커밋) — 반환: 새 환불의 `refundId`와 `amount`
+   1. `order = findByIdAndMemberIdForUpdate` 없으면(남의 주문 포함) 404 `ORDER_NOT_FOUND` — **주문 행을 잠근다**(같은 주문의 다른 취소는 여기서 대기)
+   2. `order.verifyCancellable(lineId)` — 발송됐거나 이미 취소된 품목이면 409 `INVALID_STATE_TRANSITION`
+   3. `OrderLine line = order.findLine(lineId)`, `Money amount = line.getLineAmount().minus(line.getRefundedAmount())`
+   4. `refundRepository.save(Refund.approveBuyerCancel(orderId, shopOrderId, lineId, memberId, amount, reason))` — `shopOrderId = order.shopOrderOf(lineId).getId()`. 같은 품목을 동시에 취소하면 둘 다 2를 통과할 수 있다(첫 번째는 환불만 `APPROVED`로 만들고 품목은 아직 `PAID`다). 늦은 쪽은 커밋 때 부분 unique 위반 → `GlobalExceptionHandler`가 409 `DUPLICATE_RESOURCE`로 바꾼다(서비스가 따로 잡지 않는다)
+2. `RefundStatus status = refundProcessor.process(refundId)` (트랜잭션 밖)
+3. 반환: COMPLETED → `RefundResult` (컨트롤러가 200) / APPROVED(PG 결과 불확실) → `RefundResult` (컨트롤러가 202) / FAILED → 서비스가 `BusinessException(CommonErrorCode.PG_ERROR)`를 던진다(502. 2-4 `ConfirmPaymentService`가 `PAYMENT_FAILED`를 던지는 것과 같은 방식. FAILED는 이미 커밋돼 있다)
 
-`RefundProcessor.process(refundId)` 순서
-1. `refund = 읽기` → `needsPgCancel()`이면:
-   - `outcome = paymentApi.cancel(orderId, amount, "품목 취소", refundId.toString())` (트랜잭션 밖)
-   - DONE → `tx.execute(markPgCancelled)` / FAILED → `tx.execute(fail)`, return FAILED / UNKNOWN → return APPROVED
-2. `return refundCompleter.complete(refundId)`
+`RefundProcessor.process(refundId)` 순서 — `paymentApi.cancel`이 트랜잭션 밖 전용이라 이 메서드에 `@Transactional`을 붙이지 않는다
+1. `Refund refund = refundRepository.findById(refundId)`(없으면 `IllegalStateException`. 내부 값이라 없으면 버그) → `refund.needsPgCancel()`이면:
+   - `CancelOutcome outcome = paymentApi.cancel(refund.getOrderId(), refund.getAmount(), "품목 취소", refund.pgIdempotencyKey())` (트랜잭션 밖)
+   - `DONE` → `tx.execute(s -> { 환불을 다시 읽어 markPgCancelled() })` / `FAILED` → 같은 방식으로 `fail()`, return `FAILED` / `UNKNOWN` → return `APPROVED`(환불은 `APPROVED`로 남고 복구 잡이 이어서 한다)
+   - 트랜잭션 안에서 환불을 **다시 읽는** 이유: 위에서 읽은 `refund`는 트랜잭션 밖에서 읽은 엔티티라 더티 체킹이 되지 않는다
+2. `return refundCompleter.complete(refundId)` — PG 취소가 끝났거나(`PG_CANCELLED`) 처음부터 필요 없던 경우
 
 `RefundCompleter.complete(refundId)` 순서 (한 트랜잭션)
-1. `refund = findById` → `!readyToComplete()`면 현재 상태 반환(이미 완료 등, 멱등)
-2. `order = findByIdForUpdate(orderId)`
-3. `productApi.restore(orderId, productId, quantity, refundId)` — 재고 이력 unique로 멱등
-4. `order.applyRefund(lineId, amount, reasonType, now)`
+1. `Refund refund = findById` → `!readyToComplete()`면 현재 상태 반환(이미 완료 등, 멱등)
+2. `Order order = findByIdForUpdate(refund.getOrderId())` — 같은 주문의 다른 환불 완료와 가게주문 상태 재계산이 겹치지 않게 주문 행을 잠근다
+3. `OrderLine line = order.findLine(refund.getOrderLineId())` → `productApi.restore(orderId, line.getProductId(), line.getQuantity(), refundId)` — 판매된 수량을 `sold → available`로 되돌린다. `refundId`로 재고 이력(`RESTORE`)이 unique라 두 번 불려도 한 번만 복구된다(`void`)
+4. `order.applyRefund(refund.getOrderLineId(), refund.getAmount(), refund.getReasonType(), now)`
 5. `refund.complete(now)` → COMPLETED 반환
 
-`ShipmentService.ship`에 추가: `existsByShopOrderIdAndStatusIn(shopOrderId, {REQUESTED, APPROVED, PG_CANCELLED})`면 `REFUND_IN_PROGRESS` (2-7에서 비워 둔 검사)
+`ShipmentService.ship`에 추가: `existsByShopOrderIdAndStatusIn(shopOrderId, {REQUESTED, APPROVED, PG_CANCELLED})`면 `REFUND_IN_PROGRESS` (2-7에서 비워 둔 검사. 앞단 뒤, `order.ship` 앞. 환불이 진행 중인 가게주문을 발송해 버리면 취소한 품목이 발송되기 때문이다)
 
-`OrderQueryService.getMyOrder` 응답에 `refunds[{refundId, orderLineId, reasonType, status, amount, createdAt}]` 추가
+`OrderQueryService.getMyOrder` 응답에 `refunds[{refundId, orderLineId, reasonType, status, amount, createdAt}]` 추가 — `refundRepository.findAllByOrderId(orderId)`를 읽어 항목 record로 바꾼다. 항목 타입 이름은 문서에 정해져 있지 않다(확인 필요). `OrderDetailResult`에 `List<...> refunds`가 더해진다
 
 **5) order.web**
 
@@ -1552,14 +1678,19 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 |---|---|---|
 | `POST /api/orders/{id}/lines/{lineId}/cancel` `@Idempotent` | `CancelLineRequest(@Size(max=200) String reason)` | 200 `RefundResponse` (COMPLETED) / 202 (APPROVED) / 409 / 502 |
 
+- `RefundResponse`는 `RefundResult`와 같은 필드(`refundId`, `status`, `amount`)를 가진 응답 record다(정의가 문서에 없어 `RefundResult`에 맞췄다. 확인 필요). 컨트롤러는 `RefundResult.status`로 HTTP 상태를 정한다: `COMPLETED`면 `ResponseEntity.ok`, `APPROVED`면 `ResponseEntity.accepted`. `@Idempotent` 메서드는 `ResponseEntity`를 반환해야 한다(`IdempotencyAspect`). 409·502는 서비스가 던진 `BusinessException`이다.
+
 **6) DB CHECK 확인**: `order_line.refunded_amount <= line_amount`(2-2), `payment.cancelled_amount <= amount`(2-4)가 이미 있다. 테스트로 "넘으면 DB가 거부한다"를 한 번 확인한다.
 
 ### 할 일 (2-8b)
 
-`RefundRecoveryService.recoverBatch()` (order.application, `@Transactional` 없음) + `RefundRecoveryJob` (order.infrastructure, `@Scheduled(fixedDelay = 60_000)`, 잡 이름 `recover-refunds`)
-1. `findStuckIds(PG_CANCELLED, now - 5분, Limit.of(100))` → 각 `refundCompleter.complete(id)` (건별 try/catch)
+**복구 잡이 필요한 이유**: 환불은 PG 취소와 DB 반영이 서로 다른 트랜잭션이라 중간에서 멈출 수 있다. 멈춘 환불은 `status`가 어디까지 갔는지 보여 주므로, 잡이 그 상태의 환불을 찾아 **남은 단계만** 다시 실행한다(각 단계가 멱등이라 안전하다).
+
+`RefundRecoveryService.recoverBatch()` (order.application, `@Transactional` 없음. 의존성 `RefundRepository`, `RefundCompleter`, `RefundProcessor`, `Clock`) + `RefundRecoveryJob` (order.infrastructure, `@Scheduled(fixedDelay = 60_000)`, 잡 이름 `recover-refunds`. 2-5와 같은 모양). 반환: 처리한 건수(`int`). 단계마다 건별 try/catch로 감싸 한 환불의 예외가 나머지를 막지 않게 한다(2-5 `expireBatch`와 같다)
+1. `findStuckIds(PG_CANCELLED, now - 5분, Limit.of(100))` → 각 `refundCompleter.complete(id)` — PG 취소는 끝났는데 재고·품목 반영이 실패한 환불. 마지막 단계만 다시 한다
 2. `findStuckIds(APPROVED, now - 5분, Limit.of(100))` → 각 `refundProcessor.process(id)` — PG 취소가 불확실(UNKNOWN)했거나 호출 전에 죽은 환불. 같은 Idempotency-Key(refundId)로 다시 부르므로 두 번 취소되지 않는다
 3. 처리 건수 반환
+- `updated_at`이 5분 넘게 바뀌지 않은 환불만 대상이다(`findStuckIds`의 `before = now - 5분`).
 
 ### 완료 확인
 
@@ -1608,33 +1739,49 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 ### 할 일
 
+반품은 2-8의 `Refund`·`RefundProcessor`를 그대로 쓰고, **구매자가 요청하고 판매자가 승인해야 환불이 시작된다**는 점만 다르다. 요청하면 품목이 `RETURN_REQUESTED`가 되고 환불이 `REQUESTED`로 만들어진다. 승인하면 환불이 `APPROVED`가 되어 2-8과 같은 PG 취소 → 완료가 돌고, 거절하면 품목이 `DELIVERED`로 돌아간다.
+
 **1) order.domain**
-- `Refund`: `static Refund requestReturn(UUID orderId, UUID shopOrderId, UUID orderLineId, UUID memberId, Money amount, String reason)` → REQUESTED / `void approve()` → APPROVED / `void reject(String reason)` → REJECTED
-- `Order`: `void requestReturn(UUID lineId)`: 주문 PAID, 품목 `DELIVERED → RETURN_REQUESTED` / `void rejectReturn(UUID lineId)`: `RETURN_REQUESTED → DELIVERED`
-- `RefundRepository`: `boolean existsByOrderLineIdAndStatus(UUID orderLineId, RefundStatus status)` (거절 이력 확인)
+
+| 대상 | 메서드 | 하는 일 |
+|---|---|---|
+| `Refund` | `static Refund requestReturn(UUID orderId, UUID shopOrderId, UUID orderLineId, UUID memberId, Money amount, String reason)` | 반품 환불을 **만든다** → `REQUESTED`, `reasonType = RETURN`. 2-8의 `approveBuyerCancel`과 시작 상태만 다르다 |
+| `Refund` | `void approve()` | 판매자 승인 `REQUESTED → APPROVED` |
+| `Refund` | `void reject(String reason)` | 판매자 거절 `REQUESTED → REJECTED`, `reject_reason = reason` |
+| `Order` | `void requestReturn(UUID lineId)` | 주문이 `PAID`가 아니면 `INVALID_STATE_TRANSITION`. 품목 `DELIVERED → RETURN_REQUESTED`(`OrderLineStatus.transitTo`. `DELIVERED`가 아니면 — 배송 중·구매확정 후·이미 요청됨 — `INVALID_STATE_TRANSITION`) |
+| `Order` | `void rejectReturn(UUID lineId)` | 품목 `RETURN_REQUESTED → DELIVERED` |
+| `RefundRepository` | `boolean existsByOrderLineIdAndStatus(UUID orderLineId, RefundStatus status)` | 그 품목에 해당 상태의 환불이 있는지. `REJECTED`로 거절 이력을 확인한다 |
+
 - `OrderErrorCode` 추가: `REFUND_NOT_FOUND`, `RETURN_NOT_ALLOWED`
 
 **2) order.application**
 
 | 클래스 | 메서드 |
 |---|---|
-| `ReturnService` | `@Transactional RefundResult request(UUID memberId, UUID orderId, UUID lineId, String reason)` / `RefundResult approve(UUID memberId, UUID shopId, UUID refundId)` (`@Transactional` 없음) / `@Transactional RefundResult reject(UUID memberId, UUID shopId, UUID refundId, String reason)` |
+| `ReturnService` (의존성 `OrderRepository`, `RefundRepository`, `RefundProcessor`, `ShopApi`, `TransactionTemplate tx`) | `@Transactional RefundResult request(UUID memberId, UUID orderId, UUID lineId, String reason)` — 구매자의 반품 요청 / `RefundResult approve(UUID memberId, UUID shopId, UUID refundId)` (`@Transactional` 없음. PG를 부르므로) — 판매자 승인 / `@Transactional RefundResult reject(UUID memberId, UUID shopId, UUID refundId, String reason)` — 판매자 거절 |
 
-`request` 순서
-1. `findByIdAndMemberIdForUpdate`
-2. 그 품목에 REJECTED 환불이 있으면 `RETURN_NOT_ALLOWED`
-3. `order.requestReturn(lineId)`
-4. `Refund.requestReturn(...)` save (금액 = `lineAmount - refundedAmount`)
+세 메서드 모두 `RefundResult(refundId, status, amount)`를 돌려준다(`amount`는 환불의 `getAmount().amount()`).
 
-`approve` 순서
-1. 트랜잭션: `shopApi.verifyOwner(shopId, memberId)` → refund 조회, 그 refund의 가게주문이 이 가게 것이 아니면 `REFUND_NOT_FOUND` → `findByIdForUpdate(orderId)` → `refund.approve()`
-2. `refundProcessor.process(refundId)` (2-8과 같음. 완료 시 품목 `RETURNED`, 가게주문 재계산)
-3. 반환 규칙은 2-8과 같음(200 / 202 / 502)
+`request` 순서 (한 트랜잭션)
+1. `Order order = findByIdAndMemberIdForUpdate(orderId, memberId)` — 없으면(남의 주문 포함) 404 `ORDER_NOT_FOUND`. 주문 행을 잠가 같은 품목의 동시 요청을 줄 세운다
+2. 그 품목에 `REJECTED` 환불이 있으면(`existsByOrderLineIdAndStatus(lineId, REJECTED)`) 409 `RETURN_NOT_ALLOWED`(한 번 거절되면 다시 요청할 수 없다. 정책)
+3. `order.requestReturn(lineId)` — 품목이 `DELIVERED`가 아니면 여기서 409 `INVALID_STATE_TRANSITION`(같은 품목에 요청을 두 번 보내면 두 번째가 여기다)
+4. `refundRepository.save(Refund.requestReturn(orderId, shopOrderId, lineId, memberId, amount, reason))` — 금액 = `lineAmount - refundedAmount`, `shopOrderId = order.shopOrderOf(lineId).getId()`. 반환 `RefundResult(refundId, REQUESTED, amount)`
 
-`reject` 순서
-1. `shopApi.verifyOwner(shopId, memberId)`, refund 조회 — 그 refund의 가게주문이 이 가게 것이 아니면 `REFUND_NOT_FOUND`
-2. `refund.reject(reason)`
-3. `order.rejectReturn(lineId)`
+`approve` 순서 — 승인 후 PG를 부르므로 `@Transactional`이 없고 `tx.execute`로 트랜잭션을 연다
+1. **트랜잭션** (`tx.execute`, 커밋)
+   1. `shopApi.verifyOwner(shopId, memberId)` — 주인이 아니면 403 `FORBIDDEN`
+   2. `Refund refund = refundRepository.findById(refundId)` — 없으면 404 `REFUND_NOT_FOUND`
+   3. 그 refund의 가게주문이 이 가게 것이 아니면 `REFUND_NOT_FOUND` (남의 환불은 없는 것처럼)
+   4. `order = findByIdForUpdate(refund.getOrderId())` → `refund.approve()`(`REQUESTED`가 아니면 `INVALID_STATE_TRANSITION`)
+   - (확인 필요) 3번은 가게주문의 `shopId`가 필요한데 `Refund`에는 `shop_order_id`뿐이라 `Order`(`order.findShopOrder(refund.getShopOrderId()).getShopId()`)에서 알 수 있다. 그러면 3번 전에 주문을 읽어야 해서 문서의 순서(3 → 4)와 어긋난다. 어떤 순서로 하는지 정해져 있지 않다.
+2. `RefundStatus status = refundProcessor.process(refundId)` (트랜잭션 밖. 2-8과 같음. 완료 시 품목 `RETURNED`, 가게주문 재계산)
+3. 반환 규칙은 2-8과 같음(`COMPLETED` → 200, `APPROVED` → 202, `FAILED` → 서비스가 `PG_ERROR` 502)
+
+`reject` 순서 (한 트랜잭션)
+1. `shopApi.verifyOwner(shopId, memberId)`, refund 조회 — 그 refund의 가게주문이 이 가게 것이 아니면 `REFUND_NOT_FOUND` (확인 방법과 순서는 위 `approve`와 같다)
+2. `refund.reject(reason)` — `REQUESTED`가 아니면 `INVALID_STATE_TRANSITION`
+3. `order.rejectReturn(lineId)` — `lineId`는 `refund.getOrderLineId()`, `order`는 `findById(refund.getOrderId())`. 반환 `RefundResult(refundId, REJECTED, amount)`
 
 **3) order.web**
 
@@ -1685,27 +1832,39 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 **1) 마이그레이션** — `db/migration/order/V{...}__order_add_shop_order_status_delivered_at_index.sql`: `idx_shop_order_status_delivered_at ON orders.shop_order (status, delivered_at, id)`
 
 **2) order.domain**
-- `Order.confirmLine(UUID lineId, Instant now)`: 품목 `DELIVERED → CONFIRMED`, `confirmedAt = now` → `recalculateShopOrder`
-- `Order.autoConfirm(UUID shopOrderId, Instant now)`: 그 가게주문의 DELIVERED 품목만 확정(RETURN_REQUESTED는 건너뜀) → `recalculateShopOrder`. 확정한 품목 수 반환
-- `OrderLine.confirmedAmount()` → `lineAmount - refundedAmount`
-- `OrderRepository`: `@Query("select so.id, so.deliveredAt from ShopOrder so where so.status = :status and so.deliveredAt < :before and (so.deliveredAt > :cursorAt or (so.deliveredAt = :cursorAt and so.id > :cursorId)) order by so.deliveredAt, so.id")` 형태의 keyset 조회 `List<AutoConfirmTarget> findAutoConfirmTargets(...)` (첫 페이지용 메서드 별도). `AutoConfirmTarget(UUID shopOrderId, Instant deliveredAt)`
+
+구매확정은 품목 단위다. 확정한 품목은 정산(3-4)·리뷰(6-1)의 대상이 된다.
+
+| 메서드 | 한 줄 설명 | 하는 일 |
+|---|---|---|
+| `Order.confirmLine(UUID lineId, Instant now)` | 구매자가 한 품목을 확정한다 | `OrderLine line = findLine(lineId)`. 품목 `DELIVERED → CONFIRMED`(`transitTo`. `DELIVERED`가 아니면 — 반품 요청 중·이미 확정 포함 — `INVALID_STATE_TRANSITION` 409), `confirmedAt = now` → `recalculateShopOrder`(2-8. 마지막 품목이면 가게주문 `COMPLETED`) |
+| `Order.autoConfirm(UUID shopOrderId, Instant now)` → `int` | 배송완료 후 7일이 지난 가게주문의 품목을 한꺼번에 확정한다. 확정한 품목 수를 반환한다 | `findShopOrder(shopOrderId)`의 품목 중 `DELIVERED`인 것만 `CONFIRMED`, `confirmedAt = now`(`RETURN_REQUESTED`·`CANCELLED`·`RETURNED` 등은 건너뜀. 건너뛴 품목에 `transitTo`를 하면 예외라 상태를 먼저 거른다) → `recalculateShopOrder` |
+| `OrderLine.confirmedAmount()` → `Money` | 정산 대상 금액 | `lineAmount - refundedAmount`(`Money.minus`). 지금은 쓰는 곳이 없다(정산 이벤트가 3-3에서 붙으면 쓴다). 테스트만 확인한다 |
+| `OrderRepository.findAutoConfirmTargets(...)` → `List<AutoConfirmTarget>` | 자동 확정 후보 가게주문을 `(deliveredAt, id)` 오름차순으로 한 페이지씩 읽는다 | 아래 |
+
+`findAutoConfirmTargets`: `AutoConfirmTarget(UUID shopOrderId, Instant deliveredAt)`(다음 페이지의 커서가 된다). 쿼리는 `@Query("select so.id, so.deliveredAt from ShopOrder so where so.status = :status and so.deliveredAt < :before and (so.deliveredAt > :cursorAt or (so.deliveredAt = :cursorAt and so.id > :cursorId)) order by so.deliveredAt, so.id")` 형태(`select new ...AutoConfirmTarget(so.id, so.deliveredAt)`로 받는다). **첫 페이지용 메서드는 별도**다 — 커서가 없어 `cursorAt`·`cursorId` 조건이 빠진다. 시그니처는 `OrderRepository`(domain), `@Query`는 `JpaOrderRepository`. `status`는 `ShopOrderStatus.DELIVERED`. offset이 아니라 keyset인 이유: 처리하는 동안 가게주문이 `COMPLETED`로 바뀌어 목록에서 빠져도 offset처럼 다음 페이지가 건너뛰어지지 않는다(As-Is BAT-02).
 
 **3) order.application**
 
 | 클래스 | 메서드 |
 |---|---|
-| `ConfirmPurchaseService` | `@Transactional OrderLineResult confirm(UUID memberId, UUID orderId, UUID lineId)`. `OrderLineResult`는 `record (UUID orderLineId, OrderLineStatus status, Instant confirmedAt)`. 순서: `findByIdAndMemberId` → `order.confirmLine(lineId, now)` |
-| `AutoConfirmService` (`@Transactional` 없음) | `public int confirmBatch()` |
-| `AutoConfirmJob` (order.infrastructure) | `@Scheduled(cron = "0 0 * * * *", zone = "Asia/Seoul")` → `jobRunner.run("auto-confirm", service::confirmBatch)` |
+| `ConfirmPurchaseService` (`@Transactional`. 의존성 `OrderRepository`, `Clock`) | `OrderLineResult confirm(UUID memberId, UUID orderId, UUID lineId)` — 구매자의 수동 확정. `OrderLineResult`는 `record (UUID orderLineId, OrderLineStatus status, Instant confirmedAt)` |
+| `AutoConfirmService` (`@Transactional` 없음. 의존성 `OrderRepository`, `TransactionTemplate tx`, `Clock`) | `public int confirmBatch()` — 자동 확정 한 번을 돌린다. 반환: 확정한 품목 수 |
+| `AutoConfirmJob` (order.infrastructure) | `@Scheduled(cron = "0 0 * * * *", zone = "Asia/Seoul")`(매시 정각) → `jobRunner.run("auto-confirm", service::confirmBatch)` |
 
-`confirmBatch` 순서
-1. `before = now - 7일`, 커서 없음으로 시작
-2. `targets = findAutoConfirmTargets(DELIVERED, before, cursor, Limit.of(100))` → 비면 종료
-3. 각 대상마다 `try { tx.execute(s -> findByShopOrderId(id).autoConfirm(id, now)) } catch (Exception e) { log }` — 낙관적 락 충돌(구매자가 동시에 수동 확정)도 여기서 잡혀 건너뛴다
+`ConfirmPurchaseService.confirm` 순서
+1. `Order order = findByIdAndMemberId(orderId, memberId)` — 없으면(남의 주문 포함) 404 `ORDER_NOT_FOUND`
+2. `order.confirmLine(lineId, clock.instant())` — `DELIVERED`가 아니면 409 `INVALID_STATE_TRANSITION`
+3. `OrderLine line = order.findLine(lineId)`에서 `OrderLineResult(lineId, line.getStatus(), line.getConfirmedAt())`를 만들어 반환(저장은 커밋 때 더티 체킹). 자동 확정과 같은 품목을 동시에 바꾸면 `@Version` 충돌로 한쪽이 낙관적 락 예외가 되고 `GlobalExceptionHandler`가 409 `CONFLICT_RETRY`로 바꾼다
+
+`confirmBatch` 순서 — 후보를 100건씩 읽어 가게주문 한 건마다 트랜잭션으로 확정한다
+1. `Instant now = clock.instant()`, `before = now - 7일`, 커서 없음으로 시작 (`delivered_at + 7일 < now`와 같다)
+2. `List<AutoConfirmTarget> targets` = 커서가 없으면 첫 페이지 메서드, 있으면 `findAutoConfirmTargets(DELIVERED, before, cursor.deliveredAt(), cursor.shopOrderId(), Limit.of(100))` → 비면 종료
+3. 각 대상마다 `try { count += tx.execute(s -> findByShopOrderId(id).orElseThrow().autoConfirm(id, now)) } catch (Exception e) { log }` — `tx.execute`가 확정한 품목 수(`int`)를 돌려준다. 낙관적 락 충돌(구매자가 동시에 수동 확정)은 커밋 때 나지만 `tx.execute` 안이라 여기서 잡혀 그 건만 건너뛴다
 4. 커서 = 마지막 대상 `(deliveredAt, id)` → 2로 (keyset이라 처리 중 상태가 바뀌어도 누락·중복 없음, As-Is BAT-02)
 5. 확정한 품목 수 반환
 
-**4) order.web**: `POST /api/orders/{id}/lines/{lineId}/confirm` → 200 `OrderLineResponse(orderLineId, status, confirmedAt)`
+**4) order.web**: `POST /api/orders/{id}/lines/{lineId}/confirm` → 200 `OrderLineResponse(orderLineId, status, confirmedAt)` — `OrderLineResult`를 그대로 옮긴 응답 record다. `@Idempotent`는 붙이지 않는다(이미 확정된 품목에 다시 보내면 409라서 안전하다)
 
 ### 완료 확인
 

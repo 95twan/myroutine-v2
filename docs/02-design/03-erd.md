@@ -1,5 +1,6 @@
 # 03. ERD (Stage 1)
 
+> 2026-10-15: `review_like`에 `created_at`을 더하고, 추천 캐시 키를 로드맵 6-4의 `rec:result:{memberId}`(추천 결과 캐시)로 맞췄다
 > 2026-10-13: `order_line(shop_order_id)` 인덱스를 인덱스 목록에 더했다(주문 상세의 품목 배치 로딩, 로드맵 2-2)
 > 2026-10-12: 장바구니와 주문은 연결하지 않는다 — 체크아웃은 장바구니를 건드리지 않고(주문 품목으로 복사), 결제 완료 때 주문 수량만큼 차감(로드맵 2-2·2-4)
 > 2026-10-09: 로드맵 4-x와 맞춤 — Redis 키 이름(`auth:email-code:{purpose}:{email}`, 쿨다운·시간당 키, OAuth 키, 세션 = family라 `familyId` 없음), `member.ban_reason`·`social_account.provider_email` 추가
@@ -358,6 +359,7 @@ erDiagram
   review_like {
     uuid review_id PK
     uuid member_id PK
+    timestamptz created_at
   }
   product_review_stat {
     uuid product_id PK
@@ -392,7 +394,7 @@ erDiagram
     varchar status "ACTIVE, INACTIVE"
   }
 ```
-- 취향 벡터 캐시: Redis `rec:taste:{memberId}`(TTL 30분).
+- 추천 결과 캐시: Redis `rec:result:{memberId}`(TTL 30분. 새 주문 결제·탈퇴 시 삭제, 로드맵 6-4).
 
 ## notification
 ```mermaid

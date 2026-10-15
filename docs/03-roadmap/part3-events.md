@@ -1,6 +1,8 @@
 # Part 3. 이벤트
 
-> 버전 0.9 · 2026-10-14 · **표현·구조 정리**(설계·동작 변경 없음): 3-3 `OrderEventPublisher`와 3-4 `SettlementPaidEvent`를 쓰는 표·순서 앞에서 정의하고, 3-4 `SettlementSum`·`SettlementItemService`를 정의했으며, 한 셀에 몰려 있던 저장소 메서드를 목록으로 풀었다
+> 버전 0.11 · 2026-10-15 · **`EventPublishingTest` 대상에서 payment를 뺐다**(리뷰 결정): 3-3 이벤트 표에 payment가 발행하는 이벤트가 없다. 그 밖의 규격은 0.10과 같다
+> 0.10 · 2026-10-15 · **Part 3 클래스·메서드 설명을 풀어 썼다**(구현 중 "뭔지 모르겠다" 지적): 표의 한 줄 규격이던 클래스·메서드마다 역할·호출하는 곳·입력과 반환·순서·함정을 적었다(3-1 outbox·릴레이·consumer, 3-2 멱등 소비·에러 핸들러·폐업, 3-3 이벤트 발행 위치, 3-4 정산·지급, 3-5 알림, 3-6 탈퇴). 문서에 정해져 있지 않던 부분은 "확인 필요"로 표시했다. 규격·동작은 직전 버전과 같다
+> 0.9 · 2026-10-14 · **표현·구조 정리**(설계·동작 변경 없음): 3-3 `OrderEventPublisher`와 3-4 `SettlementPaidEvent`를 쓰는 표·순서 앞에서 정의하고, 3-4 `SettlementSum`·`SettlementItemService`를 정의했으며, 한 셀에 몰려 있던 저장소 메서드를 목록으로 풀었다
 > 0.8 · 2026-10-12 · **용어 정리**: 단계 끝 "제안 (선택)"을 "추가 항목"으로 바꿨다. "제안"은 리뷰어의 의견(근거 없는 지적)에만 쓴다. 내용은 그대로다
 > 0.7 · 2026-10-11 · JSON 변환 타입을 `ObjectMapper`로 통일(Part 1 코드·Part 2 멱등 장치와 같은 타입)
 > 0.6 · 2026-10-09 · **사실 확인·정합**: Kafka 이미지 태그(`apache/kafka:4.2.2`)·Boot 4 스타터 이름·`CommonErrorHandler` 자동 연결을 확인해 확정, 테스트 컨테이너 기동에 1-10의 MinIO 포함, 정산 테이블에 빠져 있던 `payout_reference` 컬럼과 `markPaid` 인자 통일, Part 2에서 제안으로 옮긴 `FailPaymentService` 잔재 제거
@@ -91,6 +93,12 @@
 - 릴레이: 1초마다, 한 번에 100건, 리스 30초. 발행에 실패하면 **10초 뒤** 다시. **10번 실패하면 DEAD**.
 - SENT 행 정리는 Part 7(운영)에서 한다.
 
+**흐름 한눈에** (가게 개설 기준. 아래 클래스가 어느 줄을 맡는지 보면서 읽는다)
+1. `OpenShopService.open`이 한 트랜잭션에서 `shop` 행과 `common.outbox_event` 행(`READY`)을 함께 INSERT한다 — `OutboxPublisher.publish`가 outbox 행을 넣는다.
+2. 1초마다 `OutboxRelayJob` → `OutboxRelay.relayOnce()`가 `READY` 행을 집어(선점) Kafka 토픽 `shop.shop-opened.v1`로 보내고, 성공하면 `SENT`로 바꾼다.
+3. member 모듈의 `ShopEventConsumer`(`@KafkaListener`)가 같은 토픽에서 메시지를 받아 `EventEnvelopes.parse`로 풀고 `MemberRoleService.grantSeller`를 부른다.
+- 1~2 사이, 2~3 사이 어디서 서버가 죽어도 outbox 행이나 Kafka 메시지가 남아 있어 이어서 처리된다. 대신 **같은 메시지가 두 번 갈 수 있어서** consumer는 중복을 견뎌야 한다(3-2).
+
 ### 할 일
 
 **1) 인프라**
@@ -118,8 +126,12 @@ spring:
     listener:
       ack-mode: record
 ```
-- `delivery.timeout.ms`를 줄인 이유: 기본값(2분)이면 릴레이가 "실패"로 기록한 뒤에도 프로듀서가 뒤에서 계속 재전송해 늦게 도착할 수 있다. 줄여도 중복은 생길 수 있으므로 consumer 멱등이 전제다.
-- `IntegrationTestSupport`: `@ServiceConnection static final KafkaContainer kafka = new KafkaContainer("apache/kafka:4.2.2")`(패키지 `org.testcontainers.kafka`), static 블록의 `postgres.start()`(1-10 이후 `minio.start()`도)를 `Startables.deepStart(postgres, minio, kafka).join()`(`org.testcontainers.lifecycle.Startables`, 컨테이너를 병렬로 띄운다)으로 바꾼다
+- 설정 읽는 법
+  - `acks: all` + `enable.idempotence: true`: 리더와 복제본에 기록된 뒤에야 성공 응답을 받고, 프로듀서가 내부에서 재전송해도 브로커가 중복을 걸러낸다. 릴레이가 같은 행을 **다시 발행**하는 중복(아래 `relayOnce` 3~4번 사이에서 죽은 경우)은 걸러 주지 않는다.
+  - `delivery.timeout.ms`를 줄인 이유: 기본값(2분)이면 릴레이가 "실패"로 기록한 뒤에도 프로듀서가 뒤에서 계속 재전송해 늦게 도착할 수 있다. 줄여도 중복은 생길 수 있으므로 consumer 멱등이 전제다. `request.timeout.ms`·`max.block.ms`도 브로커가 멈췄을 때 `send`가 오래 붙잡히지 않게 하려는 값이다.
+  - `auto-offset-reset: earliest`: 이 consumer 그룹이 읽은 위치(offset)를 아직 저장한 적이 없을 때(처음 뜰 때) 토픽의 맨 앞부터 읽는다.
+  - `enable-auto-commit: false` + `listener.ack-mode: record`: offset을 주기적으로 자동 저장하지 않고, **리스너 메서드가 예외 없이 끝난 레코드마다** Spring이 저장한다. 예외로 끝난 레코드는 저장되지 않아 다시 전달된다(재시도·DLT는 3-2).
+- `IntegrationTestSupport`: `@ServiceConnection static final KafkaContainer kafka = new KafkaContainer("apache/kafka:4.2.2")`(패키지 `org.testcontainers.kafka`. `@ServiceConnection`이 컨테이너 주소를 `spring.kafka.bootstrap-servers`에 자동으로 넣어 준다), static 블록의 `postgres.start()`(1-10 이후 `minio.start()`도)를 `Startables.deepStart(postgres, minio, kafka).join()`(`org.testcontainers.lifecycle.Startables`, 컨테이너를 병렬로 띄운다)으로 바꾼다
 
 **2) common.outbox**
 
@@ -144,17 +156,45 @@ spring:
 
 - 인덱스: `idx_outbox_event_ready ON common.outbox_event (next_attempt_at) WHERE status = 'READY'`, `idx_outbox_event_processing ON common.outbox_event (locked_until) WHERE status = 'PROCESSING'`
 
-| 클래스 | 규격 |
-|---|---|
-| `EventEnvelope` | `public record EventEnvelope(UUID eventId, String eventType, Instant occurredAt, UUID aggregateId, String traceId, JsonNode payload)` (`tools.jackson.databind.JsonNode`) |
-| `OutboxPublisher` | `@Component`. `@Transactional(propagation = Propagation.MANDATORY) public void publish(String topic, String aggregateType, UUID aggregateId, Object event)` — `JdbcTemplate`으로 INSERT(READY, `next_attempt_at = now`, `trace_id = MDC.get(TraceIds.MDC_KEY)`, payload는 `objectMapper.writeValueAsString(event)`를 `?::jsonb`로) |
-| `OutboxRelay` | `@Component`. `public int relayOnce()` (아래). 스케줄은 `OutboxRelayJob`(`@Scheduled(fixedDelay = 1000)` → `jobRunner.run("outbox-relay", relay::relayOnce)`) |
-| `EventEnvelopes` | `@Component`. `<T> TypedEnvelope<T> parse(String json, Class<T> payloadType)` → `record TypedEnvelope<T>(EventEnvelope envelope, T payload)`. 파싱 실패는 `tools.jackson.core.JacksonException`을 그대로 던진다(3-2에서 재시도하지 않을 예외로 분류) |
-| `EventContext` | `public final class`. `static void run(EventEnvelope envelope, Runnable action)` → MDC에 `traceId`(봉투 값, 없으면 새로), `eventId` 넣고 실행 후 제거 |
+| 클래스 | 한 줄 설명 | 쓰는 곳 |
+|---|---|---|
+| `EventEnvelope` | Kafka 메시지 한 건의 겉봉투(record) | 릴레이가 만들고, consumer가 푼다 |
+| `OutboxPublisher` | 이벤트를 "보낼 목록(outbox 행)"에 올리는 입구 | 상태를 바꾸는 서비스(`OpenShopService` 등) |
+| `OutboxRelay` | outbox 행을 Kafka로 실제 발행 | `OutboxRelayJob`(1초마다), 테스트가 직접 호출 |
+| `EventEnvelopes` | Kafka에서 받은 JSON 문자열을 봉투 + 이벤트 record로 풂 | 모든 consumer의 첫 줄 |
+| `EventContext` | 처리하는 동안 MDC에 `traceId`·`eventId`를 넣고 뺌 | consumer(3-2부터는 `InboxGuard`가 같은 일을 한다) |
 
-`OutboxRelay.relayOnce()` 순서
-1. 회수(짧은 트랜잭션): `UPDATE common.outbox_event SET status = 'READY', locked_until = NULL, updated_at = now() WHERE status = 'PROCESSING' AND locked_until < now()`
-2. 선점(짧은 트랜잭션, `JdbcTemplate.query`로 `RETURNING` 결과를 읽는다):
+**`EventEnvelope`** — `public record EventEnvelope(UUID eventId, String eventType, Instant occurredAt, UUID aggregateId, String traceId, JsonNode payload)` (`tools.jackson.databind.JsonNode`)
+- 어떤 이벤트든 같은 모양으로 감싸 보내서, 받는 쪽이 이벤트 종류를 모르고도 `eventId`(멱등 키)·`traceId`(로그 추적)를 먼저 꺼낼 수 있게 한다. 그래서 `payload`는 이벤트 record가 아니라 JSON 트리(`JsonNode`)이고, 이벤트 record로의 변환은 consumer가 `EventEnvelopes.parse`로 한다.
+- outbox 행 → 봉투: `id` → `eventId`, `event_type` → `eventType`, `aggregate_id` → `aggregateId`, `trace_id` → `traceId`, `payload`(jsonb) → `payload`. `occurredAt`은 선점 쿼리가 돌려주는 `created_at`을 쓰는 것으로 보인다(확인 필요: 문서에 명시 없음).
+
+**`OutboxPublisher`** (`@Component`, 의존성 `JdbcTemplate`, `ObjectMapper`, `Clock`) — 비즈니스 코드가 이벤트를 내보내는 **유일한 입구**다. Kafka로 직접 보내지 않고, 상태 변경과 **같은 DB 트랜잭션에서 `common.outbox_event` 행 하나를 INSERT**만 한다. 트랜잭션이 롤백되면 이 행도 같이 사라진다 — 이것이 Outbox의 핵심이다.
+
+`@Transactional(propagation = Propagation.MANDATORY) public void publish(String topic, String aggregateType, UUID aggregateId, Object event)` — 반환 없음
+
+| 인자 | 의미 | 들어가는 컬럼 |
+|---|---|---|
+| `topic` | 보낼 토픽 이름. 발행 모듈의 상수(`ShopTopics.SHOP_OPENED`) | `topic` |
+| `aggregateType` | 변경된 대상의 종류를 나타내는 문자열(`"SHOP"`). 조회·로그용 | `aggregate_type` |
+| `aggregateId` | 변경된 대상의 ID. Kafka 키가 되어 같은 대상의 이벤트 순서를 지킨다 | `aggregate_id` |
+| `event` | 이벤트 record(`ShopOpenedEvent`). 필드만 JSON이 된다 | `payload`, 클래스 이름(`event.getClass().getSimpleName()`)이 `event_type` |
+
+순서
+1. `UUID id = Ids.newId()` — 이 값이 봉투의 `eventId`다(consumer 멱등 키가 된다).
+2. `String payload = objectMapper.writeValueAsString(event)` — Jackson 3의 예외는 unchecked라 `throws`가 없다.
+3. `jdbcTemplate.update("INSERT INTO common.outbox_event (...) VALUES (..., ?::jsonb, ...)", ...)` — `status = 'READY'`, `trace_id = MDC.get(TraceIds.MDC_KEY)`(HTTP 요청이면 `TraceIdFilter`가 넣어 둔 값. 없으면 `null`), `attempts`는 DEFAULT 0. NOT NULL인 `next_attempt_at`·`created_at`·`updated_at`은 INSERT에서 `now`로 직접 채운다. JDBC로 시각을 넘길 때는 `Instant`를 `OffsetDateTime.ofInstant(instant, ZoneOffset.UTC)`로 바꿔 넘긴다(`IdempotencyRepository`와 같다).
+- `MANDATORY`: 트랜잭션 밖에서 부르면 `IllegalTransactionStateException`. "상태는 롤백됐는데 이벤트만 나가는" 사고를 코드로 막는다. 상태를 바꾸는 서비스의 `@Transactional` 안에서 부르면 JPA와 같은 트랜잭션에 참여한다.
+
+**`OutboxRelay`** (`@Component`, 의존성 `JdbcTemplate`, `KafkaTemplate<String, String>`(Boot가 `spring.kafka.*`로 만든 빈), `ObjectMapper`, `TransactionTemplate`) — **outbox에 쌓인 READY 행을 Kafka로 발행하는 곳**이다. 클래스에 `@Transactional`을 붙이지 않는다: 선점·결과 기록은 짧은 트랜잭션이고 Kafka 호출은 그 밖에서 해야 해서 `TransactionTemplate`으로 구간을 직접 나눈다([Part 2 공통 규칙 K](part2-order-money.md#k-외부-호출과-트랜잭션)).
+- `public int relayOnce()` → 이번 호출에서 SENT로 바꾼 건수
+- 스케줄은 `OutboxRelayJob`: `@Scheduled(fixedDelay = 1000)` → `jobRunner.run("outbox-relay", relay::relayOnce)`(`JobRunner`는 2-5. 같은 잡을 서버 한 대만 돌리고, 예외를 로그로 남기고 삼킨다). 테스트에서는 스케줄이 꺼져 있어 `relayOnce()`를 직접 부른다.
+
+`relayOnce()` 순서
+1. 회수(짧은 트랜잭션, `tx.executeWithoutResult` 안의 `jdbcTemplate.update`): 앞서 릴레이가 죽어 `PROCESSING`으로 남은 행을 다시 `READY`로 돌린다.
+```sql
+UPDATE common.outbox_event SET status = 'READY', locked_until = NULL, updated_at = now() WHERE status = 'PROCESSING' AND locked_until < now()
+```
+2. 선점(짧은 트랜잭션): "내가 이 행들을 맡았다"고 표시하고 그 행을 바로 읽는다. `tx.execute(s -> jdbcTemplate.query(sql, rowMapper))`로 `RETURNING` 결과를 `List<OutboxRow>`로 받는다(`OutboxRow`는 릴레이 안에서만 쓰는 private record: `id, aggregateId, eventType, topic, payload(String), traceId, attempts, createdAt`). `FOR UPDATE SKIP LOCKED`는 다른 트랜잭션이 잠근 행을 기다리지 않고 건너뛰고, `PROCESSING + locked_until`은 커밋 뒤에도 다른 인스턴스가 못 가져가게 하는 표시다.
 ```sql
 UPDATE common.outbox_event SET status = 'PROCESSING', locked_until = now() + interval '30 seconds', updated_at = now()
  WHERE id IN (SELECT id FROM common.outbox_event
@@ -162,26 +202,54 @@ UPDATE common.outbox_event SET status = 'PROCESSING', locked_until = now() + int
                ORDER BY created_at LIMIT 100 FOR UPDATE SKIP LOCKED)
 RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, created_at
 ```
-3. **트랜잭션 밖에서** 행마다: 봉투 JSON을 만들어 `kafkaTemplate.send(topic, aggregateId.toString(), json).get(5, SECONDS)`
-4. 성공 → `SET status = 'SENT', sent_at = now(), locked_until = NULL` / 실패 → `attempts + 1`이 10 이상이면 `DEAD`, 아니면 `READY` + `next_attempt_at = now() + 10초` + `last_error`
-5. 발행 성공 건수 반환
+3. **트랜잭션 밖에서** 행마다(행 하나의 실패가 나머지를 막지 않도록 행 단위 `try/catch`)
+   1. 봉투를 만든다: `new EventEnvelope(row.id(), row.eventType(), row.createdAt(), row.aggregateId(), row.traceId(), objectMapper.readTree(row.payload()))` → `objectMapper.writeValueAsString(envelope)`가 Kafka 메시지 값(JSON 문자열)이다.
+   2. `kafkaTemplate.send(row.topic(), row.aggregateId().toString(), json)` — 키는 집계 ID 문자열. `send`는 `CompletableFuture<SendResult<String, String>>`을 **즉시** 돌려주고 실제 전송은 뒤에서 일어난다. 그래서 `.get(5, TimeUnit.SECONDS)`로 브로커의 응답을 기다려야 "보냈다"를 알 수 있다. `get`은 `InterruptedException`·`ExecutionException`·`TimeoutException`을 던질 수 있고, 전부 "발행 실패"로 취급한다(`catch (Exception e)`).
+4. 행마다 결과 기록(짧은 트랜잭션, `WHERE id = ?`의 `UPDATE`)
+   - 성공 → `SET status = 'SENT', sent_at = now(), locked_until = NULL, updated_at = now()`
+   - 실패 → `attempts + 1`이 10 이상이면 `status = 'DEAD'`, 아니면 `status = 'READY'` + `next_attempt_at = now() + 10초`. 둘 다 `attempts = attempts + 1`, `locked_until = NULL`, `last_error`(예외 메시지를 **500자로 잘라** 넣는다. `last_error`가 `varchar(500)`이라 넘치면 이 UPDATE가 실패해서 행이 `PROCESSING`으로 남는다)
+5. 3~4가 성공한 건수를 반환
 - 선점 쿼리의 `now()`는 DB 시각이다(릴레이는 앱 `Clock` 대신 DB 시각으로 일관되게 동작).
+- 3의 발행이 성공했는데 4의 기록 전에 서버가 죽으면 행이 `PROCESSING`으로 남았다가 리스(30초)가 지나 1번에서 회수되어 **다시 발행된다**. 같은 `eventId`로 두 번 가므로 consumer가 `eventId`로 중복을 걸러야 한다(3-2). 이것이 "리뷰 때 물어볼 것"의 첫 질문이다.
+- 확인 필요: Kafka가 멈춰 있으면 행마다 최대 5초씩 기다려 100건이면 리스 30초를 넘길 수 있다. 문서는 이 경우를 따로 정하지 않았다(릴레이가 한 개이고 `fixedDelay`라 다음 실행과 겹치지는 않는다).
+
+**`EventEnvelopes`** (`@Component`, 의존성 `ObjectMapper`) — consumer의 첫 줄. Kafka에서 받은 JSON 문자열을 봉투와 이벤트 record로 푼다.
+- `<T> TypedEnvelope<T> parse(String json, Class<T> payloadType)` → `record TypedEnvelope<T>(EventEnvelope envelope, T payload)`. 사용: `TypedEnvelope<ShopOpenedEvent> typed = envelopes.parse(message, ShopOpenedEvent.class);` 뒤에 `typed.envelope()`(봉투), `typed.payload()`(이벤트 record)를 쓴다.
+- 순서: ① `objectMapper.readValue(json, EventEnvelope.class)` ② `objectMapper.treeToValue(envelope.payload(), payloadType)` ③ 둘을 `TypedEnvelope`로 묶어 반환. `treeToValue`는 `JsonNode`를 지정한 타입으로 바꾸는 메서드다(Jackson 3 `tools.jackson` 기준 정확한 이름·시그니처는 확인 필요).
+- 깨진 JSON이거나 필드가 맞지 않으면 `tools.jackson.core.JacksonException`(unchecked)을 **그대로 던진다**. 다시 시도해도 같은 결과라서 3-2에서 "재시도하지 않을 예외"로 분류해 바로 DLT로 보낸다.
+
+**`EventContext`** (`public final class`) — 이벤트를 처리하는 동안 로그에 `traceId`·`eventId`가 찍히게 하는 헬퍼. `static void run(EventEnvelope envelope, Runnable action)`
+1. `MDC.put(TraceIds.MDC_KEY, 봉투의 traceId)` — 봉투의 `traceId`가 `null`이면 `TraceIds.newId()`로 새로 만든다. `MDC.put("eventId", envelope.eventId().toString())`
+2. `try { action.run(); } finally { 두 키를 MDC.remove }` — consumer 스레드는 다음 메시지에도 재사용되므로 값이 남지 않게 finally에서 지운다.
+- 왜: HTTP 요청의 `traceId`가 outbox → 봉투 → consumer 로그까지 이어져, Kibana에서 `traceId` 하나로 가게 개설부터 역할 부여까지 한 번에 검색된다(ADR-010). 3-2부터는 `InboxGuard`가 같은 MDC 설정을 하므로 consumer는 `EventContext.run`을 따로 부르지 않는다.
 
 **3) 가게 개설 이벤트**
-- `shop.api.event`: `ShopTopics.SHOP_OPENED = "shop.shop-opened.v1"`, `public record ShopOpenedEvent(UUID shopId, UUID memberId)`
-- `shop.infrastructure.ShopTopicConfig`: `@Bean NewTopic shopOpenedTopic()` → `TopicBuilder.name(SHOP_OPENED).partitions(3).replicas(1).build()` (이후 토픽도 각 발행 모듈의 infrastructure에 같은 방식으로)
-- `OpenShopService.open`: 저장 직후 같은 트랜잭션에서 `outboxPublisher.publish(SHOP_OPENED, "SHOP", shop.getId(), new ShopOpenedEvent(shop.getId(), memberId))`
+- `shop.api.event`: `ShopTopics.SHOP_OPENED = "shop.shop-opened.v1"`, `public record ShopOpenedEvent(UUID shopId, UUID memberId)` — 다른 모듈(member)이 import하므로 `shop.api` 쪽에 둔다. `shop.api.event`는 `shop.api`의 하위 패키지라 `@NamedInterface("api")`가 이 패키지에도 필요한지 `ModularityTest`로 확인한다(확인 필요: Modulith가 하위 패키지를 같은 `api` 이름 있는 인터페이스로 보는지. 문서·코드에 아직 정해진 것이 없다. 다른 모듈의 `api.event`도 같다).
+- `shop.infrastructure.ShopTopicConfig`: `@Bean NewTopic shopOpenedTopic()` → `TopicBuilder.name(SHOP_OPENED).partitions(3).replicas(1).build()` (`org.springframework.kafka.config.TopicBuilder`. 이후 토픽도 각 발행 모듈의 infrastructure에 같은 방식으로). 앱이 시작할 때 Boot가 만든 `KafkaAdmin`이 `NewTopic` 빈을 보고 브로커에 토픽이 없으면 만든다 — 그래서 브로커가 떠 있어야 앱이 시작된다.
+- `OpenShopService.open`: 의존성에 `OutboxPublisher`를 더하고, 기존 `Shop savedShop = shopRepository.save(shop)` 바로 다음 같은 트랜잭션에서 `outboxPublisher.publish(SHOP_OPENED, "SHOP", savedShop.getId(), new ShopOpenedEvent(savedShop.getId(), memberId))`. 사업자번호 중복 예외는 `save` 앞에서 나므로 그때는 outbox 행도 생기지 않는다.
 
 **4) member — 역할 부여**
-- `Member.promoteToSeller()`: USER면 SELLER로, 이미 SELLER·ADMIN이면 아무것도 안 함. `Member.demoteToUser()`: SELLER면 USER로, 아니면 아무것도 안 함
-- `MemberRoleService` (member.application): `@Transactional void grantSeller(UUID memberId)` → 회원이 없으면 `log.warn` 후 return(공통 규칙 Q)
-- `ShopEventConsumer` (member.infrastructure): `@KafkaListener(topics = ShopTopics.SHOP_OPENED, groupId = "member") void onShopOpened(String message)` → `parse(message, ShopOpenedEvent.class)` → `EventContext.run(envelope, () -> roleService.grantSeller(payload.memberId()))`
-- `member/package-info.java`: `allowedDependencies = {"common", "shop::api"}`
+- `Member.promoteToSeller()`: USER면 SELLER로, 이미 SELLER·ADMIN이면 아무것도 안 함. `Member.demoteToUser()`: SELLER면 USER로, 아니면 아무것도 안 함. 예외를 던지지 않는 이유는 같은 이벤트가 두 번 와도, ADMIN 회원이 가게를 열고 닫아도 결과가 안전해야 해서다(`MemberRole`은 `USER, SELLER, ADMIN`).
+- `MemberRoleService` (member.application, `@Service`, 의존성 `MemberRepository`) — consumer가 부르는 "역할 바꾸기" 유스케이스. `@Transactional void grantSeller(UUID memberId)`
+  1. `memberRepository.findById(memberId)` — 회원이 없으면 `log.warn` 후 return(예외 금지. 공통 규칙 Q: 테스트 사이에 남은 메시지일 수 있다)
+  2. `member.promoteToSeller()` — `save`는 부르지 않는다. 변경은 커밋 때 더티 체킹으로 저장된다.
+- `ShopEventConsumer` (member.infrastructure) — **Kafka 메시지를 받아 서비스를 부르는 얇은 어댑터**. 의존성 `EventEnvelopes`, `MemberRoleService`
+  ```java
+  @KafkaListener(topics = ShopTopics.SHOP_OPENED, groupId = "member")
+  void onShopOpened(String message) {
+      TypedEnvelope<ShopOpenedEvent> typed = envelopes.parse(message, ShopOpenedEvent.class);
+      EventContext.run(typed.envelope(), () -> roleService.grantSeller(typed.payload().memberId()));
+  }
+  ```
+  - `@KafkaListener`: Spring이 이 메서드를 컨테이너 스레드에서 호출한다. `message`는 레코드의 **값**(JSON 문자열, `StringDeserializer`)이다. 키·offset이 필요하면 `ConsumerRecord<String, String>`을 받을 수도 있지만 지금은 값만 쓴다.
+  - `groupId = "member"`: consumer 그룹 이름. **그룹마다 메시지를 한 번씩 받는다**(member 그룹, 나중의 notification 그룹이 같은 토픽을 각자 받는다). 같은 그룹 안에서는 파티션을 나눠 가진다. 그룹 이름은 모듈 이름으로 통일한다.
+  - 메서드가 정상 반환하면 offset이 저장되고(`ack-mode: record`), 예외가 나면 저장되지 않아 에러 핸들러(3-2)가 처리한다.
+- `member/package-info.java`: `allowedDependencies = {"common", "shop::api"}` — 현재 값은 `{"common"}`이다. `ShopTopics`·`ShopOpenedEvent`가 `shop::api`에 있어서 추가한다.
 - 역할 반영 전에도 판매자 기능은 소유권으로 동작한다(1-6). 토큰의 role은 다음 로그인 때 갱신된다.
 
 **5) 테스트 헬퍼**
-- `support/Eventually` (공통 규칙 Q)
-- `support/OutboxAssert`: `List<Map<String, Object>> rows(String topic)` — `JdbcTemplate`으로 `common.outbox_event` 조회
+- `support/Eventually` (공통 규칙 Q): `static void await(Duration timeout, ThrowingRunnable assertion)`. `ThrowingRunnable`은 `void run() throws Exception`을 가진 함수형 인터페이스다(JDK에 없어 `support`에 함께 만든다). 100ms마다 `assertion.run()`을 호출해 예외 없이 끝나면 return하고, `timeout`이 지나면 **마지막으로 난 예외**를 던진다. 사용: `Eventually.await(Duration.ofSeconds(5), () -> assertThat(role(memberId)).isEqualTo("SELLER"));`
+- `support/OutboxAssert`: `List<Map<String, Object>> rows(String topic)` — `JdbcTemplate`으로 `common.outbox_event`에서 `topic = ?`인 행을 `created_at` 순으로 읽는다. 한 행이 컬럼 이름 → 값의 `Map`이다(예: `rows.get(0).get("status")`, `.get("trace_id")`). `payload`(jsonb)는 `PGobject`로 오므로 `toString()`으로 JSON 문자열을 얻어 `ObjectMapper.readTree`로 필드를 읽는다.
 
 ### 완료 확인
 
@@ -224,50 +292,65 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
 
 마이그레이션 `db/migration/common/V{...}__common_create_processed_message.sql`: `common.processed_message` — `consumer varchar(100) X`, `event_id uuid X`, `processed_at timestamptz X`, `pk_processed_message (consumer, event_id)`
 
-`InboxGuard` (`@Component`)
-- `@Transactional public void runOnce(String consumer, EventEnvelope envelope, Runnable action)`
-  1. `EventContext`처럼 MDC 설정
-  2. `INSERT INTO common.processed_message ... ON CONFLICT DO NOTHING` → 0이면 `log.info("duplicate event skipped")` 후 return
-  3. `action.run()` — 같은 트랜잭션. 예외가 나면 2의 INSERT도 롤백되어 재시도 때 다시 처리된다
+`InboxGuard` (`@Component`, common.inbox, 의존성 `JdbcTemplate`, `Clock`) — **"이 이벤트를 이 consumer가 이미 처리했는가"를 확인하고 처음일 때만 처리하는 문지기**. Kafka는 같은 메시지를 두 번 줄 수 있어서(릴레이 재발행, 재시도, 리밸런스) 모든 consumer가 이것을 거친다. 부르는 곳: 각 모듈의 `@KafkaListener` 메서드(`inboxGuard.runOnce(...)`).
+- `@Transactional public void runOnce(String consumer, EventEnvelope envelope, Runnable action)` → 반환 없음
+  - `consumer`: 처리 주체의 이름(규칙 `{구독 모듈}.{이벤트}`, 예 `member.shop-opened`). 같은 이벤트를 member와 notification이 각자 한 번씩 처리해야 하므로 `(consumer, eventId)` 쌍으로 중복을 판단한다.
+  - `envelope`: 파싱한 봉투. `eventId`가 멱등 키다.
+  - `action`: 비즈니스 처리(예: `() -> roleService.grantSeller(memberId)`). **처음 본 이벤트일 때만** 실행된다.
+  1. MDC 설정 — `EventContext.run`과 같은 일(`traceId`, `eventId`)을 한다.
+  2. `jdbcTemplate.update("INSERT INTO common.processed_message (consumer, event_id, processed_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING", ...)`의 **반환값**이 0이면 이미 처리한 이벤트다 → `log.info("duplicate event skipped")` 후 return(예외 아님. 정상 종료라 offset이 저장된다). 같은 이벤트가 동시에 두 스레드로 와도 두 번째 INSERT는 첫 트랜잭션이 끝나길 기다렸다가 0이 된다.
+  3. `action.run()` — **2의 INSERT와 같은 트랜잭션**이다. `action` 안의 `@Transactional(REQUIRED)` 서비스도 이 트랜잭션에 합류한다. 예외가 나면 INSERT도 함께 롤백되어 "처리 안 한 이벤트"로 남고, 재시도 때 다시 처리된다. 기록과 처리를 다른 트랜잭션에 두면 "기록만 남고 처리는 실패"해서 영영 처리되지 않는다.
   4. MDC 정리(finally)
-- consumer 이름 규칙: `{구독 모듈}.{이벤트}` 예: `member.shop-opened`
+- consumer는 `typed = envelopes.parse(...)` 뒤 `inboxGuard.runOnce("member.shop-opened", typed.envelope(), () -> ...)`를 부른다. `EventContext.run`을 따로 감싸지 않는다(1번이 대신한다).
 
-**2) common.config.KafkaConfig**
-- `@Bean CommonErrorHandler kafkaErrorHandler(KafkaTemplate<String, String> template)`:
-  - `DeadLetterPublishingRecoverer(template, (record, ex) -> new TopicPartition(record.topic() + ".dlt", record.partition()))`
-  - `new DefaultErrorHandler(recoverer, new ExponentialBackOff(1000, 2.0))`에 최대 재시도 3번(`backOff.setMaxAttempts(3)`)
-  - `errorHandler.addNotRetryableExceptions(JacksonException.class, IllegalArgumentException.class, BusinessException.class)`
+**2) common.config.KafkaConfig** — consumer 메서드가 예외를 던졌을 때 **다시 시도하고, 끝내 안 되면 DLT(dead letter topic, 처리 못 한 메시지를 모아 두는 `{topic}.dlt` 토픽)로 옮기는** 규칙을 정한다. 이 설정이 없으면 실패한 메시지는 Spring Kafka의 기본 동작을 따른다.
+- `@Bean CommonErrorHandler kafkaErrorHandler(KafkaTemplate<String, String> template)`: 빈 한 개를 만들어 반환한다. 만드는 순서는 다음과 같다.
+  1. `DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(template, (record, ex) -> new TopicPartition(record.topic() + ".dlt", record.partition()))` — 재시도를 다 쓴 레코드를 **같은 키·값 그대로** DLT로 보내는 객체. 람다는 "어느 토픽·파티션으로 보낼지"를 정하며, 원본과 **같은 파티션 번호**를 쓰므로 DLT도 원본처럼 파티션 3개여야 한다(아래 `NewTopic`).
+  2. `ExponentialBackOff backOff = new ExponentialBackOff(1000, 2.0)` — 첫 대기 1000ms, 이후 2배씩(1초 → 2초 → 4초). `backOff.setMaxAttempts(3)`으로 재시도를 3번으로 제한한다. 그래서 **최초 1번 + 재시도 3번 = 4번 시도** 후 DLT로 간다(완료 확인 `KafkaDltTest`의 "4번 시도").
+  3. `DefaultErrorHandler errorHandler = new DefaultErrorHandler(recoverer, backOff)` — 리스너가 예외를 던지면 같은 레코드를 대기 후 다시 전달하고, 횟수를 다 쓰면 `recoverer`를 부른다.
+  4. `errorHandler.addNotRetryableExceptions(JacksonException.class, IllegalArgumentException.class, BusinessException.class)` — 이 예외는 재시도 없이 **바로** DLT로 보낸다(시도 1번). 다시 해도 결과가 같기 때문이다. 이 목록에 없는 예외(`DataAccessException`, 낙관적 락 충돌 등 일시적 오류)는 재시도 대상이다.
+  5. `return errorHandler`
 - Boot는 `CommonErrorHandler` 빈을 기본 리스너 컨테이너 팩토리에 자동으로 연결한다(Boot 4.1.1의 `KafkaAnnotationDrivenConfiguration`이 `ObjectProvider<CommonErrorHandler>`를 받아 팩토리에 넣는 것을 jar로 확인, 2026-10-09). 그래서 `ConcurrentKafkaListenerContainerFactory`를 직접 만들지 않는다
 - DLT 토픽도 `NewTopic`으로 만든다: 각 모듈의 `XxxTopicConfig`에서 원본마다 `{topic}.dlt` (파티션 3)
 
-**3) 기존 consumer에 적용**: `ShopEventConsumer.onShopOpened` → `inboxGuard.runOnce("member.shop-opened", envelope, () -> roleService.grantSeller(...))`
+**3) 기존 consumer에 적용**: `ShopEventConsumer.onShopOpened`의 `EventContext.run(...)`을 `inboxGuard.runOnce("member.shop-opened", typed.envelope(), () -> roleService.grantSeller(typed.payload().memberId()))`로 바꾼다. 의존성에 `InboxGuard`를 더한다.
 
 **4) 가게 폐업**
 
-| 대상 | 규격 |
+**의존 역전이 왜 필요한가**: 폐업 조건("진행 중인 주문이 없어야 함")은 order의 데이터인데 shop이 order를 부르면 의존이 순환한다(order는 이미 `shop::api`를 쓴다). 그래서 shop이 **"조건을 확인하는 인터페이스"만** `shop.api`에 정의하고, order가 그 구현체를 빈으로 등록한다. shop은 구현체를 몰라도 스프링이 주입해 주는 `List<ShopClosePrecondition>`을 돌며 확인만 한다.
+
+| 대상 | 역할 · 규격 |
 |---|---|
-| `shop.api.ShopClosePrecondition` | `public interface ShopClosePrecondition { void check(UUID shopId); }` — 위반 시 `BusinessException` |
-| `shop.api.ShopApi` 추가 | `int countActiveShops(UUID memberId)`, `UUID getOwnerId(UUID shopId)`(없으면 `SHOP_NOT_FOUND`, 3-5 알림에서 사용), `List<UUID> getShopIdsByOwner(UUID memberId)`(CLOSED 포함, 3-6에서 사용) |
-| `shop.api.event` | `ShopTopics.SHOP_CLOSED = "shop.shop-closed.v1"`, `record ShopClosedEvent(UUID shopId, UUID memberId)` |
-| `Shop.close(Instant now)` | `status.transitTo(CLOSED)`, `closedAt = now` |
-| `CloseShopService` (shop.application) | 의존성에 `List<ShopClosePrecondition> preconditions`. `@Transactional void close(UUID memberId, UUID shopId)` |
-| `OrderShopClosePrecondition` (order.application) | `@Component`, `implements ShopClosePrecondition`. `shopOrderRepository.existsByShopIdAndStatusIn(shopId, {PENDING, PAID, SHIPPED, DELIVERED})`면 `BusinessException(SHOP_HAS_ACTIVE_ORDERS)` |
+| `shop.api.ShopClosePrecondition` | 폐업 조건 확인 인터페이스. `void check(UUID shopId)` — 조건을 어기면 `BusinessException`을 던지고, 통과하면 아무 일도 없다. 구현체가 하나도 없으면 목록이 비어 모두 통과한다 |
+| `shop.api.ShopApi` 추가 | 아래 표 |
+| `shop.api.event` | `ShopTopics.SHOP_CLOSED = "shop.shop-closed.v1"`, `record ShopClosedEvent(UUID shopId, UUID memberId)`. `NewTopic`(+`.dlt`)도 `ShopTopicConfig`에 더한다 |
+| `Shop.close(Instant now)` | `this.status = this.status.transitTo(ShopStatus.CLOSED)`(`ShopStatus`가 이미 ACTIVE → CLOSED만 허용), `closedAt = now` |
+| `CloseShopService` (shop.application, `@Service`) | 가게 폐업 유스케이스. 의존성 `ShopRepository`, `List<ShopClosePrecondition> preconditions`, `OutboxPublisher`, `Clock`. `@Transactional void close(UUID memberId, UUID shopId)`. 컨트롤러가 부른다 |
+| `OrderShopClosePrecondition` (order.application) | `@Component`, `implements ShopClosePrecondition`. 그 가게의 가게주문 중 `PENDING`·`PAID`·`SHIPPED`·`DELIVERED`가 하나라도 있으면(`shopOrderRepository.existsByShopIdAndStatusIn(shopId, 그 집합)`) `BusinessException(SHOP_HAS_ACTIVE_ORDERS)`(422). 저장소 메서드는 order 쪽에 새로 더한다 |
 | `OrderErrorCode` | `SHOP_HAS_ACTIVE_ORDERS` 추가 |
 
-`CloseShopService.close` 순서
-1. 가게 조회(없으면 404) → `verifyOwner` → ACTIVE가 아니면 `SHOP_NOT_ACTIVE`
-2. `preconditions.forEach(p -> p.check(shopId))`
-3. `shop.close(now)`
-4. `publish(SHOP_CLOSED, "SHOP", shopId, new ShopClosedEvent(shopId, memberId))`
+`ShopApi` 추가 메서드 (`ShopApiImpl`이 구현. `ShopRepository`에 필요한 조회 메서드를 더한다. 이름은 자유)
 
-consumer
+| 메서드 | 의미 | 쓰는 곳 |
+|---|---|---|
+| `int countActiveShops(UUID memberId)` | 그 회원 소유의 **ACTIVE** 가게 수 | member: 폐업 후 SELLER 회수 판단(3-2), 탈퇴 조건(3-6) |
+| `UUID getOwnerId(UUID shopId)` | 가게 주인의 memberId. 가게가 없으면 `SHOP_NOT_FOUND` | notification: 가게 주인에게 알림(3-5) |
+| `List<UUID> getShopIdsByOwner(UUID memberId)` | 그 회원 소유의 가게 ID 전부(**CLOSED 포함**) | settlement: 탈퇴 전 미정산 확인(3-6) |
+
+`CloseShopService.close` 순서 (한 트랜잭션)
+1. `shopRepository.findById(shopId)` — 없으면 404 `SHOP_NOT_FOUND` → `shop.verifyOwner(memberId)`(남의 가게면 403 `FORBIDDEN`) → `shop.verifyActive()`(이미 CLOSED면 `SHOP_NOT_ACTIVE`)
+2. `preconditions.forEach(p -> p.check(shopId))` — 하나라도 던지면 여기서 끝난다(아직 바꾼 것이 없어 되돌릴 것도 없다)
+3. `shop.close(Instant.now(clock))` — 저장은 커밋 때 더티 체킹으로 된다
+4. `outboxPublisher.publish(SHOP_CLOSED, "SHOP", shopId, new ShopClosedEvent(shopId, memberId))`
+
+consumer — 둘 다 `inboxGuard.runOnce("{모듈}.shop-closed", envelope, ...)` 안에서 처리한다
 
 | 모듈 | 클래스·메서드 | 처리 |
 |---|---|---|
-| member | `ShopEventConsumer.onShopClosed` (consumer `member.shop-closed`) | `roleService.revokeSellerIfNoActiveShop(memberId)`: 이벤트에 "남은 가게 수"를 담지 않고 **처리하는 시점에** `shopApi.countActiveShops(memberId)`를 조회 → 0이면 `demoteToUser()` |
-| product | `ShopEventConsumer.onShopClosed` (consumer `product.shop-closed`, product.infrastructure) | `ProductDiscontinueService.discontinueAllByShop(shopId)`: `findAllByShopIdAndStatusIn(shopId, {ON_SALE, HIDDEN})` → 각각 `changeStatus(DISCONTINUED)` (한 트랜잭션) |
+| member | `ShopEventConsumer.onShopClosed` (consumer `member.shop-closed`) → `MemberRoleService.revokeSellerIfNoActiveShop(UUID memberId)`(`@Transactional`) | ① 회원 조회(없으면 `log.warn` 후 return) ② `shopApi.countActiveShops(memberId)`를 **처리하는 시점에** 조회 ③ 0이면 `member.demoteToUser()`. 이벤트에 "남은 가게 수"를 담지 않는 이유: 같은 회원의 가게 2개가 동시에 폐업되면 각 이벤트가 만들어질 때의 "남은 수"는 서로 모르는 값이라 둘 다 1이 되어 SELLER가 안 회수될 수 있다. 처리 시점에 다시 세면 마지막 이벤트는 항상 0을 본다. 두 consumer가 동시에 같은 회원을 바꾸다 낙관적 락 충돌이 나면 재시도 대상이라 다음 시도에서 해소된다 |
+| product | `ShopEventConsumer.onShopClosed` (consumer `product.shop-closed`, product.infrastructure) → `ProductDiscontinueService.discontinueAllByShop(UUID shopId)`(product.application, `@Transactional`) | ① `productRepository.findAllByShopIdAndStatusIn(shopId, {ON_SALE, HIDDEN})` ② 각 상품에 `product.changeStatus(DISCONTINUED)`. 이미 단종된 상품은 조회에서 빠지므로 이벤트가 두 번 와도 안전하다 |
 
-**5) shop.web**: `DELETE /api/shops/{id}` → 204
+**5) shop.web**: `ShopController`에 `@DeleteMapping("/{id}")` 추가 — `@CurrentMember UUID memberId`, `@PathVariable UUID id` → `closeShopService.close(memberId, id)` → 204 No Content(`ResponseEntity.noContent().build()`)
 
 ### 완료 확인
 
@@ -315,12 +398,27 @@ consumer
 | order | `ORDER_LINE_REFUNDED = "order.order-line-refunded.v1"` | `OrderLineRefundedEvent(UUID refundId, UUID orderLineId, UUID orderId, UUID memberId, long amount)` |
 | order | `ORDER_LINE_CONFIRMED = "order.order-line-confirmed.v1"` | `OrderLineConfirmedEvent(UUID orderLineId, UUID orderId, UUID shopId, UUID productId, UUID memberId, long amount, Instant confirmedAt)` — amount = `confirmedAmount()` |
 
-- `order/api/package-info.java`, `payment/api` 이미 있음 — `order::api`가 처음 공개된다. 토픽마다 `NewTopic` + `.dlt` (각 모듈 infrastructure의 `XxxTopicConfig`)
+- `order/api/package-info.java`, `payment/api` 이미 있음 — `order::api`가 처음 공개된다(원문 그대로. 확인 필요: `order/api`는 현재 코드에 없어 이 단계에서 `@NamedInterface("api")`로 새로 만드는 것으로 읽힌다). 토픽마다 `NewTopic` + `.dlt` (각 모듈 infrastructure의 `XxxTopicConfig`)
+- 이벤트 record의 필드 타입은 공통 규칙 P대로 원시 타입이다. 엔티티의 값을 옮길 때: 금액은 `Money.amount()`(long), enum은 `.name()`(String), 시각은 `Instant`.
 
 **2) 발행 위치** — 모두 **해당 상태 변경과 같은 트랜잭션** 안, 도메인 메서드 호출 직후
 
-- `OrderEventPublisher` (order.application, `@Component`): Order 애그리거트를 받아 이벤트 record를 만들어 `OutboxPublisher`로 보내는 메서드 모음(`paid`, `closed`, `shipped`, `delivered`, `lineRefunded`, `lineConfirmed`). 이벤트 조립 코드가 서비스마다 흩어지지 않게 한다.
-- `Order.autoConfirm`은 확정한 품목 목록을 반환하도록 바꾼다(이벤트를 품목마다 내기 위해).
+발행하는 모양은 모두 같다: 서비스(또는 엔티티를 바꾼 직후의 코드)가 `outboxPublisher.publish(토픽, aggregateType, aggregateId, 이벤트 record)`를 부른다. 서비스의 `@Transactional` 안에서 부르므로 상태 변경이 롤백되면 이벤트도 사라지고(완료 확인의 "롤백되는 경우 → outbox 0건"), 이 단계에서 서비스에 `OutboxPublisher`(order는 `OrderEventPublisher`) 의존성을 더한다. 한 흐름에서 이벤트가 둘이면(상품 수정 + 가격 변경) 같은 키(`productId`)라 **호출한 순서대로** 같은 파티션에서 소비된다.
+
+`OrderEventPublisher` (order.application, `@Component`, 의존성 `OutboxPublisher`) — **Order 애그리거트를 받아 이벤트 record를 조립해 `OutboxPublisher`로 보내는 곳**. 이벤트 조립 코드가 `OrderPaymentApplier`·`OrderExpirationService`·`ShipmentService` 등에 흩어지지 않게 한다. 모든 메서드는 `@Transactional`을 붙이지 않는다(호출자 트랜잭션 안에서 불리고, `OutboxPublisher`가 `MANDATORY`로 검사한다). 인자는 문서에 정해져 있지 않아 아래는 권장안이다.
+
+| 메서드 | 이벤트 · aggregate | 필드를 채우는 방법 |
+|---|---|---|
+| `paid(Order order)` | `ORDER_PAID` · `ORDER`/`order.getId()` | `orderId`·`memberId`는 `order.getId()`·`order.getMemberId()`, `totalAmount`는 `order.getTotalAmount().amount()`. `shopOrders`는 `order.getShopOrders()`의 가게주문마다 `PaidShopOrder(shopOrder.getId(), shopOrder.getShopId(), lines)`, `lines`는 품목마다 `PaidLine(line.getId(), line.getProductId(), line.getProductName(), line.getQuantity())` |
+| `closed(Order order, String reason)` | `ORDER_EXPIRED` · `ORDER`/`order.getId()` | `OrderExpiredEvent(order.getId(), order.getMemberId(), reason)`. `reason`은 문자열 `"EXPIRED"` 또는 `"PAYMENT_FAILED"` |
+| `shipped(...)` / `delivered(...)` | `SHOP_ORDER_SHIPPED` / `SHOP_ORDER_DELIVERED` · `ORDER`/**`orderId`** | 가게주문(`shopOrder.getId()`, `getCarrier()`, `getTrackingNumber()`)과 주문(`orderId`, `memberId`)에서 |
+| `lineRefunded(...)` | `ORDER_LINE_REFUNDED` · `ORDER`/`orderId` | 환불(`refundId`, 금액)과 품목·주문 ID에서 |
+| `lineConfirmed(...)` | `ORDER_LINE_CONFIRMED` · `ORDER`/`orderId` | 품목(`productId`, `confirmedAt`, **`confirmedAmount().amount()`**), 그 품목이 속한 가게주문의 `shopId`, 주문의 `memberId`에서. 품목 엔티티에는 `shopId`가 없어 가게주문을 거쳐야 한다 |
+
+- `closed`의 `reason`은 이벤트의 값이다. `OrderPaymentApplier.fail(order, reason)`의 `reason`(`"PG 거절: ..."`, `failure_reason`에 저장되는 문장)과 다르다 — `fail` 안에서는 `closed(order, "PAYMENT_FAILED")`처럼 상수를 따로 넘긴다.
+- **엔티티를 먼저 읽은 뒤 발행한다**: CAS UPDATE(`expire` 등)는 엔티티를 거치지 않으므로, `memberId`가 필요한 `closed`는 `expireOne`에서 CAS 뒤 `findById`로 읽은 `order`로 부른다(2-5의 3번 다음).
+- **이미 처리된 호출은 발행하지 않는다**: `OrderPaymentApplier.applyPaymentState`의 "이미 처리됨" 가드, `RefundCompleter.complete`의 "`!readyToComplete()`면 현재 상태 반환" 가드에서 일찍 return하는 경로에는 발행 코드가 닿지 않는다. 발행은 **실제로 상태를 바꾼 경로에만** 둔다(`complete`·`fail`·`markPaid` 뒤). 그래야 같은 결과를 두 번 반영해도 이벤트가 한 번만 나간다.
+- `Order.autoConfirm`은 확정한 품목 목록(`List<OrderLine>`)을 반환하도록 바꾼다(2-10에서는 확정한 품목 수를 돌려줬다. 이벤트를 품목마다 내기 위해). `AutoConfirmService`는 트랜잭션 안에서 받은 목록을 순회하며 품목마다 `lineConfirmed`를 부르고, 건수는 `list.size()`로 센다. 수동 확정(`ConfirmPurchaseService.confirm`)은 `order.confirmLine(lineId, now)` 뒤에 그 `lineId`의 품목을 `order`에서 찾아 같은 메서드를 한 번 부른다(`confirmLine`의 반환 타입은 2-10에 정해져 있지 않다 — 확인 필요).
 
 | 흐름 | 클래스·메서드 | 발행 | aggregateType / aggregateId |
 |---|---|---|---|
@@ -335,12 +433,19 @@ consumer
 | 환불 완료 (2-8, 2-9) | `RefundCompleter.complete` | `ORDER_LINE_REFUNDED` | `ORDER` / orderId |
 | 구매확정 (2-10) | `ConfirmPurchaseService.confirm`, `AutoConfirmService`(품목마다) | `ORDER_LINE_CONFIRMED` | `ORDER` / orderId |
 
+표를 코드에 옮길 때 (member·product 쪽은 `OrderEventPublisher` 같은 별도 클래스를 두지 않고 서비스에서 바로 `OutboxPublisher`를 부른다)
+- **가입** `SignupService.signUp`: `memberRepository.save(member)`가 돌려준 `savedMember`로 `MemberRegisteredEvent(savedMember.getId(), savedMember.getEmail(), savedMember.getNickname())`를 발행한다. 중복 이메일 예외는 save 앞이라 이벤트가 나가지 않는다.
+- **상품 이벤트 공통**: `ProductUpsertedEvent`는 `productId`, `shopId`, `name`, `description`, `category`(`product.getCategory().name()`), `price`(`product.getPrice().amount()`), `status`(`product.getStatus().name()`), `subscribable`, `version`을 현재 상품 상태에서 채운다. 상품 변경마다 **전체 스냅샷**을 보낸다(search가 이 값으로 색인을 덮어쓴다). 같은 조립 코드를 등록·수정·상태 변경·단종 네 곳이 쓰므로 한 곳에 모아도 된다(문서는 order에만 `OrderEventPublisher`를 정했고, product는 클래스를 정하지 않았다).
+- **`version`**: 엔티티를 수정한 직후에는 `@Version`이 아직 오르지 않았다(flush 때 오른다). 그래서 이벤트를 만들기 **전에** `productRepository.flush()`(현재 `ProductRepository` 인터페이스에는 없어 더해야 한다)를 부르고 `product.getVersion()`을 읽는다. 등록(`save` 직후)은 초기값이다. 색인 소비자(Part 6)가 이 값이 작은 이벤트를 "오래된 것"으로 무시한다.
+- **수정** `UpdateProductService.update`: `product.update(...)`가 돌려주는 `Optional<PriceChange>`가 비어 있으면 가격이 안 바뀐 것이다. 값이 있으면 `ProductPriceChangedEvent(productId, change.oldPrice().amount(), change.newPrice().amount(), 가격 이력 저장에 쓴 now)`를 `PRODUCT_UPSERTED` 다음에 발행한다. 이미 이력 저장 코드(`insertPriceHistory`)가 같은 `ifPresent` 안에 있으므로 거기에 붙인다.
+- **상태 변경** `UpdateProductService.changeStatus`: `to == DISCONTINUED`일 때만 `ProductDiscontinuedEvent(productId, shopId, "SELLER")`를 `PRODUCT_UPSERTED` 다음에 추가한다.
+- **가게 폐업 단종** `ProductDiscontinueService.discontinueAllByShop`: 상품마다 `changeStatus(DISCONTINUED)` → `flush` → `PRODUCT_UPSERTED` + `PRODUCT_DISCONTINUED`(reason `"SHOP_CLOSED"`). `flush`는 상품마다 이벤트의 `version`을 맞추려고 부른다.
 
 ### 완료 확인
 
 | 테스트 클래스 | 케이스 |
 |---|---|
-| `{module}/.../EventPublishingTest` (모듈별 1개: `member/application`, `product/application`, `order/application`, `payment/application`) | [ ] 위 표의 흐름마다 outbox에 해당 토픽 **정확히 1건**, payload 필드 값 확인(`OutboxAssert`) / [ ] 실패해서 롤백되는 경우(예: 재고 부족 체크아웃, 단종 상품 수정) → outbox 0건 / [ ] 자동 구매확정으로 품목 3개 확정 → `ORDER_LINE_CONFIRMED` 3건 / [ ] 가격 변경 없는 상품 수정 → `PRODUCT_PRICE_CHANGED` 없음 / [ ] `ProductUpsertedEvent.version`이 DB의 `product.version`과 같다 |
+| `{module}/.../EventPublishingTest` (모듈별 1개: `member/application`, `product/application`, `order/application`. payment는 발행하는 이벤트가 없어 제외한다) | [ ] 위 표의 흐름마다 outbox에 해당 토픽 **정확히 1건**, payload 필드 값 확인(`OutboxAssert`) / [ ] 실패해서 롤백되는 경우(예: 재고 부족 체크아웃, 단종 상품 수정) → outbox 0건 / [ ] 자동 구매확정으로 품목 3개 확정 → `ORDER_LINE_CONFIRMED` 3건 / [ ] 가격 변경 없는 상품 수정 → `PRODUCT_PRICE_CHANGED` 없음 / [ ] `ProductUpsertedEvent.version`이 DB의 `product.version`과 같다 |
 | `ModularityTest` | [ ] 통과 |
 
 **리뷰 때 물어볼 것**
@@ -373,6 +478,11 @@ consumer
 - 관리자 수동 실행: `POST /admin/api/settlements/run?period=2026-09` (ADMIN 역할). 관리자 계정은 DB에서 `role`을 `ADMIN`으로 직접 바꿔 만든다.
 
 ### 할 일 (3-4a)
+
+**흐름 한눈에**
+1. **적재**: 구매확정(3-3)이 `order-line-confirmed`를 내면 settlement의 consumer가 품목 한 건을 `settlement_item`에 쌓는다(`settlement_id`는 NULL = 아직 정산 전).
+2. **정산**: 매월 5일 03:00에 `SettlementJob`이 `SettlementService.run(전월)`을 부른다. 미정산 품목이 있는 가게마다 `settleShop`이 `settlement` 행을 만들고, 그 기간의 품목에 정산 ID를 붙이고(`assign`), 붙은 품목의 합계로 수수료·정산액을 계산한다(`CALCULATED`).
+3. **지급**(3-4b): 이어서 `payoutAll()`이 `CALCULATED`·`PAYOUT_FAILED` 정산마다 `PayoutGateway`로 송금하고 `PAID` + `settlement-paid` 이벤트를 낸다.
 
 **1) 마이그레이션** — `db/migration/settlement/V{...}__settlement_create_settlement.sql` (`CREATE SCHEMA IF NOT EXISTS settlement;`)
 
@@ -414,24 +524,49 @@ consumer
 
 | 클래스 | 규격 |
 |---|---|
-| `SettlementStatus` | `CALCULATED → {PAID, PAYOUT_FAILED}`, `PAYOUT_FAILED → {PAID, PAYOUT_FAILED}` |
-| `Settlement` (`@Entity`) | 필드는 컬럼과 1:1. 생성은 native INSERT, 이후 `calculate(Money gross, int bp, int itemCount)`, `markPaid(String payoutReference, Instant now)`(0원 정산은 `null`), `markPayoutFailed(String error)` |
-| `SettlementProperties` | `@ConfigurationProperties("myroutine.settlement") record (@Min(0) @Max(10000) int feeRateBp)` |
-| `common.config.BusinessProperties` | 업무 시간대 설정을 처음 쓰는 곳이라 여기서 만든다: `@ConfigurationProperties("myroutine") record (@NotNull ZoneId businessZone)` — `application.yaml`의 `myroutine.business-zone: Asia/Seoul`, `ClockConfig`에 `@EnableConfigurationProperties` |
-| `SettlementPeriod` | `record (LocalDate start, LocalDate end)`. `static SettlementPeriod of(YearMonth month)`, `Instant fromInclusive(ZoneId zone)`, `Instant toExclusive(ZoneId zone)` — 단위 테스트 대상 |
-| `SettlementItemRepository` | 메서드는 표 아래 목록 |
-| `SettlementRepository` | 메서드는 표 아래 목록 |
+| `SettlementStatus` | 상태 enum. 허용 전이: `CALCULATED → {PAID, PAYOUT_FAILED}`, `PAYOUT_FAILED → {PAID, PAYOUT_FAILED}`(실패한 정산을 다시 시도). `ShopStatus.transitTo`처럼 `transitTo(to)`가 허용 밖이면 `INVALID_STATE_TRANSITION`을 던진다 |
+| `Settlement` (`@Entity`) | 정산 한 건. 필드는 컬럼과 1:1. 메서드는 아래 |
+| `SettlementProperties` | 설정 `myroutine.settlement.fee-rate-bp`(수수료율, 500 = 5%)를 담는 `@ConfigurationProperties("myroutine.settlement") record (@Min(0) @Max(10000) int feeRateBp)` |
+| `common.config.BusinessProperties` | 업무 시간대 설정을 처음 쓰는 곳이라 여기서 만든다: `@ConfigurationProperties("myroutine") record (@NotNull ZoneId businessZone)` — `application.yaml`의 `myroutine.business-zone: Asia/Seoul`, `ClockConfig`에 `@EnableConfigurationProperties`. "정산 월의 경계"처럼 날짜가 필요한 곳에서 `businessProperties.businessZone()`을 쓴다 |
+| `SettlementPeriod` | 정산 기간 값 객체 `record (LocalDate start, LocalDate end)`. 아래 |
+| `SettlementItemRepository` | 정산 대상 품목 저장소. 아래 |
+| `SettlementRepository` | 정산 저장소. 아래 |
 
-`SettlementItemRepository`
-- native `int insertIgnoringConflict(...)` — `ON CONFLICT ON CONSTRAINT uk_settlement_item_order_line DO NOTHING`
-- `List<UUID> findShopIdsToSettle(Instant from, Instant to, UUID afterShopId, int limit)`
-- `int assign(UUID settlementId, UUID shopId, Instant from, Instant to, Instant now)`
-- `SettlementSum sumBySettlementId(UUID settlementId)` — `record SettlementSum(long grossAmount, int itemCount)`
+**`Settlement` 메서드** (`Money`는 `common.model.Money`, `Money.of(long)`·`.amount()`)
 
-`SettlementRepository`
-- native `int insertIfAbsent(UUID id, UUID shopId, LocalDate start, LocalDate end, int bp, Instant now)` — `ON CONFLICT ON CONSTRAINT uk_settlement_shop_period DO NOTHING`
-- `findById`
-- `List<UUID> findIdsToPay(Collection<SettlementStatus> statuses, UUID afterId, Limit limit)`
+| 메서드 | 하는 일 |
+|---|---|
+| (생성) | 엔티티를 `save`하지 않고 `SettlementRepository.insertIfAbsent`(native INSERT)로 만든다 — 같은 가게·기간이 이미 있으면 예외가 아니라 0행으로 알려 주기 위해서다. 그 뒤 `findById`로 읽어 아래 메서드를 쓴다 |
+| `calculate(Money gross, int bp, int itemCount)` | `grossAmount = gross`, `feeRateBp = bp`, `itemCount`를 기록하고 `feeAmount = gross * bp / 10000`(`long` 정수 나눗셈 = 원 미만 내림. 12,345원·500bp면 617), `netAmount = gross - feeAmount` |
+| `markPaid(String payoutReference, Instant now)` | `status.transitTo(PAID)`, `payoutReference`, `paidAt = now`. 0원 정산은 `payoutReference`에 `null` |
+| `markPayoutFailed(String error)` | `status.transitTo(PAYOUT_FAILED)`, `lastError = error`. `payoutAttempts`를 1 올리는 곳도 여기로 읽힌다(확인 필요: 문서가 "`payout_attempts + 1`"을 따로 적었다) |
+
+**`SettlementPeriod`** — "2026년 9월 정산"이 어느 날짜·시각 구간인지를 한곳에서 계산한다. 시간대를 잘못 쓰면 경계(8/31 23:59 대 9/1 00:00)의 품목이 다른 달로 간다.
+- `static SettlementPeriod of(YearMonth month)`: `start = month.atDay(1)`, `end = month.atEndOfMonth()`(말일, **포함**. `period_end` 컬럼도 포함이다)
+- `Instant fromInclusive(ZoneId zone)`: `start.atStartOfDay(zone).toInstant()` — 시작 시각(포함)
+- `Instant toExclusive(ZoneId zone)`: `end.plusDays(1).atStartOfDay(zone).toInstant()` — 다음 달 1일 00:00(미포함). 쿼리는 `confirmed_at >= from AND confirmed_at < to`
+- 2026-09, `Asia/Seoul` → `2026-08-31T15:00:00Z` ~ `2026-09-30T15:00:00Z`(완료 확인 `SettlementPeriodTest`). 순수 계산이라 단위 테스트로 검증한다.
+
+**`SettlementItemRepository`** — 구현은 Part 2와 같은 방식(domain 인터페이스 + infrastructure의 Spring Data 인터페이스에 native `@Query`)을 쓴다. 엔티티·읽기 모델(`SettlementItem`)의 모양과 조회 API용 메서드(아래 6번)는 문서에 정해져 있지 않다(확인 필요).
+
+| 메서드 | 의미 | 입력 → 반환 |
+|---|---|---|
+| native `int insertIgnoringConflict(...)` | 구매확정 품목 한 건을 적재한다. `order_line_id` unique(`uk_settlement_item_order_line`, INV-07)와 충돌하면 `ON CONFLICT ON CONSTRAINT ... DO NOTHING`으로 조용히 건너뛴다 | `id`(`Ids.newId()`), `orderLineId`, `shopId`, `orderId`, `productId`, `amount`, `confirmedAt`, 시각 → 1(적재) / 0(이미 있음) |
+| `List<UUID> findShopIdsToSettle(Instant from, Instant to, UUID afterShopId, int limit)` | 기간 내 **미정산** 품목이 있는 가게 ID를 `afterShopId` 다음부터 오름차순으로 `limit`개 | → 가게 ID 목록(비면 끝) |
+| `int assign(UUID settlementId, UUID shopId, Instant from, Instant to, Instant now)` | 그 가게의 기간 내 미정산 품목에 이번 정산 ID를 붙인다 | → 붙은 품목 수 |
+| `SettlementSum sumBySettlementId(UUID settlementId)` | 이 정산 ID가 붙은 품목의 합계와 건수 | → `record SettlementSum(long grossAmount, int itemCount)` |
+
+- `sumBySettlementId`의 SQL은 `SELECT COALESCE(SUM(amount), 0), COUNT(*)`다. PostgreSQL에서 `SUM(bigint)`은 `numeric`, `COUNT(*)`는 `bigint`이므로 record(`long`, `int`)에 바로 매핑되지 않는다. SQL에서 `::bigint`·`::int`로 캐스팅하거나 읽을 때 `longValue()`·`intValue()`로 바꾼다. native 쿼리를 record로 받는 방법(인터페이스 프로젝션 등)은 문서에 정해져 있지 않다(확인 필요).
+
+**`SettlementRepository`**
+
+| 메서드 | 의미 | 입력 → 반환 |
+|---|---|---|
+| native `int insertIfAbsent(UUID id, UUID shopId, LocalDate start, LocalDate end, int bp, Instant now)` | 그 가게·기간의 정산 행을 만든다. `uk_settlement_shop_period`와 충돌하면 `ON CONFLICT ON CONSTRAINT ... DO NOTHING` | → 1(내가 만듦) / 0(이미 있음 = 이 기간은 이미 정산됨) |
+| `Optional<Settlement> findById(UUID id)` | 정산 읽기 | |
+| `List<UUID> findIdsToPay(Collection<SettlementStatus> statuses, UUID afterId, Limit limit)` | 지급할 정산 ID를 `afterId` 다음부터 `limit`개 (`org.springframework.data.domain.Limit`) | → ID 목록 |
+
+- native INSERT는 JPA를 거치지 않아 `@Version`·`@CreatedDate`가 동작하지 않는다. `NOT NULL`인 `version`(0)·`created_at`·`updated_at`·`status`를 INSERT에서 직접 채운다(`insertIfAbsent`의 `status`와 금액 초깃값은 문서에 정해져 있지 않다. 금액은 DEFAULT 0, `status`는 `CALCULATED`로 읽힌다 — 확인 필요).
 
 ```sql
 -- findShopIdsToSettle: 미정산 품목이 있는 가게 ID를 keyset으로
@@ -444,21 +579,23 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 ```
 - 첫 페이지의 `afterShopId`는 `'00000000-0000-0000-0000-000000000000'`
 
-**3) 적재 consumer** — `OrderEventConsumer` (settlement.infrastructure): `@KafkaListener(topics = OrderTopics.ORDER_LINE_CONFIRMED, groupId = "settlement")` → `inboxGuard.runOnce("settlement.order-line-confirmed", ...)` → `SettlementItemService.register(OrderLineConfirmedEvent event)`(settlement.application, `@Transactional`) → `insertIgnoringConflict`
+**3) 적재 consumer** — `OrderEventConsumer` (settlement.infrastructure, 의존성 `EventEnvelopes`, `InboxGuard`, `SettlementItemService`): `@KafkaListener(topics = OrderTopics.ORDER_LINE_CONFIRMED, groupId = "settlement")` 메서드가 `parse(message, OrderLineConfirmedEvent.class)` → `inboxGuard.runOnce("settlement.order-line-confirmed", typed.envelope(), () -> itemService.register(typed.payload()))`.
+- `SettlementItemService.register(OrderLineConfirmedEvent event)` (settlement.application, `@Transactional`): 이벤트 필드를 그대로 `insertIgnoringConflict`에 넘긴다 — `orderLineId`, `shopId`, `orderId`, `productId`, `amount`(`long`), `confirmedAt`(이미 `Instant`), 새 `id = Ids.newId()`. 반환값(0/1)은 쓰지 않는다.
+- 중복 방어가 둘이다: `InboxGuard`(같은 이벤트 두 번 → 한 번)와 `uk_settlement_item_order_line`(다른 eventId로 같은 품목이 와도 한 번 — 최종 방어, INV-07). 완료 확인 `SettlementItemConsumerTest`가 앞쪽을 확인한다.
 
-**4) 정산 실행** — `SettlementService` (`@Transactional` 없음)
-- `public SettlementRunResult run(YearMonth month)` → `SettlementRunResult(int settledShops, int paid, int payoutFailed)`
-1. `period = SettlementPeriod.of(month)`, `from`/`to` 계산
-2. keyset 루프: `shopIds = findShopIdsToSettle(from, to, after, 500)` → 비면 종료 → 각 가게 `try { tx.execute(s -> settleShop(shopId, period)) } catch (Exception e) { log }` → `after = 마지막 shopId`
+**4) 정산 실행** — `SettlementService` (settlement.application, `@Service`, `@Transactional` 없음. 가게 단위 트랜잭션과 지급의 외부 호출을 직접 나누려고 `TransactionTemplate`을 쓴다 — 공통 규칙 K). 의존성 `SettlementRepository`, `SettlementItemRepository`, `SettlementProperties`, `BusinessProperties`, `Clock`, `TransactionTemplate tx`, `PayoutGateway`·`OutboxPublisher`(3-4b)
+- `public SettlementRunResult run(YearMonth month)` → `SettlementRunResult(int settledShops, int paid, int payoutFailed)`. `month`는 **정산 대상 월**이다(9월 구매확정분이면 `2026-09`). `SettlementJob`과 관리자 API가 부른다. `settledShops`는 이번 실행에서 정산을 새로 만든 가게 수이고, `paid`·`payoutFailed`는 `payoutAll`이 센 건수로 읽힌다(확인 필요: `payoutAll()`의 반환 타입은 문서에 없다)
+1. `period = SettlementPeriod.of(month)`, `from = period.fromInclusive(zone)`, `to = period.toExclusive(zone)` (`zone = businessProperties.businessZone()`)
+2. keyset 루프: `after`는 `00000000-0000-0000-0000-000000000000`에서 시작 → `shopIds = findShopIdsToSettle(from, to, after, 500)` → 비면 종료 → 각 가게 `try { tx.execute(s -> settleShop(shopId, period)) } catch (Exception e) { log }` → `after = 마지막 shopId`. 한 가게가 실패해도 `after`는 계속 전진시켜야 한다(안 그러면 같은 가게를 영원히 반복한다). 실패한 가게는 커밋된 것이 없어서 다음 실행(수동 실행 포함)이 다시 처리한다.
 3. `payoutAll()` (3-4b)
 
-`settleShop(shopId, period)` (한 트랜잭션)
-1. `id = Ids.newId()`, `insertIfAbsent(id, shopId, ...)` → 0이면 return(이미 이 기간 정산이 있음)
-2. `assign(id, shopId, from, to, now)`
-3. `sum = sumBySettlementId(id)` (`SELECT COALESCE(SUM(amount), 0), COUNT(*)`)
-4. `settlement = findById(id)` → `settlement.calculate(sum.grossAmount(), bp, sum.itemCount())` → fee·net 계산, CALCULATED
+`settleShop(shopId, period)` — 가게 하나의 정산을 만든다. **한 트랜잭션**(`tx.execute` 안에서 호출. 같은 클래스 안에서 부르므로 `@Transactional`이 아니라 `TransactionTemplate`이 경계다)
+1. `id = Ids.newId()`, `insertIfAbsent(id, shopId, period.start(), period.end(), properties.feeRateBp(), now)` → 0이면 return(이미 이 기간 정산이 있음. 그 경우 `assign`을 하지 않으므로 이미 끝난 정산에 품목이 더 붙지 않는다)
+2. `assign(id, shopId, from, to, now)` — 기간 내 미정산 품목에 `id`를 붙인다. 이 UPDATE가 끝나면 이 품목들은 다른 정산에 못 들어간다.
+3. `sum = sumBySettlementId(id)` — 이번 정산 ID가 **붙은** 품목으로 합계를 낸다(조건으로 다시 찾지 않으므로 2와 3 사이에 새 품목이 들어와도 숫자가 어긋나지 않는다)
+4. `settlement = findById(id)` → `settlement.calculate(Money.of(sum.grossAmount()), properties.feeRateBp(), sum.itemCount())` → fee·net 계산, CALCULATED. 저장은 커밋 때 더티 체킹이다. `calculate`의 첫 인자가 `Money`이고 `grossAmount`는 `long`이라 `Money.of(...)`로 감싼다(확인 필요: 규격이 `long`이었다면 감쌀 필요가 없다)
 
-- `SettlementJob` (settlement.infrastructure): `@Scheduled(cron = "0 0 3 5 * *", zone = "Asia/Seoul")` → `jobRunner.run("settlement", () -> service.run(전월).settledShops())`
+- `SettlementJob` (settlement.infrastructure): `@Scheduled(cron = "0 0 3 5 * *", zone = "Asia/Seoul")` → `jobRunner.run("settlement", () -> service.run(전월).settledShops())`. `전월`은 `YearMonth.now(clock.withZone(businessZone)).minusMonths(1)`처럼 업무 시간대 기준의 현재 월에서 한 달을 뺀 값이다(`JobRunner.run`은 `Supplier<Integer>`를 받아 `settledShops()`를 처리 건수로 로그에 남긴다).
 - `settlement/package-info.java`: 공통 규칙 S의 의존
 
 ### 할 일 (3-4b)
@@ -467,18 +604,19 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 
 | 클래스 | 규격 |
 |---|---|
-| `PayoutGateway` (settlement.application 인터페이스) | `String payout(UUID settlementId, UUID shopId, long amount)` → 이체 참조 ID. 실패 시 예외. **같은 settlementId로 다시 부르면 같은 참조 ID를 돌려준다**(멱등) |
-| `MockPayoutGateway` (settlement.infrastructure) | `@Component @Profile("!prod")`. `ConcurrentHashMap<UUID, String>`에 settlementId → `"PAYOUT-" + Ids.newId()`를 기록하고 로그를 남긴다. 실제 은행 연동은 범위 밖(POL-12) |
-| `support/FakePayoutGateway` (테스트) | `@Component @Primary`. 호출 기록, `failNext(int)`, 멱등 동작은 Mock과 같게 |
+| `PayoutGateway` (settlement.application 인터페이스) | **판매자에게 정산금을 송금하는 외부 시스템(은행)의 자리**. 실제 은행 대신 Mock을 꽂을 수 있게 인터페이스로 둔다. `String payout(UUID settlementId, UUID shopId, long amount)` → 이체 참조 ID. 실패 시 예외. **같은 settlementId로 다시 부르면 같은 참조 ID를 돌려준다**(멱등. 두 번 호출돼도 돈이 한 번만 나가게) |
+| `MockPayoutGateway` (settlement.infrastructure) | `@Component @Profile("!prod")`. 은행 대신 메모리에서 흉내 낸다: `ConcurrentHashMap<UUID, String>`에 `computeIfAbsent(settlementId, id -> "PAYOUT-" + Ids.newId())`로 참조 ID를 만들고(같은 키면 기존 값을 돌려줘 멱등) 로그를 남긴다. 실제 은행 연동은 범위 밖(POL-12) |
+| `support/FakePayoutGateway` (테스트) | `@Component @Primary`(테스트에서 Mock 대신 주입되게). 호출 기록(`List`), `failNext(int times)`(다음 n번 호출이 예외), 멱등 동작은 Mock과 같게. `reset()`을 `@AfterEach`에서 부르는 것은 `FakeMailSender`와 같다 |
 
-이벤트: `settlement.api.event.SettlementTopics.SETTLEMENT_PAID = "settlement.settlement-paid.v1"`, `SettlementPaidEvent(UUID settlementId, UUID shopId, long netAmount, LocalDate periodStart, LocalDate periodEnd)` (3-5 알림용)
+이벤트: `settlement.api.event.SettlementTopics.SETTLEMENT_PAID = "settlement.settlement-paid.v1"`, `SettlementPaidEvent(UUID settlementId, UUID shopId, long netAmount, LocalDate periodStart, LocalDate periodEnd)` (3-5 알림용). 지급 완료(PAID)로 바꾸는 같은 트랜잭션에서 `outboxPublisher.publish(SETTLEMENT_PAID, aggregateType, settlementId, event)`로 발행한다(`aggregateType`은 문서에 없다. 다른 이벤트 관례대로 `"SETTLEMENT"`이면 된다 — 확인 필요). `NewTopic`(+`.dlt`)은 settlement.infrastructure에 둔다.
 
-`SettlementService.payoutAll()` — `findIdsToPay({CALCULATED, PAYOUT_FAILED}, after, Limit.of(500))` keyset 루프, 정산마다 try/catch:
-1. 정산 조회(짧은 읽기). `net == 0`이면 트랜잭션에서 `markPaid(null, now)` + `publish(SETTLEMENT_PAID)` 후 다음으로
-2. **트랜잭션 밖**: `reference = payoutGateway.payout(settlementId, shopId, net)`
-3. 성공 → 트랜잭션: `settlement.markPaid(reference, now)` + `publish(SETTLEMENT_PAID)`
-4. 실패 → 트랜잭션: `markPayoutFailed(e.getMessage())`, `payout_attempts + 1`
+`SettlementService.payoutAll()` — **지급 대기 정산을 모두 송금**한다. `run`의 3번에서 불린다. `findIdsToPay({CALCULATED, PAYOUT_FAILED}, after, Limit.of(500))` keyset 루프(`after`는 첫 페이지에 영(0) UUID, 이후 마지막 ID), 정산마다 try/catch(한 건의 실패가 나머지를 막지 않는다. `after`는 실패해도 전진)
+1. 정산 조회(짧은 읽기): `settlementRepository.findById(id)`. `net == 0`이면 송금 없이 트랜잭션에서 `markPaid(null, now)` + `publish(SETTLEMENT_PAID)` 후 다음으로
+2. **트랜잭션 밖**: `reference = payoutGateway.payout(settlementId, shopId, net)` — `net`은 `long`(`netAmount`의 `amount()`). 외부 호출을 트랜잭션 안에서 하지 않는 이유는 공통 규칙 K와 같다(송금이 느리면 DB 커넥션을 붙잡는다).
+3. 성공 → 트랜잭션(`tx.executeWithoutResult`): **정산을 다시 `findById`로 읽어** `settlement.markPaid(reference, now)` + `publish(SETTLEMENT_PAID)`. 1번에서 읽은 엔티티는 트랜잭션 밖에서 읽은 것이라 여기서 수정해도 저장되지 않는다.
+4. 실패(`payout`이 던진 예외) → 트랜잭션: 다시 읽어 `markPayoutFailed(e.getMessage())`(메시지는 `last_error` `varchar(500)`에 맞게 자른다), `payout_attempts + 1`
 - 2와 3 사이에 죽으면 정산은 CALCULATED로 남는다 → 다음 실행에서 같은 settlementId로 다시 부르고, 게이트웨이가 같은 참조 ID를 돌려주므로 두 번 지급되지 않는다.
+- 설정 확인 필요: `MockPayoutGateway`·`LogMailSender`(3-5)가 `@Profile("!prod")`라서 `prod` 프로필에서는 `PayoutGateway`·`MailSender` 빈이 없다. 문서는 실제 구현을 범위 밖으로 두었으므로 `prod`로 앱을 띄우면 이 빈들 때문에 시작이 실패할 수 있다.
 
 **6) 조회 API** — `SettlementController`
 
@@ -488,8 +626,9 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 | `GET /api/shops/{shopId}/settlements/{id}?cursor=&size=` | 가게 주인 | 200 `SettlementDetailResponse(settlement, items: CursorPage<SettlementItemResponse(orderLineId, orderId, productId, amount, confirmedAt)>)` |
 | `POST /admin/api/settlements/run?period=yyyy-MM` | ADMIN | 200 `SettlementRunResult` |
 
-- `SecurityConfig`: `.requestMatchers("/admin/**").hasRole("ADMIN")`
-- `SettlementErrorCode`: `SETTLEMENT_NOT_FOUND`
+- 조회 두 개의 앞단: `@CurrentMember UUID memberId`로 로그인 회원 ID를 받고 `shopApi.verifyOwner(shopId, memberId)` — 남의 가게면 403 `FORBIDDEN`. 상세는 이어서 `settlementRepository.findById(id)`(없으면 404 `SETTLEMENT_NOT_FOUND`)로 읽는다. 그 정산이 요청한 `shopId`의 것이 아닐 때의 응답은 문서에 없다(확인 필요: 남의 가게 정산이 id로 보이면 안 되므로 같은 404가 자연스럽다). `cursor`·`size`는 Part 1의 `CursorPage`/`Cursor` 방식을 따른다. 정산 목록·품목 목록용 keyset 조회 메서드는 이 문서에 정의가 없다(확인 필요).
+- `SecurityConfig`: `.requestMatchers("/admin/**").hasRole("ADMIN")` — 토큰의 역할이 `ROLE_ADMIN` 권한으로 바뀌는 코드는 이미 있다(`JwtAuthenticationFilter`). DB에서 role을 바꾼 뒤에는 **다시 로그인**해야 토큰에 `ADMIN`이 담긴다.
+- `SettlementErrorCode`: `SETTLEMENT_NOT_FOUND`(404, 공통 규칙 R). 정산 모듈의 `ErrorCode` enum이며 `MemberErrorCode`와 같은 모양이다(`code()`, `status()`, `message()`).
 
 ### 완료 확인
 
@@ -523,6 +662,12 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 - 발송 재시도: 실패하면 **5분 뒤** 다시, **5번 실패하면 FAILED**. FAILED 재처리 API는 Part 7.
 - 같은 이벤트·같은 수신자·같은 종류의 알림은 1건(`dedup_key`).
 
+**흐름 한눈에**
+1. 다른 모듈의 이벤트(`order-paid` 등)가 Kafka로 오면 `NotificationEventConsumer`가 받아 `InboxGuard` 안에서 처리한다.
+2. `NotificationComposer`가 이벤트를 `NotificationDraft`(수신자 memberId + 제목 + 본문) 목록으로 바꾼다. 가게 주인이 수신자인 알림은 consumer가 `shopApi.getOwnerId`로 memberId를 구해 넘긴다.
+3. `NotificationService.enqueue`가 draft마다 수신자 이메일을 조회해 `notification` 행(`PENDING`)으로 **저장만** 한다.
+4. 10초마다 `NotificationDispatchJob` → `NotificationDispatcher.dispatchBatch()`가 `PENDING` 행을 `MailSender`로 보내고 `SENT`(실패하면 5분 뒤 재시도, 5번 실패하면 `FAILED`)로 바꾼다.
+
 ### 할 일
 
 **1) 마이그레이션** — `db/migration/notification/V{...}__notification_create_notification.sql` (`CREATE SCHEMA IF NOT EXISTS notification;`)
@@ -547,23 +692,39 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 
 - 인덱스 `idx_notification_pending ON notification.notification (next_attempt_at) WHERE status = 'PENDING'`
 
-**2) 수신자 조회용 API 추가**
-- `MemberApi.MemberContact getContact(UUID memberId)` → `record MemberContact(UUID memberId, String email, String nickname, boolean active)` (탈퇴 회원은 `active = false`)
-- `ShopApi.getOwnerId(shopId)` (3-2에서 추가됨)
+**2) 수신자 조회용 API 추가** — 알림 행에는 수신 주소(이메일)를 저장하므로, 이벤트에 없는 "수신자의 이메일"을 동기 호출로 알아낸다.
+- `MemberApi.MemberContact getContact(UUID memberId)` → `record MemberContact(UUID memberId, String email, String nickname, boolean active)` (탈퇴 회원은 `active = false`). `MemberApiImpl`(member.application, 이미 있음)에 `@Transactional(readOnly = true)`로 더한다. 회원이 없으면 `MEMBER_NOT_FOUND`로 읽히지만 문서에 명시는 없다(확인 필요). `BANNED` 회원의 `active`도 문서에 정해져 있지 않다(확인 필요).
+- `ShopApi.getOwnerId(shopId)` (3-2에서 추가됨): 가게 주인의 memberId. 가게가 없으면 `SHOP_NOT_FOUND`(BusinessException)이고, consumer 안이라 재시도 없이 DLT로 간다.
 
 **3) notification 모듈**
 
-| 클래스 | 규격 |
+| 클래스 | 역할 · 규격 |
 |---|---|
-| `NotificationType` | `WELCOME, ORDER_PAID, SHOP_ORDER_RECEIVED, ORDER_CLOSED, SHIPPED, DELIVERED, REFUNDED, SETTLEMENT_PAID` (Part 5에서 구독 관련 추가) |
-| `NotificationDraft` | `record (UUID memberId, NotificationType type, String title, String body)` |
-| `NotificationComposer` (`@Component`) | 이벤트 → `List<NotificationDraft>`. **순수 변환**(수신자 연락처 조회는 하지 않음) — 단위 테스트 대상 |
-| `NotificationService` | `@Transactional void enqueue(UUID eventId, List<NotificationDraft> drafts)`: 각 draft의 회원 연락처 조회(`active == false`면 건너뜀) → `INSERT ... ON CONFLICT ON CONSTRAINT uk_notification_dedup_key DO NOTHING` (PENDING, `next_attempt_at = now`) |
-| `NotificationEventConsumer` (infrastructure) | 토픽마다 `@KafkaListener(groupId = "notification")` 메서드 → `inboxGuard.runOnce("notification.{event}", ...)` → composer → service |
-| `common.mail.MailSender` (인터페이스) | `void send(String to, String title, String body)` — 실패 시 예외 |
-| `common.mail.LogMailSender` | `@Component @Profile("!prod")`, `log.info`로 출력(본문은 앞 100자만) |
-| `NotificationDispatcher` (application, `@Transactional` 없음) | `public int dispatchBatch()` |
+| `NotificationType` | 알림 종류 enum(`type` 컬럼 값): `WELCOME, ORDER_PAID, SHOP_ORDER_RECEIVED, ORDER_CLOSED, SHIPPED, DELIVERED, REFUNDED, SETTLEMENT_PAID` (Part 5에서 구독 관련 추가) |
+| `NotificationDraft` | "보낼 알림 초안" `record (UUID memberId, NotificationType type, String title, String body)`. 수신 주소는 아직 없다(저장할 때 조회) |
+| `NotificationComposer` (`@Component`) | 이벤트 record → `List<NotificationDraft>`로 바꾸는 **순수 변환**(DB·다른 모듈 조회를 하지 않는다). 이벤트마다 오버로드 하나씩(예: `compose(MemberRegisteredEvent e)`, `compose(OrderPaidEvent e, Map<UUID, UUID> ownerByShopId)` — 인자는 권장안). 매핑은 아래 표. 단위 테스트 대상(`NotificationComposerTest`) |
+| `NotificationService` (`@Service`) | **초안을 `notification` 행으로 저장**한다. `@Transactional void enqueue(UUID eventId, List<NotificationDraft> drafts)` — 아래 |
+| `NotificationEventConsumer` (infrastructure) | 토픽마다 `@KafkaListener(topics = ..., groupId = "notification")` 메서드 → 파싱 → `inboxGuard.runOnce("notification.{event}", ...)` → composer → service. 아래 |
+| `common.mail.MailSender` (인터페이스) | **메일을 보내는 자리**(포트). `void send(String to, String title, String body)` — 보내지 못하면 예외. 구현을 갈아 끼울 수 있다(로컬 로그, 테스트 가짜, 선택으로 SMTP) |
+| `common.mail.LogMailSender` | `@Component @Profile("!prod")`, 실제 발송 대신 `log.info`로 출력(본문은 앞 100자만) |
+| `NotificationDispatcher` (application, `@Transactional` 없음) | **PENDING 알림을 실제로 보내는 곳**. `public int dispatchBatch()` → 이번에 SENT로 바꾼 건수. 아래 |
 | `NotificationDispatchJob` | `@Scheduled(fixedDelay = 10_000)` → `jobRunner.run("dispatch-notifications", dispatcher::dispatchBatch)` |
+
+- 알림 엔티티·저장소 클래스(`Notification`, `NotificationRepository`)는 이 문서에 정해져 있지 않다(확인 필요). 위 `enqueue`의 INSERT와 `dispatchBatch`의 SELECT/UPDATE가 쓸 구현 방식(native 쿼리, 엔티티)은 3-4의 정산 저장소와 같은 방식으로 정하면 된다.
+
+**`NotificationService.enqueue(eventId, drafts)`** — consumer가 `InboxGuard` 트랜잭션 안에서 부르므로 그 트랜잭션에 합류한다.
+1. draft마다 `MemberContact contact = memberApi.getContact(draft.memberId())`
+2. `!contact.active()`(탈퇴 회원)면 그 draft는 건너뛴다
+3. `INSERT INTO notification.notification (...) ... ON CONFLICT ON CONSTRAINT uk_notification_dedup_key DO NOTHING`: `id = Ids.newId()`, `recipient = contact.email()`, `dedup_key = eventId + ":" + memberId + ":" + type`, `status = 'PENDING'`, `next_attempt_at = now`, `version = 0`, `created_at`·`updated_at = now`(native INSERT라 JPA 감사가 동작하지 않는다)
+- `dedup_key`가 `eventId:memberId:type`이라 한 주문에 한 판매자의 가게가 둘이면 `SHOP_ORDER_RECEIVED`가 같은 키가 되어 **판매자에게는 1건**만 간다. 같은 이벤트를 두 번 받아도 같은 키라 1건(완료 확인의 "같은 이벤트 두 번 → 알림 그대로").
+
+**`NotificationEventConsumer`** — 토픽 7개마다 메서드 하나(`member-registered`, `order-paid`, `order-expired`, `shop-order-shipped`, `shop-order-delivered`, `order-line-refunded`, `settlement-paid`). 한 클래스에 `@KafkaListener` 메서드가 여럿이어도 `groupId = "notification"`이 같으면 한 그룹이다. 메서드 하나의 모양(`order-paid` 예)
+1. `typed = envelopes.parse(message, OrderPaidEvent.class)`
+2. `inboxGuard.runOnce("notification.order-paid", typed.envelope(), () -> { ... })` 안에서
+   1. 가게 주인 수신자가 필요하면(`order-paid`의 가게주문마다, `settlement-paid`) `shopApi.getOwnerId(shopId)`로 memberId를 구한다
+   2. `drafts = composer.compose(...)`
+   3. `notificationService.enqueue(typed.envelope().eventId(), drafts)`
+- 의존성(`EventEnvelopes`, `InboxGuard`, `ShopApi`, `NotificationComposer`, `NotificationService`)은 공통 규칙 S의 허용 의존(`member::api`, `shop::api`, `order::api`, `payment::api`, `settlement::api`)과 같다.
 
 이벤트 → 알림 매핑 (`NotificationComposer`)
 
@@ -580,12 +741,16 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 
 - 가게 주인 조회가 필요한 매핑(SHOP_ORDER_RECEIVED, SETTLEMENT_PAID)은 composer가 아니라 consumer에서 `shopApi.getOwnerId`로 memberId를 구해 composer에 넘긴다(composer는 순수 함수로 유지).
 
-`dispatchBatch` 순서
-1. `SELECT ... WHERE status = 'PENDING' AND next_attempt_at <= now ORDER BY next_attempt_at LIMIT 100` (잡 락으로 한 인스턴스만 실행)
-2. 각 알림: **트랜잭션 밖에서** `mailSender.send(...)` → 성공: 짧은 트랜잭션으로 SENT, `sent_at` / 실패: `attempts + 1`, 5 이상이면 FAILED, 아니면 `next_attempt_at = now + 5분`, `last_error`
+`dispatchBatch` 순서 — 클래스에 `@Transactional`을 붙이지 않고 `TransactionTemplate`으로 구간을 나눈다(외부 호출인 메일 발송을 트랜잭션 밖에서 하려고, 공통 규칙 K)
+1. `SELECT ... WHERE status = 'PENDING' AND next_attempt_at <= now ORDER BY next_attempt_at LIMIT 100` — 보낼 알림 최대 100건 읽기(잡 락으로 한 인스턴스만 실행)
+2. 각 알림마다(한 건의 실패가 나머지를 막지 않게 건별 try/catch): **트랜잭션 밖에서** `mailSender.send(notification.recipient(), title, body)`
+   - 성공: 짧은 트랜잭션으로 `status = 'SENT'`, `sent_at = now`
+   - 실패(`send`가 예외): 짧은 트랜잭션으로 `attempts + 1`, 5 이상이면 `FAILED`, 아니면 `next_attempt_at = now + 5분`(`PENDING` 유지), `last_error`(`varchar(500)`에 맞게 자른다)
 3. 발송 성공 건수 반환
+- 알림이 읽은 시점의 엔티티를 트랜잭션 밖에서 바꾸면 저장되지 않으므로, 결과 기록은 `UPDATE ... WHERE id = ?`로 하거나 트랜잭션 안에서 다시 읽어 바꾼다.
+- 재시도 횟수: `failNext(5)`면 다섯 번의 `dispatchBatch` 모두 실패해 `attempts = 5`에서 `FAILED`가 된다(완료 확인). 그 사이 실행은 `next_attempt_at`이 5분 뒤라 건너뛰므로, 테스트는 JDBC로 `next_attempt_at`을 당긴다.
 
-**4) 테스트용 발송기** — `src/test/java/com/myroutine/support/FakeMailSender`: `@Component @Primary`, `implements MailSender`, 보낸 목록 기록(`List<SentMail> sent()`), `failNext(int times)`로 실패 흉내, `reset()`(`IntegrationTestSupport`의 `@AfterEach`에서 호출)
+**4) 테스트용 발송기** — `src/test/java/com/myroutine/support/FakeMailSender`: `@Component @Primary`(테스트에서 `LogMailSender` 대신 이 빈이 주입되게), `implements MailSender`. 보낸 목록 기록(`List<SentMail> sent()`, `SentMail`은 `send` 인자와 같은 `record (String to, String title, String body)`), `failNext(int times)`로 앞으로 `times`번의 `send`가 예외를 던지게 하고, `reset()`으로 목록과 남은 실패 횟수를 비운다(`IntegrationTestSupport`의 `@AfterEach`에서 호출). 여러 스레드(스케줄러·consumer)가 건드릴 수 있어 목록은 동시성 안전한 컬렉션(`CopyOnWriteArrayList` 등)으로 둔다
 
 ### 완료 확인
 
@@ -624,29 +789,31 @@ public interface WithdrawalPrecondition {
     List<String> violations(UUID memberId);   // 위반이 없으면 빈 목록
 }
 ```
+- **탈퇴를 막는 조건을 각 모듈이 대신 확인해 주는 인터페이스**다(3-2의 `ShopClosePrecondition`과 같은 의존 역전: member가 order·settlement의 데이터를 직접 볼 수 없다). `WithdrawService`가 `List<WithdrawalPrecondition>`을 주입받아 모두 부른다. 반환이 `List<String>`인 이유: `ShopClosePrecondition.check`는 첫 위반에서 예외를 던지지만, 탈퇴는 **모든 이유를 한 번에** 응답(`details.reasons`)에 담아야 해서 예외 대신 이유 코드를 돌려준다.
 - 이벤트: `MemberTopics.MEMBER_WITHDRAWN = "member.member-withdrawn.v1"`, `MemberWithdrawnEvent(UUID memberId)`
 
 **2) 구현체**
 
 | 모듈 | 클래스 | 규격 |
 |---|---|---|
-| order | `OrderWithdrawalPrecondition` | 조건이 하나라도 있으면 `List.of("ACTIVE_ORDER")` |
-| settlement | `SettlementWithdrawalPrecondition` | `shopApi.getShopIdsByOwner(memberId)`의 가게들에 `settlement_id IS NULL`인 품목이나 PAID가 아닌 정산이 있으면 `List.of("PENDING_SETTLEMENT")` |
+| order | `OrderWithdrawalPrecondition` (order.application, `@Component`) | 정책 표의 `ACTIVE_ORDER` 조건(결제 대기·진행 중 주문, 구매자로서 종결되지 않은 가게주문 `PAID`·`SHIPPED`·`DELIVERED`, 진행 중 환불) 중 하나라도 있으면 `List.of("ACTIVE_ORDER")`, 없으면 `List.of()`. 저장소 조회 메서드는 order 쪽에 더한다. 진행 중 환불의 상태 집합은 문서에 명시가 없어, 2-7의 `ship` 검사와 같은 집합(`REQUESTED`, `APPROVED`, `PG_CANCELLED`)을 쓰는 것으로 읽힌다(확인 필요) |
+| settlement | `SettlementWithdrawalPrecondition` (settlement.application, `@Component`) | ① `shopApi.getShopIdsByOwner(memberId)`(CLOSED 포함) → 가게가 하나도 없으면 `List.of()` ② 그 가게들에 `settlement_id IS NULL`인 품목이나 `PAID`가 아닌 정산이 있으면 `List.of("PENDING_SETTLEMENT")` |
 
+- 두 구현체는 각자 **자기 모듈의 코드 안에서** member의 인터페이스를 구현한다. member는 구현체를 모르고 스프링이 주입해 준 목록만 돈다.
 - `settlement/package-info.java`에 `"member::api"` 추가 (공통 규칙 S)
 
 **3) member**
 - 마이그레이션 `V{...}__member_add_withdrawn_at.sql`: `member.member`에 `withdrawn_at timestamptz NULL`
-- `Member.withdraw(Instant now)`: `status.transitTo(WITHDRAWN)`, 마스킹, `withdrawnAt = now`
-- `MemberErrorCode`: `MEMBER_HAS_ACTIVE_RESOURCES`
-- `WithdrawService` (`@Transactional void withdraw(UUID memberId)`)
-  1. 회원을 `FOR UPDATE`로 조회(`@Lock(PESSIMISTIC_WRITE)` 메서드 추가)
-  2. `reasons = new ArrayList<>()` → `shopApi.countActiveShops(memberId) > 0`이면 `ACTIVE_SHOP` → `preconditions.forEach(p -> reasons.addAll(p.violations(memberId)))`
-  3. 비어 있지 않으면 `BusinessException(MEMBER_HAS_ACTIVE_RESOURCES, Map.of("reasons", reasons))`
-  4. 배송지 전부 삭제 → `member.withdraw(now)` → `publish(MEMBER_WITHDRAWN, "MEMBER", memberId, ...)`
-- `DELETE /api/members/me` → 204
+- `Member.withdraw(Instant now)`: `this.status = this.status.transitTo(MemberStatus.WITHDRAWN)`(`MemberStatus`가 ACTIVE → WITHDRAWN만 허용하므로 BANNED·이미 WITHDRAWN이면 `INVALID_STATE_TRANSITION`), 위 마스킹 값을 필드에 대입(`email`은 `"withdrawn+" + id + "@deleted.invalid"`, `nickname`은 `"탈퇴-" + id.toString().substring(0, 8)`, `name = "탈퇴회원"`, `phone`·`passwordHash = null`), `withdrawnAt = now`. 원래 이메일이 사라지므로 같은 이메일로 다시 가입해도 중복 검사에 걸리지 않는다(완료 확인).
+- `MemberErrorCode`: `MEMBER_HAS_ACTIVE_RESOURCES`(422, 공통 규칙 R)
+- `WithdrawService` (member.application, `@Service`, 의존성 `MemberRepository`, `MemberAddressRepository`, `ShopApi`, `List<WithdrawalPrecondition> preconditions`, `OutboxPublisher`, `Clock`) — 탈퇴 유스케이스. `@Transactional void withdraw(UUID memberId)`
+  1. 회원을 `FOR UPDATE`로 조회(`MemberRepository`에 `@Lock(PESSIMISTIC_WRITE)`를 단 조회 메서드를 더한다. 이름은 자유). 같은 회원의 탈퇴 요청이 겹쳐도 한 번에 하나씩 처리된다.
+  2. `List<String> reasons = new ArrayList<>()` → `shopApi.countActiveShops(memberId) > 0`이면 `reasons.add("ACTIVE_SHOP")` → `preconditions.forEach(p -> reasons.addAll(p.violations(memberId)))`
+  3. 비어 있지 않으면 `throw new BusinessException(MemberErrorCode.MEMBER_HAS_ACTIVE_RESOURCES, Map.of("reasons", reasons))` → 422, 응답의 `details.reasons`에 담긴다(`BusinessException`의 두 번째 인자 `Map`은 `ShopErrorCode.SHOP_NOT_ACTIVE`가 `shopIds`를 담는 방식과 같다)
+  4. 배송지 전부 삭제(`memberAddressRepository.findAllByMemberId` → 각각 `delete`) → `member.withdraw(Instant.now(clock))` → `outboxPublisher.publish(MEMBER_WITHDRAWN, "MEMBER", memberId, new MemberWithdrawnEvent(memberId))`
+- `DELETE /api/members/me` → 204 (`MemberController`에 `@DeleteMapping("/me")`, `@CurrentMember UUID memberId` → `withdrawService.withdraw(memberId)` → `ResponseEntity.noContent().build()`)
 
-**4) consumer**: order `MemberEventConsumer` (consumer `order.member-withdrawn`) → 장바구니와 항목 삭제
+**4) consumer**: order `MemberEventConsumer` (order.infrastructure, consumer `order.member-withdrawn`) — `@KafkaListener(topics = MemberTopics.MEMBER_WITHDRAWN, groupId = "order")` → `parse(message, MemberWithdrawnEvent.class)` → `inboxGuard.runOnce("order.member-withdrawn", typed.envelope(), () -> cartService.deleteByMember(memberId))`(메서드 이름은 예시). 그 회원의 장바구니와 항목(`cart_item`)을 삭제한다. 장바구니가 없으면 아무 일도 하지 않고 정상 종료한다(공통 규칙 Q). order의 허용 의존에 `member::api`가 이미 있어 `MemberTopics`를 import할 수 있다.
 
 ### 완료 확인
 
