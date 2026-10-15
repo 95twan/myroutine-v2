@@ -1,19 +1,25 @@
 package com.myroutine.support;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.*;
 
 public class ConcurrencyRunner {
 
     public static <T> List<Result<T>> run(int threads, Callable<T> task) throws InterruptedException {
+        return run(Collections.nCopies(threads, task));
+    }
+
+    public static <T> List<Result<T>> run(List<Callable<T>> tasks) throws InterruptedException {
+        int threads = tasks.size();
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         try {
             CountDownLatch ready = new CountDownLatch(threads);
             CountDownLatch start = new CountDownLatch(1);
 
             List<Future<Result<T>>> futures = new ArrayList<>();
-            for (int i = 0; i < threads; i++) {
+            for (Callable<T> task : tasks) {
                 futures.add(pool.submit(() -> {
                     ready.countDown();
                     try {

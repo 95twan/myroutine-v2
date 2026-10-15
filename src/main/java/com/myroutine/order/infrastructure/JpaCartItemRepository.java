@@ -23,4 +23,25 @@ public interface JpaCartItemRepository extends JpaRepository<CartItem, UUID>, Ca
                     """
     )
     int addQuantity(UUID id, UUID cartId, UUID productId, int quantity, Instant now);
+
+    @Modifying
+    @Query(
+            nativeQuery = true,
+            value = """
+                    DELETE FROM orders.cart_item
+                    WHERE cart_id = :cartId AND product_id = :productId AND quantity <= :quantity
+                    """
+    )
+    int deleteIfQuantityAtMost(UUID cartId, UUID productId, int quantity);
+
+    @Modifying
+    @Query(
+            nativeQuery = true,
+            value = """
+                    UPDATE orders.cart_item
+                    SET quantity = quantity - :quantity, version = version + 1, updated_at = :now
+                    WHERE cart_id = :cartId AND product_id = :productId AND quantity > :quantity
+                    """
+    )
+    int deductQuantity(UUID cartId, UUID productId, int quantity, Instant now);
 }

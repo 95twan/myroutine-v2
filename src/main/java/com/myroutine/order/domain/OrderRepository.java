@@ -17,4 +17,8 @@ public interface OrderRepository {
     List<Order> findByMemberFirstPage(UUID memberId, Limit limit);
 
     List<Order> findByMemberNextPage(UUID memberId, Instant cursorCreatedAt, UUID cursorId, Limit limit);
+
+    int startPayment(UUID id, OrderStatus from, OrderStatus to, Instant now);
+
+    int cancelBeforePayment(UUID id, OrderStatus from, OrderStatus to, Instant now);
 }
