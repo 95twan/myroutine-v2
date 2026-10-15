@@ -8,6 +8,9 @@ myroutine:
   toss:
     secret-key: test_sk_dummy
     read-timeout: 500ms
+  scheduling:
+    enabled: false
+
 spring:
   jpa:
     properties:

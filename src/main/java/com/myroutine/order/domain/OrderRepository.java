@@ -21,4 +21,8 @@ public interface OrderRepository {
     int startPayment(UUID id, OrderStatus from, OrderStatus to, Instant now);
 
     int cancelBeforePayment(UUID id, OrderStatus from, OrderStatus to, Instant now);
+
+    List<UUID> findExpiredIds(OrderStatus status, Instant now, Limit limit);
+
+    int expire(UUID id, OrderStatus from, OrderStatus to, Instant now);
 }

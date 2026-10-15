@@ -49,4 +49,20 @@ public interface JpaOrderRepository extends JpaRepository<Order, UUID>, OrderRep
             where o.id = :id and o.status = :from
             """)
     int cancelBeforePayment(UUID id, OrderStatus from, OrderStatus to, Instant now);
+
+    @Query("""
+            select o.id
+            from Order o
+            where o.status = :status and o.expiresAt <= :now
+            order by o.expiresAt
+            """)
+    List<UUID> findExpiredIds(OrderStatus status, Instant now, Limit limit);
+
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            update Order o
+            set o.status = :to, o.version = o.version + 1, o.updatedAt = :now
+            where o.id = :id and o.status = :from and o.expiresAt <= :now
+            """)
+    int expire(UUID id, OrderStatus from, OrderStatus to, Instant now);
 }

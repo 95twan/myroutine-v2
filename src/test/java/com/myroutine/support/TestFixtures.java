@@ -210,4 +210,8 @@ public class TestFixtures {
     public void setOrderExpired(UUID orderId, Instant expiresAt) {
         jdbcTemplate.update("UPDATE orders.orders SET expires_at = ? WHERE id = ?", Timestamp.from(expiresAt), orderId);
     }
+
+    public void breakReservedStock(UUID productId) {
+        jdbcTemplate.update("UPDATE product.stock SET available = available + reserved, reserved = 0 WHERE product_id = ?", productId);
+    }
 }
