@@ -64,7 +64,7 @@ public class OrderController {
     }
 
     @PostMapping("/{id}/cancel")
-    public ResponseEntity<ConfirmResponse> confirm(@CurrentMember UUID memberId, @PathVariable UUID id) {
+    public ResponseEntity<ConfirmResponse> cancel(@CurrentMember UUID memberId, @PathVariable UUID id) {
         OrderStatus result = pendingOrderCancelService.cancel(memberId, id);
         return ResponseEntity.ok(new ConfirmResponse(id, result));
     }
