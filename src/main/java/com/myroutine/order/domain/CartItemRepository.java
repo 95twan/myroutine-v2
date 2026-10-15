@@ -14,4 +14,6 @@ public interface CartItemRepository {
     List<CartItem> findAllByIdInAndCartId(Collection<UUID> ids, UUID cartId);
     void delete(CartItem item);
     void deleteAll(Iterable<? extends CartItem> items);
+    int deleteIfQuantityAtMost(UUID cartId, UUID productId, int quantity);
+    int deductQuantity(UUID cartId, UUID productId, int quantity, Instant now);
 }

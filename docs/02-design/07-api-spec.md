@@ -1,6 +1,8 @@
 # 07. API 명세 (Stage 1)
 
 > 엔드포인트 목록과 핵심 API의 요청·응답 계약. 필드 단위 상세는 구현 시 springdoc(OpenAPI)로 생성하고, 이 문서와 어긋나면 이 문서를 갱신한다.
+> 2026-10-15 · 관리자 결제 대사 경로를 `/admin/api/payments/{orderId}/reconcile`로 맞췄다(로드맵 7-3)
+> 2026-10-15 · 이메일 인증 API를 로그인 회원 전용으로 정리하고 OAuth 가입용 발송 API(`/api/auth/oauth/signup/email-verifications`)를 더했다(로드맵 4-2·4-3), 구독 신청 응답을 `{ subscriptionId }`로 맞췄다(로드맵 5-2)
 > 2026-10-13 · 결제 전 주문 취소 `POST /api/orders/{id}/cancel`을 필수로 올림(기존 선택 API `payment/fail`을 합침, 상태는 `CANCELLED`, §3.2.1)
 > 2026-10-12 · 장바구니는 체크아웃 때 건드리지 않고 결제 완료 때 주문 수량만큼 차감(§3.1)
 > 2026-10-09 · 로드맵과 맞춤: 품목 취소에서 남의 주문은 404 `ORDER_NOT_FOUND`(2-8), DLT 재처리 경로에 파티션(7-3)
@@ -57,8 +59,9 @@
 | GET | `/api/auth/oauth/{provider}/authorize-url` | - | OAuth 인가 URL | FR-MEM-01 |
 | POST | `/api/auth/oauth/{provider}/login` | - | code 교환 → 기존 회원: 토큰 / 신규: 임시 토큰 | FR-MEM-01 |
 | POST | `/api/members/me/social-accounts/{provider}` | U | 로그인한 회원에 소셜 계정 연결 (POL-19) | FR-MEM-01 |
-| POST | `/api/auth/email-verifications` | 임시 또는 U | 인증코드 발송 (rate limit). OAuth 가입 중(임시 토큰) 또는 이메일 가입 후 미인증 회원 | FR-MEM-02 |
-| POST | `/api/auth/email-verifications/confirm` | 임시 또는 U | 코드 확인 (5회 실패 시 무효) → `email_verified_at` 기록 | FR-MEM-02 |
+| POST | `/api/auth/email-verifications` | U | 인증코드 발송 (rate limit). 이메일 가입 후 미인증 회원 | FR-MEM-02 |
+| POST | `/api/auth/oauth/signup/email-verifications` | 가입 토큰 | OAuth 가입용 인증코드 발송 `{signupToken, email}` (같은 rate limit) | FR-MEM-02 |
+| POST | `/api/auth/email-verifications/confirm` | U | 코드 확인 (5회 실패 시 무효) → `email_verified_at` 기록, 새 access 반환(기존 refresh 유지) | FR-MEM-02 |
 | POST | `/api/auth/oauth/signup` | 임시 | OAuth 가입 완료 → 토큰 | FR-MEM-01 |
 | POST | `/api/auth/refresh` | - | 토큰 회전 | FR-MEM-03 |
 | POST | `/api/auth/logout` | U | 현재 세션 폐기 (`?all=true` 전체 세션) | FR-MEM-04 |
@@ -158,7 +161,7 @@
 | POST | `/admin/api/outbox/{id}/retry` | 재발행 | NFR-REL-03 |
 | GET | `/admin/api/dlt/{topic}` · POST `/admin/api/dlt/{topic}/{partition}/{offset}/replay` | DLT 조회·재처리 (offset은 파티션마다 따로라 파티션이 필요하다) | NFR-REL-03 |
 | GET | `/admin/api/payments?status=UNKNOWN` | 결과미확정 결제 | FR-PAY-03 |
-| POST | `/admin/api/payments/{id}/reconcile` | 즉시 대사 | FR-PAY-03 |
+| POST | `/admin/api/payments/{orderId}/reconcile` | 즉시 대사 (경로 값은 orderId, 응답 `{orderId, status}`) | FR-PAY-03 |
 | GET | `/admin/api/refunds?status=FAILED` · POST `/{id}/retry` | 실패 환불 재처리 | |
 | POST | `/admin/api/search/reindex` | 무중단 재색인 (alias swap) | FR-SRC-02 |
 | POST | `/admin/api/settlements/run?period=2026-09` | 정산 수동 실행 (멱등) | FR-STL-04 |
@@ -241,4 +244,4 @@ Idempotency-Key: 7c9e...
   "startDate": "2026-10-05"
 }
 ```
-응답: `{ subscriptionId, status: "ACTIVE", unitPrice, nextRunDate }`. 에러: 422 `PRODUCT_NOT_SUBSCRIBABLE`, `OWN_SHOP_PRODUCT`.
+응답: `{ subscriptionId }` (상태·단가·다음 실행일은 구독 조회 API로 읽는다). 에러: 422 `PRODUCT_NOT_SUBSCRIBABLE`, `OWN_SHOP_PRODUCT`.

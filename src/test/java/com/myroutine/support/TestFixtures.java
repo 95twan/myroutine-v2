@@ -1,10 +1,7 @@
 package com.myroutine.support;
 
 import com.myroutine.member.application.*;
-import com.myroutine.order.application.CartService;
-import com.myroutine.order.application.CheckoutCommand;
-import com.myroutine.order.application.CheckoutResult;
-import com.myroutine.order.application.CheckoutService;
+import com.myroutine.order.application.*;
 import com.myroutine.product.application.*;
 import com.myroutine.product.domain.ProductCategory;
 import com.myroutine.shop.application.OpenShopCommand;
@@ -17,6 +14,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.*;
 
 @Component
@@ -31,6 +30,7 @@ public class TestFixtures {
     private final LoginService loginService;
     private final CartService cartService;
     private final CheckoutService checkoutService;
+    private final ConfirmPaymentService confirmPaymentService;
     private final JdbcTemplate jdbcTemplate;
 
     public UUID signup(String email) {
@@ -181,4 +181,33 @@ public class TestFixtures {
         ), productId);
     }
 
+    public CheckoutResult createPendingOrder(UUID buyerId, UUID... productIds) {
+        UUID addressId = address(buyerId);
+        List<UUID> cartItemIds = new ArrayList<>();
+        for (UUID productId: productIds) {
+            UUID cartItemId = addToCart(buyerId, productId, 1);
+            cartItemIds.add(cartItemId);
+        }
+        return checkout(buyerId, cartItemIds, addressId);
+    }
+
+    public CheckoutResult createPendingOrder(UUID buyerId, Map<UUID, Integer> productIds) {
+        UUID addressId = address(buyerId);
+        List<UUID> cartItemIds = new ArrayList<>();
+        productIds.forEach((productId, quantity) -> {
+            UUID cartItemId = addToCart(buyerId, productId, quantity);
+            cartItemIds.add(cartItemId);
+        });
+        return checkout(buyerId, cartItemIds, addressId);
+    }
+
+    public ConfirmResult confirmPayment(UUID memberId, UUID orderId) {
+        Long totalAmount = jdbcTemplate.queryForObject("SELECT total_amount FROM orders.orders WHERE id = ?", Long.class, orderId);
+        ConfirmPaymentCommand command = new ConfirmPaymentCommand("pk_" + orderId, "ORD-" + orderId, totalAmount);
+        return confirmPaymentService.confirm(memberId, orderId, command);
+    }
+
+    public void setOrderExpired(UUID orderId, Instant expiresAt) {
+        jdbcTemplate.update("UPDATE orders.orders SET expires_at = ? WHERE id = ?", Timestamp.from(expiresAt), orderId);
+    }
 }

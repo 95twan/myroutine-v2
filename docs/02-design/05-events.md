@@ -1,5 +1,6 @@
 # 05. 이벤트 카탈로그
 
+> 2026-10-15 · `product-upserted`의 payload에 `subscribable`을 더했다(로드맵 3-3의 `ProductUpsertedEvent`와 맞춤)
 > 2026-10-12 · 로드맵 용어 정리에 맞춰 "6-5 제안"을 "6-5 추가 항목"으로 바꿨다
 > 2026-10-09 · 로드맵(3-x·5-4·6-x)과 consumer 목록을 맞춤: search·recommendation은 `product-discontinued`가 아니라 `product-upserted`의 status로 처리, `shop-closed`는 order(구독 종료)가 구독하고 notification은 구독하지 않음, `order-line-confirmed`는 settlement만(리뷰 자격은 `OrderApi` 동기 확인), `review-created`는 지금 구독자가 없다(6-5 제안용)
 
@@ -52,7 +53,7 @@
 ### product
 | 토픽 | 발생 시점 | payload | consumer |
 |---|---|---|---|
-| `product.product-upserted.v1` | 상품 생성·수정·상태 변경 | productId, shopId, name, description, category, price, status, version | search(색인), recommendation(본문 해시 변경 시 재임베딩) |
+| `product.product-upserted.v1` | 상품 생성·수정·상태 변경 | productId, shopId, name, description, category, price, status, subscribable, version | search(색인), recommendation(본문 해시 변경 시 재임베딩) |
 | `product.product-price-changed.v1` | 가격 변경 | productId, oldPrice, newPrice, changedAt | order(구독 pending 가격 설정, POL-11 → `subscription-price-changed` 발행. 구독자 알림은 그 이벤트로) |
 | `product.product-discontinued.v1` | 단종 | productId, shopId, reason(`SELLER`, `SHOP_CLOSED`) | order(구독 TERMINATED). search·recommendation은 함께 발행되는 `product-upserted`(status DISCONTINUED)로 처리한다(6-2·6-4) |
 | `product.stock-depleted.v1` | 가용재고 0 | productId | search(품절 표시) [C] |

@@ -152,4 +152,15 @@ public class CartService {
         return null;
     }
 
+    @Transactional
+    public void deductOrdered(UUID memberId, Map<UUID, Integer> quantitiesByProduct) {
+        Optional<Cart> cart = cartRepository.findByMemberId(memberId);
+        if (cart.isEmpty()) return;
+
+        quantitiesByProduct.forEach((productId, quantity) -> {
+            cartItemRepository.deleteIfQuantityAtMost(cart.get().getId(), productId, quantity);
+            cartItemRepository.deductQuantity(cart.get().getId(), productId, quantity, clock.instant());
+        });
+
+    }
 }
