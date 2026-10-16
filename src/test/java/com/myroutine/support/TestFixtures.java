@@ -214,4 +214,14 @@ public class TestFixtures {
     public void breakReservedStock(UUID productId) {
         jdbcTemplate.update("UPDATE product.stock SET available = available + reserved, reserved = 0 WHERE product_id = ?", productId);
     }
+
+    public void setOrderUpdatedAt(UUID orderId, Instant updatedAt) {
+        jdbcTemplate.update("UPDATE orders.orders SET updated_at = ? WHERE id = ?", Timestamp.from(updatedAt), orderId);
+    }
+
+    public UUID createPaidOrder(UUID buyerId, UUID... productIds) {
+        CheckoutResult order = createPendingOrder(buyerId, productIds);
+        ConfirmResult result = confirmPayment(buyerId, order.orderId());
+        return result.orderId();
+    }
 }

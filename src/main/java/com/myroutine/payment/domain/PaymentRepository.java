@@ -18,4 +18,5 @@ public interface PaymentRepository {
 
     int markUnknown(UUID id, Instant now);
 
+    int increaseReconcileAttempts(UUID id, Instant now);
 }
