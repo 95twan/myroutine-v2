@@ -65,4 +65,12 @@ public interface JpaOrderRepository extends JpaRepository<Order, UUID>, OrderRep
             where o.id = :id and o.status = :from and o.expiresAt <= :now
             """)
     int expire(UUID id, OrderStatus from, OrderStatus to, Instant now);
+
+    @Query("""
+            select o.id
+            from Order o
+            where o.status = :status and o.updatedAt < :before
+            order by o.updatedAt
+            """)
+    List<UUID> findStuckIds(OrderStatus status, Instant before, Limit limit);
 }

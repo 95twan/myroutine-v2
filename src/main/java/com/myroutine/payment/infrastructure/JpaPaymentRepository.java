@@ -37,4 +37,12 @@ public interface JpaPaymentRepository extends JpaRepository<Payment, UUID>, Paym
             where p.id = :id and p.status = PaymentStatus.IN_PROGRESS
             """)
     int markUnknown(UUID id, Instant now);
+
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            update Payment p
+            set p.reconcileAttempts = p.reconcileAttempts + 1, p.status = PaymentStatus.UNKNOWN, p.version = p.version + 1, p.updatedAt = :now
+            where p.id = :id and p.status in (PaymentStatus.IN_PROGRESS, PaymentStatus.UNKNOWN)
+            """)
+    int increaseReconcileAttempts(UUID id, Instant now);
 }

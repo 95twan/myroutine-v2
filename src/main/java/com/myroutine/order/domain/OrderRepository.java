@@ -25,4 +25,6 @@ public interface OrderRepository {
     List<UUID> findExpiredIds(OrderStatus status, Instant now, Limit limit);
 
     int expire(UUID id, OrderStatus from, OrderStatus to, Instant now);
+
+    List<UUID> findStuckIds(OrderStatus status, Instant before, Limit limit);
 }

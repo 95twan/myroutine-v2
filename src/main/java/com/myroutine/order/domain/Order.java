@@ -107,13 +107,6 @@ public class Order extends BaseTimeEntity {
                 .forEach(ShopOrder::markCancelled);
     }
 
-    public List<UUID> productIds() {
-        return this.shopOrders.stream()
-                .flatMap(shopOrder -> shopOrder.getLines().stream())
-                .map(OrderLine::getProductId)
-                .toList();
-    }
-
     public Map<UUID, Integer> quantitiesByProduct() {
         return this.shopOrders.stream()
                 .flatMap(shopOrder -> shopOrder.getLines().stream())

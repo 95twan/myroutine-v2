@@ -75,4 +75,17 @@ public class Payment extends BaseTimeEntity {
         payment.reconcileAttempts = 0;
         return payment;
     }
+
+    public void applyCancel(Money amount) {
+        this.cancelledAmount = this.cancelledAmount.plus(amount);
+        if (this.cancelledAmount.equals(this.amount)) {
+            this.status = this.status.transitTo(PaymentStatus.CANCELLED);
+        } else {
+            this.status = this.status.transitTo(PaymentStatus.PARTIAL_CANCELLED);
+        }
+    }
+
+    public Money remainingAmount() {
+        return this.amount.minus(this.cancelledAmount);
+    }
 }

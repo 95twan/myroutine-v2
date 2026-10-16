@@ -1,6 +1,8 @@
 # Part 7. 관측 · 운영 · 마무리
 
-> 버전 0.9 · 2026-10-15 · **7-3 `reconcile` 경로·반환과 7-4 불변식 범위를 정했다**(리뷰 결정): `{id}`는 `orderId`, `reconcileOne`은 `OrderStatus` 반환, `InvariantChecker`에 INV-08을 더하고 INV-09는 최종적 일관성이라 제외. 그 밖의 규격은 0.8과 같다
+> 버전 0.11 · 2026-10-16 · **쓰지 않는 요소를 걷어내고 2-6 변경에 맞췄다**(구현 전 점검): ① 7-4 시나리오 보조 호출 표의 "환불 복구"(`recoverBatch()`) 행을 지웠다(S1~S7·장애 어느 시나리오도 부르지 않는다). ② 7-3 `reconcileOne`의 설명이 옛 2-6(`queryOutcome` → `apply` 한 경로)을 가리키고 있어, 확정된 결제는 `applyPaymentState`로 바로 처리하는 지금의 `reconcileBatch` 처리로 맞췄다. 규격·동작은 0.10과 같다
+> 0.10 · 2026-10-16 · **구현물이 단계 설명 안에 숨어 있던 곳을 표로 올렸다**(구현 중 지적 "리포지토리·엔티티 작업이 설명에 흩어져 있다"): 7-2의 수집기 조회 메서드(`PaymentRepository`·`OrderRepository`·`RefundRepository`)를 시그니처로 적고, 노출 설정(`percentiles-histogram`)을 1)로 모았으며, docker-compose 서비스와 Grafana dashboards provider yml을 파일 목록에 올렸다. 7-3은 `Refund.retryPgCancel()`·`reconcileOne`·목록 쿼리·컨트롤러·DLT 서비스·테스트 보조를 구현물 표로 모아 중복 문장(`reconcileOne` 두 곳, 대사 API 모듈 위치 두 곳, 확인 필요 정리의 반복)을 줄였다. 7-1·7-2·7-3·7-4에 구현 순서 줄을 더했다. 규격·동작은 0.9와 같다
+> 0.9 · 2026-10-15 · **7-3 `reconcile` 경로·반환과 7-4 불변식 범위를 정했다**(리뷰 결정): `{id}`는 `orderId`, `reconcileOne`은 `OrderStatus` 반환, `InvariantChecker`에 INV-08을 더하고 INV-09는 최종적 일관성이라 제외. 그 밖의 규격은 0.8과 같다
 > 0.8 · 2026-10-15 · **7-3 환불 재시도의 PG 멱등 키를 정했다**(리뷰 결정): `retry`가 `FAILED → APPROVED`와 함께 `pgAttempts`를 올려 `refundId-r{n}` 키로 PG까지 가게 했다(2-8 `Refund.pgIdempotencyKey()`). 그 밖의 규격은 0.7과 같다
 > 0.7 · 2026-10-15 · **Part 7 클래스·메서드 설명을 풀어 썼다**(구현 중 "뭔지 모르겠다" 지적): 표 한 줄 요약이던 항목에 목적·호출 위치·입력→반환·순서·함정을 적었다 — 7-1 MDC 넣고 빼는 법과 `logback-spring.xml` 구성, 7-2 수집기·Micrometer 사용법·`StockCheckJob`·`TossClient` 타이머, 7-3 운영 API별 처리 순서, 7-4 `InvariantChecker`와 시나리오가 부르는 잡. 문서만으로 정할 수 없는 곳은 "(확인 필요)"로 표시했다(7-3 `reconcile`의 `{id}`, 환불 재시도와 `PaymentApi.cancel`의 FAILED 처리 등). 규격·동작은 0.6과 같다
 > 0.6 · 2026-10-14 · **표현 정리**(설계·동작 변경 없음): 7-1 MDC 예시의 `var`를 명시 타입으로(리포 코드에 `var`가 없다), 7-2 서비스 개요 대시보드의 긴 항목을 하위 항목으로 풀었다
@@ -25,7 +27,7 @@
 
 - 관측 스택(Logstash, Kibana, Prometheus, Grafana)은 docker-compose **`observability` 프로필**로 띄운다: `docker compose --profile observability up -d`. 평소 개발에는 띄우지 않는다(메모리).
 - 설정 파일은 모두 리포에 둔다: `docker/logstash/`, `docker/kibana/`, `docker/prometheus/`, `docker/grafana/provisioning/`. 화면에서 만든 대시보드·검색은 **JSON으로 내보내 커밋**한다.
-- 7-3의 운영 API는 모두 `/admin/api/**`(ADMIN)이고, 실행할 때마다 `log.info("admin action={} target={} by={}", ...)`를 남긴다.
+- 7-3의 운영 API는 모두 `/admin/api/**`(ADMIN)이다. 실행 로그 형식은 7-3 "모든 API에 공통"에 적었다.
 
 ---
 
@@ -42,6 +44,8 @@
 - 로그 인덱스: `logs-myroutine-YYYY.MM.dd`. 보관 기간은 로컬이라 정하지 않는다.
 
 ### 할 일
+
+**구현 순서**: ① 의존성·`logback-spring.xml` → ② MDC(`memberId` → `orderId`) → ③ `docker/logstash`·compose·Kibana 저장 검색 → ④ 민감정보 점검(`LogSafetyTest`).
 
 **1) 의존성·설정**
 - `implementation 'net.logstash.logback:logstash-logback-encoder:9.0'` — 2026-10-09 Maven Central 최신. 9.0의 pom은 `tools.jackson.core:jackson-databind`(Jackson 3)와 `logback-core` 1.5.x에 의존해 Boot 4.1.1(Jackson 3.1.5, Logback 1.5.38)과 맞는다. Boot BOM이 관리하지 않아 버전을 적는다
@@ -64,7 +68,7 @@ MDC는 SLF4J가 스레드마다 들고 있는 `Map<String, String>`이다. 인�
 |---|---|---|
 | `traceId` | `TraceIdFilter`, `JobRunner`, `EventContext`/`InboxGuard` (이미 있음) | 각자 finally |
 | `memberId` | `JwtAuthenticationFilter` 인증 성공 직후 | `TraceIdFilter`의 finally에서 함께 제거 |
-| `orderId` | 주문 흐름 서비스(`ConfirmPaymentService`, `OrderPaymentApplier`, `CancelOrderLineService`, 만료·대사 잡의 주문별 처리)에서 `try (MDC.MDCCloseable c = MDC.putCloseable("orderId", ...))` | try-with-resources가 제거 |
+| `orderId` | 주문 흐름 서비스(`ConfirmPaymentService`, `OrderPaymentApplier`, `CancelOrderLineService`, 만료·대사 잡의 주문별 처리)가 `MDC.putCloseable`로 넣는다(아래 `orderId`) | try-with-resources가 제거 |
 | `job` | `JobRunner` (이미 있음) | |
 
 - **`memberId`**: `JwtAuthenticationFilter.doFilterInternal`에서 `jwtProvider.parse(token).ifPresent(claims -> ...)` 람다 안, `SecurityContextHolder`에 인증을 넣는 줄 바로 뒤에 `MDC.put("memberId", claims.memberId().toString())`을 더한다(`AuthClaims`는 `record (UUID memberId, String role)`). 빼는 곳은 `TraceIdFilter.doFilterInternal`의 `finally`에 `MDC.remove("memberId")` 한 줄 추가 — `TraceIdFilter`가 `HIGHEST_PRECEDENCE`라 보안 필터보다 바깥에서 요청 전체를 감싸므로 거기서 지우면 된다. 토큰이 없거나 틀린 요청은 이 줄을 지나지 않으니 `memberId`가 비어 있다(익명 요청)
@@ -104,10 +108,13 @@ MDC는 SLF4J가 스레드마다 들고 있는 `Map<String, String>`이다. 인�
 
 ### 할 일
 
+**구현 순서**: ① 노출(의존성·`application.yaml`·`SecurityConfig`) → ② 조회 메서드(`PaymentRepository`·`OrderRepository`·`RefundRepository`) → ③ 수집기 3개 → ④ Counter·Timer 연결 → ⑤ `StockCheckJob` → ⑥ Prometheus·Grafana 파일·compose → ⑦ 테스트 → ⑧ 장애 주입(수동).
+
 **1) 노출**
 - 의존성 `io.micrometer:micrometer-registry-prometheus` — Micrometer(앱 안에서 메트릭을 만드는 API)가 모은 값을 Prometheus 텍스트 형식으로 내보내는 구현체다. 넣으면 `MeterRegistry` 빈이 `PrometheusMeterRegistry`로 자동 등록되고 `/actuator/prometheus`가 생긴다. 아래 수집기·타이머는 모두 이 `MeterRegistry`를 주입받아 쓴다
 - `management.endpoints.web.exposure.include: health,prometheus` — 노출할 actuator 엔드포인트 목록. `management.metrics.tags.application: myroutine` — 모든 지표에 `application="myroutine"` 라벨을 붙인다
 - `SecurityConfig`: `/actuator/prometheus` 허용(관리 포트에만 열리고 외부에 노출하지 않으므로, 1-3에서 확인했듯 같은 체인이 관리 포트에도 적용된다). 지금 `SecurityConfig`는 `/actuator/health/**`만 `permitAll()`이고 나머지는 `anyRequest().authenticated()`라서, 이 줄이 없으면 Prometheus가 401을 받는다. `.requestMatchers("/actuator/health/**").permitAll()` 옆에 같은 방식으로 더한다
+- `management.metrics.distribution.percentiles-histogram.http.server.requests: true` — p95 같은 분위수를 Grafana에서 `histogram_quantile`로 구하려면 `_bucket` 시리즈가 필요하다. HTTP 요청은 이 속성으로, Timer(아래 2))는 만들 때 `.publishPercentileHistogram()`로 켠다(확인 필요: 속성 이름과 효과는 `/actuator/prometheus` 출력에서 `_bucket`이 보이는지로 확인)
 
 **2) 비즈니스 메트릭**
 
@@ -121,7 +128,6 @@ Micrometer 종류 세 가지 — 모두 주입받은 `MeterRegistry registry`로
 
 - **Gauge 함정**: Gauge는 `AtomicLong`을 약한 참조로만 잡는다. 지역 변수나 곧 버려질 객체에 두면 GC 뒤에 값이 `NaN`이 된다. 수집기 `@Component`의 **필드**에 둔다.
 - 코드에 적는 이름이 Prometheus에 나오는 이름이다(Micrometer는 `.`을 `_`로 바꾸고 Counter에 `_total`, Timer에 `_seconds`를 붙인다). 아래 표는 **Prometheus에 보이는 이름**이므로, 구현 후 `/actuator/prometheus`에서 표와 같은 이름이 나오는지 확인한다(확인 필요: `_total`·`_seconds`를 코드 이름에 이미 적었을 때 중복 접미사가 붙는지)
-- p95 같은 분위수를 Grafana에서 `histogram_quantile`로 구하려면 `_bucket` 시리즈가 필요하다. Timer는 만들 때 `.publishPercentileHistogram()`, HTTP 요청은 `management.metrics.distribution.percentiles-histogram.http.server.requests: true`를 켠다(확인 필요: 속성 이름과 효과는 `/actuator/prometheus` 출력에서 `_bucket`이 보이는지로 확인)
 
 | 이름 | 종류 | 계산 | 만드는 곳 |
 |---|---|---|---|
@@ -149,13 +155,13 @@ Micrometer 종류 세 가지 — 모두 주입받은 `MeterRegistry registry`로
 | 클래스 | 조회 수단 | 계산 |
 |---|---|---|
 | `OutboxMetrics` (common, 권장 패키지 `common.outbox`) | `JdbcTemplate` — `common.outbox_event`는 같은 모듈 테이블 | 표의 세 값. `now`는 SQL의 `now()`로 구하면 된다(릴레이도 DB 시각을 쓴다). READY가 없으면 age는 0 |
-| `PaymentMetrics` (payment.application) | `PaymentRepository`(domain 순수 인터페이스)에 조회 메서드를 더하고 `JpaPaymentRepository`에 구현한다 — `status = UNKNOWN` 건수, 그 중 가장 오래된 `updated_at` | `payment_unknown_oldest_age_seconds` = `Duration.between(가장 오래된 updated_at, clock.instant()).toSeconds()`, 없으면 0 |
-| `OrderMetrics` (order.application) | `OrderRepository`와 `RefundRepository`에 건수 조회를 더한다(둘 다 domain 순수 인터페이스 + Jpa 구현) | `PAYMENT_IN_PROGRESS`이면서 `updated_at < now - 5분`인 주문 수, 환불 `APPROVED`·`PG_CANCELLED`이면서 `updated_at < now - 10분`인 환불 수. 기준 컬럼이 `updated_at`인 것은 2-6 `findStuckIds`·2-8b 복구 잡과 같다(문서에 컬럼이 명시되지 않아 확인 필요) |
+| `PaymentMetrics` (payment.application) | `PaymentRepository`(domain 순수 인터페이스)에 `long countByStatus(PaymentStatus status)`와 `Optional<Instant> findOldestUpdatedAtByStatus(PaymentStatus status)`를 더하고 `JpaPaymentRepository`에 구현한다(이름·인자는 예). 대상은 `UNKNOWN` | `payment_unknown_count` = `countByStatus(UNKNOWN)`, `payment_unknown_oldest_age_seconds` = `Duration.between(가장 오래된 updated_at, clock.instant()).toSeconds()`, 없으면 0 |
+| `OrderMetrics` (order.application) | `OrderRepository`에 `long countByStatusAndUpdatedAtBefore(OrderStatus status, Instant before)`, `RefundRepository`에 `long countByStatusInAndUpdatedAtBefore(Collection<RefundStatus> statuses, Instant before)`를 더한다(둘 다 domain 순수 인터페이스 + Jpa 구현. 이름·인자는 예) | `PAYMENT_IN_PROGRESS`이면서 `updated_at < now - 5분`인 주문 수, 환불 `APPROVED`·`PG_CANCELLED`이면서 `updated_at < now - 10분`인 환불 수. 기준 컬럼이 `updated_at`인 것은 2-6 `findStuckIds`·2-8b 복구 잡과 같다(문서에 컬럼이 명시되지 않아 확인 필요) |
 
 **Counter·Timer를 거는 곳**
 - `kafka_dlt_records_total{topic}`: 3-2 `KafkaConfig`가 만든 `DeadLetterPublishingRecoverer`는 `ConsumerRecordRecoverer`(= `BiConsumer<ConsumerRecord<?,?>, Exception>`)다. `DefaultErrorHandler`에 넘기기 전에 `ConsumerRecordRecoverer counting = (record, ex) -> { recoverer.accept(record, ex); registry.counter("kafka_dlt_records_total", "topic", record.topic()).increment(); }`로 감싸 넘긴다(시그니처는 spring-kafka 3.3.16 jar에서 확인, Boot 4.1.1이 쓰는 버전에서도 같은지 확인 필요). `record.topic()`은 **원본 토픽**이라 7-3 DLT API의 `{topic}`과 같은 값이다(라벨을 원본·`.dlt` 중 무엇으로 할지는 문서에 없다. 확인 필요). `KafkaConfig`가 `MeterRegistry`를 주입받는다
 - `stock_reservation_expired_total`: `OrderExpirationService.expireBatch`의 건별 루프에서 `tx.execute(s -> expireOne(id))`가 `true`를 반환한 **직후**(트랜잭션 밖)에 `increment()`. `expireOne` 안에서 올리면 롤백돼도 카운트가 남는다
-- `pg_call_seconds{operation,result}`: `TossClient`의 `confirm`·`cancel`·`queryByOrderId`가 이미 `start`를 재고 마지막에 `logResult(pgMethod, paymentId, result, start)`를 부른다. 같은 자리에서 `registry.timer("pg_call_seconds", "operation", pgMethod, "result", ...).record(System.nanoTime() - start, TimeUnit.NANOSECONDS)`를 하면 된다. `TossClient`에 `MeterRegistry` 필드를 더한다. 라벨 값은 문서에 정해져 있지 않다(확인 필요). 로그와 대시보드가 같은 말을 쓰도록 `operation`은 `pgMethod`(`confirm`·`cancel`·`query`), `result`는 `PgResult` 종류(`Approved`·`Rejected`·`Unknown`)를 소문자로 쓰는 것을 권장한다
+- `pg_call_seconds{operation,result}`: `TossClient`의 `confirm`·`cancel`·`queryByOrderId`가 이미 `start`를 재고 마지막에 `logResult(pgMethod, paymentId, result, start)`를 부른다. 같은 자리에서 `registry.timer("pg_call_seconds", "operation", pgMethod, "result", ...).record(System.nanoTime() - start, TimeUnit.NANOSECONDS)`를 하면 된다. `TossClient`에 `MeterRegistry` 필드를 더한다. 라벨 값은 문서에 정해져 있지 않다(확인 필요). 로그와 대시보드가 같은 말을 쓰도록 `operation`은 `pgMethod`(`confirm`·`cancel`·`query`), `result`는 `PgResult` 종류(`Approved`·`Rejected`·`Unknown`)를 소문자로 쓰는 것을 권장한다 Part 5가 더한 `issueBillingKey`·`billingCharge`(로그의 작업 이름 `BILLING_ISSUE`·`BILLING`)에도 같은 Timer를 걸지, `operation` 값을 무엇으로 할지는 문서에 없다(확인 필요).
 - `mail_send_seconds{result}`·`openai_call_seconds{operation,result}`: "각 클라이언트"는 메일 발송기(3-5 `MailSender` 구현체. 호출하는 `NotificationDispatcher`에서 잴지는 확인 필요)와 OpenAI를 부르는 곳(Part 6의 `EmbeddingModel.embed`·`ChatClient` 호출부)이다. 방식은 `Timer.start` → 호출 → `stop`(예외가 나도 `finally`에서 `stop`)이며 `result` 값(`success`·`failure` 등)과 `operation` 값은 정해져 있지 않다(확인 필요)
 
 **3) 재고 정합성 점검 잡** — product `StockCheckJob`: 매일 05:00(Asia/Seoul), 잡 이름 `stock-check`. 재고 등식 자체는 CHECK가 막으므로, **재고 행과 기록(이력·예약)의 대조**를 본다
@@ -171,17 +177,17 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 - **왜 필요한가**: `ck_stock_balance`(`available + reserved + sold = received`)는 한 행 안의 등식만 지킨다. 코드 버그로 `received`와 `available`을 같이 틀리게 바꾸면 CHECK는 통과하지만 이력과는 어긋난다. 이 잡이 그 어긋남을 잡는다(INV-03·04)
 - **구성**: `@Scheduled(cron = "0 0 5 * * *", zone = "Asia/Seoul")` 메서드 → `jobRunner.run("stock-check", this::check)`. `JobRunner.run`은 `Supplier<Integer>`를 받으므로 `check()`는 `int`(불일치 상품 수)를 반환한다. `check()`(이름은 권장안, `public`)가 하는 일: ① 위 SQL을 `JdbcTemplate.queryForList(sql, UUID.class)`로 실행(`List<UUID>` = 어긋난 `product_id`) ② 상품마다 `log.error("stock mismatch productId={}", id)` ③ `AtomicLong`(`stock_balance_mismatch_count`)에 `set(개수)` ④ 개수 반환. `StockCheckJobTest`는 `check()`를 직접 부른다(테스트 프로필에서는 스케줄이 꺼져 있다)
 - **SQL 읽는 법**: `m.q`는 상품별 `stock_movement`의 **입고(RECEIVE)와 조정(ADJUST)** 수량 합(조정은 음수일 수 있다)이고, `s.received`와 같아야 한다. `r.q`는 상품별 `HELD`(보류 중) 예약 수량 합이고 `s.reserved`와 같아야 한다. 이력·예약이 한 건도 없는 상품은 LEFT JOIN 결과가 `NULL`이라 `COALESCE(..., 0)`로 0과 비교한다
-- 이 Gauge는 05:00 실행 때만 바뀐다. 앱을 재시작하면 다음 05:00까지 0으로 보인다. 아래 5번 수동 확인의 "점검 잡 실행"을 어떻게 하는지(05:00을 기다림, 로컬에서 cron 임시 변경, 별도 트리거)는 문서에 없다(확인 필요)
+- 이 Gauge는 05:00 실행 때만 바뀐다. 앱을 재시작하면 다음 05:00까지 0으로 보인다.
 
 **4) Prometheus·Grafana**
-- 이미지: `prom/prometheus:v3.15.0`, `grafana/grafana:13.2.3`(2026-10-09 Docker Hub의 최신 안정 태그)
+- docker-compose `prometheus`·`grafana` 서비스(프로필 `observability`, 공통 규칙): 이미지 `prom/prometheus:v3.15.0`, `grafana/grafana:13.2.3`(2026-10-09 Docker Hub의 최신 안정 태그). `docker/prometheus/prometheus.yml`을 컨테이너의 `/etc/prometheus/prometheus.yml`로, `docker/grafana/provisioning`을 컨테이너의 `/etc/grafana/provisioning`으로 마운트한다. 호스트 포트 publish는 문서에 없다(확인 필요)
 - `docker/prometheus/prometheus.yml`: scrape 15초, path `/actuator/prometheus`, 대상은 환경마다 다르다
   - 구조: `global.scrape_interval: 15s`, `scrape_configs`에 `job_name: myroutine`, `metrics_path: /actuator/prometheus`, `static_configs[].targets`에 아래 환경별 주소. compose에서는 이 파일을 컨테이너의 `/etc/prometheus/prometheus.yml`로 마운트한다. Prometheus가 그 주소로 15초마다 HTTP GET을 보내 현재 값을 가져가는 "pull" 방식이라 앱은 값을 밀어 보내지 않는다
   - 로컬(앱은 IDE·`bootRun`으로 호스트에서 실행): `host.docker.internal:8081` — Docker Desktop(macOS)에서는 그대로 된다. Linux에서 호스트의 앱을 긁으려면 prometheus 서비스에 `extra_hosts: ["host.docker.internal:host-gateway"]`가 필요하다
   - 운영 VM(1-11 `docker-compose.ops.yml`의 `observability` 프로필): 앱도 컨테이너이므로 `app:8081`(관리 포트는 호스트에 publish하지 않지만 같은 compose 네트워크에서는 닿는다). 파일을 둘로 두거나(`prometheus.yml`, `prometheus.ops.yml`) 대상만 바꾼다
-- `docker/grafana/provisioning/datasources/prometheus.yml`, `dashboards/*.json` 3개
+- `docker/grafana/provisioning/datasources/prometheus.yml`, `docker/grafana/provisioning/dashboards/`의 provider 설정 yml 1개와 `*.json` 3개(서비스 개요, 결제·정합성, Kafka·Outbox)
   - 프로비저닝은 Grafana가 기동할 때 이 디렉터리(컨테이너의 `/etc/grafana/provisioning`에 마운트)를 읽어 데이터소스·대시보드를 자동으로 만드는 기능이다. 데이터소스 파일은 `apiVersion: 1`, `datasources:`에 `name: Prometheus`, `type: prometheus`, `url: http://prometheus:9090`(compose 서비스 이름), `isDefault: true`
-  - 대시보드 JSON을 읽게 하려면 같은 `dashboards/` 디렉터리에 **provider 설정 yml 하나**(`providers:`에 `type: file`, `options.path`로 JSON이 있는 컨테이너 경로)가 있어야 한다. JSON만 두면 로드되지 않는다(확인 필요: Grafana 13 문서의 형식)
+  - 대시보드 JSON을 읽게 하려면 같은 `dashboards/` 디렉터리에 provider 설정 yml(`providers:`에 `type: file`, `options.path`로 JSON이 있는 컨테이너 경로)이 있어야 한다. JSON만 두면 로드되지 않는다(확인 필요: Grafana 13 문서의 형식)
   - 대시보드 JSON은 화면에서 패널을 만든 뒤 대시보드 설정의 JSON Model(또는 Export)을 복사해 파일로 저장한다(공통 규칙)
   - **서비스 개요**: 요청률·에러율·p95(`http_server_requests_seconds`), JVM 힙, HikariCP 활성 커넥션, Kafka consumer lag
     - Boot 4.1.1은 Kafka consumer·producer 팩토리에 Micrometer 리스너(`MicrometerConsumerListener`)를 자동으로 붙인다(jar로 확인)
@@ -207,7 +213,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 **5) 장애 주입으로 확인 (수동)**
 - Kafka 중단: `docker compose stop kafka` → 체크아웃 몇 건 → "Outbox 지연" Firing → `start kafka` → 해제
 - 결제 불확실: 로컬에서 `myroutine.toss.base-url`을 응답하지 않는 주소(예: `http://10.255.255.1`)로 바꿔 실행 → 결제 승인 → "결제 확인 지연" Firing
-- 재고 불일치: 로컬 DB에서 `stock.received`와 `available`을 같은 양만큼 바꾸고(CHECK 통과) 점검 잡 실행 → Firing
+- 재고 불일치: 로컬 DB에서 `stock.received`와 `available`을 같은 양만큼 바꾸고(CHECK 통과) 점검 잡 실행 → Firing. 점검 잡을 실행하는 방법은 문서에 없다(확인 필요: 05:00을 기다림, 로컬에서 cron 임시 변경, 별도 트리거)
 - Firing은 수집기 갱신(최대 30초) → 스크랩(15초) → 규칙 평가 → `지속` 시간이 차례로 지나야 보인다("결제 확인 지연"은 UNKNOWN이 된 뒤 `payment_unknown_oldest_age_seconds`가 600초를 넘어야 한다). 화면에 안 뜬다고 바로 실패로 보지 말고 그만큼 기다린다
 
 ### 완료 확인
@@ -231,6 +237,8 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 ### 할 일
 
+**구현 순서**: ① `RefundStatus`·`Refund.retryPgCancel()` → ② `OrderReconcileService.reconcileOne` → ③ 목록 조회 쿼리 → ④ 관리자 컨트롤러·DLT 처리 → ⑤ 테스트 보조 → ⑥ 테스트. `docs/runbook.md`는 Claude가 쓴다.
+
 | API | 처리 | 위치 |
 |---|---|---|
 | `GET /admin/api/outbox?status=DEAD&cursor=` | DEAD 행 목록(id, topic, aggregateId, attempts, lastError, createdAt) | common |
@@ -243,9 +251,17 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 | `GET /admin/api/notifications?status=FAILED&cursor=` · `POST /admin/api/notifications/{id}/retry` | FAILED → PENDING, `attempts = 0` | notification |
 | `POST /admin/api/settlements/run?period=` | (3-4에서 만듦) | settlement |
 
-- 주문 대사 단건 실행을 위해 `OrderReconcileService`에 `reconcileOne(UUID orderId)`를 뽑아낸다(배치는 이것을 반복 호출)
-- `payment` → `order` 호출은 허용 방향이 아니므로, 결제 대사 API는 **order 모듈의 관리자 컨트롤러**(`/admin/api/payments/{orderId}/reconcile`)에서 `PaymentApi.find` → `reconcileOne`으로 구현한다
-- (Claude) `docs/runbook.md`: 7-2 알림마다 "의미 → 볼 곳(대시보드·Kibana 검색) → 조치(위 API)"
+구현물 (위에서 아래로 만든다. 이름·시그니처는 권장안이다. API별 처리 순서는 아래 각 절)
+
+| # | 대상 | 규격 | 쓰이는 곳 |
+|---|---|---|---|
+| 1 | `RefundStatus` 전이 + `Refund.retryPgCancel()` (2-8, 기존 수정) | 전이표에 `FAILED → APPROVED`(관리자 재시도)를 더하고([상태머신 §4](../02-design/04-state-machines.md)도 갱신), `Refund`에 "FAILED가 아니면 거부하고, FAILED → APPROVED로 바꾸면서 `pgAttempts`를 1 올리는" 메서드 `retryPgCancel()`을 더한다. `pg_attempts` 칸과 `Refund.pgIdempotencyKey()`(`pgAttempts`가 1 이상이면 `refundId-r{pgAttempts}`)는 2-8에서 만든다 | `refunds` `retry` |
+| 2 | `OrderReconcileService.reconcileOne(UUID orderId)` → `OrderStatus` (2-6 `OrderReconcileService`에서 뽑아낸다) | 2-6 `reconcileBatch`의 "각 주문마다" 처리(`paymentApi.find` → `APPROVED`·`FAILED`는 `applyPaymentState`, `CANCELLED`는 `failOrder`, `IN_PROGRESS`·`UNKNOWN`은 `queryPgOutcome` → `applyOutcome` → `applyPaymentState`, 완료 실패 시 보상)를 그대로 옮긴 메서드. `reconcileBatch`는 `findStuckIds` 루프에서 이것을 부르는 형태로 바뀐다. 아래 `payments reconcile` | `payments reconcile`, `reconcileBatch` |
+| 3 | 목록 조회 쿼리 | outbox는 `JdbcTemplate`, payments는 `PaymentRepository`, refunds는 `RefundRepository`, notifications는 notification repository에 `status`별 커서 조회를 더한다(domain 순수 인터페이스 + Jpa 구현). 이름·인자는 문서에 없다(확인 필요). 커서·`size + 1`은 아래 "모든 API에 공통"의 목록 규칙 | 목록 API 4개 |
+| 4 | 관리자 컨트롤러와 응답 record | outbox·DLT는 common, payments 목록은 payment, reconcile·refunds는 order, notifications는 notification 모듈에 둔다. 클래스 이름은 문서에 없다(권장: `AdminOutboxController`, `AdminDltController`, `AdminPaymentController`, `AdminReconcileController`, `AdminRefundController`, `AdminNotificationController`). `payment` → `order` 호출은 허용 방향이 아니므로 대사 API는 order 모듈에 둔다 | API 표 |
+| 5 | DLT 조회·재처리 코드 | 요청마다 `KafkaConsumer`를 만들어 쓰는 코드를 컨트롤러가 직접 할지 별도 서비스(권장 `AdminDltService`)로 둘지는 문서에 없다(확인 필요). 순서는 아래 `DLT` | DLT API 2개 |
+| 6 | 테스트 보조 | `AdminDltTest`가 쓰는 "플래그로 성공하게 바꿀 수 있는 테스트 리스너"(3-2 테스트의 항상 실패 리스너를 바꾼 것). `AdminOutboxTest`의 DEAD 행을 만드는 방법은 문서에 없다(확인 필요: JDBC로 `status = 'DEAD'`로 바꾸는 방법이 있다) | 테스트 |
+| 7 | `docs/runbook.md` (Claude) | 7-2 알림마다 "의미 → 볼 곳(대시보드·Kibana 검색) → 조치(위 API)" | 운영 |
 
 **모든 API에 공통**
 - **인가**: 컨트롤러에서 따로 검사하지 않는다. 3-4가 `SecurityConfig`에 넣은 `.requestMatchers("/admin/**").hasRole("ADMIN")` 한 줄이 맡는다. 일반 회원은 403(`FORBIDDEN`)
@@ -271,15 +287,15 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 **payments 목록** (payment 모듈 컨트롤러) — `PaymentRepository`(domain 순수 인터페이스)에 상태별 커서 조회를 더하고 `JpaPaymentRepository`에 구현한다. 응답 항목은 `(UUID id, UUID orderId, long amount, int reconcileAttempts, Instant updatedAt)`. 같은 경로 `/admin/api/payments`의 `reconcile`은 order 모듈에 있으므로 두 컨트롤러가 서로 다른 모듈에 있다
 
-**payments reconcile** (order 모듈 관리자 컨트롤러) — 대사 잡이 30초 이상 멈춘 주문을 1분마다 처리하는 일을, 운영자가 **주문 하나에 대해 바로** 하는 API다
-1. `reconcileOne(UUID orderId)` — 2-6 `reconcileBatch`의 "각 주문마다" 1~4단계(`paymentApi.find` → `queryOutcome` → `applier.apply` → 필요하면 보상)를 그대로 옮긴 메서드. `reconcileBatch`는 `findStuckIds` 루프에서 이것을 부르는 형태로 바뀐다. `OrderReconcileService`는 클래스에 `@Transactional`이 없고 `TransactionTemplate`을 쓴다. `queryOutcome`·`cancel`이 트랜잭션 밖 전용이므로 컨트롤러나 `reconcileOne` 자체에 `@Transactional`을 붙이면 안 된다
+**payments reconcile** (order 모듈 관리자 컨트롤러) — `payment` → `order` 호출은 허용 방향이 아니므로 order 모듈에 둔다. 대사 잡이 30초 이상 멈춘 주문을 1분마다 처리하는 일을, 운영자가 **주문 하나에 대해 바로** 하는 API다
+1. `reconcileOne(UUID orderId)`(구현물 2): `OrderReconcileService`는 클래스에 `@Transactional`이 없고 `TransactionTemplate`을 쓴다. `queryPgOutcome`·`cancel`이 트랜잭션 밖 전용이므로 컨트롤러나 `reconcileOne` 자체에 `@Transactional`을 붙이면 안 된다
 2. 두 번 눌러도 안전한 이유: 이미 PAID가 된 주문은 2-4 `applyPaymentState`의 가드(`PAYMENT_IN_PROGRESS`가 아니면 현재 상태를 그대로 반환)가 막는다
 3. **경로의 값은 `orderId`다.** `PaymentApi.find(UUID orderId)`와 `reconcileOne(UUID orderId)`가 모두 `orderId`를 받으므로 payment ID로 찾는 메서드를 새로 만들지 않는다. 목록 응답 항목에 `orderId`가 있어 운영자는 그 값을 쓴다
 4. `reconcileOne`의 반환은 `OrderStatus`(처리 뒤 주문 상태)다. 조회도 불확실했거나 다른 흐름이 이미 처리했으면 그 시점의 상태(예: `PAYMENT_IN_PROGRESS`)가 나온다. `reconcileBatch`는 이 값이 `PAID`·`PAYMENT_FAILED`일 때 처리 건수에 센다. 컨트롤러 응답은 `{orderId, status}`다
 
 **refunds** (order 모듈)
 - 목록: `RefundRepository`에 상태별 커서 조회를 더한다. 응답 항목의 필드는 이 문서에 정해져 있지 않다(확인 필요, `Refund` 컬럼 기준으로 id·orderId·orderLineId·amount·상태·실패 사유 등)
-- `retry`: ① 트랜잭션(`tx.execute`)에서 환불을 읽어 FAILED가 아니면 거부하고 FAILED → APPROVED로 바꾸면서 `pgAttempts`를 1 올린다(`RefundStatus` 전이표에 `FAILED → APPROVED`를 더하고 `Refund`에 이 두 가지를 함께 하는 메서드 `retryPgCancel()`을 더한다. 이름은 권장안). 같은 환불에 재시도를 두 번 눌러도 두 번째는 이미 `APPROVED`라 거부된다 ② 트랜잭션 밖에서 `refundProcessor.process(refundId)`(2-8, `RefundStatus` 반환) — APPROVED이므로 `needsPgCancel()`이 참이라 PG 취소부터 다시 한다
+- `retry`: ① 트랜잭션(`tx.execute`)에서 환불을 읽어 `retryPgCancel()`(구현물 1)을 부른다. FAILED가 아니면 거부된다. 같은 환불에 재시도를 두 번 눌러도 두 번째는 이미 `APPROVED`라 거부된다 ② 트랜잭션 밖에서 `refundProcessor.process(refundId)`(2-8, `RefundStatus` 반환) — APPROVED이므로 `needsPgCancel()`이 참이라 PG 취소부터 다시 한다
 - **PG 멱등 키**: 재시도는 새 키로 Toss까지 간다. 2-6 `PaymentApi.cancel`은 같은 키의 `payment_cancel` 행이 이미 `FAILED`면 PG를 부르지 않고 `FAILED`를 재생하므로(1단계 3번), `process`가 쓰는 `refund.pgIdempotencyKey()`(2-8)가 `pgAttempts`가 1 이상이면 `refundId-r{pgAttempts}`로 달라진다. 그래서 `AdminRefundRetryTest`("가짜 PG를 정상으로 → retry → COMPLETED")가 통과한다. Toss가 같은 키의 실패 응답을 어떻게 다루는지는 확인하지 못해(확인 필요) 같은 키를 재사용하지 않는 쪽으로 정했다. `pg_attempts` 칸은 2-8 마이그레이션에서 만든다
 
 **notifications** (notification 모듈)
@@ -288,7 +304,6 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 **정해지지 않은 것(확인 필요) 정리** — 이 단계 구현 전에 정할 것
 - 대상이 없을 때·상태가 맞지 않을 때의 응답 코드(예: outbox retry 0행, DLT replay의 record 없음, 환불·알림 retry가 FAILED가 아닐 때)와 성공 응답 상태·본문
-- 목록 `size` 기본·최대, DLT `limit`의 의미, 로그 `action` 문자열
 
 ### 완료 확인
 - [ ] `common/web/AdminOutboxTest`: DEAD 행 → retry → `relayOnce()` → SENT
@@ -303,11 +318,13 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 ## 7-4. E2E 시나리오 · 불변식 점검 (L)
 
-**목표**: 핵심 시나리오 S1~S7을 테스트로 증명하고, 시나리오가 끝날 때마다 불변식(INV-01~08)을 점검한다(INV-09는 최종적 일관성이라 아래 참고).
+**목표**: 시나리오 S1~S7을 테스트로 증명하고, 시나리오가 끝날 때마다 불변식(INV-01~08)을 점검한다(INV-09는 최종적 일관성이라 아래 참고).
 
 **정책**: E2E 테스트는 실제 API(MockMvc)와 실제 Kafka·Redis·Postgres·가짜 PG로 돌린다. 잡과 릴레이는 테스트에서 직접 호출한다. 위치 `src/test/java/com/myroutine/e2e/`.
 
 ### 할 일
+
+**구현 순서**: ① `InvariantChecker`와 자체 테스트 → ② 시나리오 클래스(S1 → S7 → 장애) → ③ CI 시간 기록.
 
 **1) 불변식 점검 유틸** — `support/InvariantChecker` (테스트 전용이라 모든 schema를 JDBC로 읽어도 된다)
 
@@ -324,7 +341,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 | `refundLimits()` | `refunded_amount ≤ line_amount`, `cancelled_amount ≤ amount`, 주문별 COMPLETED 환불 합 ≤ 주문 총액 | INV-06 |
 | `settlementOnce()` | CONFIRMED 품목마다 `settlement_item` 정확히 1행(consumer가 따라잡은 뒤), 정산된 item은 정산 1건에만 | INV-07 |
 | `subscriptionCycles()` | `subscription_cycle`에서 `(subscription_id, cycle_date)`마다 행이 1개이고, `status = 'PAID'`인 회차의 `order_id` 주문이 `PAID`이며 한 주문이 두 회차에 연결되지 않는다 | INV-08 |
-| `checkAll()` | 위 전부. 실패하면 어떤 행이 어긋났는지 메시지에. **INV-09**(SELLER 권한 ↔ 가게)는 최종적 일관성이라 시나리오 끝에서 바로 검사하면 consumer가 따라잡기 전에 실패할 수 있어 여기에 넣지 않는다(3-1 consumer 테스트의 `Eventually`로 확인한다) |
+| `checkAll()` | 위 전부. 실패하면 어떤 행이 어긋났는지 메시지에. **INV-09**(SELLER 권한 ↔ 가게)는 최종적 일관성이라 시나리오 끝에서 바로 검사하면 consumer가 따라잡기 전에 실패할 수 있어 여기에 넣지 않는다(3-1 consumer 테스트의 `Eventually`로 확인한다) | INV-01~08 |
 
 **2) 시나리오** (각 테스트 끝에 `checkAll()`)
 
@@ -333,7 +350,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 | 쓰는 것 | 용도 | 출처 |
 |---|---|---|
 | `mockMvc.perform(...)` | 사용자가 하는 일(체크아웃, 결제 승인, 취소, 발송 등)은 **실제 API**로 | 위 정책. 토큰은 `fixtures.token(email)` |
-| `TestFixtures`(`fixtures.signup`, `openShop`, `registerProduct`, `addToCart`, `checkout`, ...) | 흐름의 준비 단계(회원·가게·상품·장바구니)를 API 없이 빠르게 만든다 | 1-9 이후 쌓인 헬퍼 |
+| `TestFixtures`(`fixtures.signup`, `openShop`, `registerProduct`, `addToCart`, `checkout`, ...) | 흐름의 준비 단계(회원·가게·상품·장바구니)를 API 없이 빠르게 만든다 | 1-9 이후 쌓인 헬퍼(Part 5의 `registerBillingKey`·`registerSubscribableProduct`·`createSubscription`, Part 6의 `createConfirmedLine` 포함) |
 | 아래 표의 메서드를 **직접 호출** | 스케줄이 꺼진 테스트에서 "시간이 지나 잡이 돈 것"을 흉내 낸다 | 아래 표 |
 | `pg.on(...)`·`pg.markApproved(...)`, `Eventually.await(...)` | 가짜 PG의 응답 설정, 비동기(consumer) 반영 대기 | 2-3·3-1 |
 
@@ -344,14 +361,13 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 | Outbox 릴레이 | `outboxRelay.relayOnce()` — 이벤트를 Kafka로 보낸다. consumer는 비동기라 반영은 `Eventually`로 기다린다 | 3-1 |
 | 주문 만료 | `orderExpirationService.expireBatch()` (대상은 JDBC로 `expires_at`을 과거로) | 2-5 |
 | 결제 대사 | `orderReconcileService.reconcileBatch()` (대상은 JDBC로 `updated_at`을 30초 전보다 과거로) | 2-6 |
-| 환불 복구 | `refundRecoveryService.recoverBatch()` | 2-8b |
 | 자동 구매확정 | `autoConfirmService.confirmBatch()` (수동 확정 API를 써도 된다) | 2-10 |
 | 정산 | `settlementService.run(YearMonth)` (지급까지 포함) | 3-4 |
 | 알림 발송 | `notificationDispatcher.dispatchBatch()` | 3-5 |
 | 구독 회차 | `subscriptionCycleService.runDue()` | Part 5 |
 | Kafka 중단·재개 | `kafka.getDockerClient().pauseContainerCmd(kafka.getContainerId()).exec()` / `unpauseContainerCmd` | 3-1 `OutboxRelayTest`. `kafka` 필드가 `IntegrationTestSupport`의 package-private이면 `e2e` 패키지에서 못 쓴다 — 접근을 열지 헬퍼를 둘지는 확인 필요 |
 
-**클래스와 메서드 이름은 각 단계(2-5·2-6·2-8b·2-10·3-1·3-4·3-5·Part 5)의 문서를 따른다.** 정확한 이름·시그니처는 그 문서가 기준이고, 위 표는 이 문서 안에서 한눈에 보기 위한 요약이다
+**클래스와 메서드 이름은 각 단계(2-5·2-6·2-10·3-1·3-4·3-5·Part 5)의 문서를 따른다.** 정확한 이름·시그니처는 그 문서가 기준이고, 위 표는 이 문서 안에서 한눈에 보기 위한 요약이다
 
 | ID | 클래스 | 흐름 |
 |---|---|---|
