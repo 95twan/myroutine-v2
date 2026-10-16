@@ -1,5 +1,6 @@
 # 05. 이벤트 카탈로그
 
+> 2026-10-16 · 대사 호출 이름을 `queryOutcome`에서 `queryPgOutcome`으로 바꿨다(로드맵 2-6)
 > 2026-10-15 · `product-upserted`의 payload에 `subscribable`을 더했다(로드맵 3-3의 `ProductUpsertedEvent`와 맞춤)
 > 2026-10-12 · 로드맵 용어 정리에 맞춰 "6-5 제안"을 "6-5 추가 항목"으로 바꿨다
 > 2026-10-09 · 로드맵(3-x·5-4·6-x)과 consumer 목록을 맞춤: search·recommendation은 `product-discontinued`가 아니라 `product-upserted`의 status로 처리, `shop-closed`는 order(구독 종료)가 구독하고 notification은 구독하지 않음, `order-line-confirmed`는 settlement만(리뷰 자격은 `OrderApi` 동기 확인), `review-created`는 지금 구독자가 없다(6-5 제안용)
@@ -75,7 +76,7 @@
 | 토픽 | 발생 시점 | payload | consumer |
 |---|---|---|---|
 
-- 결제 결과(정상 응답이든 대사로 늦게 확정되든)는 **이벤트가 아니라 동기 호출로 반영**한다. 주문 결제의 대사는 order가 주도한다(`PaymentApi.queryOutcome`, order → payment는 허용된 의존 방향, [06-sequences §2](06-sequences.md)).
+- 결제 결과(정상 응답이든 대사로 늦게 확정되든)는 **이벤트가 아니라 동기 호출로 반영**한다. 주문 결제의 대사는 order가 주도한다(`PaymentApi.queryPgOutcome`, order → payment는 허용된 의존 방향, [06-sequences §2](06-sequences.md)).
 
 ### settlement / review
 | 토픽 | 발생 시점 | payload | consumer |
