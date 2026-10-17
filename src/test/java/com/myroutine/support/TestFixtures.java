@@ -31,6 +31,7 @@ public class TestFixtures {
     private final CartService cartService;
     private final CheckoutService checkoutService;
     private final ConfirmPaymentService confirmPaymentService;
+    private final ShipmentService shipmentService;
     private final JdbcTemplate jdbcTemplate;
 
     public UUID signup(String email) {
@@ -223,5 +224,17 @@ public class TestFixtures {
         CheckoutResult order = createPendingOrder(buyerId, productIds);
         ConfirmResult result = confirmPayment(buyerId, order.orderId());
         return result.orderId();
+    }
+
+    public UUID shopOrderIdOf(UUID orderId, UUID shopId) {
+        return jdbcTemplate.queryForObject("SELECT id FROM orders.shop_order WHERE order_id = ? AND shop_id = ?", UUID.class, orderId, shopId);
+    }
+
+    public void shipShopOrder(UUID sellerId, UUID shopId, UUID shopOrderId) {
+        shipmentService.ship(sellerId, shopId, shopOrderId, "CJ대한통운", "1234567890");
+    }
+
+    public void deliverShopOrder(UUID sellerId, UUID shopId, UUID shopOrderId) {
+        shipmentService.deliver(sellerId, shopId, shopOrderId);
     }
 }

@@ -1,6 +1,11 @@
 # Part 2. 주문과 돈
 
-> 버전 0.66 · 2026-10-16 · **2-6 `cancel`의 "같은 키는 같은 금액"을 호출자 책임으로 정했다**(리뷰 질문): 같은 키로 `UNKNOWN` 행을 다른 금액으로 다시 부르면 호출자 금액으로 Toss를 부르고 `applyCancel`도 호출자 금액을 쓰지만, 호출자(보상·환불 복구)가 모두 금액을 고정해 넘기므로 `cancel`은 확인하지 않는다. 리뷰 질문 4번을 "보상 `DONE` 뒤 `failOrder` 실패"로 바꿨다. 그 밖의 규격은 0.65와 같다
+> 버전 0.71 · 2026-10-17 · **2-7 구현을 마치며 jsonb "확인 필요"를 닫았다**: `ShopOrderListRow`의 `select new`에 `o.shippingAddress`(jsonb)를 넣어도 목록 테스트가 통과해(배송지가 비면 `ShippingAddressResult.from`에서 NPE) 대안(`findAllById` 한 번)을 지웠다. 규격 외 변경 없음
+> 0.70 · 2026-10-17 · **2-7 `SellerShopOrderResult`를 만드는 법을 표로 풀었다**(구현 중 지적 "이 내용은 대체 뭐냐"): 표 한 칸에 길게 이어 쓴 getter 나열을 `from` 메서드 3개(상세용, 목록용, 품목용)로 나누고 `amount` 계산을 따로 적었다. 규격은 0.69와 같다
+> 0.69 · 2026-10-17 · **2-7 조회 쿼리의 위치를 `OrderRepository`로 정했다**(구현 중 지적 "어느 쪽이든이 무슨 말이냐"): `ShopOrderQueryRepository`와의 양자택일을 없앴다. 규격 외 변경 없음
+> 0.68 · 2026-10-17 · **2-7의 "확인 필요" 4건 중 3건을 정했다**(구현 중 요청): ① `ShopOrderListRow`에 `carrier`·`trackingNumber`·`shippedAt`·`deliveredAt` 칸을 더해 목록과 상세가 같은 모양이 되게 했다. ② `SellerShopOrderResult`의 배송지를 2-2의 `ShippingAddressResult`로 고쳤다(web이 domain을 import하지 않는 규칙). ③ 목록 `size`는 `getMyOrders`와 같은 기본 20, 1~50으로 정했다. ④ jsonb 배송지를 생성자 식에 넣는 문제는 실행해 봐야 알 수 있어 "확인 필요"로 남기고, 안 될 때의 대안(`findAllById` 한 번)을 적었다. 규격 외 변경 없음
+> 0.67 · 2026-10-17 · **2-7 `OrderLine`·`ShopOrder` 메서드 이름 문장을 고쳤다**(구현 중 질문 "무슨 소리냐"): "정해져 있지 않다"가 필수 사항처럼 읽혀, 권장안이며 기존 `mark` + 과거분사 규칙을 따랐다는 것과 테스트가 부르는 이름은 `Order.ship`·`Order.deliver`뿐이라는 것을 적었다. 규격은 0.66과 같다
+> 0.66 · 2026-10-16 · **2-6 `cancel`의 "같은 키는 같은 금액"을 호출자 책임으로 정했다**(리뷰 질문): 같은 키로 `UNKNOWN` 행을 다른 금액으로 다시 부르면 호출자 금액으로 Toss를 부르고 `applyCancel`도 호출자 금액을 쓰지만, 호출자(보상·환불 복구)가 모두 금액을 고정해 넘기므로 `cancel`은 확인하지 않는다. 리뷰 질문 4번을 "보상 `DONE` 뒤 `failOrder` 실패"로 바꿨다. 그 밖의 규격은 0.65와 같다
 > 0.65 · 2026-10-16 · **2-6 "결과 반영 경쟁" 테스트를 대사 구조에 맞췄다**(구현 중 질문): `reconcileBatch`가 `apply`를 쓰지 않고 `applyOutcome`과 `applyPaymentState`를 별도 트랜잭션으로 부르므로, 경쟁 테스트도 그 두 단계를 두 스레드에서 동시에 부른다. `apply`로는 `payment` 행 락이 주문 처리까지 직렬화해 경쟁이 생기지 않는다. 그 밖의 규격은 0.64와 같다
 > 0.64 · 2026-10-16 · **2-6 `PaymentCancelTest`의 "같은 키로 두 번"을 부분 취소로 못 박았다**(구현 중 질문 "전액 취소 뒤 같은 키 케이스와 뭐가 다른가"): 전액 취소를 두 번 부르면 두 번째 호출 때 payment가 이미 `CANCELLED`라 "전액 취소 뒤 같은 키" 케이스와 같아진다. 부분 취소로 하면 payment가 취소 가능한 상태로 남아 있어, 재생 확인이 없을 때 금액이 두 번 올라가는 결함(PG 요청 2건)을 잡는다. 그 밖의 규격은 0.63과 같다
 > 0.63 · 2026-10-16 · **2-6 `reconcileBatch`의 조회 경로를 두 트랜잭션으로 나눴다**(구현 중 제안 "꼭 그렇게 만들어야 하나"): `queryPgOutcome` 뒤 `applyOutcome`으로 payment만 먼저 확정하고, 이어서 확정된 결제와 같은 `applyPaymentState`로 주문을 처리한다. `apply`는 2-6에서 쓰지 않고 2-4 `ConfirmPaymentService`만 쓴다. 보상 앞의 "승인 사실 먼저 기록" 단계가 없어졌고 보상 코드는 하나다. "경로 A·B·C" 이름을 결제 상태 이름으로 풀었다. 그 밖의 규격은 0.62와 같다
@@ -1488,7 +1493,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 `OrderErrorCode`에 `SHOP_ORDER_NOT_FOUND`(404, "가게 주문을 찾을 수 없습니다.", 공통 규칙 O)를 더한다.
 
-`OrderLine`·`ShopOrder`의 메서드 이름은 정해져 있지 않다(권장안은 기존 `markPaid`·`markCancelled`와 같은 이름 규칙).
+`OrderLine`·`ShopOrder` 메서드 이름은 권장안이다. 기존 `markPaid`·`markCancelled`처럼 상태만 바꾸는 `OrderLine` 메서드는 `mark` + 바뀔 상태의 과거분사로, 인자를 받고 품목까지 다루는 `ShopOrder` 메서드는 `Order`와 같은 동사(`ship`·`deliver`)로 지었다. 테스트가 직접 부르는 것은 `Order.ship`·`Order.deliver`뿐이라 두 클래스의 이름은 바꿔도 된다.
 
 | 대상 | 시그니처 | 규격 | 쓰는 곳 |
 |---|---|---|---|
@@ -1502,13 +1507,13 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 - `ship`에서 **CANCELLED 품목을 거르는 이유**: 발송 전 품목 취소(2-8)로 이미 `CANCELLED`가 된 품목에 `transitTo(SHIPPED)`를 하면 `CANCELLED`에는 허용 전이가 없어 `INVALID_STATE_TRANSITION`이 난다. `deliver`는 `SHIPPED` 품목만 바꾸므로 취소 품목은 자연히 빠진다.
 
-**3) order.domain — 조회 쿼리** (`OrderRepository` 또는 `ShopOrderQueryRepository`. 어느 쪽이든 시그니처는 domain, `@Query`는 infrastructure)
+**3) order.domain — 조회 쿼리** (모두 `OrderRepository`에 더한다. 시그니처는 domain, `@Query`는 `JpaOrderRepository`. `ShopOrder`가 `Order` 애그리거트의 일부라 저장소를 따로 두지 않는다)
 
 | 대상 | 시그니처 · 쿼리 | 쓰는 곳 | 동작 |
 |---|---|---|---|
-| `ShopOrderListRow` (record, `order.domain`) | `(UUID shopOrderId, UUID orderId, ShopOrderStatus status, ShippingAddress shippingAddress, Instant createdAt)` | 아래 목록 쿼리 | 엔티티가 아니라 조회용 record로 바로 받는다(`select new ...`). `o.shippingAddress`(jsonb 매핑)를 이 생성자 식에 넣을 수 있는지는 확인하지 못했다(확인 필요) |
+| `ShopOrderListRow` (record, `order.domain`) | `(UUID shopOrderId, UUID orderId, ShopOrderStatus status, ShippingAddress shippingAddress, String carrier, String trackingNumber, Instant shippedAt, Instant deliveredAt, Instant createdAt)` | 아래 목록 쿼리 | 엔티티가 아니라 조회용 record로 바로 받는다(`select new ...`). `SellerShopOrderResult`와 칸이 같도록 송장·발송·배송완료 칸을 둔다. `o.shippingAddress`(jsonb 매핑)는 이 생성자 식에 그대로 넣을 수 있다. |
 | `findByShopOrderId` | `Optional<Order> findByShopOrderId(UUID shopOrderId)`: `select o from Order o join o.shopOrders so where so.id = :shopOrderId` | `getShopOrder`·`ship`·`deliver`의 앞단, 2-10 자동 확정 | 가게주문 ID로 그 가게주문이 속한 **주문(루트)**을 읽는다. 조인은 찾기 위한 조건이라 `order.getShopOrders()`에는 그 주문의 가게주문이 모두 들어온다 |
-| 목록 첫 페이지 | `List<ShopOrderListRow> findShopOrderFirstPage(UUID shopId, ShopOrderStatus status, Limit limit)`(권장 이름): `select new ...ShopOrderListRow(so.id, so.orderId, so.status, o.shippingAddress, so.createdAt) from ShopOrder so join Order o on o.id = so.orderId where so.shopId = :shopId and (:status is null or so.status = :status) order by so.createdAt desc, so.id desc` | `getShopOrders` | 가게의 가게주문을 상태 필터(`status`가 null이면 전체)로 최신순으로 읽는다(위 마이그레이션의 인덱스 순서). 배송지는 주문(`Order`)에 있어 조인한다 |
+| 목록 첫 페이지 | `List<ShopOrderListRow> findShopOrderFirstPage(UUID shopId, ShopOrderStatus status, Limit limit)`(권장 이름): `select new ...ShopOrderListRow(so.id, so.orderId, so.status, o.shippingAddress, so.carrier, so.trackingNumber, so.shippedAt, so.deliveredAt, so.createdAt) from ShopOrder so join Order o on o.id = so.orderId where so.shopId = :shopId and (:status is null or so.status = :status) order by so.createdAt desc, so.id desc` | `getShopOrders` | 가게의 가게주문을 상태 필터(`status`가 null이면 전체)로 최신순으로 읽는다(위 마이그레이션의 인덱스 순서). 배송지는 주문(`Order`)에 있어 조인한다 |
 | 목록 다음 페이지 | `findShopOrderNextPage(UUID shopId, ShopOrderStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit)`(권장 이름). 첫 페이지 쿼리의 `where`에 `and (so.createdAt < :cursorCreatedAt or (so.createdAt = :cursorCreatedAt and so.id < :cursorId))`를 더한다(1-7 keyset 방식) | `getShopOrders` | 커서 이후의 행을 같은 정렬로 읽는다 |
 | 품목 | `List<OrderLine> findLinesByShopOrderIdIn(Collection<UUID> shopOrderIds)`: `shop_order_id IN (...)` | `getShopOrders` | 목록의 품목을 가게주문마다 따로 읽으면 쿼리가 행 수만큼 늘어난다(테스트: 3개와 10개일 때 SQL 수가 같아야 한다). 페이지의 가게주문 ID를 모아 **한 번에** 읽어 가게주문별로 묶는다. `OrderLine.getShopOrderId()`가 조회 전용 필드로 이미 있다 |
 
@@ -1517,12 +1522,20 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | 대상 | 규격 |
 |---|---|
 | `SellerLineResult` (record) | `(UUID orderLineId, UUID productId, String productName, long unitPrice, int quantity, long lineAmount, long refundedAmount, OrderLineStatus status)` |
-| `SellerShopOrderResult` (record) | `(UUID shopOrderId, UUID orderId, ShopOrderStatus status, ShippingAddress shippingAddress, String carrier, String trackingNumber, Instant shippedAt, Instant deliveredAt, long amount, List<SellerLineResult> lines, Instant createdAt)` — `amount`는 취소되지 않은 품목 `lineAmount` 합. `ShopOrder`(`getId()`, `getOrderId()`, `getStatus()`, `getCarrier()`, `getTrackingNumber()`, `getShippedAt()`, `getDeliveredAt()`, `getCreatedAt()`)와 그 `getLines()`에서 꺼내고, 배송지는 주문의 `order.getShippingAddress()`다. 2-2의 `OrderDetailResult`와 같이 금액은 `Money.amount()`로 `long`을 만든다. 상세·`ship`·`deliver`는 앞단에서 읽은 `order`로, 목록은 `ShopOrderListRow`와 `findLinesByShopOrderIdIn`의 결과로 같은 모양을 만든다 |
+| `SellerShopOrderResult` (record) | `(UUID shopOrderId, UUID orderId, ShopOrderStatus status, ShippingAddressResult shippingAddress, String carrier, String trackingNumber, Instant shippedAt, Instant deliveredAt, long amount, List<SellerLineResult> lines, Instant createdAt)` — `amount`는 취소되지 않은 품목 `lineAmount`의 합 |
 | `SellerOrderQueryService` (`@Transactional(readOnly = true)`. 의존성 `ShopApi`, `OrderRepository`) | `CursorPage<SellerShopOrderResult> getShopOrders(UUID memberId, UUID shopId, ShopOrderStatus status, String cursor, int size)` — 가게의 가게주문 목록 / `SellerShopOrderResult getShopOrder(UUID memberId, UUID shopId, UUID shopOrderId)` — 상세 한 건 |
 | `ShipmentService` (`@Transactional`. 의존성 `ShopApi`, `OrderRepository`, `Clock`) | `SellerShopOrderResult ship(UUID memberId, UUID shopId, UUID shopOrderId, String carrier, String trackingNumber)` — 발송 / `SellerShopOrderResult deliver(UUID memberId, UUID shopId, UUID shopOrderId)` — 배송완료. 둘 다 처리한 뒤의 가게주문을 돌려준다 |
 
-- (확인 필요) 목록 행 `ShopOrderListRow`에는 `carrier`·`trackingNumber`·`shippedAt`·`deliveredAt`이 없는데 `SellerShopOrderResult`에는 있다. 목록에서 이 칸을 비워 두는지, 행에 칸을 더하는지 정해져 있지 않다.
-- (확인 필요) 2-2는 결과 타입에 도메인 `ShippingAddress`를 두지 않고 `ShippingAddressResult`를 쓰는데(web이 domain을 import하지 않게), `SellerShopOrderResult`는 `ShippingAddress`로 적혀 있어 2-2 규칙과 어긋난다.
+**Result 만드는 법** — `OrderDetailResult.from(order)`처럼 record의 `static from`으로 만든다(이름은 권장안). 같은 모양을 두 곳에서 만든다.
+
+| 메서드 | 쓰는 곳 | 꺼내는 곳 |
+|---|---|---|
+| `SellerShopOrderResult.from(Order order, ShopOrder shopOrder)` | `getShopOrder`, `ship`, `deliver` | 가게주문 칸(`shopOrderId`, `orderId`, `status`, `carrier`, `trackingNumber`, `shippedAt`, `deliveredAt`, `createdAt`)은 `shopOrder`의 `getId()`, `getOrderId()`, `getStatus()`, `getCarrier()`, `getTrackingNumber()`, `getShippedAt()`, `getDeliveredAt()`, `getCreatedAt()`. `lines`는 `shopOrder.getLines()`를 `SellerLineResult.from`으로 바꾼 것. 배송지는 `ShippingAddressResult.from(order.getShippingAddress())` |
+| `SellerShopOrderResult.from(ShopOrderListRow row, List<OrderLine> lines)` | `getShopOrders` | 가게주문 칸은 `row`의 같은 이름 칸. `lines`는 `findLinesByShopOrderIdIn` 결과를 가게주문별로 묶은 것 중 이 행의 것. 배송지는 `ShippingAddressResult.from(row.shippingAddress())` |
+| `SellerLineResult.from(OrderLine line)` | 위 두 메서드 | `getId()`가 `orderLineId`, `getProductId()`, `getProductName()`, `getUnitPrice().amount()`, `getQuantity()`, `getLineAmount().amount()`, `getRefundedAmount().amount()`, `getStatus()` |
+
+- 금액은 `Money.amount()`로 `long`을 만든다(2-2 `OrderDetailResult`와 같다). 결과 타입에 도메인 `ShippingAddress`를 두지 않는 이유는 web이 domain을 import하지 않게 하려는 것이다.
+- `amount`는 두 메서드 모두 `lines` 중 `CANCELLED`가 아닌 품목의 `lineAmount` 합이다.
 
 공통 앞단 (`getShopOrder`·`ship`·`deliver`. `getShopOrders`는 1만 한다) — 요청자가 이 가게의 주인이고 이 가게주문이 이 가게 것임을 확인한다
 1. `shopApi.verifyOwner(shopId, memberId)` — 가게가 없으면 404 `SHOP_NOT_FOUND`, 주인이 아니면 403 `FORBIDDEN`(CLOSED 가게도 통과. 정책)
@@ -1534,7 +1547,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 - `getShopOrders`: ① `shopApi.verifyOwner` ② `cursor`가 없으면 첫 페이지, 있으면 `Cursor.decode(cursor)`의 `createdAt`·`id`로 다음 페이지를 `Limit.of(size + 1)`로 읽는다 ③ 결과가 `size`를 넘으면 앞의 `size`건만 돌려주고 `nextCursor = new Cursor(돌려주는 마지막 행의 createdAt, shopOrderId).encode()`(2-2 `getMyOrders`와 같은 방식) ④ 돌려줄 행의 `shopOrderId`를 모아 `findLinesByShopOrderIdIn`을 **한 번** 부르고 가게주문별로 묶어 `SellerShopOrderResult`로 만든다
 - 2-8이 `ship`의 앞단 뒤, `order.ship` 앞에 "진행 중 환불이 있으면 `REFUND_IN_PROGRESS`" 검사를 더한다(2-7에서는 비워 둔다).
 
-**5) order.web** — `SellerOrderController` (`/api/shops/{shopId}/orders`). `SellerShopOrderResponse`·`SellerLineResponse`는 각각 `SellerShopOrderResult`·`SellerLineResult`와 같은 필드를 가진 응답 record다(`OrderDetailResponse`가 `OrderLineDetailResponse`를 품는 것과 같은 구조). 컨트롤러는 `@CurrentMember UUID memberId`와 `@PathVariable`을 받아 서비스를 부르고 Result를 Response로 바꿔 `ResponseEntity.ok`로 돌려줄 뿐이다(`OrderController`와 같은 방식). 목록의 `size` 기본값·상한은 문서에 정해져 있지 않다(확인 필요. `getMyOrders`는 기본 20, 1~50)
+**5) order.web** — `SellerOrderController` (`/api/shops/{shopId}/orders`). `SellerShopOrderResponse`·`SellerLineResponse`는 각각 `SellerShopOrderResult`·`SellerLineResult`와 같은 필드를 가진 응답 record다(`OrderDetailResponse`가 `OrderLineDetailResponse`를 품는 것과 같은 구조. 배송지는 2-2의 `ShippingAddressResponse`). 컨트롤러는 `@CurrentMember UUID memberId`와 `@PathVariable`을 받아 서비스를 부르고 Result를 Response로 바꿔 `ResponseEntity.ok`로 돌려줄 뿐이다(`OrderController`와 같은 방식). 목록의 `size`는 `getMyOrders`와 같이 기본 20, 1~50이다(`@RequestParam(defaultValue = "20") @Min(1) @Max(50)`, 검증 메시지는 `OrderController`와 같다)
 
 | API | 요청 | 응답 |
 |---|---|---|

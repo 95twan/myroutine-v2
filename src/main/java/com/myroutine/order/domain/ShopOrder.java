@@ -11,7 +11,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Getter
 @Entity
@@ -76,5 +75,23 @@ public class ShopOrder extends BaseTimeEntity {
     public void markCancelled() {
         this.status = this.status.transitTo(ShopOrderStatus.CANCELLED);
         this.lines.forEach(OrderLine::markCancelled);
+    }
+
+    public void ship(String carrier, String trackingNumber, Instant now) {
+        this.status = this.status.transitTo(ShopOrderStatus.SHIPPED);
+        this.carrier = carrier;
+        this.trackingNumber = trackingNumber;
+        this.shippedAt = now;
+        this.lines.stream()
+                .filter(line -> line.getStatus() != OrderLineStatus.CANCELLED)
+                .forEach(OrderLine::markShipped);
+    }
+
+    public void deliver(Instant now) {
+        this.status = this.status.transitTo(ShopOrderStatus.DELIVERED);
+        this.deliveredAt = now;
+        this.lines.stream()
+                .filter(line -> line.getStatus() == OrderLineStatus.SHIPPED)
+                .forEach(OrderLine::markDelivered);
     }
 }

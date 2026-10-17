@@ -1,5 +1,6 @@
 package com.myroutine.order.domain;
 
+import com.myroutine.common.error.BusinessException;
 import com.myroutine.common.model.BaseTimeEntity;
 import com.myroutine.common.model.Ids;
 import com.myroutine.common.model.Money;
@@ -111,5 +112,20 @@ public class Order extends BaseTimeEntity {
         return this.shopOrders.stream()
                 .flatMap(shopOrder -> shopOrder.getLines().stream())
                 .collect(Collectors.groupingBy(OrderLine::getProductId, Collectors.summingInt(OrderLine::getQuantity)));
+    }
+
+    public ShopOrder findShopOrder(UUID shopOrderId) {
+        return this.shopOrders.stream()
+                .filter(shopOrder -> shopOrder.getId().equals(shopOrderId))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(OrderErrorCode.SHOP_ORDER_NOT_FOUND));
+    }
+
+    public void ship(UUID shopOrderId, String carrier, String trackingNumber, Instant now) {
+        findShopOrder(shopOrderId).ship(carrier, trackingNumber, now);
+    }
+
+    public void deliver(UUID shopOrderId, Instant now) {
+        findShopOrder(shopOrderId).deliver(now);
     }
 }

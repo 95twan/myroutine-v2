@@ -1,8 +1,6 @@
 package com.myroutine.order.infrastructure;
 
-import com.myroutine.order.domain.Order;
-import com.myroutine.order.domain.OrderRepository;
-import com.myroutine.order.domain.OrderStatus;
+import com.myroutine.order.domain.*;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -10,6 +8,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -73,4 +72,37 @@ public interface JpaOrderRepository extends JpaRepository<Order, UUID>, OrderRep
             order by o.updatedAt
             """)
     List<UUID> findStuckIds(OrderStatus status, Instant before, Limit limit);
+
+    @Query("""
+            select o
+            from Order o
+            join o.shopOrders so
+            where so.id = :shopOrderId
+            """)
+    Optional<Order> findByShopOrderId(UUID shopOrderId);
+
+    @Query("""
+            select new com.myroutine.order.domain.ShopOrderListRow(so.id, so.orderId, so.status, o.shippingAddress, so.carrier, so.trackingNumber, so.shippedAt, so.deliveredAt, so.createdAt)
+            from ShopOrder so
+            join Order o on o.id = so.orderId
+            where so.shopId = :shopId and (:status is null or so.status = :status)
+            order by so.createdAt desc, so.id desc
+            """)
+    List<ShopOrderListRow> findShopOrderFirstPage(UUID shopId, ShopOrderStatus status, Limit limit);
+
+    @Query("""
+            select new com.myroutine.order.domain.ShopOrderListRow(so.id, so.orderId, so.status, o.shippingAddress, so.carrier, so.trackingNumber, so.shippedAt, so.deliveredAt, so.createdAt)
+            from ShopOrder so
+            join Order o on o.id = so.orderId
+            where so.shopId = :shopId and (:status is null or so.status = :status) and (so.createdAt < :cursorCreatedAt or (so.createdAt = :cursorCreatedAt and so.id < :cursorId))
+            order by so.createdAt desc, so.id desc
+            """)
+    List<ShopOrderListRow> findShopOrderNextPage(UUID shopId, ShopOrderStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit);
+
+    @Query("""
+            select ol
+            from OrderLine ol
+            where ol.shopOrderId in :shopOrderIds
+            """)
+    List<OrderLine> findLinesByShopOrderIdIn(Collection<UUID> shopOrderIds);
 }
