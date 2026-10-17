@@ -77,4 +77,12 @@ public class OrderLine extends BaseTimeEntity {
     public void markCancelled() {
         this.status = this.status.transitTo(OrderLineStatus.CANCELLED);
     }
+
+    public void markShipped() {
+        this.status = this.status.transitTo(OrderLineStatus.SHIPPED);
+    }
+
+    public void markDelivered() {
+        this.status = this.status.transitTo(OrderLineStatus.DELIVERED);
+    }
 }

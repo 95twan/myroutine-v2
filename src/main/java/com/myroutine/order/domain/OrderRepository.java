@@ -3,6 +3,7 @@ package com.myroutine.order.domain;
 import org.springframework.data.domain.Limit;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -27,4 +28,12 @@ public interface OrderRepository {
     int expire(UUID id, OrderStatus from, OrderStatus to, Instant now);
 
     List<UUID> findStuckIds(OrderStatus status, Instant before, Limit limit);
+
+    Optional<Order> findByShopOrderId(UUID shopOrderId);
+
+    List<ShopOrderListRow> findShopOrderFirstPage(UUID shopId, ShopOrderStatus status, Limit limit);
+
+    List<ShopOrderListRow> findShopOrderNextPage(UUID shopId, ShopOrderStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit);
+
+    List<OrderLine> findLinesByShopOrderIdIn(Collection<UUID> shopOrderIds);
 }
