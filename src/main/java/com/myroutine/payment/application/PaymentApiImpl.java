@@ -157,7 +157,7 @@ class PaymentApiImpl implements PaymentApi {
                 case PgResult.Approved _ -> {
                     int count = paymentCancelRepository.markDone(target.cancelId(), now);
                     if (count == 1) {
-                        Payment payment = paymentRepository.findById(target.paymentId()).orElseThrow(
+                        Payment payment = paymentRepository.findByIdForUpdate(target.paymentId()).orElseThrow(
                                 () -> new IllegalStateException("결제 정보를 찾을 수 없습니다.")
                         );
                         payment.applyCancel(amount);
