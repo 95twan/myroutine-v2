@@ -1,6 +1,9 @@
 # Part 3. 이벤트
 
-> 버전 0.13 · 2026-10-16 · **쓰지 않는 값과 불필요한 단계를 걷어냈다**(리뷰 지적): 3-1 `relayOnce`의 회수와 선점을 한 트랜잭션으로 묶었고, 3-3 구매확정 이벤트가 2-10 3번에서 이미 찾은 품목을 넘겨 쓰게 했으며, 3-4 `insertIgnoringConflict`·`assign`의 쓰지 않는 반환값과 3-5 `MemberContact`의 `memberId`·`nickname`을 지웠다. 그 밖의 규격·동작은 0.12와 같다
+> 버전 0.16 · 2026-10-18 · **읽기 헬퍼 정의를 단계 사이에서 맞췄다**: Part 1·2에서 정의한 `memberSnapshotOf`·`countOf`(3-1), `shopSnapshotOf`·`productSnapshotOf`(3-2), 가격 이력(3-3), 배송지·`cartSnapshotOf`(3-6)를 처음 쓰는 단계의 `TestFixtures` 추가 행으로 옮기고, 3-3의 `orderLineConfirmedAtOf`를 2-10의 `OrderSnapshot.LineState.confirmedAt`으로 합쳤으며, 3-5의 주문 `status` 확인을 `snapshotOf`로 바꿨다. 규격 변경 없음
+> 0.15 · 2026-10-18 · **완료 확인에서 값을 읽는 방법을 읽기 헬퍼로 올리고 중복 확인을 걷어냈다**(사용자 지적: 확인할 값마다 JDBC 쿼리·`Map` 변환·캐스팅 코드를 테스트마다 짜야 해서 비효율): outbox 행은 `OutboxAssert.rows`·`outboxSnapshotOf`(`OutboxSnapshot`), Kafka 메시지는 `TestKafka.messages`(`ReceivedMessage`), 회원·가게·상품은 Part 1의 `memberSnapshotOf`·`shopSnapshotOf`·`productSnapshotOf`에 필드(`role`·`status`·`email`·`withdrawnAt`, `closedAt`, `version`·가격 이력 `changedAt`)를 더해, 정산은 `settlementSnapshotOf`·`settlementItemSnapshotOf`, 알림은 `notificationRowsOf`(`NotificationRow`)로 한 번 읽고 단언을 한 줄로 쓴다. 주문·결제는 2-8a의 `snapshotOf(orderId)`, 장바구니는 2-1의 `cartSnapshotOf`, 행 수는 1-3의 `countOf`를 쓴다. `processed_message`는 `processedCountOf`, 역할 변경은 `changeRole`, 알림 재시도 시각 당기기는 `setNotificationsDue`로 올렸다. 각 단계 "이 단계에서 추가하는 헬퍼" 표에 읽는 테이블·컬럼과 반환 필드를 적었다. 같은 클래스에서 값이 목적이 아닌 케이스가 되풀이하던 확인(3-2 `CloseShopTest` 3·7번의 역할·단종 결과, 3-5 4번의 FAILED 재확인)과 어느 케이스도 쓰지 않던 읽기(3-3 `orders.orders`의 `status`·`failure_reason`)를 지웠다. 부정 확인과 구체 수치는 그대로이고 규격·동작 변경 없음
+> 0.14 · 2026-10-18 · **3-1~3-6의 완료 확인을 케이스마다 준비·동작·확인할 값으로 다시 썼다**(사용자 지적: 무엇을 확인하는지 모호하다): 값을 읽는 방법(outbox 행과 payload 필드, Kafka 메시지, `processed_message`, 알림 행, 응답 jsonPath), 공통 준비 수치, 케이스별 응답 코드·DB 컬럼·토픽·키·payload 값, 중복 전달·재처리가 남겨야 하는 정확한 건수, 부정 확인(0건·그대로)을 적었다. 3-4는 3-4a·3-4b로 나눴고, 센티널 메시지로 중복 소비를 확인하는 방법과 테스트 헬퍼(`OutboxAssert.clear`·`publishReady`, `TestKafka`, `TestKafkaTopics`, `insertSettlementItem(s)`, `FakePayoutGateway` 호출 기록)를 정했다. 규격에 없던 값은 "확인 필요"로 남겼다. 규격 외 변경 없음. 케이스를 더한 곳: 3-1 `MemberRoleServiceTest`·`OutboxPublisherTest` 4번·`OutboxRelayTest` 3번 일부, 3-2 `InboxGuardTest` 2·4·5번·`CloseShopTest` 2·4번과 `revokeSellerIfNoActiveShop`, 3-3 롤백(발행 실패) 등, 3-4 늦게 온 품목·0원 정산·한 가게 실패·컨트롤러 조회/관리자 성공, 3-5 같은 판매자 가게 둘·탈퇴 회원, 3-6 환불 경계·동시 탈퇴 등
+> 0.13 · 2026-10-16 · **쓰지 않는 값과 불필요한 단계를 걷어냈다**(리뷰 지적): 3-1 `relayOnce`의 회수와 선점을 한 트랜잭션으로 묶었고, 3-3 구매확정 이벤트가 2-10 3번에서 이미 찾은 품목을 넘겨 쓰게 했으며, 3-4 `insertIgnoringConflict`·`assign`의 쓰지 않는 반환값과 3-5 `MemberContact`의 `memberId`·`nickname`을 지웠다. 그 밖의 규격·동작은 0.12와 같다
 > 0.12 · 2026-10-16 · **"할 일"을 구현 순서대로 다시 놓고 설명 속에 숨어 있던 구현물을 표로 올렸다**(구현 중 지적): 3-1~3-6 "할 일" 맨 앞에 구현 순서 한 줄을 더했다. 3-1 `OutboxRelayJob`·`TypedEnvelope`, 3-2 폐업 구현물 14행(`ShopApi` 3개·저장소 조회·DLT 토픽·소비 클래스, 존재하지 않는 `shopOrderRepository`를 `OrderRepository`로), 3-3 구현물 표(`order/api` 패키지·토픽 설정 3개·`ProductRepository.flush`·`autoConfirm` 반환 변경), 3-4 `SettlementConfig`·`SettlementSum`·`SettlementItemService`·consumer·`SettlementService`·`SettlementJob`·package-info 행과 3-4b 이벤트·조회·오류 코드 표(`myroutine.business-zone`은 이미 `application.yaml`에 있음을 반영), 3-5 클래스 표 11행(저장소·package-info 포함)과 설명 순서, 3-6 구현물 15행(저장소 조회·장바구니 삭제·토픽 설정)을 적었다. 같은 설명이 반복된 곳(`EventContext`·`InboxGuard` MDC, `flush`·`version`, 가게 주인 조회, `MANDATORY`)은 한 곳만 남겼다. 규격·동작은 0.11과 같다
 > 0.11 · 2026-10-15 · **`EventPublishingTest` 대상에서 payment를 뺐다**(리뷰 결정): 3-3 이벤트 표에 payment가 발행하는 이벤트가 없다. 그 밖의 규격은 0.10과 같다
 > 0.10 · 2026-10-15 · **Part 3 클래스·메서드 설명을 풀어 썼다**(구현 중 "뭔지 모르겠다" 지적): 표의 한 줄 규격이던 클래스·메서드마다 역할·호출하는 곳·입력과 반환·순서·함정을 적었다(3-1 outbox·릴레이·consumer, 3-2 멱등 소비·에러 핸들러·폐업, 3-3 이벤트 발행 위치, 3-4 정산·지급, 3-5 알림, 3-6 탈퇴). 문서에 정해져 있지 않던 부분은 "확인 필요"로 표시했다. 규격·동작은 직전 버전과 같다
@@ -103,7 +106,7 @@
 
 ### 할 일
 
-**구현 순서**: ① 인프라(compose·의존성·`application.yaml`·`IntegrationTestSupport`) → ② outbox 마이그레이션 → ③ `EventEnvelope` → `OutboxPublisher` → `OutboxRelay` → `OutboxRelayJob` → `EventEnvelopes` → `EventContext` → ④ shop: `ShopTopics`·`ShopOpenedEvent` → `ShopTopicConfig` → `OpenShopService` 수정 → ⑤ member: `Member.promoteToSeller`·`demoteToUser` → `MemberRoleService` → `member/package-info.java` → `ShopEventConsumer` → ⑥ 테스트 헬퍼(`Eventually`, `OutboxAssert`) → 테스트.
+**구현 순서**: ① 인프라(compose·의존성·`application.yaml`·`IntegrationTestSupport`) → ② outbox 마이그레이션 → ③ `EventEnvelope` → `OutboxPublisher` → `OutboxRelay` → `OutboxRelayJob` → `EventEnvelopes` → `EventContext` → ④ shop: `ShopTopics`·`ShopOpenedEvent` → `ShopTopicConfig` → `OpenShopService` 수정 → ⑤ member: `Member.promoteToSeller`·`demoteToUser` → `MemberRoleService` → `member/package-info.java` → `ShopEventConsumer` → ⑥ 테스트 헬퍼(`Eventually`, `OutboxSnapshot`, `OutboxAssert`) → 테스트.
 
 **1) 인프라**
 - `docker/docker-compose.yml`에 Kafka 추가: 이미지 `apache/kafka:4.2.2`(KRaft 단일 브로커. 2026-10-09 Docker Hub의 4.2 줄 최신 패치 — Boot 4.1.1이 관리하는 kafka-clients가 4.2.1이라 같은 줄로 맞췄다. 4.3.x도 있다), 포트 `127.0.0.1:9092:9092`. 1-11 운영 compose에도 같은 태그로 추가한다. 운영에서는 앱이 컨테이너라 브로커가 광고하는 주소(advertised listeners)가 `localhost`면 붙지 못한다 — 서비스 이름(`kafka:9092`)으로 광고하게 설정한다(환경변수 이름은 이미지 문서에서 확인 필요)
@@ -253,15 +256,119 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
 
 **5) 테스트 헬퍼**
 - `support/Eventually` (공통 규칙 Q): `static void await(Duration timeout, ThrowingRunnable assertion)`. `ThrowingRunnable`은 `void run() throws Exception`을 가진 함수형 인터페이스다(JDK에 없어 `support`에 함께 만든다). 100ms마다 `assertion.run()`을 호출해 예외 없이 끝나면 return하고, `timeout`이 지나면 **마지막으로 난 예외**를 던진다. 사용: `Eventually.await(Duration.ofSeconds(5), () -> assertThat(role(memberId)).isEqualTo("SELLER"));`
-- `support/OutboxAssert`: `List<Map<String, Object>> rows(String topic)` — `JdbcTemplate`으로 `common.outbox_event`에서 `topic = ?`인 행을 `created_at` 순으로 읽는다. 한 행이 컬럼 이름 → 값의 `Map`이다(예: `rows.get(0).get("status")`, `.get("trace_id")`). `payload`(jsonb)는 `PGobject`로 오므로 `toString()`으로 JSON 문자열을 얻어 `ObjectMapper.readTree`로 필드를 읽는다.
+- `support/OutboxSnapshot`: outbox 행 하나를 컬럼 이름 그대로의 타입 있는 필드로 담는 record다. 필드는 아래 "이 단계에서 추가하는 헬퍼" 표에 있다.
+- `support/OutboxAssert`: `List<OutboxSnapshot> rows(String topic)` — `JdbcTemplate`으로 `common.outbox_event`에서 `topic = ?`인 행을 `created_at` 순으로 읽어 `OutboxSnapshot`으로 바꾼다. `payload`(jsonb)는 `PGobject`로 오므로 `toString()`으로 JSON 문자열을 얻어 `ObjectMapper.readTree`로 `JsonNode`를 만든다. 테스트는 `rows.get(0).status()`, `rows.get(0).payload().get("shopId").asText()`처럼 읽는다. 나머지 메서드(`clear`, `publishReady`)는 아래 표에 있다.
 
 ### 완료 확인
 
-| 테스트 클래스 | 케이스 |
+**확인 값을 읽는 방법** (3-2 이후도 같다)
+- 응답: `jsonPath`. 에러 응답의 코드는 `$.code`. 응답 헤더는 `result.getResponse().getHeader("X-Request-Id")`.
+- outbox: 토픽의 행은 `OutboxAssert.rows(topic)`(위 5)) → `List<OutboxSnapshot>`(생성 순). id를 아는 행 하나는 `testFixtures.outboxSnapshotOf(outboxId)`. 한 행의 필드는 `id()`, `aggregateType()`, `aggregateId()`, `eventType()`, `topic()`, `status()`, `attempts()`, `traceId()`, `lastError()`, `nextAttemptAt()`, `lockedUntil()`, `sentAt()`, `payload()`(`JsonNode`: `payload().get("shopId").asText()`)다. 전체 행 수는 `testFixtures.countOf("common.outbox_event")`.
+- 회원: `testFixtures.memberSnapshotOf(memberId)`(Part 1의 헬퍼. 이 단계에서 `role()`을 더한다)의 `role()`.
+- Kafka 메시지: `TestKafka.messages(topic, key)` → `List<ReceivedMessage>`. 토픽에서 `key`(집계 ID 문자열)가 같은 레코드만 모은 것이다. 브로커는 테스트 JVM 전체에서 하나라 이전 테스트가 남긴 메시지가 섞여 있어서 키로 거른다. 한 건은 `key()`, `partition()`, `value()`(원문 문자열), `envelope()`(`EventEnvelope`. `value()`가 봉투 JSON이 아니면 `null`)이고, 봉투는 `envelope().eventId()`, `aggregateId()`, `eventType()`, `traceId()`, `payload().get("shopId").asText()`로 읽는다.
+- consumer가 처리한 결과: `Eventually.await(Duration.ofSeconds(5), () -> assertThat(...))` 안에서 읽는다.
+
+**공통 준비**: 판매자 `seller@test.com`을 `signup`(역할 `USER`), 가게는 `openShop(sellerId, "1111111111")`. `signup`·`openShop` 같은 준비 호출도 outbox 행을 만든다(`openShop`은 이 단계부터 `shop.shop-opened.v1` 1건). `relayOnce()`는 READY인 행을 전부 발행하므로 준비가 만든 행이 섞이면 반환값과 consumer 결과가 달라진다. 개수를 세거나 `relayOnce()`를 부르는 케이스는 준비를 마친 직후 `OutboxAssert.clear()`로 비우고 시작한다.
+
+#### `common/outbox/OutboxPublisherTest`
+
+공통 준비: `OutboxPublisher`, `TransactionTemplate tx`, `JdbcTemplate` 주입. 호출은 `outboxPublisher.publish("shop.shop-opened.v1", "SHOP", shopId, new ShopOpenedEvent(shopId, memberId))`이고 `shopId`·`memberId`는 `Ids.newId()`로 만든 임의 UUID다(회원·가게 행은 필요 없다).
+
+**1. 트랜잭션 없이 publish** — 동작: `tx` 없이 위 호출을 그대로 한다.
+- `IllegalTransactionStateException`이 던져진다(`assertThatThrownBy`).
+- `countOf("common.outbox_event")` = 0.
+
+**2. 롤백되면 행이 없다** — 동작: `tx.execute(s -> { publish 호출; s.setRollbackOnly(); return null; })`.
+- `OutboxAssert.rows("shop.shop-opened.v1")`가 비어 있다(0건).
+
+**3. 커밋되면 행이 한 개, trace_id는 MDC 값** — 준비: `MDC.put("traceId", "trace-test-1")`(키는 `TraceIds.MDC_KEY`). 동작: `tx.executeWithoutResult(s -> publish 호출)` → `finally`에서 `MDC.remove("traceId")`.
+- `OutboxAssert.rows("shop.shop-opened.v1")`가 정확히 1건이다.
+- 그 행: `traceId()` = `trace-test-1`, `status()` = `READY`, `aggregateType()` = `SHOP`, `aggregateId()` = shopId, `eventType()` = `ShopOpenedEvent`, `topic()` = `shop.shop-opened.v1`, `attempts()` = 0, `id()`는 null이 아니다.
+- payload: `shopId` = shopId 문자열, `memberId` = memberId 문자열.
+
+**4. MDC가 없으면 trace_id는 null** — 동작: MDC를 넣지 않고 `tx.executeWithoutResult(s -> publish 호출)`.
+- 그 행의 `traceId()`가 `null`이다.
+
+#### `common/outbox/OutboxRelayTest`
+
+공통 준비: 테스트 전용 토픽 `test.outbox-relay.v1`(`TestKafkaTopics`가 만든다)에 READY 행을 `UUID id = OutboxAssert.publishReady("test.outbox-relay.v1", aggregateId)`로 만든다(행의 `id`를 돌려준다). 행은 `testFixtures.outboxSnapshotOf(id)`로 읽고, Kafka 메시지는 `TestKafka.messages("test.outbox-relay.v1", aggregateId.toString())`로 읽는다. 각 케이스는 `OutboxAssert.clear()`로 시작한다.
+
+**1. READY 3건 발행** — 준비: `a1`, `a2`, `a3`(임의 UUID)로 3행. 동작: `int sent = outboxRelay.relayOnce()`.
+- `sent` = 3.
+- 3행 모두 `status()` = `SENT`, `sentAt()` not null, `lockedUntil()` null, `attempts()` = 0.
+- `messages(토픽, a1)`·`messages(토픽, a2)`·`messages(토픽, a3)`(키는 UUID 문자열)이 각각 정확히 1개.
+- 각 메시지의 봉투: `eventId()` = 그 행의 `id()`, `aggregateId()` = 키, `eventType()` = `TestEvent`, `traceId()` = 행의 `traceId()`(null).
+- 한 번 더 `relayOnce()` = 0이고, 위 키의 메시지 수는 그대로 1개씩이다(SENT 행은 다시 발행하지 않는다).
+
+**2. Kafka가 멈췄다 돌아온 경우** — 준비: READY 1행(`a1`). 동작 1: `kafka.getDockerClient().pauseContainerCmd(kafka.getContainerId()).exec()` → `relayOnce()`(브로커 응답을 기다리느라 몇 초 걸린다).
+- 반환값 0.
+- 그 행: `status()` = `READY`, `attempts()` = 1, `lastError()` not null(길이 500 이하), `lockedUntil()` null.
+- `nextAttemptAt()`이 `Instant.now()`보다 뒤다(10초 뒤로 미뤄졌다).
+- 동작 2(`finally`에서도 반드시): `unpauseContainerCmd(...)` → JDBC `UPDATE common.outbox_event SET next_attempt_at = now() - interval '1 second' WHERE id = ?` → `relayOnce()`.
+- 반환값 1, 그 행 `status()` = `SENT`, `attempts()` = 1(성공해도 지우지 않는다).
+- `messages(토픽, a1)`은 1개 또는 2개이고 모두 `envelope().eventId()`가 그 행의 `id()`다(멈춘 동안 보낸 첫 시도가 브로커가 돌아온 뒤 늦게 도착할 수 있다. 그래서 consumer 멱등이 필요하다).
+
+**3. 리스가 끝난 PROCESSING 행 회수, 끝나지 않은 행은 그대로** — 준비: READY 2행(`a1`, `a2`)을 만든 뒤 JDBC로 `UPDATE common.outbox_event SET status = 'PROCESSING', locked_until = now() - interval '1 minute' WHERE aggregate_id = a1`, `... locked_until = now() + interval '1 minute' WHERE aggregate_id = a2`. 동작: `relayOnce()`.
+- 반환값 1.
+- `a1` 행: `status()` = `SENT`, `messages(토픽, a1)` 1개.
+- `a2` 행: `status()` = `PROCESSING`, `lockedUntil()`이 `Instant.now()`보다 뒤(그대로 미래), `messages(토픽, a2)` 0개(남의 리스를 가져가지 않는다).
+
+**4. 10번째 실패는 DEAD** — 준비: READY 1행(`a1`) → JDBC `UPDATE common.outbox_event SET attempts = 9 WHERE aggregate_id = a1`. 동작: Kafka를 멈추고(2번과 같은 방법) `relayOnce()` → `finally`에서 unpause.
+- 반환값 0.
+- 그 행: `status()` = `DEAD`, `attempts()` = 10, `lastError()` not null, `lockedUntil()` null.
+- unpause 뒤 `relayOnce()` = 0이고 그 행은 `DEAD` 그대로(다시 집지 않는다).
+
+#### `member/application/MemberRoleServiceTest`
+
+회원 역할 변환을 consumer 없이 서비스로 직접 확인한다. 준비: 회원 `signup`, 역할은 `changeRole(memberId, role)`로 맞춘다. 동작은 `memberRoleService.grantSeller(memberId)`. 역할은 `memberSnapshotOf(memberId).role()`로 읽는다.
+
+| 준비한 역할 | 확인할 것 |
 |---|---|
-| `common/outbox/OutboxPublisherTest` | [ ] 트랜잭션 없이 `publish` → `IllegalTransactionStateException` / [ ] 트랜잭션 안에서 publish 후 롤백 → 행 없음 / [ ] `trace_id`에 MDC 값 |
-| `common/outbox/OutboxRelayTest` | [ ] READY 3건 → `relayOnce()` = 3, 모두 SENT, 테스트용 `KafkaConsumer`로 토픽에서 봉투 3개 읽힘(eventId = outbox id) / [ ] **Kafka를 멈춘 상태**(`kafka.getDockerClient().pauseContainerCmd(kafka.getContainerId()).exec()`)에서 `relayOnce()` → 0, 행은 READY·`attempts` 1 → unpause → JDBC로 `next_attempt_at`을 과거로 → `relayOnce()` → SENT / [ ] PROCESSING·`locked_until` 과거인 행 → `relayOnce()`가 회수 후 발행 / [ ] `attempts` 9인 행이 실패 → DEAD |
-| `shop/application/ShopOpenedFlowTest` | [ ] 가게 개설 → outbox 1건(`shop.shop-opened.v1`) → `relayOnce()` → `Eventually`로 회원 role이 SELLER / [ ] 사업자번호 중복으로 개설 실패 → outbox 0건 / [ ] 개설 요청의 `X-Request-Id`와 outbox `trace_id`가 같다 |
+| `USER` | 호출 뒤 `role()` = `SELLER` |
+| `SELLER` | 예외 없이 끝나고 `role()` = `SELLER` 그대로 |
+| `ADMIN` | 예외 없이 끝나고 `role()` = `ADMIN` 그대로 |
+| 없는 회원(`Ids.newId()`) | 예외 없이 끝난다(경고 로그만 남는다) |
+
+#### `shop/application/ShopOpenedFlowTest`
+
+**1. 가게 개설이 SELLER 역할로 이어진다** — 동작 1: `OutboxAssert.clear()` → `shopId = openShop(sellerId, "1111111111")`.
+- `OutboxAssert.rows("shop.shop-opened.v1")`가 정확히 1건(`row`): `aggregateType()` = `SHOP`, `aggregateId()` = shopId, `eventType()` = `ShopOpenedEvent`, `status()` = `READY`, payload `shopId` = shopId 문자열, `memberId` = sellerId 문자열.
+- 이 시점 `memberSnapshotOf(sellerId).role()` = `USER`(릴레이 전에는 바뀌지 않는다).
+- 동작 2: `outboxRelay.relayOnce()`.
+- 반환값 1, `outboxSnapshotOf(row.id()).status()` = `SENT`.
+- `TestKafka.messages("shop.shop-opened.v1", shopId.toString())` 1개, `envelope().eventId()` = `row.id()`.
+- `Eventually`(5초) 안에서 `memberSnapshotOf(sellerId).role()` = `SELLER`.
+
+**2. 사업자번호 중복이면 이벤트도 없다** — 준비: 판매자 A가 `openShop(sellerId, "1111111111")` 성공 → 판매자 B를 `token("seller2@test.com")`으로 가입 → `OutboxAssert.clear()`. 동작: B의 토큰으로 `POST /api/shops`(`Authorization: Bearer {B 토큰}`, `Idempotency-Key`: 새 UUID, 본문 `{"name":"shop2","businessNumber":"1111111111","email":"shop2@test.com","phone":"010-1234-5678","address":"address"}`).
+- 응답 409, `$.code` = `SHOP_BUSINESS_NUMBER_DUPLICATED`.
+- `countOf("common.outbox_event")` = 0.
+- `countOf("shop.shop")` = 1.
+
+**3. 요청의 traceId가 outbox와 봉투까지 이어진다** — 준비: `token("seller2@test.com")`으로 가입·토큰, `OutboxAssert.clear()`. 동작: 위 2번과 같은 `POST /api/shops`(사업자번호는 `"2222222222"`) → 201. 응답 헤더 `X-Request-Id` 값을 `traceId`로 읽고 응답의 `$.shopId`를 `shopId`로 읽는다.
+- `OutboxAssert.rows("shop.shop-opened.v1")`의 `aggregateId()` = shopId인 행의 `traceId()` = `traceId`.
+- 동작 2: `relayOnce()`. `TestKafka.messages("shop.shop-opened.v1", shopId.toString())`의 봉투 `traceId()` = `traceId`.
+
+**테스트 준비**
+
+**이 단계에서 추가하는 헬퍼** (`support/`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
+
+| 대상 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `OutboxSnapshot` | `support/`의 record. 필드: `id`·`aggregateId`(UUID), `aggregateType`·`eventType`·`topic`·`status`·`traceId`·`lastError`(String, `traceId`·`lastError`는 없으면 null), `attempts`(int), `nextAttemptAt`·`lockedUntil`·`sentAt`(`Instant`, `lockedUntil`·`sentAt`은 없으면 null), `payload`(`JsonNode`) | 아래 세 행과 모든 outbox 확인 |
+| `OutboxAssert.rows(String topic)` → `List<OutboxSnapshot>` | JDBC `SELECT id, aggregate_type, aggregate_id, event_type, topic, status, trace_id, last_error, attempts, next_attempt_at, locked_until, sent_at, payload FROM common.outbox_event WHERE topic = ? ORDER BY created_at, id`. `payload`는 `PGobject`의 `toString()`을 `objectMapper.readTree`로 푼다. 시각 컬럼은 `OffsetDateTime`으로 읽어 `toInstant()` | 3-1 이후 모든 outbox 확인 |
+| `outboxSnapshotOf(UUID outboxId)` → `OutboxSnapshot` | 위와 같은 컬럼·변환으로 `WHERE id = ?` 한 행. 행이 없으면 `null` | `OutboxRelayTest`, 행 id를 아는 확인 |
+| `OutboxAssert.clear()` | JDBC `DELETE FROM common.outbox_event` | 개수를 세거나 `relayOnce()`를 부르는 모든 케이스의 준비 끝 |
+| `OutboxAssert.publishReady(String topic, UUID aggregateId)` → `UUID` | `tx.executeWithoutResult(s -> outboxPublisher.publish(topic, "TEST", aggregateId, new TestEvent("x")))` 뒤 `SELECT id FROM common.outbox_event WHERE aggregate_id = ?`로 읽은 행 id를 돌려준다 | `OutboxRelayTest` |
+| `TestEvent` | `public record TestEvent(String value)` | 위 |
+| `TestKafka` (`@Component`) | 의존성 `ObjectMapper`, `@Value("${spring.kafka.bootstrap-servers}") String bootstrapServers`. `List<ConsumerRecord<String, String>> readAll(String topic)`: 새 `group.id`(`UUID`), `auto.offset.reset=earliest`, `StringDeserializer`로 `KafkaConsumer`를 만들어 토픽의 모든 파티션을 구독하고, 새 레코드가 없는 `poll(Duration.ofSeconds(1))`이 연속 2번 나올 때까지 모아 반환한 뒤 닫는다. `List<ReceivedMessage> messages(String topic, String key)`: `readAll(topic)`에서 `record.key()`가 `key`인 레코드만 골라 `ReceivedMessage`로 바꾼다 | 3-1 이후 모든 Kafka 메시지 확인 |
+| `ReceivedMessage` | `support/`의 record `(String key, int partition, String value, EventEnvelope envelope)`. `envelope`은 `objectMapper.readValue(value, EventEnvelope.class)`의 결과이고, 읽기에 실패하면(봉투가 아닌 문자열) `null` | `TestKafka.messages` |
+| `memberSnapshotOf(memberId)` → `MemberSnapshot` | 1-3 표에 정의된 헬퍼다(읽는 컬럼·필드는 그 표). 처음 쓰는 미구현 단계인 이 단계에서 `TestFixtures`에 추가하고 `role`(String), `status`(String), `email`(String), `withdrawnAt`(`Instant`, 없으면 null)을 더한다. 읽는 컬럼 `member.member.role`, `status`, `email`, `withdrawn_at`. 배송지(`addresses`)는 3-6이 더한다 | 3-1 `MemberRoleServiceTest`·`ShopOpenedFlowTest`, 3-2 `CloseShopTest`, 3-6 `WithdrawTest`, Part 4 |
+| `countOf(table)` → `long` | 1-3 표에 정의된 헬퍼다. 이 단계에서 `TestFixtures`에 추가한다 | 3-1 이후 행 수 확인 |
+| `changeRole(UUID memberId, String role)` | JDBC `UPDATE member.member SET role = ? WHERE id = ?` | 3-1 `MemberRoleServiceTest`, 3-2 `CloseShopTest` 준비, 3-6 |
+| `TestKafkaTopics` (`@Configuration`) | `NewTopic` 빈 3개: `test.outbox-relay.v1`, `test.always-fail.v1`, `test.always-fail.v1.dlt`(파티션 3·복제 1) | `OutboxRelayTest`, 3-2 `KafkaDltTest` |
+| `IntegrationTestSupport.kafka` | `static final`을 `protected static final`로 바꾼다(다른 패키지의 `OutboxRelayTest`가 `kafka.getDockerClient()`를 쓴다) | `OutboxRelayTest` |
+
+이미 있는 헬퍼(Part 1·2에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `openShop`. 이 단계에서 만드는 `Eventually`·`OutboxSnapshot`·`OutboxAssert.rows`는 위 5)에 있다.
 
 **리뷰 때 물어볼 것**
 - Kafka에 보내고 SENT로 바꾸기 전에 죽으면? 그래서 consumer가 반드시 해야 하는 것은?
@@ -355,11 +462,129 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
 
 ### 완료 확인
 
-| 테스트 클래스 | 케이스 |
+읽는 방법은 3-1과 같다. 이 단계에서 더하는 것은 다음과 같다.
+- `processed_message`: `processedCountOf(consumer, eventId)` → `int`(그 consumer가 그 이벤트를 처리한 기록 수. 0 또는 1).
+- 가게·상품: `shopSnapshotOf(shopId)`의 `status()`·`closedAt()`, `productSnapshotOf(productId)`의 `status()`.
+- 가게 폐업 이벤트의 `eventId`: `OutboxAssert.rows("shop.shop-closed.v1")`의 `id()`(= `processed_message.event_id`). consumer가 그 이벤트를 처리했는지는 `processedCountOf`로 안다.
+- 테스트가 Kafka에 직접 보내는 메시지: `TestKafka.send(topic, key, eventId, event)` → 보낸 레코드의 파티션 번호(`int`). 봉투를 `new EventEnvelope(eventId, event.getClass().getSimpleName(), Instant.now(), UUID.fromString(key), null, objectMapper.valueToTree(event))`로 만들어 `kafkaTemplate.send(topic, key, json).get(5, TimeUnit.SECONDS)`로 보낸다. 봉투 없이 문자열을 그대로 보낼 때는 `TestKafka.sendRaw(topic, key, value)`.
+- 센티널: "중복으로 보낸 메시지가 처리되지 않았다"는 기다려도 알 수 없다. 같은 키로 다른 `eventId`의 메시지를 한 건 더 보내고, 그 메시지의 처리 신호가 나오면 앞의 중복 메시지는 이미 지나간 것이다(같은 키는 같은 파티션이라 보낸 순서대로 처리된다).
+
+#### `common/inbox/InboxGuardTest`
+
+준비: `InboxGuard`, `JdbcTemplate`, `ObjectMapper` 주입. 봉투는 `new EventEnvelope(eventId, "TestEvent", Instant.now(), aggregateId, "trace-test-1", objectMapper.createObjectNode())`(`eventId`·`aggregateId`는 `Ids.newId()`). action은 `AtomicInteger counter`를 올리는 람다다. consumer 이름은 `test.consumer`.
+
+**1. 같은 eventId로 두 번** — 동작: `inboxGuard.runOnce("test.consumer", envelope, () -> counter.incrementAndGet())`을 두 번.
+- 두 번째 호출도 예외 없이 끝난다.
+- `counter` = 1.
+- `processedCountOf("test.consumer", eventId)` = 1, `SELECT processed_at FROM common.processed_message WHERE consumer = 'test.consumer' AND event_id = ?`가 null이 아니다.
+
+**2. consumer 이름이 다르면 각자 한 번** — 동작: 1번 뒤 같은 봉투를 consumer 이름 `test.consumer2`로 `runOnce`.
+- `counter` = 2.
+- `processedCountOf("test.consumer", eventId)` = 1, `processedCountOf("test.consumer2", eventId)` = 1(consumer 이름이 다르면 같은 eventId가 각각 기록된다).
+- 다른 eventId의 봉투를 `test.consumer`로 `runOnce`하면 `counter` = 3.
+
+**3. action이 예외를 던지면 기록도 롤백** — 동작: action이 `throw new IllegalStateException("fail")`인 `runOnce` → 이어서 같은 봉투로 `counter`를 올리는 action의 `runOnce`.
+- 첫 호출은 `IllegalStateException`이 그대로 던져진다.
+- 첫 호출 직후 `processedCountOf("test.consumer", eventId)` = 0.
+- 둘째 호출 뒤 `counter` = 1, `processedCountOf("test.consumer", eventId)` = 1(재시도 때 처리된다).
+
+**4. 같은 eventId 동시 2건** — 동작: `ConcurrencyRunner.run(2, () -> { inboxGuard.runOnce("test.consumer", envelope, () -> { counter.incrementAndGet(); Thread.sleep(300); }); return null; })`(action 안에서 300ms `Thread.sleep`으로 잠시 붙잡아 두 스레드가 겹치게 한다. `InterruptedException`은 `try/catch`로 감싼다).
+- 두 스레드 모두 `Result.ok()`(예외 없음).
+- `counter` = 1.
+- `processedCountOf("test.consumer", eventId)` = 1.
+
+**5. 처리 중 MDC** — 동작: action 안에서 `MDC.get("eventId")`, `MDC.get("traceId")`를 변수에 담는다. 호출이 끝난 뒤 같은 값을 다시 읽는다.
+- action 안: `eventId` = eventId 문자열, `traceId` = `trace-test-1`.
+- 호출이 끝난 뒤: 둘 다 `null`(다음 메시지에 값이 남지 않는다).
+
+#### `common/config/KafkaDltTest`
+
+준비(테스트 전용): `src/test`의 `@Component AlwaysFailListener` — `@KafkaListener(topics = "test.always-fail.v1", groupId = "test-always-fail")` 메서드가 `ConsumerRecord<String, String>`을 받아 ① `record.key()`별 호출 횟수를 `ConcurrentHashMap`에 올리고(`attempts(String key)`로 읽는다) ② `objectMapper.readTree(record.value())`를 부르고(깨진 JSON이면 `JacksonException`) ③ 성공하면 `throw new IllegalStateException("always fail")`. 토픽은 `TestKafkaTopics`가 파티션 3으로 만든다(`.dlt`도 3). 각 케이스는 새 UUID를 키로 쓴다. DLT 확인은 `TestKafka.messages("test.always-fail.v1.dlt", key)`로 읽는다.
+
+**1. 일시적 오류는 4번 시도 후 DLT** — 동작: `int partition = TestKafka.send("test.always-fail.v1", key, eventId, new TestEvent("x"))`.
+- `Eventually`(20초; 재시도 대기 1+2+4초) 안에서 `messages("test.always-fail.v1.dlt", key)`가 정확히 1개.
+- 그 메시지의 `value()` = `messages("test.always-fail.v1", key).get(0).value()`(같은 값 그대로 옮긴다), `partition()` = 위 `partition`(원본과 같은 파티션).
+- DLT 메시지가 보인 시점에 `attempts(key)` = 4(최초 1번 + 재시도 3번).
+
+**2. 깨진 JSON은 재시도 없이 바로 DLT** — 동작: `TestKafka.sendRaw("test.always-fail.v1", key, "{not-json")`.
+- `Eventually`(3초; 재시도 대기 7초보다 짧아야 한다) 안에서 `messages("test.always-fail.v1.dlt", key)`가 정확히 1개, `value()` = `{not-json`.
+- `attempts(key)` = 1.
+
+#### `member/application/MemberRoleServiceTest`에 추가 (3-1의 클래스에 더한다)
+
+동작은 `memberRoleService.revokeSellerIfNoActiveShop(memberId)`. 가게는 `openShop`, 폐업은 `closeShop(shopId)`(JDBC로 CLOSED). 역할은 `changeRole`로 맞추고 `memberSnapshotOf(memberId).role()`로 읽는다.
+
+| 준비 | 확인할 것 |
 |---|---|
-| `common/inbox/InboxGuardTest` | [ ] 같은 eventId로 `runOnce` 두 번 → action 1번 / [ ] action이 예외 → `processed_message`에 행 없음 → 다시 `runOnce` → action 실행됨 |
-| `common/config/KafkaDltTest` | [ ] 항상 예외를 던지는 테스트용 리스너(`src/test`의 `@Component`, 테스트 전용 토픽 `test.always-fail.v1`) → 4번 시도 후 `test.always-fail.v1.dlt`에 메시지 / [ ] 깨진 JSON → 재시도 없이 바로 DLT(시도 1번) |
-| `shop/web/CloseShopTest` | [ ] 진행 중(PAID) 가게주문이 있는 가게 폐업 → 422 `SHOP_HAS_ACTIVE_ORDERS` / [ ] 폐업 → 204, outbox `shop.shop-closed.v1` 1건 → 릴레이 → 상품 전부 DISCONTINUED / [ ] 가게 2개 중 1개 폐업 → SELLER 유지, 나머지 폐업 → 회수 / [ ] **같은 회원의 가게 2개를 동시에 폐업 → 둘 다 성공하고 최종적으로 SELLER 회수** / [ ] 같은 shop-closed 이벤트를 두 번 소비(테스트에서 같은 메시지를 직접 두 번 send) → 처리 1번 |
+| 역할 `SELLER`, ACTIVE 가게 0개(가게 1개를 `closeShop`) | `role()` = `USER` |
+| 역할 `SELLER`, ACTIVE 가게 1개(가게 2개 중 1개만 `closeShop`) | `role()` = `SELLER` 그대로 |
+| 역할 `ADMIN`, ACTIVE 가게 0개 | `role()` = `ADMIN` 그대로 |
+| 없는 회원(`Ids.newId()`) | 예외 없이 끝난다 |
+
+#### `shop/web/CloseShopTest`
+
+공통 준비: 판매자 `seller@test.com`(`signup`, 토큰은 `login`), 가게 A `openShop(sellerId, "1111111111")`, 상품 `product1`(`registerProduct(sellerId, shopA, 1000, 10)`)·`product2`(2000)·`product3`(3000), 구매자 `buyer@test.com`. 판매자 역할은 `changeRole(sellerId, "SELLER")`로 맞춘다(개설 이벤트를 릴레이하지 않는다. 나가면 폐업 이벤트와 순서가 섞인다). 준비 끝에 `OutboxAssert.clear()`. 폐업 요청은 `DELETE /api/shops/{shopId}`, `Authorization: Bearer {판매자 토큰}`(`Idempotency-Key` 없음).
+
+**1. 진행 중 가게주문이 있으면 거부** — 준비: `createPaidOrder(buyerId, product1Id)`(가게주문 `PAID`). 동작: 가게 A 폐업 요청.
+- 응답 422, `$.code` = `SHOP_HAS_ACTIVE_ORDERS`.
+- `shopSnapshotOf(shopA)`: `status()` = `ACTIVE`, `closedAt()` null.
+- `productSnapshotOf(product1Id).status()` = `ON_SALE` 그대로.
+- `countOf("common.outbox_event")` = 0(`shop.shop-closed.v1` 행이 없다).
+
+**2. 가게주문 상태별 경계** — 준비: 1번의 주문을 만든 뒤 JDBC `UPDATE orders.shop_order SET status = ? WHERE id = ?`(shopOrderId는 `shopOrderIdOf`)로 상태를 맞춘다. 동작: 가게 A 폐업 요청.
+
+| 가게주문 상태 | 응답 | 확인할 것 |
+|---|---|---|
+| `PENDING`, `PAID`, `SHIPPED`, `DELIVERED` | 422 `SHOP_HAS_ACTIVE_ORDERS` | `shopSnapshotOf(shopA).status()` = `ACTIVE` |
+| `COMPLETED`, `CANCELLED` | 204 | `shopSnapshotOf(shopA).status()` = `CLOSED` |
+
+**3. 폐업 성공: 상태, 이벤트, 상품 단종** — 준비: `hideProduct(product2Id)`(`HIDDEN`), `discontinueProduct(product3Id)`(`DISCONTINUED`), 가게주문 없음. 동작 1: 가게 A 폐업 요청.
+- 응답 204, 본문 없음.
+- `shopSnapshotOf(shopA)`: `status()` = `CLOSED`, `closedAt()` not null.
+- `OutboxAssert.rows("shop.shop-closed.v1")`가 정확히 1건: `aggregateType()` = `SHOP`, `aggregateId()` = shopA, `status()` = `READY`, payload `shopId` = shopA 문자열, `memberId` = sellerId 문자열.
+- 동작 2: `outboxRelay.relayOnce()`.
+- 반환값 1.
+- `Eventually`(5초) 안에서 `product1`·`product2`·`product3`의 `productSnapshotOf(...).status()`가 모두 `DISCONTINUED`.
+
+**4. 폐업 요청 자체의 거부** — 동작과 확인:
+
+| 준비 | 요청 | 응답 | 확인할 것 |
+|---|---|---|---|
+| 다른 판매자 `seller2@test.com`의 토큰 | 가게 A 폐업 | 403 `FORBIDDEN` | `shopSnapshotOf(shopA).status()` = `ACTIVE`, `countOf("common.outbox_event")` = 0 |
+| 가게 A를 먼저 폐업(204)한 뒤 `OutboxAssert.clear()` | 가게 A 폐업을 한 번 더 | 422 `SHOP_NOT_ACTIVE` | `countOf("common.outbox_event")` = 0(두 번째 요청이 이벤트를 만들지 않았다) |
+| 없는 가게 ID(`Ids.newId()`) | 폐업 | 404 `SHOP_NOT_FOUND` | `countOf("common.outbox_event")` = 0 |
+
+**5. 가게 2개 중 1개 폐업 → SELLER 유지, 나머지 폐업 → 회수** — 준비: 같은 판매자가 가게 B(`openShop(sellerId, "2222222222")`)도 연다. 상품은 만들지 않아도 된다. `OutboxAssert.clear()`.
+- 동작 1: 가게 A 폐업 요청(204) → `relayOnce()` = 1. 폐업 이벤트의 `eventId`는 `OutboxAssert.rows("shop.shop-closed.v1")` 중 `aggregateId()` = A인 행의 `id()`(`eventIdA`), B도 같다(`eventIdB`). `Eventually`(5초) 안에서 `processedCountOf("member.shop-closed", eventIdA)` = 1.
+- 확인 1: `memberSnapshotOf(sellerId).role()` = `SELLER`(가게 B가 ACTIVE다).
+- 동작 2: 가게 B 폐업 요청(204) → `relayOnce()` = 1. `Eventually` 안에서 `processedCountOf("member.shop-closed", eventIdB)` = 1.
+- 확인 2: `memberSnapshotOf(sellerId).role()` = `USER`.
+
+**6. 같은 회원의 가게 2개 동시 폐업** — 준비: 5번과 같은 가게 A·B. 동작 1: `ConcurrencyRunner.run(List.of(A 폐업, B 폐업))`. 각 작업은 `DELETE` 요청의 HTTP 상태 코드를 돌려준다.
+- 상태 코드: 둘 다 204.
+- `OutboxAssert.rows("shop.shop-closed.v1")` 2건(`aggregateId()`가 A, B 하나씩. 두 행의 `id()`가 `eventIdA`, `eventIdB`).
+- 동작 2: `relayOnce()` = 2. `Eventually`(10초) 안에서 `processedCountOf("member.shop-closed", eventIdA)` = 1, `processedCountOf("member.shop-closed", eventIdB)` = 1.
+- 확인 2: `memberSnapshotOf(sellerId).role()` = `USER`. (처리 신호가 둘 다 나온 뒤에 읽는다. 둘이 겹쳐 낙관적 락 충돌이 나면 재시도되어 결국 마지막 처리가 활성 가게 0개를 본다.)
+
+**7. 같은 shop-closed 이벤트를 두 번 소비** — 준비: 가게 A를 JDBC로 폐업 상태로 만든다(`closeShop(shopA)`). `@MockitoSpyBean ProductDiscontinueService`, `@MockitoSpyBean MemberRoleService`. 동작: `eventId1`로 `TestKafka.send(ShopTopics.SHOP_CLOSED, shopA.toString(), eventId1, new ShopClosedEvent(shopA, sellerId))`를 두 번 보내고, 이어서 센티널로 `eventId2`를 같은 키로 한 번 더 보낸다.
+- `Eventually`(10초) 안에서 `processedCountOf("product.shop-closed", eventId2)` = 1, `processedCountOf("member.shop-closed", eventId2)` = 1.
+- `processedCountOf("product.shop-closed", eventId1)` = 1, `processedCountOf("member.shop-closed", eventId1)` = 1.
+- `verify(productDiscontinueService, times(2)).discontinueAllByShop(shopA)`와 `verify(memberRoleService, times(2)).revokeSellerIfNoActiveShop(sellerId)`(eventId1 한 번 + 센티널 한 번. 3이면 중복이 처리된 것이다).
+
+**테스트 준비**
+
+**이 단계에서 추가하는 헬퍼** (`support/`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
+
+| 대상 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `TestKafka.send(String topic, String key, UUID eventId, Object event)` → `int` | 위 "읽는 방법"의 봉투 만들기 → `kafkaTemplate.send(topic, key, json).get(5, SECONDS)` → `getRecordMetadata().partition()` 반환 | `KafkaDltTest`, `CloseShopTest` 7번, 3-4 이후 |
+| `TestKafka.sendRaw(String topic, String key, String value)` → `int` | 위와 같고 봉투 만들기만 건너뜀 | `KafkaDltTest` 2번 |
+| `AlwaysFailListener` (`src/test`의 `@Component`) | 위 `KafkaDltTest` 준비 | `KafkaDltTest` |
+| `processedCountOf(String consumer, UUID eventId)` → `int` | JDBC `SELECT COUNT(*) FROM common.processed_message WHERE consumer = ? AND event_id = ?` | `InboxGuardTest`, `CloseShopTest`, 3-4·3-5·3-6의 consumer 확인 |
+| `shopSnapshotOf(shopId)` → `ShopSnapshot` | 1-6 표에 정의된 헬퍼다(읽는 컬럼·필드는 그 표). 처음 쓰는 미구현 단계인 이 단계에서 `TestFixtures`에 추가하고 `closedAt`(`Instant`, 없으면 null)을 더한다. 읽는 컬럼 `shop.shop.closed_at` | `CloseShopTest` |
+| `productSnapshotOf(productId)` → `ProductSnapshot` | 1-7 표에 정의된 헬퍼다(읽는 컬럼·필드는 그 표). 처음 쓰는 미구현 단계인 이 단계에서 `TestFixtures`에 추가한다. 이 단계는 `status()`만 읽는다. 가격 이력(`priceChanges`)은 3-3이 더한다 | `CloseShopTest`, 3-3 |
+
+이미 있는 헬퍼: `signup`, `token`, `login`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `createPaidOrder`, `shopOrderIdOf`, `ConcurrencyRunner`, 3-1의 `Eventually`·`OutboxAssert`·`TestKafka.messages`·`memberSnapshotOf`·`countOf`·`changeRole`.
 
 **추가 항목**
 - 같은 회원의 가게 개설·폐업을 `pg_advisory_xact_lock(hashtext('shop-member:' + memberId))`로 줄 세우기 — SELLER 판단은 consumer 재조회로 이미 안전하므로, 줄 세우기는 "동시에 열고 닫는" 이상한 요청을 막는 용도
@@ -415,7 +640,7 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
 
 **3) 발행 위치** — 해당 상태 변경과 같은 트랜잭션 안, 도메인 메서드 호출 직후
 
-발행하는 모양은 모두 같다: 서비스(또는 엔티티를 바꾼 직후의 코드)가 `outboxPublisher.publish(토픽, aggregateType, aggregateId, 이벤트 record)`를 부른다. 서비스의 `@Transactional` 안에서 부르므로 상태 변경이 롤백되면 이벤트도 사라지고(완료 확인의 "롤백되는 경우 → outbox 0건"), 이 단계에서 서비스에 `OutboxPublisher`(order는 `OrderEventPublisher`) 의존성을 더한다. 한 흐름에서 이벤트가 둘이면(상품 수정 + 가격 변경) 같은 키(`productId`)라 **호출한 순서대로** 같은 파티션에서 소비된다.
+발행하는 모양은 모두 같다: 서비스(또는 엔티티를 바꾼 직후의 코드)가 `outboxPublisher.publish(토픽, aggregateType, aggregateId, 이벤트 record)`를 부른다. 서비스의 `@Transactional` 안에서 부르므로 상태 변경이 롤백되면 이벤트도 사라지고(완료 확인 3-3의 롤백 케이스: outbox 0건), 이 단계에서 서비스에 `OutboxPublisher`(order는 `OrderEventPublisher`) 의존성을 더한다. 한 흐름에서 이벤트가 둘이면(상품 수정 + 가격 변경) 같은 키(`productId`)라 **호출한 순서대로** 같은 파티션에서 소비된다.
 
 `OrderEventPublisher` (order.application, `@Component`, 의존성 `OutboxPublisher`) — **Order 애그리거트를 받아 이벤트 record를 조립해 `OutboxPublisher`로 보내는 곳**. 이벤트 조립 코드가 `OrderPaymentApplier`·`OrderExpirationService`·`ShipmentService` 등에 흩어지지 않게 한다. 모든 메서드는 `@Transactional`을 붙이지 않는다(호출자 트랜잭션 안에서 불리고, `OutboxPublisher`가 `MANDATORY`로 검사한다). 인자는 문서에 정해져 있지 않아 아래는 권장안이다.
 
@@ -454,10 +679,124 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
 
 ### 완료 확인
 
-| 테스트 클래스 | 케이스 |
-|---|---|
-| `{module}/.../EventPublishingTest` (모듈별 1개: `member/application`, `product/application`, `order/application`. payment는 발행하는 이벤트가 없어 제외한다) | [ ] 위 표의 흐름마다 outbox에 해당 토픽 **정확히 1건**, payload 필드 값 확인(`OutboxAssert`) / [ ] 실패해서 롤백되는 경우(예: 재고 부족 체크아웃, 단종 상품 수정) → outbox 0건 / [ ] 자동 구매확정으로 품목 3개 확정 → `ORDER_LINE_CONFIRMED` 3건 / [ ] 가격 변경 없는 상품 수정 → `PRODUCT_PRICE_CHANGED` 없음 / [ ] `ProductUpsertedEvent.version`이 DB의 `product.version`과 같다 |
-| `ModularityTest` | [ ] 통과 |
+읽는 방법은 3-1과 같다. 이 단계에서 더하는 것은 다음과 같다.
+- 이벤트는 `OutboxAssert.rows(토픽)`의 `OutboxSnapshot` 하나다. 확인 항목은 `aggregateType()`, `aggregateId()`, `eventType()`, `status()`(발행 직후는 `READY`)와 payload의 필드 값이다. payload 필드는 `payload().get("필드").asText()`(문자열·UUID), `asLong()`(금액·`version`), `asBoolean()`, `size()`(배열 길이)로 읽는다. "정확히 N건"은 `rows(토픽).size()`, "없다"는 0건이다.
+- DB 값과 비교하는 필드: 상품 `productSnapshotOf(productId)`의 `version()`·`price()`, 가격 이력 `productSnapshotOf(productId).priceChanges()`(`oldPrice()`, `newPrice()`, `changedAt()`), 품목 상태·확정 시각·결제 키 `snapshotOf(orderId)`(2-8a, `confirmedAt`은 2-10)의 `line(productId).status()`·`line(productId).confirmedAt()`·`payment().paymentKey()`.
+- 모든 케이스는 준비를 마친 직후 `OutboxAssert.clear()`로 outbox를 비운 뒤 동작한다(준비의 가입·상품 등록·주문이 이벤트를 만든다). "정확히 1건"은 비운 뒤 동작이 만든 행만 센다.
+- 이벤트를 일으키는 방법은 서비스를 직접 부르는 헬퍼(`signup`, `registerProduct`, `createPaidOrder` 등)를 우선 쓰고, 응답·요청 형태가 의미 있는 곳만 MockMvc로 한다. 상품 수정은 `PATCH /api/shops/{shopId}/products/{productId}`, 상태 변경은 `PATCH /api/shops/{shopId}/products/{productId}/status`(둘 다 `Authorization: Bearer {판매자 토큰}`, 본문 예 `{"price":12000}`, `{"status":"HIDDEN"}`). 품목 취소는 `POST /api/orders/{orderId}/lines/{lineId}/cancel`(`Idempotency-Key`: 새 UUID, 본문 `{"reason":"단순 변심"}`), 구매확정은 `POST /api/orders/{orderId}/lines/{lineId}/confirm`(`Idempotency-Key` 없음), 결제 전 주문 취소는 `POST /api/orders/{orderId}/cancel`.
+
+**공통 준비** (세 `EventPublishingTest`가 쓴다): 판매자 `seller@test.com`(`signup`, 토큰은 `login`), 가게 `openShop(sellerId, "1111111111")`, 구매자 `buyer@test.com`. 상품은 `product1`(`registerProduct(sellerId, shopId, 1000, 10)`), `product2`(2000), `product3`(3000). 이 픽스처의 상품은 이름 `product`, 설명 `description`, 카테고리 `ETC`, 정기구독 불가(`false`)다.
+
+#### `member/application/EventPublishingTest`
+
+**1. 가입** — 준비: `OutboxAssert.clear()`. 동작: `memberId = signup("test@test.com")`(닉네임 `test`).
+- `rows("member.member-registered.v1")` 정확히 1건: `aggregateType()` = `MEMBER`, `aggregateId()` = memberId, `eventType()` = `MemberRegisteredEvent`, `status()` = `READY`.
+- payload: `memberId` = memberId 문자열, `email` = `test@test.com`, `nickname` = `test`. 필드는 이 셋뿐이다(`payload.size()` = 3. 비밀번호 같은 값이 새지 않는다).
+
+**2. 중복 이메일 가입은 롤백** — 준비: `signup("test@test.com")` → `OutboxAssert.clear()`. 동작: `signup("test@test.com")`을 한 번 더.
+- `BusinessException`, `errorCode` = `MEMBER_EMAIL_DUPLICATED`.
+- `countOf("common.outbox_event")` = 0.
+
+#### `product/application/EventPublishingTest`
+
+**1. 상품 등록** — 동작: `productId = registerProduct(sellerId, shopId, 1000, 10)`.
+- `rows("product.product-upserted.v1")` 정확히 1건: `aggregateType()` = `PRODUCT`, `aggregateId()` = productId.
+- payload: `productId`, `shopId` = 문자열 일치, `name` = `product`, `description` = `description`, `category` = `ETC`, `price` = 1000, `status` = `ON_SALE`, `subscribable` = false, `version` = `productSnapshotOf(productId).version()`.
+- `rows("product.product-price-changed.v1")` 0건, `rows("product.product-discontinued.v1")` 0건.
+
+**2. 가격 변경 없는 수정** — 준비: 상품 등록 → 등록 직후 `productSnapshotOf(productId).version()`을 `v0`로 읽음 → `OutboxAssert.clear()`. 동작: `PATCH` 본문 `{"name":"renamed","price":1000}`(가격은 같은 값).
+- 응답 200.
+- `product-upserted` 정확히 1건: payload `name` = `renamed`, `price` = 1000, `version` = `productSnapshotOf(productId).version()` = `v0 + 1`.
+- `product-price-changed` 0건.
+
+**3. 가격 변경** — 준비: 상품 등록 → `OutboxAssert.clear()`. 동작: `PATCH` 본문 `{"price":1200}`.
+- `product-upserted` 정확히 1건: payload `price` = 1200, `version` = `productSnapshotOf(productId).version()`.
+- `product-price-changed` 정확히 1건: `aggregateType()` = `PRODUCT`, `aggregateId()` = productId, payload `productId`, `oldPrice` = 1000, `newPrice` = 1200, `changedAt` = `productSnapshotOf(productId).priceChanges().get(0).changedAt()`과 같은 시각(둘 다 `truncatedTo(ChronoUnit.MILLIS)`로 맞춰 비교).
+
+**4. 상태 변경** — 준비: 상품 등록 → `OutboxAssert.clear()`.
+- `HIDDEN`으로(`{"status":"HIDDEN"}`): `product-upserted` 1건(payload `status` = `HIDDEN`, `version` = `productSnapshotOf(productId).version()`), `product-discontinued` 0건.
+- 이어서 `OutboxAssert.clear()` 후 `DISCONTINUED`로(`{"status":"DISCONTINUED"}`): `product-upserted` 1건(payload `status` = `DISCONTINUED`, `version` = `productSnapshotOf(productId).version()`), `product-discontinued` 1건(payload `productId`, `shopId`, `reason` = `SELLER`).
+
+**5. 가게 폐업 단종** — 준비: `product1`은 그대로 `ON_SALE`, `hideProduct(product2Id)`(`HIDDEN`), `discontinueProduct(product3Id)`(이미 `DISCONTINUED`) → `OutboxAssert.clear()`. 동작: `productDiscontinueService.discontinueAllByShop(shopId)`를 직접 호출(서비스의 `@Transactional`이 경계다).
+- `product-upserted` 정확히 2건: `aggregateId()`가 {`product1`, `product2`}, 둘 다 payload `status` = `DISCONTINUED`, `version` = 각 상품의 `productSnapshotOf(...).version()`.
+- `product-discontinued` 정확히 2건: `aggregateId()`가 {`product1`, `product2`}, 둘 다 payload `reason` = `SHOP_CLOSED`, `shopId` = shopId 문자열.
+- `product3`의 행은 없다(이미 단종된 상품은 이벤트를 만들지 않는다).
+- 한 번 더 `discontinueAllByShop(shopId)` → 두 토픽 모두 건수 그대로(2건, 2건).
+
+**6. 롤백** — 준비: `discontinueProduct(product1Id)` → `OutboxAssert.clear()`. 동작: `PATCH` 본문 `{"name":"renamed"}`.
+- 응답 409, `$.code` = `PRODUCT_DISCONTINUED`.
+- `countOf("common.outbox_event")` = 0(전체 토픽).
+
+#### `order/application/EventPublishingTest`
+
+**1. 결제 완료(order-paid)** — 준비: 구매자가 `createPendingOrder(buyerId, product1Id, product2Id)` → `OutboxAssert.clear()`. 동작: `confirmPayment(buyerId, orderId)`(가짜 PG 기본 승인).
+- `rows("order.order-paid.v1")` 정확히 1건: `aggregateType()` = `ORDER`, `aggregateId()` = orderId.
+- payload: `orderId`, `memberId` = buyerId 문자열, `totalAmount` = 3000, `shopOrders` 길이 1.
+- `shopOrders[0]`: `shopOrderId` = `shopOrderIdOf(orderId, shopId)`, `shopId`, `lines` 길이 2.
+- `lines`의 각 원소: `orderLineId` = `orderLineIdOf(orderId, productId)`, `productId`, `productName` = `product`, `quantity` = 1. `product1`과 `product2`가 하나씩 들어 있다.
+- 같은 결과를 한 번 더 반영해도 이벤트는 늘지 않는다: `orderPaymentApplier.applyPaymentState(orderId, PaymentState.APPROVED, null)`을 호출하면 반환값 `PAID`("이미 처리됨" 가드)이고 `order-paid`는 그대로 1건.
+
+**2. 대사로 늦게 확정된 결제** — 준비: `pg.on("/v1/payments/confirm", Behavior.delay(1000))` → `createPendingOrder(buyerId, product1Id)` → `confirmPayment`(202, 주문 `PAYMENT_IN_PROGRESS`) → `setOrderUpdatedAt(orderId, 지금 - 60초)` → `OutboxAssert.clear()`.
+- 확인 1: `rows("order.order-paid.v1")` 0건(승인이 불확실한 동안 이벤트가 없다).
+- 동작: `orderReconcileService.reconcileBatch()`.
+- 확인 2: 반환값 1, `order-paid` 정확히 1건(`aggregateId()` = orderId, payload `totalAmount` = 1000).
+
+**3. 만료** — 준비: `createPendingOrder(buyerId, product1Id)` → `setOrderExpired(orderId, 지금 - 1분)` → `OutboxAssert.clear()`. 동작: `orderExpirationService.expireBatch()`.
+- 반환값 1.
+- `rows("order.order-expired.v1")` 정확히 1건: `aggregateId()` = orderId, payload `orderId`, `memberId` = buyerId 문자열, `reason` = `EXPIRED`. 필드는 이 셋뿐이다.
+
+**4. 결제 실패** — 준비: `pg.on("/v1/payments/confirm", Behavior.reject("REJECT_CARD_COMPANY"))` → `createPendingOrder(buyerId, product1Id)` → `OutboxAssert.clear()`. 동작: `confirmPayment(buyerId, orderId)`.
+- `BusinessException`, `errorCode` = `PAYMENT_FAILED`.
+- `order-expired` 정확히 1건: payload `reason` = `PAYMENT_FAILED`(`orders.orders.failure_reason`에 저장되는 `REJECT_CARD_COMPANY`가 든 문장이 아니다).
+- `order-paid` 0건.
+
+**5. 결제 전 주문 취소는 이벤트가 없다** — 준비: `createPendingOrder(buyerId, product1Id)` → `OutboxAssert.clear()`. 동작: `POST /api/orders/{orderId}/cancel`.
+- 응답 200, `$.status` = `CANCELLED`.
+- `countOf("common.outbox_event")` = 0.
+
+**6. 발송과 배송완료** — 준비: `createPaidOrder(buyerId, product1Id)` → `shopOrderId = shopOrderIdOf(orderId, shopId)` → `OutboxAssert.clear()`. 동작 1: `shipShopOrder(sellerId, shopId, shopOrderId)`.
+- `rows("order.shop-order-shipped.v1")` 정확히 1건: `aggregateId()` = **orderId**(shopOrderId가 아니다), payload `shopOrderId`, `orderId`, `memberId` = buyerId 문자열, `carrier` = `CJ대한통운`, `trackingNumber` = `1234567890`.
+- 동작 2: `deliverShopOrder(sellerId, shopId, shopOrderId)`.
+- `rows("order.shop-order-delivered.v1")` 정확히 1건: `aggregateId()` = orderId, payload `shopOrderId`, `orderId`, `memberId`. `shop-order-shipped`는 그대로 1건.
+
+**7. 환불 완료** — 준비: `createPaidOrder(buyerId, product1Id, product2Id)` → `lineId = orderLineIdOf(orderId, product1Id)` → `OutboxAssert.clear()`. 동작 1: `product1` 품목 취소 요청(HTTP) → 200.
+- `rows("order.order-line-refunded.v1")` 정확히 1건: `aggregateId()` = orderId, payload `refundId` = 응답의 `$.refundId`, `orderLineId` = lineId, `orderId`, `memberId` = buyerId 문자열, `amount` = 1000.
+- 동작 2: `refundCompleter.complete(refundId)`를 한 번 더 호출(이미 완료된 환불).
+- 건수 그대로 1건.
+
+**8. 환불이 끝나지 않았으면 이벤트가 없다** — 준비: 7번과 같은 주문에 `pg.on("/v1/payments/" + paymentKey, Behavior.delay(1000))`(`paymentKey`는 `snapshotOf(orderId).payment().paymentKey()`) → `OutboxAssert.clear()`. 동작: `product1` 품목 취소 요청 → 202, `$.status` = `APPROVED`.
+- `rows("order.order-line-refunded.v1")` 0건.
+- 정상 응답으로 되돌리고(`pg.on(..., Behavior.delay(0))`) `setRefundUpdatedAt(refundId, 지금 - 6분)` → `refundRecoveryService.recoverBatch()` = 1 → `order-line-refunded` 정확히 1건.
+
+**9. 수동 구매확정** — 준비: `createDeliveredOrder(buyerId, sellerId, shopId, product1Id, product2Id)` → `lineId = orderLineIdOf(orderId, product1Id)` → `OutboxAssert.clear()`. 동작: 구매확정 요청(HTTP) → 200.
+- `rows("order.order-line-confirmed.v1")` 정확히 1건: `aggregateId()` = orderId, payload `orderLineId` = lineId, `orderId`, `shopId`, `productId` = product1Id, `memberId` = buyerId 문자열, `amount` = 1000, `confirmedAt` = `snapshotOf(orderId).line(product1Id).confirmedAt()`(밀리초까지 맞춰 비교).
+- `product2` 품목의 이벤트는 없다(품목마다 1건).
+
+**10. 확정 금액은 환불을 뺀 값** — 준비: 9번의 주문에서 JDBC `UPDATE orders.order_line SET refunded_amount = 300 WHERE id = lineId` → `OutboxAssert.clear()`. 동작: 구매확정 요청.
+- `order-line-confirmed` 1건, payload `amount` = 700(`lineAmount - refundedAmount`).
+
+**11. 자동 구매확정은 품목마다 1건** — 준비: `createDeliveredOrder(buyerId, sellerId, shopId, product1Id, product2Id, product3Id)` → `setShopOrderDeliveredAt(shopOrderId, 지금 - 8일)` → `OutboxAssert.clear()`. 동작: `autoConfirmService.confirmBatch()`.
+- 반환값 3.
+- `rows("order.order-line-confirmed.v1")` 정확히 3건: `aggregateId()`가 모두 orderId, payload `orderLineId`의 집합 = 세 품목 ID, `amount`의 집합 = {1000, 2000, 3000}.
+- `confirmBatch()`를 한 번 더 → 반환값 0, 건수 그대로 3건.
+
+**12. 롤백** — 아래 두 경우 모두 outbox가 비어 있다.
+- 재고 부족 체크아웃: 준비: 재고 1인 상품(`registerProduct(sellerId, shopId, 1000, 1)`)을 구매자가 수량 2로 담는다(`addToCart(buyerId, productId, 2)`) → `OutboxAssert.clear()`. 동작: `checkout`(`address(buyerId)`의 배송지). `BusinessException`, `errorCode` = `OUT_OF_STOCK`. `countOf("common.outbox_event")` = 0.
+- 발행이 실패하면 상태 변경도 취소: 준비: 9번의 주문과 `@MockitoSpyBean OutboxPublisher`에 `doThrow(new IllegalStateException("test")).when(outboxPublisher).publish(any(), any(), any(), any())` → `OutboxAssert.clear()`. 동작: 구매확정 요청(HTTP) → 응답 500, `$.code` = `INTERNAL_ERROR`. `snapshotOf(orderId).line(product1Id).status()` = `DELIVERED`, `snapshotOf(orderId).line(product1Id).confirmedAt()` null / `countOf("common.outbox_event")` = 0(상태 변경과 이벤트가 한 트랜잭션이다).
+
+#### `ModularityTest`
+
+기존 `ModularityTest.verifyModules()`가 `ApplicationModules.of(MyRoutineApplication.class).verify()`에서 예외 없이 끝난다. 이 단계에서 `order/api/package-info.java`(`@NamedInterface("api")`)가 새로 생기므로 `order.api`·`order.api.event`가 다른 모듈에서 import 가능한 이름 있는 인터페이스인지가 여기서 갈린다. 실패하면 메시지에 나온 모듈 의존 위반을 `package-info.java`의 `allowedDependencies`나 `@NamedInterface` 위치로 고친다.
+
+**테스트 준비**
+
+**이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `productSnapshotOf(productId)`에 필드 추가 | 3-2에서 추가한 `ProductSnapshot`에 1-8 표에 정의된 `priceChanges`(`List<PriceChangeState(oldPrice, newPrice)>`)를 추가하고(처음 쓰는 미구현 단계가 이 단계다), `version`(long, 읽는 컬럼 `product.product.version`)을 더하고, `PriceChangeState`에 `changedAt`(`Instant`, 읽는 컬럼 `product.price_history.changed_at`)을 더한다 | 상품 `EventPublishingTest` 1~5번 |
+
+이미 있는 헬퍼: Part 2의 2-9·2-10이 만든 `createDeliveredOrder(buyerId, sellerId, shopId, productIds...)`, `setShopOrderDeliveredAt(shopOrderId, Instant)`, 2-8a가 만든 `orderLineIdOf`·`snapshotOf(orderId)`(2-10이 `confirmedAt`을 더했다), 2-8b가 만든 `setRefundUpdatedAt`, `signup`, `login`, `openShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `address`, `addToCart`, `checkout`, `createPendingOrder`, `confirmPayment`, `setOrderExpired`, `setOrderUpdatedAt`, `createPaidOrder`, `shopOrderIdOf`, `shipShopOrder`, `deliverShopOrder`, 3-1의 `OutboxAssert`·`countOf`.
 
 **리뷰 때 물어볼 것**
 - 이벤트에 어떤 필드를 넣을지 어떻게 정했나? (너무 많으면? 너무 적으면?)
@@ -616,7 +955,7 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 3. `sum = sumBySettlementId(id)` — 이번 정산 ID가 **붙은** 품목으로 합계를 낸다(조건으로 다시 찾지 않으므로 2와 3 사이에 새 품목이 들어와도 숫자가 어긋나지 않는다)
 4. `settlement = findById(id)` → `settlement.calculate(Money.of(sum.grossAmount()), properties.feeRateBp(), sum.itemCount())` → fee·net 계산, CALCULATED. 저장은 커밋 때 더티 체킹이다. `calculate`의 첫 인자가 `Money`이고 `grossAmount`는 `long`이라 `Money.of(...)`로 감싼다(확인 필요: 규격이 `long`이었다면 감쌀 필요가 없다)
 
-**테스트 헬퍼**: `SettlementServiceTest`는 정산 대상을 이벤트가 아니라 JDBC로 직접 적재한다(가게 1,200개 × 품목 2개). `settlement.settlement_item`에 `settlement_id = NULL`인 행을 넣는 헬퍼가 필요하고 위치·이름은 정해져 있지 않다(확인 필요).
+**테스트 헬퍼**: `SettlementServiceTest`는 정산 대상을 이벤트가 아니라 JDBC로 직접 적재한다(가게 1,200개 × 품목 2개). `settlement.settlement_item`에 `settlement_id = NULL`인 행을 넣는 헬퍼(`TestFixtures.insertSettlementItem(s)`)는 완료 확인 (3-4a)의 "테스트 준비"에 있다.
 
 ### 할 일 (3-4b)
 
@@ -661,14 +1000,172 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 |---|---|
 | `FakePayoutGateway` | `@Component @Primary`(테스트에서 `MockPayoutGateway` 대신 주입되게). 호출 기록(`List`), `failNext(int times)`(다음 n번 호출이 예외), 멱등 동작은 Mock과 같게. `reset()`은 `IntegrationTestSupport`의 `@AfterEach`에서 부른다 |
 
-### 완료 확인
+### 완료 확인 (3-4a)
 
-| 테스트 클래스 | 케이스 |
-|---|---|
-| `settlement/domain/SettlementPeriodTest` | [ ] 2026-09 → 시작 `2026-08-31T15:00:00Z`, 끝 `2026-09-30T15:00:00Z` / [ ] 수수료 내림: gross 12,345, 500bp → fee 617 |
-| `settlement/application/SettlementItemConsumerTest` | [ ] 같은 확정 이벤트 두 번 → `settlement_item` 1행 |
-| `settlement/application/SettlementServiceTest` (정산 대상은 JDBC로 직접 적재해 빠르게) | [ ] **가게 1,200개(가게당 품목 2개) → 정산 1,200건, 미정산 품목 0** / [ ] `run`을 두 번 → 정산 건수 동일, 금액 동일 / [ ] **기간 경계**: KST 8월 31일 23:59:59 확정 → 8월 정산, 9월 1일 00:00:00 → 9월 정산 / [ ] 지급 → PAID, `payout_reference` 있음, 가짜 게이트웨이 호출 1건 / [ ] 지급 실패 주입(`fakePayoutGateway.failNext(1)`) → PAYOUT_FAILED, `payout_attempts` 1 → 다시 `run` → PAID / [ ] 같은 정산 지급 두 번 시도(JDBC로 PAID를 CALCULATED로 되돌려 재실행) → 게이트웨이가 같은 참조 ID 반환 |
-| `settlement/web/SettlementControllerTest` | [ ] 남의 가게 정산 조회 → 403 / [ ] 일반 회원이 `/admin/api/settlements/run` → 403 |
+읽는 방법은 3-1·3-2와 같다. 이 단계에서 더하는 것은 다음과 같다.
+- 정산: `SettlementSnapshot s = settlementSnapshotOf(shopId)` 한 번으로 읽는다(가게의 정산이 하나일 때. 없으면 `null`, 둘 이상이면 `IllegalStateException`). 달이 여럿이면 `settlementSnapshotOf(shopId, YearMonth.of(2026, 9))`로 달을 정한다(그 달 정산이 없으면 `null`). `s.status()`, `s.grossAmount()`, `s.feeAmount()`, `s.netAmount()`, `s.itemCount()`, `s.feeRateBp()`, `s.periodStart()`, `s.periodEnd()`, 이 정산에 붙은 품목은 `s.items()`(`orderLineId()`, `amount()`, `confirmedAt()`). 정산 건수는 `countOf("settlement.settlement")`.
+- 정산 대상 품목 하나: `SettlementItemSnapshot i = settlementItemSnapshotOf(orderLineId)`(없으면 `null`). `i.shopId()`, `i.orderId()`, `i.productId()`, `i.amount()`, `i.confirmedAt()`, 붙은 정산 `i.settlementId()`(미정산이면 null), 그 정산의 기간 시작 `i.periodStart()`(미정산이면 null). 품목 수는 `countOf("settlement.settlement_item")`, 미정산 품목 수는 `unsettledItemCount()`.
+- 실행 결과: `SettlementRunResult result = settlementService.run(YearMonth.of(2026, 9))`의 `result.settledShops()`.
+
+3-4a에는 지급이 없으므로 `run` 뒤 정산 `status`는 `CALCULATED`다. 3-4b에서 `run`이 끝에 `payoutAll()`을 부르면 `PAID`로 바뀌므로, 그때 이 단계 케이스의 `status` 단언만 `PAID`로 고친다.
+
+**공통 준비** (`SettlementServiceTest`): 정산 대상은 이벤트가 아니라 JDBC로 직접 적재한다. 정산 월은 `YearMonth.of(2026, 9)`, 업무 시간대 `Asia/Seoul`, 수수료율 500bp(기본 설정), 품목 확정 시각은 기간 한가운데인 `Instant.parse("2026-09-15T03:00:00Z")`(KST 9월 15일 12시)로 쓴다. 가게는 `Ids.newId()`로 만든 UUID이며 `shop` 모듈에 실제 가게가 없어도 된다. 가게 1곳의 품목이 2개이고 각 7,500원이면 `gross` 15,000, `fee` 750(15,000 × 500 / 10,000), `net` 14,250이다.
+
+#### `settlement/domain/SettlementPeriodTest`
+
+**1. 정산 기간의 경계 시각** — 동작: `SettlementPeriod period = SettlementPeriod.of(YearMonth.of(2026, 9))`, `ZoneId zone = ZoneId.of("Asia/Seoul")`.
+- `period.start()` = `LocalDate.of(2026, 9, 1)`, `period.end()` = `LocalDate.of(2026, 9, 30)`(말일, 포함).
+- `period.fromInclusive(zone)` = `Instant.parse("2026-08-31T15:00:00Z")`.
+- `period.toExclusive(zone)` = `Instant.parse("2026-09-30T15:00:00Z")`.
+
+**2. 수수료는 원 미만 내림** — 준비: `Settlement settlement = BeanUtils.instantiateClass(Settlement.class)`(`org.springframework.beans.BeanUtils`. 엔티티에 테스트용 생성 방법이 규격에 없어 기본 생성자를 리플렉션으로 부른다. 확인 필요). 동작: `settlement.calculate(Money.of(gross), bp, itemCount)`. 값은 필드 이름대로 `getGrossAmount()`·`getFeeAmount()`·`getNetAmount()`(`Money`면 `.amount()`), `getFeeRateBp()`, `getItemCount()`로 읽는다.
+
+| gross | bp | itemCount | `feeAmount` | `netAmount` |
+|---|---|---|---|---|
+| 12345 | 500 | 3 | 617 (617.25의 내림) | 11728 |
+| 19 | 500 | 1 | 0 (0.95의 내림) | 19 |
+| 0 | 500 | 0 | 0 | 0 |
+
+모든 행에서 `getGrossAmount()` = gross, `getFeeRateBp()` = bp, `getItemCount()` = itemCount, `netAmount` = `gross - feeAmount`다.
+
+#### `settlement/application/SettlementItemConsumerTest`
+
+준비: `orderId`, `shopId`, `productId`, `memberId`는 `Ids.newId()`. 이벤트 `OrderLineConfirmedEvent(orderLineId1, orderId, shopId, productId, memberId, 15000, Instant.parse("2026-09-15T03:00:00Z"))`. 보낼 때는 `TestKafka.send(OrderTopics.ORDER_LINE_CONFIRMED, orderId.toString(), eventId, event)`.
+
+**1. 같은 확정 이벤트 두 번** — 동작: 같은 `eventId1`로 두 번 보낸 뒤, 센티널로 같은 키에 다른 `eventId2`·다른 `orderLineId2`의 이벤트를 한 번 더 보낸다.
+- `Eventually`(5초) 안에서 `settlementItemSnapshotOf(orderLineId2)`가 `null`이 아니다.
+- `settlementItemSnapshotOf(orderLineId1)`: `shopId()` = shopId, `orderId()` = orderId, `productId()` = productId, `amount()` = 15000, `confirmedAt()` = 이벤트의 `confirmedAt`, `settlementId()` null, `id()` not null.
+- `countOf("settlement.settlement_item")` = 2.
+- `processedCountOf("settlement.order-line-confirmed", eventId1)` = 1.
+
+**2. 다른 eventId로 같은 품목이 와도 한 번** — InboxGuard를 거치지 않는 최종 방어(`uk_settlement_item_order_line`)를 확인한다. 동작: `settlementItemService.register(event)`를 `amount` 15000으로 한 번, 같은 `orderLineId1`에 `amount` 99999로 한 번 더 호출.
+- 두 번째 호출도 예외 없이 끝난다.
+- `countOf("settlement.settlement_item")` = 1이고 `settlementItemSnapshotOf(orderLineId1).amount()` = 15000(두 번째 값 99999가 덮어쓰지 않는다).
+
+#### `settlement/application/SettlementServiceTest`
+
+**1. 가게 1,200곳 정산** — 준비: 가게 1,200곳 × 품목 2개(각 7,500원) = 2,400행(`insertSettlementItems`). 가게 수가 `findShopIdsToSettle`의 한 페이지(500)보다 커서 keyset이 3페이지(500, 500, 200)를 돈다. 동작: `settlementService.run(YearMonth.of(2026, 9))`.
+- `result.settledShops()` = 1200.
+- `countOf("settlement.settlement")` = 1200, `SELECT COUNT(DISTINCT shop_id) FROM settlement.settlement` = 1200(가게마다 1건).
+- `SELECT COUNT(*) FROM settlement.settlement WHERE gross_amount = 15000 AND fee_amount = 750 AND net_amount = 14250 AND item_count = 2 AND fee_rate_bp = 500 AND period_start = DATE '2026-09-01' AND period_end = DATE '2026-09-30' AND status = 'CALCULATED'` = 1200.
+- `unsettledItemCount()` = 0.
+
+**2. run을 두 번** — 준비: 가게 3곳 × 품목 2개(각 7,500원). 동작: `run`을 두 번(결과를 `first`, `second`로 받는다).
+- `first.settledShops()` = 3, `second.settledShops()` = 0.
+- 두 번 모두 `countOf("settlement.settlement")` = 3.
+- 세 가게의 `settlementSnapshotOf(shopId)`(가게마다 정산이 하나)를 첫 `run` 뒤에 `List`로 모아 두고(`before`) 둘째 `run` 뒤에 다시 모으면(`after`) `after`가 `before`와 같다(`isEqualTo`. 정산 ID·금액·`itemCount`(2)·`grossAmount`(15000)·붙은 품목 목록이 그대로이고, 품목이 다른 정산으로 옮겨 붙지 않았다).
+
+**3. 정산 뒤에 늦게 도착한 전월 품목은 들어가지 않는다** — 준비: 가게 1곳 × 품목 2개(각 7,500원) → `run`. 이어서 같은 가게의 9월 15일 확정 품목을 `insertSettlementItem(shopId, 7500, 위 확정 시각)`으로 하나 더 넣는다(`lateLineId`). 동작: `run`을 다시.
+- `second.settledShops()` = 0.
+- 정산은 1건 그대로: `settlementSnapshotOf(shopId)`의 `grossAmount()` = 15000, `itemCount()` = 2.
+- `settlementItemSnapshotOf(lateLineId).settlementId()`는 null(다음 달 정산 기간에도 맞지 않아 남는다).
+- 같은 `run`이 예외 없이 끝난다(같은 가게를 다시 집어도 `insertIfAbsent`가 0행이라 건너뛴다).
+
+**4. 기간 경계** — 준비: 가게 1곳에 품목 4개를 `insertSettlementItem`으로 넣는다.
+
+| 품목 | 금액 | `confirmed_at` | KST |
+|---|---|---|---|
+| A | 1000 | `2026-08-31T14:59:59Z` | 8월 31일 23:59:59 |
+| B | 2000 | `2026-08-31T15:00:00Z` | 9월 1일 00:00:00 |
+| C | 4000 | `2026-09-30T14:59:59Z` | 9월 30일 23:59:59 |
+| D | 8000 | `2026-09-30T15:00:00Z` | 10월 1일 00:00:00 |
+
+동작과 확인:
+- `insertSettlementItem`이 돌려준 `orderLineId`를 품목 이름대로 `lineA`~`lineD`라 한다.
+- `run(YearMonth.of(2026, 8))` → `result.settledShops()` = 1. `settlementSnapshotOf(shopId, YearMonth.of(2026, 8))`: `periodStart()` = 2026-08-01, `grossAmount()` = 1000, `itemCount()` = 1. `settlementItemSnapshotOf(lineA).periodStart()` = 2026-08-01.
+- `run(YearMonth.of(2026, 9))` → `settledShops` = 1. `settlementSnapshotOf(shopId, YearMonth.of(2026, 9))`: `periodStart()` = 2026-09-01, `grossAmount()` = 6000, `itemCount()` = 2. `settlementItemSnapshotOf(lineB).periodStart()`·`settlementItemSnapshotOf(lineC).periodStart()`가 모두 2026-09-01. `settlementItemSnapshotOf(lineD).settlementId()`는 null(10월 몫).
+- `run(YearMonth.of(2026, 10))` → `settlementSnapshotOf(shopId, YearMonth.of(2026, 10))`: `grossAmount()` = 8000, `itemCount()` = 1. `settlementItemSnapshotOf(lineD).periodStart()` = 2026-10-01.
+
+**5. 한 가게의 실패가 다른 가게를 막지 않는다** — 준비: `@MockitoSpyBean SettlementRepository`. 가게 3곳 × 품목 2개. DB 순서로 첫 가게를 `badShopId`로 한다(`SELECT shop_id FROM settlement.settlement_item ORDER BY shop_id LIMIT 1`). `doThrow(new RuntimeException("test")).when(settlementRepository).insertIfAbsent(any(), eq(badShopId), any(), any(), anyInt(), any())`. 확인 필요: Spring Data 저장소 프록시에 스파이가 붙는지는 구현 뒤 확인한다(안 붙으면 이 케이스는 다른 방법으로 한 가게만 실패시켜야 한다). 동작 1: `run(YearMonth.of(2026, 9))`.
+- 예외가 밖으로 나오지 않는다.
+- `result.settledShops()` = 2, `countOf("settlement.settlement")` = 2, `settlementSnapshotOf(badShopId)`가 `null`(정산 0건).
+- `unsettledItemCount()` = 2(`badShopId`의 품목 2개만 미정산으로 남는다).
+- 동작 2: `Mockito.reset(settlementRepository)` → `run` 다시. `result.settledShops()` = 1, `countOf("settlement.settlement")` = 3, `settlementSnapshotOf(badShopId).grossAmount()` = 15000.
+
+**테스트 준비**
+
+**이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `insertSettlementItem(UUID shopId, long amount, Instant confirmedAt)` → `orderLineId` | JDBC `INSERT INTO settlement.settlement_item (id, order_line_id, shop_id, order_id, product_id, amount, confirmed_at, settlement_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, now(), now())`. `id`·`order_line_id`·`order_id`·`product_id`는 `Ids.newId()`. `Instant`는 `OffsetDateTime.ofInstant(instant, ZoneOffset.UTC)`로 넘긴다 | 기간 경계·늦은 품목·3-6 |
+| `insertSettlementItems(List<UUID> shopIds, int itemsPerShop, long amount, Instant confirmedAt)` | 위와 같은 INSERT를 `jdbcTemplate.batchUpdate`로 가게마다 `itemsPerShop`개 | 1,200개 가게, 둘 이상의 가게 |
+| `settlementSnapshotOf(UUID shopId, YearMonth month)`, `settlementSnapshotOf(UUID shopId)` → `SettlementSnapshot` | 쿼리 2개: 정산(`settlement.settlement`의 `id`, `period_start`, `period_end`, `status`, `gross_amount`, `fee_amount`, `net_amount`, `fee_rate_bp`, `item_count`, `payout_attempts`, `payout_reference`, `last_error`, `paid_at` — `WHERE shop_id = ? AND period_start = ?`에 `month.atDay(1)`), 그 정산에 붙은 품목(`settlement.settlement_item`의 `order_line_id`, `amount`, `confirmed_at` — `WHERE settlement_id = ? ORDER BY confirmed_at, order_line_id`). `support/`의 record로 `id`(UUID), `periodStart`·`periodEnd`(`LocalDate`), `status`·`payoutReference`·`lastError`(String, 뒤 둘은 없으면 null), `grossAmount`·`feeAmount`·`netAmount`(long), `feeRateBp`·`itemCount`·`payoutAttempts`(int), `paidAt`(`Instant`, 없으면 null), `items`(`List<ItemState(UUID orderLineId, long amount, Instant confirmedAt)>`)를 가진다. 정산이 없으면 `null`. 달을 받지 않는 `settlementSnapshotOf(shopId)`는 `period_start` 조건 없이 읽고 정산이 둘 이상이면 `IllegalStateException`을 던진다. 지급 필드(`payoutAttempts` 이하)는 3-4b가 쓴다 | 3-4a·3-4b `SettlementServiceTest`, `SettlementControllerTest` |
+| `settlementItemSnapshotOf(UUID orderLineId)` → `SettlementItemSnapshot` | JDBC `SELECT i.id, i.shop_id, i.order_id, i.product_id, i.amount, i.confirmed_at, i.settlement_id, s.period_start FROM settlement.settlement_item i LEFT JOIN settlement.settlement s ON s.id = i.settlement_id WHERE i.order_line_id = ?`. `support/`의 record로 `id`·`shopId`·`orderId`·`productId`·`settlementId`(UUID, `settlementId`는 미정산이면 null), `amount`(long), `confirmedAt`(`Instant`), `periodStart`(`LocalDate`, 미정산이면 null)를 가진다. 행이 없으면 `null` | `SettlementItemConsumerTest`, `SettlementServiceTest` |
+| `unsettledItemCount()` → `long` | JDBC `SELECT COUNT(*) FROM settlement.settlement_item WHERE settlement_id IS NULL` | `SettlementServiceTest` 1·5번, `SettlementControllerTest` 5번 |
+
+이미 있는 헬퍼: 3-1의 `Eventually`·`countOf`, 3-2의 `TestKafka.send`·`processedCountOf`.
+
+### 완료 확인 (3-4b)
+
+읽는 방법과 공통 준비는 3-4a와 같다. 이 단계에서 더하는 것은 다음과 같다.
+- 호출 기록: `fakePayoutGateway.calls()` → `List<PayoutCall>`(`record PayoutCall(UUID settlementId, UUID shopId, long amount)`). 실패시키기는 `fakePayoutGateway.failNext(int times)`. 기록과 남은 실패 횟수는 `IntegrationTestSupport`의 `@AfterEach`가 `reset()`으로 비운다.
+- 지급 값: 3-4a의 `settlementSnapshotOf(shopId)`의 `status()`, `payoutAttempts()`, `payoutReference()`, `lastError()`, `paidAt()`.
+- 지급 이벤트: `OutboxAssert.rows("settlement.settlement-paid.v1")`.
+
+#### `settlement/application/SettlementServiceTest` (지급)
+
+공통 준비: 가게 1곳 × 품목 2개(각 7,500원), `net` 14,250. 3-4a의 케이스 1~5는 `status` 단언을 `PAID`로 고쳐 그대로 통과해야 한다.
+
+**6. 지급 성공** — 동작: `run(YearMonth.of(2026, 9))`.
+- `s = settlementSnapshotOf(shopId)`: `status()` = `PAID`, `payoutReference()` not null, `paidAt()` not null, `payoutAttempts()` = 0, `lastError()` null.
+- `fakePayoutGateway.calls()` 정확히 1건: `settlementId` = `s.id()`, `shopId`, `amount` = 14250.
+- `rows("settlement.settlement-paid.v1")` 정확히 1건: `aggregateId()` = `s.id()`(`aggregateType()`은 `SETTLEMENT`. 규격에 없어 확인 필요), payload `settlementId`, `shopId`, `netAmount` = 14250, `periodStart` = `2026-09-01`, `periodEnd` = `2026-09-30`.
+- `run`을 한 번 더 → `calls()` 1건 그대로, `settlement-paid` 1건 그대로(PAID 정산은 다시 지급하지 않는다).
+
+**7. 0원 정산은 송금 없이 PAID** — 준비: 가게 1곳에 `insertSettlementItem(shopId, 0, 확정 시각)` 한 개. 동작: `run`.
+- `settlementSnapshotOf(shopId)`: `status()` = `PAID`, `grossAmount()` = 0, `netAmount()` = 0, `payoutReference()` null, `paidAt()` not null.
+- `fakePayoutGateway.calls()` 0건.
+- `rows("settlement.settlement-paid.v1")` 1건, payload `netAmount` = 0.
+
+**8. 지급 실패 후 재시도** — 준비: `fakePayoutGateway.failNext(1)`. 동작 1: `run`.
+- `settlementSnapshotOf(shopId)`: `status()` = `PAYOUT_FAILED`, `payoutAttempts()` = 1, `lastError()` not null(길이 500 이하), `payoutReference()` null, `paidAt()` null.
+- `rows("settlement.settlement-paid.v1")` 0건.
+- 동작 2: `run` 다시.
+- `countOf("settlement.settlement")` = 1(정산이 새로 만들어지지 않았다), `settlementSnapshotOf(shopId)`: `status()` = `PAID`, `payoutReference()` not null, `payoutAttempts()` = 1(성공은 올리지 않는다), `lastError()`는 이전 실패 메시지가 남을 수 있어 확인하지 않는다.
+- `rows("settlement.settlement-paid.v1")` 정확히 1건.
+
+**9. 같은 정산을 두 번 지급해도 참조 ID는 같다** — 준비: `run`으로 `PAID`가 된 정산의 `settlementSnapshotOf(shopId).payoutReference()`를 `ref1`으로 읽는다. JDBC `UPDATE settlement.settlement SET status = 'CALCULATED', payout_reference = NULL, paid_at = NULL WHERE id = ?`로 되돌린다(송금은 됐지만 기록 전에 죽은 상황). 동작: `run`.
+- `settlementSnapshotOf(shopId)`: `status()` = `PAID`, `payoutReference()` = `ref1`(같은 참조 ID).
+- `fakePayoutGateway.calls()` 정확히 2건이고 두 건의 `settlementId`가 같다(게이트웨이는 두 번 불렸지만 같은 키라 같은 이체로 취급한다).
+
+#### `settlement/web/SettlementControllerTest`
+
+공통 준비: 판매자 A(`seller@test.com`)와 가게 A(`openShop(sellerA, "1111111111")`), 판매자 B(`seller2@test.com`)와 가게 B(`"2222222222"`). 토큰은 `login`. 가게 A·B 각각에 `insertSettlementItems(List.of(shopId), 2, 7500, 확정 시각)` 뒤 `settlementService.run(YearMonth.of(2026, 9))`로 정산을 만든다. 정산 ID는 `settlementSnapshotOf(shopId).id()`(`settlementA`, `settlementB`).
+
+**1. 가게 주인의 목록 조회** — 동작: A의 토큰으로 `GET /api/shops/{shopA}/settlements`.
+- 응답 200. `$.items.length()` = 1, `$.nextCursor` null.
+- `$.items[0]`: `id` = settlementA, `periodStart` = `2026-09-01`, `periodEnd` = `2026-09-30`, `grossAmount` = 15000, `feeAmount` = 750, `netAmount` = 14250, `itemCount` = 2, `status` = `PAID`, `paidAt` not null.
+
+**2. 가게 주인의 상세 조회** — 동작: A의 토큰으로 `GET /api/shops/{shopA}/settlements/{settlementA}`.
+- 응답 200. `$.settlement.id` = settlementA, `$.settlement.netAmount` = 14250.
+- `$.items.items.length()` = 2. 각 원소에 `orderLineId`, `orderId`, `productId`, `confirmedAt`가 있고 `amount` = 7500.
+
+**3. 남의 가게 정산 조회 거부** — 동작: B의 토큰으로 `GET /api/shops/{shopA}/settlements`, 이어서 `GET /api/shops/{shopA}/settlements/{settlementA}`.
+- 둘 다 응답 403, `$.code` = `FORBIDDEN`.
+
+**4. 내 가게 경로에 남의 정산 ID** — 동작: A의 토큰으로 `GET /api/shops/{shopA}/settlements/{settlementB}`.
+- 응답 404, `$.code` = `SETTLEMENT_NOT_FOUND`(규격에 없는 응답이라 확인 필요. 남의 정산이 ID로 보이면 안 된다).
+
+**5. 일반 회원의 수동 실행 거부** — 준비: 이 케이스만 정산을 만들지 않고 가게 A에 미정산 품목 2개만 적재한다. 동작: A의 토큰(역할 `USER`/`SELLER`)으로 `POST /admin/api/settlements/run?period=2026-09`.
+- 응답 403, `$.code` = `FORBIDDEN`.
+- `countOf("settlement.settlement")` = 0, `unsettledItemCount()` = 2(실행되지 않았다).
+
+**6. 관리자의 수동 실행** — 준비: 5번과 같은 미정산 품목. 회원 `admin@test.com`을 `signup`으로 가입해 `adminId`를 받고 `login`으로 `oldToken`을 받고 → `changeRole(adminId, "ADMIN")` → `login`(다시 로그인해야 토큰에 `ADMIN`이 담긴다). 동작: 관리자 토큰으로 `POST /admin/api/settlements/run?period=2026-09`.
+- 응답 200, `$.settledShops` = 1. `$.paid` = 1, `$.payoutFailed` = 0(`payoutAll`이 센 건수로 읽힌다. 확인 필요).
+- `countOf("settlement.settlement")` = 1, `settlementSnapshotOf(shopA).status()` = `PAID`.
+- `oldToken`(역할을 바꾸기 전에 받은 토큰)으로 같은 요청을 하면 403, `$.code` = `FORBIDDEN`.
+
+**테스트 준비**
+
+**이 단계에서 추가하는 헬퍼** (`support/`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
+
+| 대상 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `FakePayoutGateway` | 위 7) 규격. `calls()`가 돌려주는 `PayoutCall(UUID settlementId, UUID shopId, long amount)` record를 함께 둔다 | 3-4b 지급 케이스 |
+| `IntegrationTestSupport`의 `@AfterEach` | `fakePayoutGateway.reset()` 호출 추가 | 모든 테스트 |
+
+이미 있는 헬퍼: 3-4a의 `insertSettlementItem`·`insertSettlementItems`·`settlementSnapshotOf`·`unsettledItemCount`, 3-1의 `changeRole`, `signup`, `login`, `openShop`, `countOf`.
 
 **리뷰 때 물어볼 것**
 - offset 페이징으로 상태를 바꾸며 읽으면 왜 누락되나? (원 프로젝트에서 실제로 있던 결함)
@@ -784,10 +1281,92 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 
 ### 완료 확인
 
-| 테스트 클래스 | 케이스 |
+읽는 방법은 3-1~3-4와 같다. 이 단계에서 더하는 것은 다음과 같다.
+- 알림 행: `notificationRowsOf(memberId)` → `List<NotificationRow>`(생성 순), 전체는 `notificationRows()`. 한 행은 `memberId()`, `type()`, `channel()`, `recipient()`, `title()`, `status()`, `attempts()`, `lastError()`, `dedupKey()`, `sentAt()`, `nextAttemptAt()`이다. 개수는 `.size()`이고, 이벤트별 개수는 `dedupKey()`가 `eventId + ":"`로 시작하는 행을 `stream().filter`로 센다.
+- 보낸 메일: `fakeMailSender.sent()` → `List<SentMail>`(`SentMail(String to, String title, String body)`). 실패시키기는 `fakeMailSender.failNext(int times)`. 기록은 `@AfterEach`가 `reset()`으로 비운다.
+- 재시도 시각 당기기: `setNotificationsDue()`.
+- 알림이 만들어졌는지 기다릴 때는 `Eventually.await(Duration.ofSeconds(5), ...)` 안에서 `notificationRows().size()`를 읽는다.
+
+#### `notification/application/NotificationComposerTest`
+
+DB 없이 `new NotificationComposer()`로 만든다. 인자는 권장안(`compose(이벤트)`, 가게 주인이 필요한 이벤트는 `compose(이벤트, 가게 주인 정보)`)이다. 결과 `List<NotificationDraft>`의 `memberId`, `type`, `title`을 아래 값과 `containsExactlyInAnyOrder`로 비교한다. 제목은 매핑 표의 "제목 예"를 그대로 쓰고(숫자에 천 단위 구분 기호를 쓰지 않는다. 서식이 규격에 없어 정한 값이다. 확인 필요), `body`는 본문 형식이 규격에 없어 `isNotBlank()`만 확인한다.
+
+공통 값: `buyerId`, `ownerA`, `ownerB`, `shopA`, `shopB`, `orderId`는 서로 다른 임의 UUID.
+
+| 입력 | 기대하는 draft |
 |---|---|
-| `notification/application/NotificationComposerTest` | [ ] 표의 이벤트마다 수신자·type·제목 / [ ] 가게 2곳 주문의 `order-paid` → 구매자 1 + 가게 주인 2 |
-| `notification/application/NotificationFlowTest` | [ ] 체크아웃 → 결제 승인(가짜 PG) → 릴레이 → `Eventually`로 notification 3행(구매자 + 가게 주인) → `dispatchBatch()` → SENT, 가짜 발송기에 3건 / [ ] 같은 이벤트 두 번 → 알림 그대로 / [ ] `failNext(5)` → 다섯 번 실행(JDBC로 `next_attempt_at`을 당기며) → FAILED, `attempts` 5, `last_error` 있음 / [ ] 발송 실패가 주문 상태에 영향 없음 |
+| `MemberRegisteredEvent(buyerId, "a@test.com", "nick")` | 1개: `buyerId`, `WELCOME`, `[MyRoutin] 가입을 환영합니다` |
+| `OrderPaidEvent(orderId, buyerId, 3000, [PaidShopOrder(so1, shopA, [PaidLine(l1, p1, "상품A", 1), PaidLine(l2, p2, "상품B", 2)])])`, 가게 주인 `{shopA → ownerA}` | 2개: (`buyerId`, `ORDER_PAID`, `주문 결제가 완료되었습니다 (3000원)`), (`ownerA`, `SHOP_ORDER_RECEIVED`, `새 주문이 들어왔습니다 (상품 2개)`). 개수는 품목 수라 수량 합 3이 아니다 |
+| `OrderPaidEvent`에 가게주문 둘: `so1`(`shopA`, 품목 1개), `so2`(`shopB`, 품목 3개). `totalAmount` 5000. 가게 주인 `{shopA → ownerA, shopB → ownerB}` | 3개: (`buyerId`, `ORDER_PAID`, `주문 결제가 완료되었습니다 (5000원)`), (`ownerA`, `SHOP_ORDER_RECEIVED`, `새 주문이 들어왔습니다 (상품 1개)`), (`ownerB`, `SHOP_ORDER_RECEIVED`, `새 주문이 들어왔습니다 (상품 3개)`) |
+| `OrderExpiredEvent(orderId, buyerId, "EXPIRED")` | 1개: `buyerId`, `ORDER_CLOSED`, `주문이 만료되었습니다` |
+| `OrderExpiredEvent(orderId, buyerId, "PAYMENT_FAILED")` | 1개: `buyerId`, `ORDER_CLOSED`, `결제에 실패했습니다` |
+| `ShopOrderShippedEvent(so1, orderId, buyerId, "CJ대한통운", "1234567890")` | 1개: `buyerId`, `SHIPPED`, `상품이 발송되었습니다 (CJ대한통운 1234567890)` |
+| `ShopOrderDeliveredEvent(so1, orderId, buyerId)` | 1개: `buyerId`, `DELIVERED`, `배송이 완료되었습니다` |
+| `OrderLineRefundedEvent(refundId, lineId, orderId, buyerId, 1000)` | 1개: `buyerId`, `REFUNDED`, `1000원이 환불되었습니다` |
+| `SettlementPaidEvent(settlementId, shopA, 14250, 2026-09-01, 2026-09-30)`, 가게 주인 `ownerA` | 1개: `ownerA`, `SETTLEMENT_PAID`, `2026-09-01~2026-09-30 정산금 14250원이 지급되었습니다` |
+
+#### `notification/application/NotificationFlowTest`
+
+공통 준비: 판매자 `seller1@test.com`(가게 1 `openShop(seller1, "1111111111")`, `product1` = `registerProduct(seller1, shop1, 1000, 10)`), 판매자 `seller2@test.com`(가게 2 `"2222222222"`, `product2` 2000원), 구매자 `buyer@test.com`. 주문은 `createPendingOrder(buyerId, product1Id, product2Id)`(합계 3,000원, 가게주문 둘). 준비 끝에 `OutboxAssert.clear()`(가입·개설 이벤트가 알림 행을 섞지 않게 한다).
+
+**1. 결제 승인에서 발송까지** — 동작 1: `confirmPayment(buyerId, orderId)`(가짜 PG 기본 승인) → `outboxRelay.relayOnce()`.
+- `relayOnce()` 반환값 1(`order-paid` 한 건).
+- `Eventually`(5초) 안에서 `notificationRows().size()` = 3. 이후 읽을 때도 3이다.
+- 세 행(모두 `channel()` = `EMAIL`, `status()` = `PENDING`, `attempts()` = 0, `sentAt()` null):
+
+| `memberId()` | `type()` | `recipient()` | `title()` |
+|---|---|---|---|
+| buyerId | `ORDER_PAID` | `buyer@test.com` | `주문 결제가 완료되었습니다 (3000원)` |
+| seller1 | `SHOP_ORDER_RECEIVED` | `seller1@test.com` | `새 주문이 들어왔습니다 (상품 1개)` |
+| seller2 | `SHOP_ORDER_RECEIVED` | `seller2@test.com` | `새 주문이 들어왔습니다 (상품 1개)` |
+
+- `dedupKey()` = `{order-paid 이벤트의 eventId}:{memberId()}:{type()}`(eventId는 `OutboxAssert.rows("order.order-paid.v1")`의 `id()`).
+- 동작 2: `notificationDispatcher.dispatchBatch()`.
+- 반환값 3. `notificationRows()`의 세 행 모두 `status()` = `SENT`, `sentAt()` not null, `attempts()` = 0.
+- `fakeMailSender.sent()` 정확히 3건이고 (`to`, `title`)의 집합이 위 표의 (`recipient`, `title`)과 같다. 각 `body`는 비어 있지 않다.
+- `dispatchBatch()`를 한 번 더 → 반환값 0, `sent()` 3건 그대로(보낸 알림을 다시 보내지 않는다).
+
+**2. 같은 이벤트를 두 번 받아도 알림은 그대로** — 준비: 1번의 동작 1까지 해서 알림 3행(`eventId1`)이 생긴 상태. `@MockitoSpyBean NotificationService`. 동작: 릴레이가 같은 행을 다시 발행한 상황을 만든다. JDBC `UPDATE common.outbox_event SET status = 'READY', next_attempt_at = now() WHERE topic = 'order.order-paid.v1'` → `relayOnce()`(반환값 1, 같은 `eventId1`·같은 내용의 메시지가 한 번 더 나간다). 이어서 센티널로 `TestKafka.send(OrderTopics.ORDER_PAID, orderId.toString(), eventId2, 다른 주문의 OrderPaidEvent)`(같은 키, 가게주문은 `shop1`의 1개).
+- `Eventually`(5초) 안에서 `dedupKey()`가 `eventId2:`로 시작하는 행이 2개(구매자 `ORDER_PAID`, seller1 `SHOP_ORDER_RECEIVED`).
+- `dedupKey()`가 `eventId1:`로 시작하는 행은 3개 그대로.
+- `notificationRows().size()` = 5.
+- `processedCountOf("notification.order-paid", eventId1)` = 1.
+- `verify(notificationService, times(1)).enqueue(eq(eventId1), anyList())`.
+
+**3. 메일 발송이 5번 실패하면 FAILED** — 준비(1번의 주문 대신 알림 한 건짜리): `OutboxAssert.clear()` → `memberId = signup("welcome@test.com")` → `relayOnce()` → `Eventually` 안에서 `notificationRowsOf(memberId)`가 1개(`type()` = `WELCOME`, `status()` = `PENDING`). `fakeMailSender.failNext(5)`. 동작: 아래를 `i = 1..5`로 반복한다. `dispatchBatch()` 호출 → 확인(`n = notificationRowsOf(memberId).get(0)`) → `setNotificationsDue()`.
+- 매 호출의 반환값 0.
+- 호출 `i` 뒤: `n.attempts()` = `i`, `n.lastError()` not null(길이 500 이하), `n.sentAt()` null.
+- `i` < 5이면 `n.status()` = `PENDING`, `i` = 5이면 `n.status()` = `FAILED`.
+- 1번째 호출 직후(`setNotificationsDue()` 전)에는 `n.nextAttemptAt()`이 `Instant.now().plus(4분)`보다 뒤이고 `Instant.now().plus(6분)`보다 앞이다(지금 + 5분 안팎). 시각을 당기지 않고 바로 `dispatchBatch()`를 한 번 더 부르면 반환값 0, `attempts()` = 1 그대로(5분 전에는 다시 시도하지 않는다).
+- 5번째 뒤 `setNotificationsDue()`를 하고 `dispatchBatch()`를 한 번 더 부르면 반환값 0, `attempts()` = 5, `status()` = `FAILED` 그대로. `fakeMailSender.sent()` 0건(한 번도 성공하지 않았다).
+
+**4. 발송 실패는 주문·결제에 영향이 없다** — 준비: 1번의 동작 1까지(알림 3행). `fakeMailSender.failNext(15)`. 동작: 3번과 같은 방법으로 `dispatchBatch()`를 5번 부른다(3행이라 호출마다 3번의 실패를 쓴다. 세 알림이 `FAILED`가 되는 것은 3번이 확인한다). `s = snapshotOf(orderId)`.
+- `s.status()` = `PAID`, `s.payment().status()` = `APPROVED`.
+- `stockOf(product1Id)`·`stockOf(product2Id)` 모두 `available` 9, `reserved` 0, `sold` 1.
+- `OutboxAssert.rows("order.order-paid.v1")`의 행 `status()` = `SENT`.
+
+**5. 한 판매자의 가게 둘이면 가게 주인 알림은 1건** — 준비: 판매자 `seller1`이 가게 하나를 더 연다(`openShop(seller1, "3333333333")`, `product3` 3000원). 주문은 `createPendingOrder(buyerId, product1Id, product3Id)`(같은 판매자의 가게 둘, 합계 4,000원) → `OutboxAssert.clear()`. 동작: `confirmPayment` → `relayOnce()`.
+- `Eventually` 안에서 `notificationRows()`가 정확히 2개: (`memberId()` = buyerId, `type()` = `ORDER_PAID`), (seller1, `SHOP_ORDER_RECEIVED`).
+- seller1의 `SHOP_ORDER_RECEIVED`는 1개뿐이다(`dedupKey()` = `eventId:seller1:SHOP_ORDER_RECEIVED`가 같아 두 번째 INSERT가 건너뛰어진다).
+
+**6. 탈퇴 회원은 건너뛰고 나머지는 만든다** — 준비: 1번의 주문 + 동작 전에 JDBC `UPDATE member.member SET status = 'WITHDRAWN' WHERE id = seller2`. 동작: `confirmPayment` → `relayOnce()`.
+- `Eventually` 안에서 `notificationRows()`가 정확히 2개: (`memberId()` = buyerId, `type()` = `ORDER_PAID`), (seller1, `SHOP_ORDER_RECEIVED`).
+- `notificationRowsOf(seller2)`는 0개.
+
+**테스트 준비**
+
+**이 단계에서 추가하는 헬퍼** (`support/`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
+
+| 대상 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `FakeMailSender`, `SentMail` record | 위 4) | 3-5 `NotificationFlowTest` |
+| `IntegrationTestSupport`의 `@AfterEach` | `fakeMailSender.reset()` 호출 추가 | 모든 테스트 |
+| `notificationRowsOf(UUID memberId)` → `List<NotificationRow>` | `TestFixtures`. JDBC `SELECT member_id, type, channel, recipient, title, status, attempts, last_error, dedup_key, sent_at, next_attempt_at FROM notification.notification WHERE member_id = ? ORDER BY created_at, id`. `NotificationRow`(`support/`의 record) 필드: `memberId`(UUID), `type`·`channel`·`recipient`·`title`·`status`·`lastError`·`dedupKey`(String, `lastError`는 없으면 null), `attempts`(int), `sentAt`·`nextAttemptAt`(`Instant`, `sentAt`은 없으면 null) | 3-5 `NotificationFlowTest`, 5-4 |
+| `notificationRows()` → `List<NotificationRow>` | 위와 같은 컬럼·변환으로 `WHERE`와 회원 조건 없이 전체 | `NotificationFlowTest` 1·2·5·6번 |
+| `setNotificationsDue()` | JDBC `UPDATE notification.notification SET next_attempt_at = now() - interval '1 second'` | `NotificationFlowTest` 3·4번 |
+| `OrderSnapshot`에 주문 `status` 추가 | 2-4 표의 `OrderSnapshot` 필드 추가 중 이 단계가 처음 쓰는 `status`만 더한다(`orders.orders.status`, `WHERE id = ?`) | `NotificationFlowTest` 4번 |
+
+이미 있는 헬퍼: `signup`, `openShop`, `registerProduct`, `createPendingOrder`, `confirmPayment`, `stockOf`, 2-8a의 `snapshotOf`, 3-1의 `Eventually`·`OutboxAssert`, 3-2의 `TestKafka.send`·`processedCountOf`.
 
 **리뷰 때 물어볼 것**
 - 원 프로젝트에서 RabbitMQ를 따로 쓴 이유와, v2에서 Kafka만으로 충분한 이유는? (ADR-003)
@@ -843,10 +1422,105 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 
 ### 완료 확인
 
-| 테스트 클래스 | 케이스 |
-|---|---|
-| `member/domain/MemberTest` | [ ] `withdraw` → 마스킹 값, WITHDRAWN, `withdrawnAt` 기록 / [ ] BANNED 회원 `withdraw` → `INVALID_STATE_TRANSITION` |
-| `member/web/WithdrawTest` | [ ] 조건별 거부: 운영 중 가게 → 422 `details.reasons = ["ACTIVE_SHOP"]` / 결제 대기 주문 → `["ACTIVE_ORDER"]` / 미정산 품목 → `["PENDING_SETTLEMENT"]` / 둘 이상이면 모두 / [ ] 탈퇴 → 204, 같은 이메일로 로그인 → 401 `LOGIN_FAILED`, **같은 이메일로 재가입 → 201** / [ ] 탈퇴 → 릴레이 → `Eventually`로 장바구니 비워짐 |
+읽는 방법은 3-1~3-5와 같다. 이 단계에서 더하는 것은 다음과 같다.
+- 응답: 거부 응답의 이유 목록은 `$.details.reasons`. 목록을 통째로 비교할 때는 `JsonPath.read(body, "$.details.reasons")`로 `List<String>`을 읽는다.
+- 회원: `MemberSnapshot s = memberSnapshotOf(memberId)` 한 번으로 읽는다. `s.status()`, `s.email()`, `s.nickname()`, `s.name()`, `s.phone()`, `s.passwordHash()`, `s.withdrawnAt()`, 배송지 수는 `s.addresses().size()`. 값 전체를 비교할 때는 `MemberSnapshot` record의 `isEqualTo`를 쓴다.
+- 장바구니: 2-1의 `cartSnapshotOf(memberId)` → `CartSnapshot`의 `cartCount()`(장바구니 행 수), `itemCount()`(항목 수).
+- 탈퇴 요청: `DELETE /api/members/me`, `Authorization: Bearer {회원 토큰}`(`Idempotency-Key` 없음).
+
+#### `member/domain/MemberTest`
+
+준비: `Member member = Member.signUp("test@test.com", "pass1234", "test", "테스트")` → `member.changeProfile("test", "테스트", "010-1234-5678")`(전화번호를 채운다). `Instant now = Instant.parse("2026-10-18T00:00:00Z")`. `id = member.getId()`.
+
+**1. 탈퇴하면 개인정보가 마스킹된다** — 동작: `member.withdraw(now)`.
+- `getStatus()` = `WITHDRAWN`.
+- `getEmail()` = `"withdrawn+" + id + "@deleted.invalid"`.
+- `getNickname()` = `"탈퇴-" + id.toString().substring(0, 8)`.
+- `getName()` = `탈퇴회원`.
+- `getPhone()` = null, `getPasswordHash()` = null.
+- `getWithdrawnAt()` = `now`.
+- `getRole()` = `USER` 그대로.
+
+**2. BANNED 회원은 탈퇴할 수 없고 값이 바뀌지 않는다** — 준비: `ReflectionTestUtils.setField(member, "status", MemberStatus.BANNED)`. 동작: `member.withdraw(now)`.
+- `BusinessException`, `getErrorCode()` = `CommonErrorCode.INVALID_STATE_TRANSITION`.
+- `getEmail()` = `test@test.com`, `getNickname()` = `test`, `getName()` = `테스트`, `getPhone()` = `010-1234-5678`, `getWithdrawnAt()` = null, `getStatus()` = `BANNED`(마스킹이 시작되지 않았다).
+
+**3. 이미 탈퇴한 회원의 두 번째 탈퇴** — 동작: `member.withdraw(now)` 뒤 `member.withdraw(now.plusSeconds(60))`.
+- 두 번째가 `BusinessException`, `INVALID_STATE_TRANSITION`.
+- `getWithdrawnAt()` = 첫 번째 `now` 그대로.
+
+#### `member/web/WithdrawTest`
+
+공통 준비: 탈퇴할 회원 `member@test.com`(`signup`, 토큰은 `login`, 닉네임 `member`), 판매자 `seller@test.com`과 가게 `openShop(sellerId, "1111111111")`, 상품 `product1`(`registerProduct(sellerId, shopId, 1000, 10)`). 정산 월은 `YearMonth.of(2026, 9)`, 미정산 품목의 확정 시각은 `Instant.parse("2026-09-15T03:00:00Z")`. 거부 케이스의 공통 확인: 탈퇴 요청 전에 `before = memberSnapshotOf(memberId)`를 읽어 두고(`before.status()` = `ACTIVE`, `before.withdrawnAt()` null), 요청 뒤 `memberSnapshotOf(memberId)`가 `before`와 같다(`isEqualTo`. 이메일·닉네임·이름·전화번호·비밀번호 해시·배송지가 그대로다). `OutboxAssert.rows("member.member-withdrawn.v1")`가 비어 있다. 성공(204) 케이스의 공통 확인: `memberSnapshotOf(memberId).status()` = `WITHDRAWN`.
+
+**1. 운영 중인 가게가 있으면 거부** — 준비: 회원이 `openShop(memberId, "2222222222")`. 동작: 탈퇴 요청.
+- 응답 422, `$.code` = `MEMBER_HAS_ACTIVE_RESOURCES`, `$.details.reasons` = `["ACTIVE_SHOP"]`.
+- 거부 공통 확인.
+
+**2. 진행 중인 주문이 있으면 거부, 끝난 주문은 막지 않는다** — 준비: 행마다 새 회원으로 아래 상태를 만든 뒤 탈퇴 요청. 구매자는 탈퇴하는 회원 본인이다.
+
+| 준비 | 응답 | 확인할 것 |
+|---|---|---|
+| `createPendingOrder(memberId, product1Id)` (주문 `PENDING_PAYMENT`) | 422 | `$.details.reasons` = `["ACTIVE_ORDER"]`, 거부 공통 확인 |
+| `pg.on("/v1/payments/confirm", Behavior.delay(1000))` → `createPendingOrder` → `confirmPayment`(202, `PAYMENT_IN_PROGRESS`) | 422 | 위와 같음 |
+| `createPaidOrder(memberId, product1Id)` (가게주문 `PAID`) | 422 | 위와 같음 |
+| 위 + `shipShopOrder(sellerId, shopId, shopOrderId)` (`SHIPPED`) | 422 | 위와 같음 |
+| 위 + `deliverShopOrder(sellerId, shopId, shopOrderId)` (`DELIVERED`) | 422 | 위와 같음 |
+| `createPendingOrder` → `POST /api/orders/{orderId}/cancel` (200, `CANCELLED`) | 204 | 성공 공통 확인 |
+| `createPaidOrder` → JDBC `UPDATE orders.shop_order SET status = 'COMPLETED' WHERE id = ?` | 204 | 성공 공통 확인 |
+| `createPaidOrder` → JDBC `UPDATE orders.shop_order SET status = 'CANCELLED' WHERE id = ?` | 204 | 성공 공통 확인 |
+
+**3. 진행 중인 환불이 있으면 거부** — 준비: `createPaidOrder(memberId, product1Id)` → `pg.on("/v1/payments/" + paymentKey, Behavior.delay(1000))` → 품목 취소 요청(HTTP) → 202, `$.status` = `APPROVED` → JDBC `UPDATE orders.shop_order SET status = 'COMPLETED'`(가게주문 조건만 걷어 환불만 남긴다). 동작: 탈퇴 요청.
+- 응답 422, `$.details.reasons` = `["ACTIVE_ORDER"]`, 거부 공통 확인.
+- 이어서 JDBC `UPDATE orders.refund SET status = 'COMPLETED' WHERE id = ?`(`id`는 202 응답의 `$.refundId`) 뒤 탈퇴 요청 → 204.
+
+**4. 정산이 끝나지 않았으면 거부** — 준비: 행마다 회원이 가게를 열고 `closeShop(shopId)`로 CLOSED로 만든다(ACTIVE 가게가 아니라 `ACTIVE_SHOP`은 해당 없다). 동작: 탈퇴 요청.
+
+| 준비 | 응답 | 확인할 것 |
+|---|---|---|
+| 그 가게에 `insertSettlementItem(shopId, 1000, 확정 시각)` (미정산 품목) | 422 | `$.details.reasons` = `["PENDING_SETTLEMENT"]`, 거부 공통 확인 |
+| 위 + `fakePayoutGateway.failNext(1)` → `settlementService.run(YearMonth.of(2026, 9))` (정산 `PAYOUT_FAILED`, 미정산 품목 0) | 422 | 위와 같음 |
+| 위 + `settlementService.run(YearMonth.of(2026, 9))` 한 번 더 (정산 `PAID`) | 204 | 성공 공통 확인 |
+| 품목 없이 CLOSED 가게만 | 204 | 성공 공통 확인 |
+
+**5. 이유가 둘 이상이면 모두 담는다** — 준비: 회원이 ACTIVE 가게 `openShop(memberId, "2222222222")`와 CLOSED 가게 `"3333333333"`(`closeShop` + 미정산 품목 `insertSettlementItem`)를 갖고, `createPendingOrder(memberId, product1Id)`로 결제 대기 주문도 있다. 동작: 탈퇴 요청.
+- 응답 422, `$.code` = `MEMBER_HAS_ACTIVE_RESOURCES`.
+- `$.details.reasons`는 3개: 첫 번째 원소가 `ACTIVE_SHOP`이고, 세 값은 `ACTIVE_SHOP`, `ACTIVE_ORDER`, `PENDING_SETTLEMENT`가 하나씩이다(뒤 두 개의 순서는 정해져 있지 않다).
+- 거부 공통 확인.
+
+**6. 탈퇴 성공, 로그인 불가, 같은 이메일로 재가입** — 준비: 회원에게 `address(memberId)`를 두 번(배송지 2개), `addToCart(memberId, product1Id, 2)`, 조건 위반 없음. `OutboxAssert.clear()`. 동작 1: 탈퇴 요청.
+- 응답 204, 본문 없음.
+- 탈퇴 전 `memberSnapshotOf(memberId).addresses().size()` = 2였다. 탈퇴 뒤 `s = memberSnapshotOf(memberId)`: `status()` = `WITHDRAWN`, `email()` = `withdrawn+{memberId}@deleted.invalid`, `nickname()` = `탈퇴-{memberId 앞 8자}`, `name()` = `탈퇴회원`, `phone()` null, `passwordHash()` null, `withdrawnAt()` not null, `addresses().size()` = 0.
+- `rows("member.member-withdrawn.v1")` 정확히 1건: `aggregateType()` = `MEMBER`, `aggregateId()` = memberId, payload `memberId` = memberId 문자열.
+- 동작 2: `POST /api/auth/login` 본문 `{"email":"member@test.com","password":"pass1234"}`.
+- 응답 401, `$.code` = `LOGIN_FAILED`.
+- 동작 3: `POST /api/auth/signup` 본문 `{"email":"member@test.com","password":"pass1234","nickname":"member","name":"테스터"}`.
+- 응답 201, `$.memberId`가 처음 memberId와 다르다. `SELECT COUNT(*) FROM member.member WHERE email = 'member@test.com'` = 1(새 회원).
+
+**7. 탈퇴 뒤 장바구니가 비워진다** — 준비: 6번의 회원(장바구니 항목 1개)과 다른 구매자 `other@test.com`(`addToCart(otherId, product1Id, 1)`). 탈퇴 요청(204) 뒤 `eventId` = `rows("member.member-withdrawn.v1")`의 `id()`. 동작: `outboxRelay.relayOnce()`.
+- 반환값 1.
+- `Eventually`(5초) 안에서 `processedCountOf("order.member-withdrawn", eventId)` = 1.
+- `cartSnapshotOf(memberId)`: `cartCount()` = 0, `itemCount()` = 0(항목과 장바구니 행이 모두 지워졌다).
+- 다른 구매자는 그대로: `cartSnapshotOf(otherId)`: `cartCount()` = 1, `itemCount()` = 1.
+
+**8. 장바구니가 없는 회원의 탈퇴 이벤트** — 준비: 장바구니를 만든 적 없는 회원. 탈퇴 요청(204) → `relayOnce()` = 1.
+- `Eventually`(5초) 안에서 `processedCountOf("order.member-withdrawn", 그 이벤트의 eventId)` = 1(예외 없이 끝났다는 신호다. 실패했다면 이 행이 롤백돼 남지 않는다).
+
+**9. 같은 회원의 탈퇴 요청 두 건 동시** — 준비: 조건 위반이 없는 회원. 동작: `ConcurrencyRunner.run(2, ...)`로 같은 토큰의 탈퇴 요청을 동시에 보내 HTTP 상태 코드를 모은다.
+- 상태 코드: 하나는 204, 하나는 409이고 409 쪽 `$.code` = `INVALID_STATE_TRANSITION`(잠금 조회로 줄 서서, 뒤의 요청은 이미 `WITHDRAWN`인 회원을 읽는다).
+- `rows("member.member-withdrawn.v1")` 정확히 1건.
+- `memberSnapshotOf(memberId)`: `status()` = `WITHDRAWN`, `email()` = `withdrawn+{memberId}@deleted.invalid` 한 형태(두 번 마스킹되지 않았다).
+
+**테스트 준비**
+
+**이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `memberSnapshotOf(memberId)`에 배송지 추가 | 3-1에서 추가한 `MemberSnapshot`에 1-5 표에 정의된 `addresses`(`List<AddressState(id, recipient, address2, isDefault)>`)를 더한다(읽는 쿼리는 1-5 표). 처음 쓰는 미구현 단계가 이 단계다 | `WithdrawTest` 배송지 수·삭제 확인 |
+| `cartSnapshotOf(memberId)` → `CartSnapshot` | 2-1 표에 정의된 헬퍼다(읽는 쿼리·필드는 그 표). 처음 쓰는 미구현 단계인 이 단계에서 `TestFixtures`에 추가한다 | `WithdrawTest` 장바구니 삭제 확인 |
+
+이미 있는 헬퍼: 3-4의 `insertSettlementItem`·`FakePayoutGateway`, `signup`, `login`, `openShop`, `closeShop`, `registerProduct`, `address`, `addToCart`, `createPendingOrder`, `confirmPayment`, `createPaidOrder`, `shopOrderIdOf`, `shipShopOrder`, `deliverShopOrder`, `orderLineIdOf`, `ConcurrencyRunner`, 3-1의 `memberSnapshotOf`(`role`·`status`·`email`·`withdrawnAt`)·`countOf`·`OutboxAssert`·`Eventually`, 3-2의 `processedCountOf`.
 
 **리뷰 때 물어볼 것**
 - 탈퇴 조건 검사와 탈퇴 처리 사이에 새 주문이 들어오면?

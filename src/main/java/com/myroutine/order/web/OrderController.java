@@ -6,6 +6,7 @@ import com.myroutine.common.storage.ImageUrls;
 import com.myroutine.common.web.CursorPage;
 import com.myroutine.order.application.*;
 import com.myroutine.order.domain.OrderStatus;
+import com.myroutine.order.domain.RefundStatus;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -25,6 +26,7 @@ public class OrderController {
     private final OrderQueryService orderQueryService;
     private final ConfirmPaymentService confirmPaymentService;
     private final PendingOrderCancelService pendingOrderCancelService;
+    private final CancelOrderLineService cancelOrderLineService;
     private final ImageUrls imageUrls;
 
     @PostMapping("/checkout")
@@ -67,5 +69,21 @@ public class OrderController {
     public ResponseEntity<ConfirmResponse> cancel(@CurrentMember UUID memberId, @PathVariable UUID id) {
         OrderStatus result = pendingOrderCancelService.cancel(memberId, id);
         return ResponseEntity.ok(new ConfirmResponse(id, result));
+    }
+
+    @PostMapping("/{id}/lines/{lineId}/cancel")
+    @Idempotent
+    public ResponseEntity<RefundResponse> cancel(
+            @CurrentMember UUID memberId,
+            @PathVariable UUID id,
+            @PathVariable UUID lineId,
+            @RequestBody @Valid CancelLineRequest request
+    ) {
+        RefundResult result = cancelOrderLineService.cancel(memberId, id, lineId, request.reason());
+        if (result.status() == RefundStatus.COMPLETED) {
+            return ResponseEntity.ok(RefundResponse.from(result));
+        } else {
+            return ResponseEntity.accepted().body(RefundResponse.from(result));
+        }
     }
 }

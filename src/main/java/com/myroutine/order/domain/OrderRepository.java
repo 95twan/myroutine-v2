@@ -36,4 +36,10 @@ public interface OrderRepository {
     List<ShopOrderListRow> findShopOrderNextPage(UUID shopId, ShopOrderStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit);
 
     List<OrderLine> findLinesByShopOrderIdIn(Collection<UUID> shopOrderIds);
+
+    Optional<Order> findByIdAndMemberIdForUpdate(UUID id, UUID memberId);
+
+    Optional<Order> findByIdForUpdate(UUID id);
+
+    Optional<Order> findByShopOrderIdForUpdate(UUID shopOrderId);
 }

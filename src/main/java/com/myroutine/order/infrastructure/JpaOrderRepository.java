@@ -1,11 +1,9 @@
 package com.myroutine.order.infrastructure;
 
 import com.myroutine.order.domain.*;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Limit;
-import org.springframework.data.jpa.repository.EntityGraph;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
-import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.*;
 
 import java.time.Instant;
 import java.util.Collection;
@@ -105,4 +103,16 @@ public interface JpaOrderRepository extends JpaRepository<Order, UUID>, OrderRep
             where ol.shopOrderId in :shopOrderIds
             """)
     List<OrderLine> findLinesByShopOrderIdIn(Collection<UUID> shopOrderIds);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select o from Order o where o.id = :id and o.memberId = :memberId")
+    Optional<Order> findByIdAndMemberIdForUpdate(UUID id, UUID memberId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select o from Order o where o.id = :id")
+    Optional<Order> findByIdForUpdate(UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select o from Order o join o.shopOrders so where so.id = :shopOrderId")
+    Optional<Order> findByShopOrderIdForUpdate(UUID shopOrderId);
 }

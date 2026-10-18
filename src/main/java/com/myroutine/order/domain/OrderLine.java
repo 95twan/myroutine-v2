@@ -9,6 +9,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.EnumSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -55,6 +57,9 @@ public class OrderLine extends BaseTimeEntity {
     @Version
     private Long version;
 
+    private static final Set<OrderLineStatus> SETTLED =
+            EnumSet.of(OrderLineStatus.CONFIRMED, OrderLineStatus.RETURNED, OrderLineStatus.CANCELLED);
+
     public static OrderLine create(CheckoutLine line) {
         OrderLine orderLine = new OrderLine();
         orderLine.id = Ids.newId();
@@ -84,5 +89,21 @@ public class OrderLine extends BaseTimeEntity {
 
     public void markDelivered() {
         this.status = this.status.transitTo(OrderLineStatus.DELIVERED);
+    }
+
+    public void addRefundAmount(Money amount) {
+        this.refundedAmount = this.refundedAmount.plus(amount);
+    }
+
+    public void markReturned() {
+        this.status = this.status.transitTo(OrderLineStatus.RETURNED);
+    }
+
+    public boolean isSettled() {
+        return SETTLED.contains(status);
+    }
+
+    public Money refundableAmount() {
+        return this.lineAmount.minus(this.refundedAmount);
     }
 }

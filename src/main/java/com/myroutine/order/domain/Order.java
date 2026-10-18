@@ -1,6 +1,7 @@
 package com.myroutine.order.domain;
 
 import com.myroutine.common.error.BusinessException;
+import com.myroutine.common.error.CommonErrorCode;
 import com.myroutine.common.model.BaseTimeEntity;
 import com.myroutine.common.model.Ids;
 import com.myroutine.common.model.Money;
@@ -127,5 +128,54 @@ public class Order extends BaseTimeEntity {
 
     public void deliver(UUID shopOrderId, Instant now) {
         findShopOrder(shopOrderId).deliver(now);
+    }
+
+    public OrderLine findLine(UUID lineId) {
+        return this.shopOrders.stream()
+                .flatMap(shopOrder -> shopOrder.getLines().stream())
+                .filter(line -> line.getId().equals(lineId))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(OrderErrorCode.ORDER_LINE_NOT_FOUND));
+    }
+
+    public ShopOrder shopOrderOf(UUID lineId) {
+        return this.shopOrders.stream()
+                .filter(shopOrder -> shopOrder.getLines().stream()
+                        .anyMatch(line -> line.getId().equals(lineId)))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(OrderErrorCode.SHOP_ORDER_NOT_FOUND));
+    }
+
+    public void verifyCancellable(UUID lineId) {
+        OrderLine line = findLine(lineId);
+        ShopOrder shopOrder = shopOrderOf(lineId);
+
+        if (this.status != OrderStatus.PAID || shopOrder.getStatus() != ShopOrderStatus.PAID || line.getStatus() != OrderLineStatus.PAID) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATE_TRANSITION);
+        }
+    }
+
+    public void applyRefund(UUID lineId, Money amount, RefundReasonType type, Instant now) {
+        OrderLine line = findLine(lineId);
+        ShopOrder shopOrder = shopOrderOf(lineId);
+
+        line.addRefundAmount(amount);
+
+        switch (type) {
+            case BUYER_CANCEL -> line.markCancelled();
+            case RETURN -> line.markReturned();
+        }
+
+        recalculateShopOrder(shopOrder, now);
+    }
+
+    private void recalculateShopOrder(ShopOrder shopOrder, Instant now) {
+        if (shopOrder.allLinesCancelled()) {
+            shopOrder.markCancelledWithoutLines();
+            return;
+        }
+        if (shopOrder.getStatus() == ShopOrderStatus.DELIVERED && shopOrder.allLinesSettled()) {
+            shopOrder.markCompleted(now);
+        }
     }
 }

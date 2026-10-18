@@ -10,6 +10,8 @@ public interface PaymentRepository {
 
     Optional<Payment> findById(UUID id);
 
+    Optional<Payment> findByIdForUpdate(UUID id);
+
     Optional<Payment> findByOrderId(UUID orderId);
 
     int markApproved(UUID id, Collection<PaymentStatus> from, String method, Instant approvedAt, Instant now);

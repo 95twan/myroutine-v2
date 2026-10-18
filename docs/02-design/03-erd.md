@@ -1,5 +1,6 @@
 # 03. ERD (Stage 1)
 
+> 2026-10-17: `refund.reason_type`에서 `SYSTEM`을 뺐다(환불을 만드는 경로가 구매자 취소와 반품뿐이라 쓰는 곳이 없다, 로드맵 2-8)
 > 2026-10-15: 주문 만료 스윕 조건을 `expires_at <= now()`로 맞췄다(같은 시각도 만료, 결제 시작 CAS의 `expires_at > now`와 상보적, 로드맵 2-5)
 > 2026-10-15: `review_like`에 `created_at`을 더하고, 추천 캐시 키를 로드맵 6-4의 `rec:result:{memberId}`(추천 결과 캐시)로 맞췄다
 > 2026-10-13: `order_line(shop_order_id)` 인덱스를 인덱스 목록에 더했다(주문 상세의 품목 배치 로딩, 로드맵 2-2)
@@ -221,7 +222,7 @@ erDiagram
     uuid shop_order_id FK
     uuid order_line_id FK "진행 중 환불은 품목당 1개 (부분 unique)"
     uuid member_id
-    varchar reason_type "BUYER_CANCEL, RETURN, SYSTEM"
+    varchar reason_type "BUYER_CANCEL, RETURN"
     varchar reason
     bigint amount "PG 부분취소 금액 (POL-08)"
     varchar status "REQUESTED, APPROVED, PG_CANCELLED, COMPLETED, REJECTED, FAILED"
