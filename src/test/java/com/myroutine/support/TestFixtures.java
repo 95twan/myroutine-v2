@@ -237,4 +237,33 @@ public class TestFixtures {
     public void deliverShopOrder(UUID sellerId, UUID shopId, UUID shopOrderId) {
         shipmentService.deliver(sellerId, shopId, shopOrderId);
     }
+
+    public OrderSnapshot snapshotOf(UUID orderId) {
+        Map<UUID, OrderSnapshot.LineState> lines = new LinkedHashMap<>();
+        jdbcTemplate.query(
+                "SELECT ol.product_id, ol.status, ol.refunded_amount FROM orders.order_line ol "
+                        + "JOIN orders.shop_order so ON so.id = ol.shop_order_id WHERE so.order_id = ?",
+                (rs, rowNum) -> lines.put(
+                        rs.getObject("product_id", UUID.class),
+                        new OrderSnapshot.LineState(rs.getString("status"), rs.getLong("refunded_amount"))),
+                orderId);
+
+        List<String> shopOrderStatuses = jdbcTemplate.queryForList(
+                "SELECT status FROM orders.shop_order WHERE order_id = ? ORDER BY created_at, id", String.class, orderId);
+
+        List<String> refundStatuses = jdbcTemplate.queryForList(
+                "SELECT status FROM orders.refund WHERE order_id = ? ORDER BY created_at, id", String.class, orderId);
+
+        List<OrderSnapshot.PaymentState> payments = jdbcTemplate.query(
+                "SELECT amount, cancelled_amount, status, payment_key FROM payment.payment WHERE order_id = ?",
+                (rs, rowNum) -> new OrderSnapshot.PaymentState(
+                        rs.getLong("amount"), rs.getLong("cancelled_amount"), rs.getString("status"), rs.getString("payment_key")),
+                orderId);
+
+        return new OrderSnapshot(lines, shopOrderStatuses, refundStatuses, payments.isEmpty() ? null : payments.get(0));
+    }
+
+    public UUID orderLineIdOf(UUID orderId, UUID productId) {
+        return jdbcTemplate.queryForObject("SELECT ol.id FROM orders.order_line ol JOIN orders.shop_order so ON so.id = ol.shop_order_id WHERE so.order_id = ? AND ol.product_id = ?", UUID.class, orderId, productId);
+    }
 }
