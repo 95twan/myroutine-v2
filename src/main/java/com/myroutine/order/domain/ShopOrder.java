@@ -94,4 +94,22 @@ public class ShopOrder extends BaseTimeEntity {
                 .filter(line -> line.getStatus() == OrderLineStatus.SHIPPED)
                 .forEach(OrderLine::markDelivered);
     }
+
+    public void markCancelledWithoutLines() {
+        this.status = this.status.transitTo(ShopOrderStatus.CANCELLED);
+    }
+
+    public void markCompleted(Instant now) {
+        this.status = this.status.transitTo(ShopOrderStatus.COMPLETED);
+        this.completedAt = now;
+    }
+
+    public boolean allLinesCancelled() {
+        return this.lines.stream().allMatch(line -> line.getStatus() == OrderLineStatus.CANCELLED);
+    }
+
+    // 구매확정·반품·취소 중 하나로 더 움직일 일이 없는 상태
+    public boolean allLinesSettled() {
+        return lines.stream().allMatch(OrderLine::isSettled);
+    }
 }

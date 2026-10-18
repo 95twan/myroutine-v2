@@ -3,9 +3,7 @@ package com.myroutine.order.application;
 import com.myroutine.common.error.BusinessException;
 import com.myroutine.common.web.Cursor;
 import com.myroutine.common.web.CursorPage;
-import com.myroutine.order.domain.Order;
-import com.myroutine.order.domain.OrderErrorCode;
-import com.myroutine.order.domain.OrderRepository;
+import com.myroutine.order.domain.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
@@ -18,6 +16,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class OrderQueryService {
     private final OrderRepository orderRepository;
+    private final RefundRepository refundRepository;
 
     @Transactional(readOnly = true)
     public CursorPage<OrderSummaryResult> getMyOrders(UUID memberId, String cursor, int size) {
@@ -44,6 +43,7 @@ public class OrderQueryService {
         Order order = orderRepository.findByIdAndMemberId(orderId, memberId).orElseThrow(
                 () -> new BusinessException(OrderErrorCode.ORDER_NOT_FOUND)
         );
-        return OrderDetailResult.from(order);
+        List<Refund> refunds = refundRepository.findAllByOrderId(orderId);
+        return OrderDetailResult.from(order, refunds);
     }
 }

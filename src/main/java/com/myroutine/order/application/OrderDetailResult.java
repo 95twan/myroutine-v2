@@ -2,6 +2,7 @@ package com.myroutine.order.application;
 
 import com.myroutine.order.domain.Order;
 import com.myroutine.order.domain.OrderStatus;
+import com.myroutine.order.domain.Refund;
 
 import java.time.Instant;
 import java.util.List;
@@ -17,9 +18,10 @@ public record OrderDetailResult(
         Instant expiresAt,
         Instant paidAt,
         Instant createdAt,
-        List<ShopOrderDetailResult> shopOrders
+        List<ShopOrderDetailResult> shopOrders,
+        List<RefundDetailResult> refunds
 ) {
-    public static OrderDetailResult from(Order order) {
+    public static OrderDetailResult from(Order order, List<Refund> refunds) {
         return new OrderDetailResult(
                 order.getId(),
                 order.getType(),
@@ -30,7 +32,8 @@ public record OrderDetailResult(
                 order.getExpiresAt(),
                 order.getPaidAt(),
                 order.getCreatedAt(),
-                order.getShopOrders().stream().map(ShopOrderDetailResult::from).toList()
+                order.getShopOrders().stream().map(ShopOrderDetailResult::from).toList(),
+                refunds.stream().map(RefundDetailResult::from).toList()
         );
     }
 }

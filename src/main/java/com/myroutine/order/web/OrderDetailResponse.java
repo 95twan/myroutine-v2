@@ -18,7 +18,8 @@ public record OrderDetailResponse(
         Instant expiresAt,
         Instant paidAt,
         Instant createdAt,
-        List<ShopOrderDetailResponse> shopOrders
+        List<ShopOrderDetailResponse> shopOrders,
+        List<RefundDetailResponse> refunds
 ) {
     public static OrderDetailResponse from(OrderDetailResult result, ImageUrls imageUrls) {
         return new OrderDetailResponse(
@@ -31,7 +32,8 @@ public record OrderDetailResponse(
                 result.expiresAt(),
                 result.paidAt(),
                 result.createdAt(),
-                result.shopOrders().stream().map(r -> ShopOrderDetailResponse.from(r, imageUrls)).toList()
+                result.shopOrders().stream().map(r -> ShopOrderDetailResponse.from(r, imageUrls)).toList(),
+                result.refunds().stream().map(RefundDetailResponse::from).toList()
         );
     }
 }
