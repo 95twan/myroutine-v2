@@ -127,7 +127,7 @@ class RefundRecoveryServiceTest extends IntegrationTestSupport {
         assertThat(snapshot.refundStatuses().get(0)).isEqualTo("COMPLETED");
         assertThat(pg.requests("/v1/payments/").stream().filter(r -> r.path().endsWith("/cancel"))).hasSize(2);
         assertThat(snapshot.payment().cancelledAmount()).isEqualTo(1000);
-        assertThat(snapshot.line(product1Id).status()).isEqualTo("CANCELED");
+        assertThat(snapshot.line(product1Id).status()).isEqualTo("CANCELLED");
         assertThat(snapshot.line(product1Id).refundedAmount()).isEqualTo(1000);
         assertThat(testFixtures.stockOf(product1Id).available()).isEqualTo(10);
         assertThat(testFixtures.stockOf(product1Id).sold()).isEqualTo(0);
