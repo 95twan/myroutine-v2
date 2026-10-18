@@ -1,6 +1,11 @@
 # Part 2. 주문과 돈
 
-> 버전 0.84 · 2026-10-18 · **2-8a 발송(`ship`)이 주문 행을 잠그게 했다**(리뷰 질문 "구매자 취소와 판매자 발송이 동시에 오면?"): 취소는 주문 행을 잠그는데 발송은 잠그지 않아, 취소가 `verifyCancellable`을 통과해 환불을 만든 사이 발송이 커밋되면 `SHIPPED` 품목의 PG 취소가 성공하고 환불이 `PG_CANCELLED`로 멈춘다. `OrderRepository.findByShopOrderIdForUpdate`와 `ShipmentService.ship`의 읽기 방식을 규격에 넣고, `CancelLineConcurrencyTest`에 취소·발송 동시 케이스를 더했다. 규격 외 변경 없음
+> 버전 0.89 · 2026-10-19 · **2-8b 케이스 2에서 재시도 요청의 `idempotency-key` 확인을 뺐다**(구현 중 지적 "이걸 확인하려고 또 괴상한 코드를 써야 한다"): 취소 요청 헤더를 꺼내 비교하는 코드를 새로 써야 하는데, 첫 요청의 키가 `refundId`인 것은 2-8a `CancelOrderLineTest`가, 같은 키로 다시 불러도 PG 취소가 한 번뿐인 것은 2-6 `PaymentApi.cancel` 멱등 테스트가 이미 확인한다. 규격 외 변경 없음
+> 0.88 · 2026-10-19 · **2-8b 케이스 1에서 `stock_movement` 직접 조회 확인을 뺐다**(구현 중 지적 "테스트를 위한 코드를 또 쓰라고 한다"): 이 케이스에서 `complete`의 첫 호출은 spy가 본 메서드를 부르기 전에 예외를 던지므로 재고 복구는 재시도 한 번뿐이고, `available` 10·`sold` 0이 "한 번만 복구"를 이미 보인다. 이력 1건은 같은 사실을 한 번 더 세는 것이라 JDBC를 새로 쓰게 하는 값어치가 없다고 보았다. 규격 외 변경 없음
+> 0.87 · 2026-10-19 · **2-8b `RefundRecoveryServiceTest`의 취소를 MockMvc 요청에서 `CancelOrderLineService` 직접 호출로 바꿨다**(구현 중 질문 "MockMvc로 호출해서 취소시켜야 하나"): 이 테스트는 `recoverBatch()`를 확인하고 취소 응답 코드(500·202)는 `CancelOrderLineTest`가 이미 확인하므로, 응답 대신 예외·`RefundResult`로 적었다. 규격 외 변경 없음
+> 0.86 · 2026-10-19 · **2-8b `recoverBatch`에서 `FAILED`는 세지 않고 `log.warn`으로 남기게 했다**(구현 중 질문 "FAILED도 최종 상태 아닌가"): 반환 건수는 "복구된 건수"여야 하므로 돈이 돌아가지 않은 `FAILED`는 섞지 않고, 운영자가 로그에서 찾을 수 있게 경고로 남긴다. `REJECTED`는 이 잡의 조회 대상에서 나오지 않는다는 점도 적었다. 규격 외 변경 없음
+> 0.85 · 2026-10-19 · **2-8b `recoverBatch`의 반환 건수를 `COMPLETED`로 끝난 환불 수로 정했다**(구현 중 질문 "반환된 RefundStatus별로 count를 올리나"): "처리한 건수"라고만 적혀 시도 건수와 복구 건수가 갈렸다. 복구 잡 로그가 "이번에 복구한 건수"가 되도록 `COMPLETED`만 센다. 규격 외 변경 없음
+> 0.84 · 2026-10-18 · **2-8a 발송(`ship`)이 주문 행을 잠그게 했다**(리뷰 질문 "구매자 취소와 판매자 발송이 동시에 오면?"): 취소는 주문 행을 잠그는데 발송은 잠그지 않아, 취소가 `verifyCancellable`을 통과해 환불을 만든 사이 발송이 커밋되면 `SHIPPED` 품목의 PG 취소가 성공하고 환불이 `PG_CANCELLED`로 멈춘다. `OrderRepository.findByShopOrderIdForUpdate`와 `ShipmentService.ship`의 읽기 방식을 규격에 넣고, `CancelLineConcurrencyTest`에 취소·발송 동시 케이스를 더했다. 규격 외 변경 없음
 > 0.83 · 2026-10-18 · **2-6 `Payment.applyCancel`의 동시성 보호를 `payment` 행 잠금으로 바꿨다**(2-8a `CancelLineConcurrencyTest`의 서로 다른 품목 동시 취소가 409 `CONFLICT_RETRY`로 실패): 환불 완료 전에 PG 취소를 끝내는 `cancel` 트랜잭션 B는 주문 행 잠금(2-8)이 풀린 뒤라 같은 `payment` 행을 동시에 갱신하고 `@Version` 충돌이 났다. 구현물 9번 `PaymentRepository.findByIdForUpdate`를 더하고 8번의 읽기 방식을 `findById`에서 `findByIdForUpdate`로 바꿨다. 규격 외 변경 없음
 > 0.82 · 2026-10-18 · **주문 읽기 헬퍼 정의를 2-8a 한 곳으로 모았다**: `snapshotOf`·`OrderSnapshot`은 2-8a가 정의하고 2-4·2-6·2-10 표는 필드 추가 행만 둔다. 읽기 헬퍼는 처음 쓰는 미구현 단계에서 `TestFixtures`에 추가한다(공통 규칙 N-1, 2-1·2-2·2-4·2-6·2-7 표 머리). 2-9에 `shopOrderSnapshotOf`(정의는 2-7) 추가 행을 두고 2-9 목록에서 쓰지 않는 `cartSnapshotOf`를 뺐다. 규격 변경 없음
 > 0.81 · 2026-10-18 · **2-1~2-7·2-9·2-10의 완료 확인도 읽기 헬퍼 한 번으로 읽게 했다**(사용자 지적: 확인할 값마다 쿼리·`Map` 변환 코드를 따로 짜야 해서 비효율): 주문은 `snapshotOf(orderId)`(2-4에서 만들고, 2-6이 `reconcileAttempts`, 2-8a가 `refundStatuses`, 2-10이 `confirmedAt`을 더한다), 장바구니는 `cartSnapshotOf`(2-1), 회원의 주문 건수·멱등 키는 `orderCountOf`·`idempotencyKeyOf`(2-2), 취소 호출 기록은 `paymentCancelOf`(2-6), 가게주문 배송 정보는 `shopOrderSnapshotOf`(2-7), 환불 상세는 `refundRowOf`(2-9)로 읽는다. 같은 클래스 안에서 되풀이되던 확인(2-2 체크아웃 8·9번의 장바구니, 2-6 대사 3·4·5·9번의 재고, 2-9 3·6번의 상태 재확인)을 그 값이 목적인 케이스에만 남겼다. 규격 외 변경 없음
@@ -2365,13 +2370,13 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 | 대상 | 규격 |
 |---|---|
-| `RefundRecoveryService` (order.application) | 클래스에 `@Transactional` 없음. 의존성 `RefundRepository`, `RefundCompleter`, `RefundProcessor`, `Clock`. `public int recoverBatch()` — 반환: 처리한 건수. 단계마다 건별 try/catch로 감싸 한 환불의 예외가 나머지를 막지 않게 한다(2-5 `expireBatch`와 같다) |
+| `RefundRecoveryService` (order.application) | 클래스에 `@Transactional` 없음. 의존성 `RefundRepository`, `RefundCompleter`, `RefundProcessor`, `Clock`. `public int recoverBatch()` — 반환: 이번에 `COMPLETED`로 끝난 환불 건수. 여전히 `APPROVED`로 남았거나 `FAILED`가 됐거나 예외가 난 환불은 세지 않는다(`FAILED`는 PG가 취소를 거절해 돈이 돌아가지 않은 운영자 처리 대상이라 `log.warn`으로 남긴다. 아래 순서 2). 단계마다 건별 try/catch로 감싸 한 환불의 예외가 나머지를 막지 않게 한다(2-5 `expireBatch`와 같다) |
 | `RefundRecoveryJob` (order.infrastructure) | `@Scheduled(fixedDelay = 60_000)` → `jobRunner.run("recover-refunds", service::recoverBatch)` (2-5 `OrderExpirationJob`과 같은 모양) |
 
 `recoverBatch` 순서 — 두 단계 모두 `before = now - 5분`이라 `updated_at`이 5분 넘게 바뀌지 않은 환불만 대상이다
 1. `findStuckIds(PG_CANCELLED, now - 5분, Limit.of(100))` → 각 `refundCompleter.complete(id)` — PG 취소는 끝났는데 재고·품목 반영이 실패한 환불. 마지막 단계만 다시 한다
-2. `findStuckIds(APPROVED, now - 5분, Limit.of(100))` → 각 `refundProcessor.process(id)` — PG 취소가 불확실(UNKNOWN)했거나 호출 전에 죽은 환불. 같은 Idempotency-Key(refundId)로 다시 부르므로 두 번 취소되지 않는다
-3. 처리 건수 반환
+2. `findStuckIds(APPROVED, now - 5분, Limit.of(100))` → 각 `refundProcessor.process(id)` — PG 취소가 불확실(UNKNOWN)했거나 호출 전에 죽은 환불. 같은 Idempotency-Key(refundId)로 다시 부르므로 두 번 취소되지 않는다. `process`가 `FAILED`를 돌려주면(PG가 취소를 거절) 세지 않고 `log.warn("복구 중 PG가 취소를 거절했다. refundId=...")`를 남긴다
+3. `COMPLETED`로 끝난 건수 반환 (`complete`·`process`가 돌려준 `RefundStatus`가 `COMPLETED`일 때만 센다. `APPROVED`로 남은 환불은 세지 않고 다음 주기에 다시 시도한다. `REJECTED`는 반품 거절에서만 생겨 이 잡의 대상(`PG_CANCELLED`, `APPROVED`)에서 나오지 않는다)
 
 ### 완료 확인 (2-8b)
 
@@ -2380,16 +2385,16 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 #### `order/application/RefundRecoveryServiceTest` (공통 준비 사용, `recoverBatch()`를 직접 부른다)
 
 **1. 완료 직전에 실패한 환불 복구** — 준비: 공통 준비 + `@MockitoSpyBean RefundCompleter`에 `doThrow(new RuntimeException("test")).doCallRealMethod().when(refundCompleter).complete(any())`(첫 호출만 예외).
-- 동작 1: `product1` 품목 취소 요청 → 응답 500(`$.code` = `INTERNAL_ERROR`). 응답에 `refundId`가 없으므로 `refundIdOf(orderLineId)`로 환불 ID를 얻는다.
+- 동작 1: `CancelOrderLineService.cancel(buyerId, orderId, orderLineId, reason)`으로 `product1` 품목을 취소한다 → `RuntimeException("test")`가 그대로 던져진다(`assertThatThrownBy`로 받는다). 반환값이 없으므로 `refundIdOf(orderLineId)`로 환불 ID를 얻는다.
 - 확인 1(취소 직후): `orders.refund` `status` = `PG_CANCELLED` / 가짜 PG `/cancel` 요청 1건 / `payment.cancelled_amount` = 1000 / `order_line` `product1` → `PAID`·0(아직 반영 전) / 재고 `product1` → `available` 9, `sold` 1(아직 복구 전).
 - 동작 2: `setRefundUpdatedAt(refundId, 지금 - 6분)` → `recoverBatch()`.
-- 확인 2: 반환값 1 / `refund.status` = `COMPLETED` / `order_line` `product1` → `CANCELLED`·`refunded_amount` 1000(2000이 아니다) / 재고 `product1` → `available` 10, `sold` 0 / `product.stock_movement`에서 `type = 'RESTORE' AND ref_type = 'REFUND' AND ref_id = {refundId}`가 1건 / 가짜 PG `/cancel` 요청은 그대로 1건(`PG_CANCELLED`이므로 PG는 다시 부르지 않는다).
+- 확인 2: 반환값 1 / `refund.status` = `COMPLETED` / `order_line` `product1` → `CANCELLED`·`refunded_amount` 1000(2000이 아니다) / 재고 `product1` → `available` 10, `sold` 0(복구가 두 번 반영됐다면 `available`이 11이 된다) / 가짜 PG `/cancel` 요청은 그대로 1건(`PG_CANCELLED`이므로 PG는 다시 부르지 않는다).
 
 **2. 취소 타임아웃으로 `APPROVED`에 멈춘 환불 복구** — 준비: 공통 준비 + `pg.on("/v1/payments/" + paymentKey, Behavior.delay(1000))`.
-- 동작 1: `product1` 품목 취소 요청 → 응답 202, `$.status` = `APPROVED`. 응답의 `$.refundId`를 쓴다.
+- 동작 1: `CancelOrderLineService.cancel(...)`으로 `product1` 품목을 취소한다 → 반환된 `RefundResult`의 `status` = `APPROVED`. 그 `refundId`를 쓴다.
 - 확인 1: `refund.status` = `APPROVED` / `payment.cancelled_amount` = 0 / 가짜 PG `/cancel` 요청 1건.
 - 동작 2: `pg.on("/v1/payments/" + paymentKey, Behavior.delay(0))`(정상 응답으로 되돌림) → `setRefundUpdatedAt(refundId, 지금 - 6분)` → `recoverBatch()`.
-- 확인 2: 반환값 1 / `refund.status` = `COMPLETED` / 가짜 PG `/cancel` 요청 총 2건이고 두 요청의 `idempotency-key`가 모두 `refundId` / `payment.cancelled_amount` = 1000(2000이 아니다. 같은 키라 한 번만 반영) / `order_line` `product1` → `CANCELLED`·1000 / 재고 `product1` → `available` 10, `sold` 0.
+- 확인 2: 반환값 1 / `refund.status` = `COMPLETED` / 가짜 PG `/cancel` 요청 총 2건 / `payment.cancelled_amount` = 1000(2000이 아니다) / `order_line` `product1` → `CANCELLED`·1000 / 재고 `product1` → `available` 10, `sold` 0.
 
 **테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
 
@@ -2402,7 +2407,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 2-8a에서 만든 `orderLineIdOf`를 포함해 앞 단계 헬퍼를 그대로 쓴다.
 
-- 복구 잡: 위 `RefundRecoveryServiceTest`의 순서를 따른다. 응답이 없는 경우(1번)만 `refundIdOf`를 쓰고, 응답에 `refundId`가 있는 경우(2번)는 응답에서 읽는다.
+- 복구 잡: 위 `RefundRecoveryServiceTest`의 순서를 따른다. 취소는 MockMvc가 아니라 `CancelOrderLineService`를 직접 부른다(응답 코드는 `CancelOrderLineTest`가 확인한다). 예외로 끝나 반환값이 없는 경우(1번)만 `refundIdOf`를 쓰고, `RefundResult`가 반환되는 경우(2번)는 거기서 `refundId`를 읽는다.
 
 **리뷰 때 물어볼 것**
 - PG 취소는 성공했는데 DB 반영이 실패하면?

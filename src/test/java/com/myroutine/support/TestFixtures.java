@@ -266,4 +266,12 @@ public class TestFixtures {
     public UUID orderLineIdOf(UUID orderId, UUID productId) {
         return jdbcTemplate.queryForObject("SELECT ol.id FROM orders.order_line ol JOIN orders.shop_order so ON so.id = ol.shop_order_id WHERE so.order_id = ? AND ol.product_id = ?", UUID.class, orderId, productId);
     }
+
+    public UUID refundIdOf(UUID orderLineId) {
+        return jdbcTemplate.queryForObject("SELECT id FROM orders.refund WHERE order_line_id = ?", UUID.class, orderLineId);
+    }
+
+    public void setRefundUpdatedAt(UUID refundId, Instant updateAt) {
+        jdbcTemplate.update("UPDATE orders.refund SET updated_at = ? WHERE id = ?", Timestamp.from(updateAt), refundId);
+    }
 }

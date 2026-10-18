@@ -13,7 +13,7 @@ public class OrderExpirationJob {
     private final JobRunner jobRunner;
 
     @Scheduled(fixedDelay = 60_000)
-    void run() {
+    public void run() {
         jobRunner.run("expire-orders", orderExpirationService::expireBatch);
     }
 }
