@@ -1,5 +1,6 @@
 package com.myroutine.support;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -27,7 +28,7 @@ public record OrderSnapshot(
         return shopOrderStatuses.get(0);
     }
 
-    public record LineState(String status, long refundedAmount) {
+    public record LineState(String status, long refundedAmount, Instant confirmedAt) {
     }
 
     public record PaymentState(long amount, long cancelledAmount, String status, String paymentKey) {
