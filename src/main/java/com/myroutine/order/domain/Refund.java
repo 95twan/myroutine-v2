@@ -74,6 +74,21 @@ public class Refund extends BaseTimeEntity {
         return refund;
     }
 
+    public static Refund requestReturn(UUID orderId, UUID shopOrderId, UUID orderLineId, UUID memberId, Money amount, String reason) {
+        Refund refund = new Refund();
+        refund.id = Ids.newId();
+        refund.orderId = orderId;
+        refund.shopOrderId = shopOrderId;
+        refund.orderLineId = orderLineId;
+        refund.memberId = memberId;
+        refund.reasonType = RefundReasonType.RETURN;
+        refund.reason = reason;
+        refund.amount = amount;
+        refund.status = RefundStatus.REQUESTED;
+        refund.pgAttempts = 0;
+        return refund;
+    }
+
     public void markPgCancelled() {
         this.status = this.status.transitTo(RefundStatus.PG_CANCELLED);
     }
@@ -100,5 +115,14 @@ public class Refund extends BaseTimeEntity {
 
     public boolean readyToComplete() {
         return this.status == RefundStatus.PG_CANCELLED;
+    }
+
+    public void approve() {
+        this.status = this.status.transitTo(RefundStatus.APPROVED);
+    }
+
+    public void reject(String reason) {
+        this.status = this.status.transitTo(RefundStatus.REJECTED);
+        this.rejectReason = reason;
     }
 }

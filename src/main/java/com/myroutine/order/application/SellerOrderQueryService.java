@@ -21,6 +21,7 @@ public class SellerOrderQueryService {
 
     private final ShopApi shopApi;
     private final OrderRepository orderRepository;
+    private final RefundRepository refundRepository;
 
     @Transactional(readOnly = true)
     public CursorPage<SellerShopOrderResult> getShopOrders(UUID memberId, UUID shopId, ShopOrderStatus status, String cursor, int size) {
@@ -43,9 +44,16 @@ public class SellerOrderQueryService {
         List<UUID> shopOrderIds = shopOrders.stream().map(ShopOrderListRow::shopOrderId).toList();
         Map<UUID, List<OrderLine>> linesByShopOrderId = orderRepository.findLinesByShopOrderIdIn(shopOrderIds).stream()
                 .collect(Collectors.groupingBy(OrderLine::getShopOrderId));
+        Map<UUID, List<Refund>> refundsByShopOrderId = refundRepository.findAllByShopOrderIdInOrderByCreatedAtAsc(shopOrderIds).stream()
+                .collect(Collectors.groupingBy(Refund::getShopOrderId));
 
         return new CursorPage<>(shopOrders.stream()
-                .map(shopOrder -> SellerShopOrderResult.from(shopOrder, linesByShopOrderId.get(shopOrder.shopOrderId())))
+                .map(shopOrder -> SellerShopOrderResult.from(
+                                shopOrder,
+                                linesByShopOrderId.get(shopOrder.shopOrderId()),
+                                refundsByShopOrderId.getOrDefault(shopOrder.shopOrderId(), List.of())
+                        )
+                )
                 .toList(), nextCursor);
     }
 
@@ -59,7 +67,8 @@ public class SellerOrderQueryService {
         if (!shopOrder.getShopId().equals(shopId)) {
             throw new BusinessException(OrderErrorCode.SHOP_ORDER_NOT_FOUND);
         }
+        List<Refund> refunds = refundRepository.findAllByShopOrderIdInOrderByCreatedAtAsc(List.of(shopOrderId));
 
-        return SellerShopOrderResult.from(order, shopOrder);
+        return SellerShopOrderResult.from(order, shopOrder, refunds);
     }
 }

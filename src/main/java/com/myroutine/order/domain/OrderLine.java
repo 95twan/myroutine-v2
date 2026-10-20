@@ -106,4 +106,8 @@ public class OrderLine extends BaseTimeEntity {
     public Money refundableAmount() {
         return this.lineAmount.minus(this.refundedAmount);
     }
+
+    public void markReturnRequested() {
+        this.status = this.status.transitTo(OrderLineStatus.RETURN_REQUESTED);
+    }
 }

@@ -1,6 +1,12 @@
 # Part 1. 뼈대와 첫 기능
 
-> 버전 0.32 · 2026-10-18 · **읽기 헬퍼의 생성 단계를 원래대로 맞췄다**: `TestFixtures`는 1-4에서 만들고 `stockOf`는 2-2에서 만든다. 읽기 헬퍼는 처음 쓰는 미구현 단계(`memberSnapshotOf`·`countOf` 3-1, `shopSnapshotOf`·`productSnapshotOf` 3-2, 가격 이력 3-3, 배송지 3-6)에서 `TestFixtures`에 추가하고, 구현된 단계의 테스트는 기존 JDBC 읽기를 그대로 둔다(공통 규칙 H, 각 단계의 읽기 헬퍼 표 머리). 규격 변경 없음
+> 버전 0.38 · 2026-10-20 · **4.1 기준 점검에서 '하' 후보를 권장안대로 정리했다**(사용자 요청): 1-4 토큰 없음의 `$.message`, 1-5 기본 배송지의 "A는 기본이 아니다"·응답 `$.isDefault`, 검증 실패(400)의 행 0건(1-3·1-5·1-6), 1-6 `requireActiveShops` 빈 입력의 "예외 없음"·개설 직후 `$[0].status`, 1-10 목록의 `$.items` 개수·동시 등록의 "실패 1건". 응답 필드 매핑을 보는 유일한 확인과 서로 다른 코드 경로(1-4 토큰 형식·만료, 1-7 상세 필드, 1-10 `thumbnailKey`)는 남겼다. 규격 외 변경 없음
+> 0.37 · 2026-10-20 · **4.1 기준 점검에서 '중' 후보를 뺐다**(사용자 요청): 1-2 `BUILD SUCCESSFUL`·`build` `fail`, 1-3 `createdAt`·`updatedAt`, 1-4 두 응답 `$.message` 일치, 1-6 `isActive()`, 1-8 가격·`available`·`priceChanges`·예외 0건·합 불변식, 1-9 실패 900건·합 불변식·만료 해제의 재고·예외 0건. 1-10 이미지 삭제의 `thumbnailKey` null은 컬럼을 지우지 않는 구현을 잡는 값이라 남겼다. 규격 외 변경 없음
+> 0.36 · 2026-10-20 · **4.1 기준 점검에서 확신 '상'을 뺐다**(사용자 요청): 1-3 가입 성공의 `passwordHash` ≠ 평문(`matches`가 같은 사실), 1-6 `requireActiveShops`의 반환 개수(`containsExactlyInAnyOrder`가 개수까지 검증), 1-7 커서 페이징의 "`p6` 없음"(정확히 같은 리스트에서 따라온다). 규격 외 변경 없음
+> 0.35 · 2026-10-20 · **1-7·1-9 완료 확인에서 '하' 후보의 `reserved`·`sold` 재단언을 뺐다**(사용자 요청): 1-7 등록·판매자 목록, 1-9 `reserve` 성공 3번. 규격 외 변경 없음
+> 0.34 · 2026-10-20 · **1-9 `ProductApiImplTest` 11번에서 `restore`가 건드리지 않는 `reserved` 확인을 뺐다**(사용자 요청: '중' 후보 일괄 삭제). 규격 외 변경 없음
+> 0.33 · 2026-10-20 · **1-6 `ShopControllerTest` 8번에서 준비가 만든 `status` = `CLOSED` 확인을 뺐다**(사용자 지적: 하지도 않는 동작을 검증한다). 규격 외 변경 없음
+> 0.32 · 2026-10-18 · **읽기 헬퍼의 생성 단계를 원래대로 맞췄다**: `TestFixtures`는 1-4에서 만들고 `stockOf`는 2-2에서 만든다. 읽기 헬퍼는 처음 쓰는 미구현 단계(`memberSnapshotOf`·`countOf` 3-1, `shopSnapshotOf`·`productSnapshotOf` 3-2, 가격 이력 3-3, 배송지 3-6)에서 `TestFixtures`에 추가하고, 구현된 단계의 테스트는 기존 JDBC 읽기를 그대로 둔다(공통 규칙 H, 각 단계의 읽기 헬퍼 표 머리). 규격 변경 없음
 > 0.31 · 2026-10-18 · **완료 확인의 DB 읽기를 읽기 헬퍼로 바꿨다**(사용자 지적: 확인할 값마다 JDBC 쿼리를 쓰고 `Map`으로 바꾸고 캐스팅하는 코드를 테스트마다 짜야 해서 비효율): 1-3·1-5~1-10의 JDBC 읽기를 `TestFixtures`의 `memberSnapshotOf`·`shopSnapshotOf`·`productSnapshotOf`·`reservationSnapshotOf`와 `countOf`로 한 번 읽어 단언 한 줄로 쓰게 했다. 각 단계 완료 확인에 "이 단계에서 추가하는 읽기 헬퍼" 표를 두었다. `stockOf`(`StockSnapshot`)는 1-9에서 1-7로 앞당겨 1-7·1-8도 쓴다. `TestFixtures`는 1-3에서 읽기 헬퍼와 함께 만들고 1-4가 이어서 넓힌다. 같은 값을 API 응답과 DB로 두 번 확인하던 1-5 배송지 케이스 1~3번의 DB 확인과, 9번과 같은 1-9 10번의 `RELEASE` 이력 확인을 지웠다. 부정 확인(행 0건·값 그대로)과 구체 수치는 그대로다. 규격 변경 없음
 > 0.30 · 2026-10-18 · **1-1~1-11의 "완료 확인"을 케이스마다 준비·동작·확인할 값으로 다시 썼다**(사용자 지적: 무엇을 확인하는지 모호하다): 값을 읽는 방법(응답 `jsonPath`, DB 테이블·컬럼 JDBC, 재고 헬퍼, 저장소·Git·VM 명령), 공통 준비의 구체적 수치, 케이스별 응답 코드·`$.필드` 값·DB 값, 거부·실패 케이스의 부정 확인(행이 만들어지지 않음, 값이 그대로)을 적었다. "수정 사항" 두 절의 추가 테스트도 같은 형식으로 고쳤다. 부정 확인과 값을 더한 곳: 1-6 공개 가게 조회에 비공개 필드 부재, 1-7 상세 `inStock` 재고 0 케이스, 1-9 `reserve` 실패·멱등 케이스의 예약·이력 0건/1건, 1-11 CORS preflight 행. 규격 변경 없음
 > 0.29 · 2026-10-14 · **운영 MinIO를 NAS로 이전**: 1-11 절 머리에 변경 안내만 추가했다(ADR-011 §8). 1-11의 구현 규격은 당시 기준 그대로 둔다
@@ -317,9 +323,9 @@ git status --short
 
 | 확인 | 준비 | 동작 | 기대 값 |
 |---|---|---|---|
-| 로컬 테스트 통과 | Docker Desktop 실행 중 | `./gradlew test` | 종료 코드 0, 마지막 줄 `BUILD SUCCESSFUL`. 모든 XML의 `failures="0" errors="0"`이고 `tests` 값의 합이 0보다 크다(샘플 테스트 1개 이상) |
+| 로컬 테스트 통과 | Docker Desktop 실행 중 | `./gradlew test` | 종료 코드 0. 모든 XML의 `failures="0" errors="0"`이고 `tests` 값의 합이 0보다 크다(샘플 테스트 1개 이상) |
 | CI가 테스트를 실제로 돌림 | PR을 올려 `build` job이 끝났다 | `gh run view {runId} --log`에서 Gradle `test` 단계 로그를 연다 | 확인 필요: 기본 `./gradlew build` 로그는 통과한 테스트 수를 출력하지 않는다. 수를 보려면 `ci.yml`의 실행 명령에 `--info`를 붙여 `Gradle Test Executor`가 테스트 클래스를 실행한 줄이 있는지 보거나, `actions/upload-artifact`로 `build/test-results`를 올려 XML의 `tests` 합이 0보다 큰지 본다. 둘 중 무엇으로 확인할지 정해서 PR에 적는다 |
-| 실패하면 머지가 막힘 | PR 브랜치에 `fail("의도한 실패")`만 있는 `@Test`를 추가해 push | `gh pr checks {번호}` / `gh pr view {번호} --json mergeStateStatus` / `gh pr merge {번호} --squash` | `build` 줄이 `fail` / `mergeStateStatus` = `BLOCKED` / 머지 명령이 필수 체크 미통과로 거절된다. 확인한 뒤 그 커밋을 되돌려 `build`가 다시 `pass`가 되는 것까지 PR에 스크린샷으로 남긴다 |
+| 실패하면 머지가 막힘 | PR 브랜치에 `fail("의도한 실패")`만 있는 `@Test`를 추가해 push | `gh pr checks {번호}` / `gh pr view {번호} --json mergeStateStatus` / `gh pr merge {번호} --squash` | `mergeStateStatus` = `BLOCKED` / 머지 명령이 필수 체크 미통과로 거절된다. 확인한 뒤 그 커밋을 되돌려 `build`가 다시 `pass`가 되는 것까지 PR에 스크린샷으로 남긴다 |
 | 컨테이너는 한 번만 시작 | 테스트 클래스가 2개 이상(`IntegrationTestSupport`를 상속한 클래스 2개 이상) | `./gradlew cleanTest test --info 2>&1 \| grep -c "Creating container for image: pgvector/pgvector:pg17"` | 출력이 `1`. 확인 필요: Testcontainers가 찍는 정확한 문구는 버전에 따라 다를 수 있으니, 먼저 `--info` 로그에서 Postgres 컨테이너 시작 줄을 찾아 그 문구로 센다 |
 
 **리뷰 때 물어볼 것**
@@ -526,7 +532,7 @@ git status --short
 
 **1. 가입 성공** — 동작: 공통 본문으로 `POST /api/auth/signup`.
 - 응답: 201, `$.memberId`가 있다.
-- `s = fixtures.memberSnapshotOf(UUID.fromString($.memberId))`: `s.passwordHash()` ≠ `"password123"`, `passwordEncoder.matches("password123", s.passwordHash())` = true, `s.createdAt()`·`s.updatedAt()`이 null이 아니다.
+- `s = fixtures.memberSnapshotOf(UUID.fromString($.memberId))`: `passwordEncoder.matches("password123", s.passwordHash())` = true.
 
 **2. 이메일 중복(대소문자만 다름)** — 준비: 공통 본문으로 가입 201. 동작: `email` = `"TEST@test.com"`, `nickname` = `"nick2"`로 다시 가입.
 - 응답: 409, `$.code` = `MEMBER_EMAIL_DUPLICATED`.
@@ -544,7 +550,6 @@ git status --short
 **5. 입력 검증 실패** — 동작: `email` = `"test1testcom"`, `password` = `"pass123"`(7자)로 가입.
 - 응답: 400, `$.code` = `INVALID_REQUEST`.
 - `$.details.email` = `"이메일 형식이 아닙니다."`, `$.details.password` = `"비밀번호는 8~64자여야 합니다."`.
-- `fixtures.countOf("member.member")` = 0.
 
 **6. 깨진 JSON** — 동작: 본문 `{"email":`(닫히지 않음)로 `POST /api/auth/signup`.
 - 응답: 400, `$.code` = `INVALID_REQUEST`, `$.details`가 빈 객체(`{}`)다.
@@ -743,7 +748,7 @@ public @interface CurrentMember {}
 
 **3. 틀린 비밀번호와 없는 이메일은 같은 응답** — 준비: `fixtures.signup("test@test.com")`. 동작 A: 비밀번호 `"pass1111"`로 로그인. 동작 B: 가입하지 않은 `"unknown@test.com"` / `"pass1111"`로 로그인.
 - 둘 다 401, `$.code` = `LOGIN_FAILED`.
-- 두 응답의 `$.message`가 서로 같고 `"이메일 또는 비밀번호가 올바르지 않습니다."`다(응답 문자열을 두 변수에 담아 `isEqualTo`로 비교한다).
+- 두 응답의 `$.message`가 `"이메일 또는 비밀번호가 올바르지 않습니다."`다.
 
 **4. 제재 회원** — 준비: `memberId = fixtures.signup("test@test.com")` → `fixtures.changeStatus(memberId, "BANNED")`. 동작 A: 올바른 비밀번호(`pass1234`)로 로그인. 동작 B: 틀린 비밀번호(`wrongPassword`)로 로그인.
 - A: 403, `$.code` = `MEMBER_BANNED`.
@@ -755,7 +760,7 @@ public @interface CurrentMember {}
 - 응답: 200, `$.email` = `"test@test.com"`, `$.nickname` = `"test"`, `$.role` = `"USER"`, `$.status` = `"ACTIVE"`.
 
 **2. 토큰 없음** — 동작: 헤더 없이 호출.
-- 응답: 401, `$.code` = `UNAUTHORIZED`, `$.message` = `"인증이 필요합니다."`, `$.details`가 빈 객체.
+- 응답: 401, `$.code` = `UNAUTHORIZED`, `$.details`가 빈 객체.
 - 헤더 `X-Request-Id`가 비어 있지 않고 `$.traceId`와 같다.
 
 **3. 형식이 잘못된 토큰** — 동작: `Authorization: Bearer abc`.
@@ -902,11 +907,10 @@ curl -s localhost:8080/api/members/me -H "Authorization: Bearer $TOKEN"        #
 - 등록 응답 201. 목록: 항목 1개, `$[0].isDefault` = true.
 
 **2. 두 번째를 기본으로 등록** — 준비: 배송지 A 등록(자동 기본). 동작: 배송지 B를 `isDefault: true`로 등록.
-- 목록에서 `$[?(@.isDefault == true)]`가 정확히 1개이고 그 `id` = B(A는 기본이 아니다).
+- 목록에서 `$[?(@.isDefault == true)]`가 정확히 1개이고 그 `id` = B.
 
 **3. PATCH로 기본 변경** — 준비: 배송지 A(자동 기본), B(`isDefault` 생략 → false). 동작: `PATCH /api/members/me/addresses/{B}` 본문 `{"isDefault":true}`.
-- 응답: 200, `$.isDefault` = true.
-- 목록에서 `isDefault == true`인 항목이 정확히 1개이고 그 `id` = B(A는 기본이 아니다).
+- 목록에서 `isDefault == true`인 항목이 정확히 1개이고 그 `id` = B.
 
 **4. 남의 배송지 PATCH·DELETE** — 준비: 회원 1이 배송지 A 등록, 회원 2 가입. 동작: 회원 2의 토큰으로 `PATCH /api/members/me/addresses/{A}` 본문 `{"recipient":"침입자"}`, 이어서 `DELETE /api/members/me/addresses/{A}`.
 - 둘 다 404, `$.code` = `MEMBER_ADDRESS_NOT_FOUND`.
@@ -917,7 +921,6 @@ curl -s localhost:8080/api/members/me -H "Authorization: Bearer $TOKEN"        #
 
 **6. 우편번호 4자리** — 동작: `zipcode` = `"1234"`로 등록.
 - 응답: 400, `$.code` = `INVALID_REQUEST`, `$.details.zipcode` = `"우편번호는 5자리 숫자입니다."`.
-- `fixtures.countOf("member.member_address")` = 0.
 
 공백·빈 문자열·`address2` 수정 케이스는 아래 "수정 사항 (1-6 리뷰에서 발견)"에 있고 같은 클래스에 둔다.
 
@@ -1093,7 +1096,7 @@ public record ShopInfo(UUID shopId, UUID ownerId, String name) {}
 
 | 케이스 | 동작 | 확인할 것 |
 |---|---|---|
-| 가게 개설 | `Shop.open(UUID.randomUUID(), "shop", "1304913993", "shop@test.com", "010-1234-5678", "address")` | `getId()` ≠ null, `getStatus()` = `ACTIVE`, `isActive()` = true |
+| 가게 개설 | `Shop.open(UUID.randomUUID(), "shop", "1304913993", "shop@test.com", "010-1234-5678", "address")` | `getId()` ≠ null, `getStatus()` = `ACTIVE` |
 | 소유자 아님 | 위 가게에 `verifyOwner(다른 UUID)` | `BusinessException`, `getErrorCode()` = `CommonErrorCode.FORBIDDEN` |
 
 CLOSED 상태 가게는 도메인 테스트에서 만들 수 없으므로(폐업 기능이 3-2) 아래 통합 테스트에서 `fixtures.closeShop`으로 확인한다.
@@ -1102,7 +1105,7 @@ CLOSED 상태 가게는 도메인 테스트에서 만들 수 없으므로(폐업
 
 **1. 개설하고 내 목록에서 조회** — 준비: `token = fixtures.token("test@test.com")`. 동작: `POST /api/shops` 본문 `{"name":"shop","businessNumber":"1111111111","email":"shop@test.com","phone":"010-1234-5678","address":"shop address"}`.
 - 응답: 201, `$.shopId`가 있다.
-- `GET /api/shops/me` → 200, `$[0].id` = `$.shopId`, `$[0].status` = `"ACTIVE"`, `$[0].businessNumber` = `"1111111111"`.
+- `GET /api/shops/me` → 200, `$[0].id` = `$.shopId`, `$[0].businessNumber` = `"1111111111"`.
 
 **2. 토큰 없이 공개 조회** — 준비: `memberId = fixtures.signup("test@test.com")`, `shopId = fixtures.openShop(memberId, "1111111111")`. 동작: 헤더 없이 `GET /api/shops/{shopId}`.
 - 응답: 200, `$.id` = shopId, `$.name` = `"shop"`, `$.phone` = `"010-1111-1111"`, `$.address` = `"shop address"`, `$.status` = `"ACTIVE"`.
@@ -1129,11 +1132,10 @@ CLOSED 상태 가게는 도메인 테스트에서 만들 수 없으므로(폐업
 
 **8. 폐업한 가게 수정** — 준비: 4번의 준비 + `fixtures.closeShop(shopId)`. 동작: 소유자 토큰으로 `PATCH` 본문 `{"name":"updated shop"}`.
 - 응답: 422, `$.code` = `SHOP_NOT_ACTIVE`.
-- `s = fixtures.shopSnapshotOf(shopId)`: `s.name()` = `"shop"`, `s.status()` = `"CLOSED"`.
+- `s = fixtures.shopSnapshotOf(shopId)`: `s.name()` = `"shop"`.
 
 **9. 사업자번호 9자리** — 준비: `fixtures.token("test@test.com")`. 동작: `businessNumber` = `"123456789"`로 `POST /api/shops`.
 - 응답: 400, `$.code` = `INVALID_REQUEST`, `$.details.businessNumber` = `"사업자번호는 하이픈 없는 10자리 숫자입니다."`.
-- `fixtures.countOf("shop.shop")` = 0.
 
 #### `shop/application/ShopApiImplTest` (서비스 직접 호출, `ShopApi`를 주입받는다)
 
@@ -1153,12 +1155,12 @@ CLOSED 상태 가게는 도메인 테스트에서 만들 수 없으므로(폐업
 
 | 케이스 | 입력 | 확인할 것 |
 |---|---|---|
-| 모두 ACTIVE | 내 가게 3개 `[s1, s2, s3]` | 반환 3개, `ShopInfo::shopId`가 `containsExactlyInAnyOrder(s1, s2, s3)` |
+| 모두 ACTIVE | 내 가게 3개 `[s1, s2, s3]` | `ShopInfo::shopId`가 `containsExactlyInAnyOrder(s1, s2, s3)` |
 | 폐업 1개 | `[s1, s2, s3]`, `s3`만 `closeShop` | 예외, `shopIds` = `[s3]` |
 | 없는 ID 1개 | `[s1, 없는ID, s3]` (s1·s3는 ACTIVE) | 예외, `shopIds` = `[없는ID]` |
 | 폐업과 없음 혼합 | `[없는ID, s2, s3]`, `s3`만 `closeShop` | 예외, `shopIds`가 `containsExactlyInAnyOrder(없는ID, s3)`(둘 다 담긴다. 첫 문제에서 멈추지 않는다) |
-| 중복 ID | `[s1, s2, s2]` | 반환 2개(`hasSize(2)`), `shopId`가 `containsExactlyInAnyOrder(s1, s2)` |
-| 빈 입력 | `List.of()` | 빈 리스트, 예외 없음 |
+| 중복 ID | `[s1, s2, s2]` | `shopId`가 `containsExactlyInAnyOrder(s1, s2)` |
+| 빈 입력 | `List.of()` | 빈 리스트 |
 
 **추가 항목**
 - 낙관적 락 충돌을 결정적으로 재현하는 테스트: 바깥 `TransactionTemplate`에서 가게를 읽고, 안쪽 `PROPAGATION_REQUIRES_NEW` 트랜잭션이 같은 가게를 먼저 수정·커밋한 뒤 바깥에서 수정·커밋 → `ObjectOptimisticLockingFailureException`
@@ -1397,7 +1399,7 @@ public record Money(long amount) implements Comparable<Money> { ... }
 **1. 등록 성공** — 동작: 공통 본문으로 `POST /api/shops/{shopId}/products`(소유자 토큰).
 - 응답: 201, `$.productId`가 있다.
 - `s = fixtures.productSnapshotOf(productId)`가 `null`이 아니고(상품 1건) `s.status()` = `"ON_SALE"`.
-- 재고: `fixtures.stockOf(productId)`가 `available` 100, `reserved` 0, `sold` 0이고 `s.received()` = 100.
+- 재고: `fixtures.stockOf(productId)`가 `available` 100이고 `s.received()` = 100.
 - 재고 이력: `s.movements()`가 정확히 1건이고 `MovementState("RECEIVE", 100, "PRODUCT_REGISTER", productId)`다.
 
 **2. 남의 가게에 등록** — 준비: 다른 회원(`other@test.com`)의 토큰. 동작: 그 토큰으로 `shopId`에 등록.
@@ -1416,7 +1418,7 @@ public record Money(long amount) implements Comparable<Money> { ... }
 - `fixtures.countOf("product.product")` = 0.
 
 **6. 판매자 목록** — 준비: 상품 3개 등록. 동작: 소유자 토큰으로 `GET /api/shops/{shopId}/products`.
-- 응답: 200, `$.items` 3개, `$.items[0]`의 `available` 10, `reserved` 0, `sold` 0, `received` 10(재고 수량이 내려온다).
+- 응답: 200, `$.items` 3개, `$.items[0]`의 `available` 10, `received` 10(재고 수량이 내려온다).
 
 **7. 남의 가게의 판매자 목록** — 동작: 다른 회원의 토큰으로 위와 같이 호출.
 - 응답: 403, `$.code` = `FORBIDDEN`.
@@ -1435,7 +1437,7 @@ public record Money(long amount) implements Comparable<Money> { ... }
 - 응답: 200, `$.items` 3개, `$.nextCursor` = null(첫 페이지에 다 들어갔다).
 
 **2. 커서 페이징** — 준비: 상품 5개를 `p1..p5` 순서로 등록한 뒤, JDBC로 `UPDATE product.product SET created_at = ? WHERE id = ?`을 써서 `p_i`의 `created_at`을 `기준시각 + i초`(기준시각은 현재보다 1시간 전)로 덮어써 서로 다르게 만든다(등록 시각이 같은 시각으로 겹치면 순서가 흔들린다). 동작: `size=2`로 첫 페이지 → 새 상품 `p6` 1개 등록(현재 시각이라 가장 최신) → 응답의 `$.nextCursor`를 `?cursor=`로 넘겨 `nextCursor`가 null이 될 때까지 반복. 각 응답의 `$.items[*].id`를 순서대로 한 리스트에 모은다.
-- 모은 리스트가 `[p5, p4, p3, p2, p1]`과 `containsExactlyElementsOf`로 같다(5개가 한 번씩, 최신순). `p6`은 들어 있지 않다(중간에 추가된 상품은 이미 지나간 페이지를 흔들지 않는다).
+- 모은 리스트가 `[p5, p4, p3, p2, p1]`과 `containsExactlyElementsOf`로 같다(5개가 한 번씩, 최신순). 중간에 추가된 `p6`은 이미 지나간 페이지를 흔들지 않는다.
 
 **3. 카테고리 필터** — 준비: `ETC` 1개, `BEAUTY` 2개. 동작: `GET /api/products?category=BEAUTY`.
 - 응답: 200, `$.items` 2개, 모든 항목의 `category` = `"BEAUTY"`.
@@ -1591,7 +1593,7 @@ SELECT product_id FROM product.stock WHERE available + reserved + sold <> receiv
 | 케이스 | 동작 | 확인할 것 |
 |---|---|---|
 | 가격 변경 | `product.update(null, null, null, Money.of(2000), null)` | 반환 `Optional`에 값이 있고 `oldPrice().amount()` = 1000, `newPrice().amount()` = 2000. `product.getPrice()`는 `Money.of(2000)`, 이름·설명·카테고리·`isSubscribable()`은 그대로(`"product"`, `"description"`, `ETC`, false) |
-| 같은 가격·이름만 변경 | `product.update("updated product", null, null, Money.of(1000), null)` | 반환이 `Optional.empty()`, `getName()` = `"updated product"`, 가격은 `Money.of(1000)` 그대로 |
+| 같은 가격·이름만 변경 | `product.update("updated product", null, null, Money.of(1000), null)` | 반환이 `Optional.empty()`, `getName()` = `"updated product"` |
 | 단종 상품 수정 | `product.changeStatus(ProductStatus.DISCONTINUED)` 후 `product.update("updated product", "updated description", null, null, null)` | `BusinessException`, `getErrorCode()` = `ProductErrorCode.PRODUCT_DISCONTINUED`. 던지기 전에 아무 필드도 바뀌지 않아 `getName()` = `"product"`, `getDescription()` = `"description"` |
 
 #### `product/web/SellerProductControllerTest` (1-7에서 만든 클래스에 추가)
@@ -1606,7 +1608,7 @@ SELECT product_id FROM product.stock WHERE available + reserved + sold <> receiv
 
 **3. 단종 상품 수정** — 준비: `fixtures.discontinueProduct(productId)`. 동작: 본문 `{"name":"updated product"}`로 PATCH.
 - 응답: 409, `$.code` = `PRODUCT_DISCONTINUED`.
-- `s = fixtures.productSnapshotOf(productId)`: `s.name()` = `"product"`(그대로), `s.priceChanges()`가 비어 있다.
+- `s = fixtures.productSnapshotOf(productId)`: `s.name()` = `"product"`(그대로).
 
 **4. 단종 → 판매 중 상태 변경** — 준비: `fixtures.discontinueProduct(productId)`. 동작: `PATCH .../status` 본문 `{"status":"ON_SALE"}`.
 - 응답: 409, `$.code` = `INVALID_STATE_TRANSITION`.
@@ -1619,7 +1621,6 @@ SELECT product_id FROM product.stock WHERE available + reserved + sold <> receiv
 
 **6. 변경 수량 0** — 동작: 본문 `{"delta":0,"reason":"test"}`.
 - 응답: 400, `$.code` = `INVALID_REQUEST`, `$.details.deltaNonZero` = `"변경 수량은 0이 아니어야 합니다."`.
-- `fixtures.stockOf(productId).available()` = 10(그대로).
 
 **7. 다른 회원의 가게 ID로 접근** — 준비: 다른 회원 `other@test.com`의 가게 `otherShopId`. 동작: 판매자 토큰으로 `PATCH /api/shops/{otherShopId}/products/{productId}` 본문 `{"name":"hack"}`.
 - 응답: 403, `$.code` = `FORBIDDEN`.
@@ -1632,10 +1633,9 @@ SELECT product_id FROM product.stock WHERE available + reserved + sold <> receiv
 #### `product/application/StockAdjustmentConcurrencyTest` (서비스 직접 호출)
 
 준비: 재고 0인 상품(`fixtures.registerProduct(memberId, shopId, ProductCategory.ETC, 0)`). 동작: 스레드 100개 + `CountDownLatch`(ready, start)로 `adjustStockService.adjust(memberId, shopId, productId, 1, "reason")`를 동시에 1번씩 호출한다.
-- 던져진 예외가 0건이고 성공이 100건이다.
+- 성공이 100건이다.
 - 재고: `fixtures.stockOf(productId)`가 `available` 100, `reserved` 0, `sold` 0이고 `fixtures.productSnapshotOf(productId).received()` = 100.
 - 이력: `fixtures.productSnapshotOf(productId).movements("ADJUST")`가 100건이다.
-- `stockRepository.findProductIdsWithBrokenBalance()`가 빈 리스트.
 
 **리뷰 때 물어볼 것**
 - 재고를 "현재 수량 = X"로 덮어쓰면 왜 위험한가? (As-Is CAT-06)
@@ -1799,7 +1799,7 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 - `BusinessException`, `ProductErrorCode.PRODUCT_NOT_ON_SALE`, `details.productIds`가 `containsExactlyInAnyOrder(p2, p3)`.
 
 **3. `reserve` 성공** — 준비: 재고 10인 상품 `p`. 동작: `reserve(orderId, List.of(new ReserveItem(p, 3)), expiresAt)`.
-- 재고: `available` 7, `reserved` 3, `sold` 0.
+- 재고: `available` 7, `reserved` 3.
 - 예약: `rs.size()` = 1, `rs.of(p)`가 `status` = `HELD`, `quantity` = 3.
 - 이력: `movements("RESERVE")`가 정확히 1건이고 `MovementState("RESERVE", 3, "ORDER", orderId)`. 재고 확인.
 
@@ -1829,10 +1829,10 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 - `rs.of(p).status()` = `RELEASED`. `movements("RELEASE")` 1건(두 번 불러도 한 번만). 재고 확인.
 
 **10. 만료로 해제** — 준비·동작: 9번과 같고 `ReleaseReason.EXPIRED`.
-- 재고: `available` 10, `reserved` 0. `rs.of(p).status()` = `EXPIRED`(이력은 9번과 같아 다시 확인하지 않는다). 재고 확인.
+- `rs.of(p).status()` = `EXPIRED`(재고와 이력은 9번과 같아 다시 확인하지 않는다). 재고 확인.
 
 **11. 같은 `refundId`로 `restore` 두 번** — 준비: 재고 10인 `p`를 3개 `reserve` → `commitReservation`. `refundId = Ids.newId()`. 동작: `restore(orderId, p, 1, refundId)`를 두 번 호출.
-- 재고: `available` 8, `reserved` 0, `sold` 2(한 번만 복구).
+- 재고: `available` 8, `sold` 2(한 번만 복구).
 - `movements("RESTORE")`가 정확히 1건이고 `MovementState("RESTORE", 1, "REFUND", refundId)`. 재고 확인.
 
 **12. `restore` 실패: 확정되지 않은 예약** — 준비: 재고 10인 `p`를 3개 `reserve`만 한다(HELD). 동작: `restore(orderId, p, 1, refundId)`.
@@ -1846,14 +1846,14 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 #### `product/application/StockReservationConcurrencyTest`
 
 준비: 재고 100인 상품 `p` 1개, 항목 `List.of(new ReserveItem(p, 1))`, 스레드 풀 64, `CountDownLatch` 3개(ready 64, start 1, done 1000), 성공 수는 `AtomicInteger`, 실패 예외는 `ConcurrentLinkedQueue<Throwable>`. 동작: 서로 다른 `orderId`(`Ids.newId()`) 1,000건이 각각 `productApi.reserve(orderId, items, expiresAt)`을 호출한다. `ready.await(10, SECONDS)` = true → `start.countDown()` → `done.await(60, SECONDS)` = true.
-- 성공 100건, 실패 900건이고 실패 예외가 모두 `BusinessException`, `ProductErrorCode.OUT_OF_STOCK`다(다른 예외 0건).
-- 재고: `available` 0, `reserved` 100, `sold` 0 (`available + reserved + sold` = `received` = 100).
+- 성공 100건이고 실패 예외가 모두 `BusinessException`, `ProductErrorCode.OUT_OF_STOCK`다(다른 예외 0건).
+- 재고: `available` 0, `reserved` 100, `sold` 0.
 - `jdbcTemplate.queryForObject("SELECT count(*) FROM product.stock_reservation WHERE product_id = ? AND status = 'HELD'", Integer.class, p)` = 100(주문 ID가 1,000개라 `reservationSnapshotOf`로 읽을 수 없고 한 곳에서만 쓰므로 직접 읽는다). `movements("RESERVE")` 100건. `findProductIdsWithBrokenBalance()`가 빈 리스트.
 
 #### `product/application/ReservationDeadlockTest` (`@RepeatedTest(50)`)
 
 준비(반복마다): 상품 `p1`, `p2`(재고 각 100). 주문 X는 `[ReserveItem(p1,1), ReserveItem(p2,1)]`, 주문 Y는 `[ReserveItem(p2,1), ReserveItem(p1,1)]`(순서가 반대, `orderId`는 서로 다름). 동작: 스레드 2개 + `CountDownLatch`로 X와 Y를 동시에 `reserve`.
-- 성공 2건, 예외 0건(`CannotAcquireLockException`, `PessimisticLockingFailureException` 포함 어떤 예외도 없다).
+- 성공 2건(`CannotAcquireLockException`, `PessimisticLockingFailureException` 포함 어떤 예외도 없다).
 - 재고: `p1`·`p2` 모두 `available` 98, `reserved` 2. `findProductIdsWithBrokenBalance()`가 빈 리스트.
 
 **리뷰 때 물어볼 것**
@@ -2128,7 +2128,7 @@ static void storageProperties(DynamicPropertyRegistry registry) {
 - 200, `$.images`가 1개, `$.images[0].imageId` = `imageResult.imageId()`, `$.images[0].url` = `imageUrls.toUrl(imageResult.objectKey())`, `$.images[0].sortOrder` = 0, `$.thumbnailUrl` = 같은 URL.
 
 **3. 목록에 thumbnailUrl** — 준비: 2번과 같음. 동작: `GET /api/products`.
-- 200, `$.items`가 1개, `$.items[0].thumbnailUrl` = `imageUrls.toUrl(imageResult.objectKey())`.
+- 200, `$.items[0].thumbnailUrl` = `imageUrls.toUrl(imageResult.objectKey())`.
 
 **4. 서명과 다른 Content-Type으로 PUT** — 준비: `contentType` `image/png`로 발급받은 `uploadUrl`·`headers`. 동작: `headers`를 복사해 `content-type`만 `image/jpeg`로 바꿔 `putToStorage`.
 - `statusCode()` = 403, 본문(XML)의 `<Code>` 값이 `SignatureDoesNotMatch`(본문에 `<Code>SignatureDoesNotMatch</Code>`가 있는지로 본다).
@@ -2159,7 +2159,7 @@ curl -s -X POST localhost:8080/api/shops/$SHOP/products/$PRODUCT/images/presigne
 ```
 
 **추가 항목**
-- `product/application/ProductImageConcurrencyTest`: 9장인 상품에 업로드해 둔 이미지 2개를 스레드 2개가 `CountDownLatch`로 동시에 `register`하면 **DB에 정확히 10건**, 성공 1건, 실패 1건이다. 실패한 쪽은 `ObjectOptimisticLockingFailureException`(두 트랜잭션이 겹친 경우)이나 `PRODUCT_IMAGE_LIMIT_EXCEEDED`(한쪽이 먼저 커밋한 뒤 읽은 경우) 둘 다 정상이므로 핵심 단언은 "10건, 성공 1건"이다. 겹침이 매번 일어나지 않으므로 `@RepeatedTest(10)`. (Hibernate가 컬렉션 변경 시 `Product.version`을 올리는지 확인하는 의미도 있다. 확인함: 10회 모두 실패한 쪽이 `ObjectOptimisticLockingFailureException`이었다)
+- `product/application/ProductImageConcurrencyTest`: 9장인 상품에 업로드해 둔 이미지 2개를 스레드 2개가 `CountDownLatch`로 동시에 `register`하면 **DB에 정확히 10건**, 성공 1건이다. 실패한 쪽은 `ObjectOptimisticLockingFailureException`(두 트랜잭션이 겹친 경우)이나 `PRODUCT_IMAGE_LIMIT_EXCEEDED`(한쪽이 먼저 커밋한 뒤 읽은 경우) 둘 다 정상이므로 핵심 단언은 "10건, 성공 1건"이다. 겹침이 매번 일어나지 않으므로 `@RepeatedTest(10)`. (Hibernate가 컬렉션 변경 시 `Product.version`을 올리는지 확인하는 의미도 있다. 확인함: 10회 모두 실패한 쪽이 `ObjectOptimisticLockingFailureException`이었다)
 
 **리뷰 때 물어볼 것**
 - 파일을 서버로 받아서 저장하지 않고 presigned URL을 쓴 이유는? 대가는(등록되지 않은 객체)?

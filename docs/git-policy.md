@@ -1,4 +1,4 @@
-# Git 정책 (MyRoutin v2)
+# Git 정책 (MyRoutine v2)
 
 > 브랜치, 커밋, PR, 릴리스 규칙. 1인 개발이지만 **팀 개발과 같은 절차**로 진행해서, 이력(커밋·PR)만 봐도 무엇을 왜 바꿨는지 알 수 있게 한다.
 > 관련: [개발 가이드](development-guide.md), [로드맵](03-roadmap/README.md)

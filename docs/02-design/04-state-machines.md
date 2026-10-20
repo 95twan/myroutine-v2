@@ -1,5 +1,6 @@
 # 04. 상태머신
 
+> 2026-10-19: 엔티티 사이의 상태 조합과 도달 경로는 [10-state-combinations](10-state-combinations.md)로 모았다(전이는 이 문서, 조합은 그 문서)
 > 2026-10-13: 주문의 `PAYMENT_FAILED`·`EXPIRED`·`CANCELLED`는 "끝난 원인", 가게주문·품목의 `CANCELLED`는 원인과 무관한 "이행하지 않음"임을 핵심 규칙에 적었다
 > 2026-10-13: 결제 전 구매자 주문 취소를 필수 API(`POST /api/orders/{id}/cancel`, 2-4)로 올리고 상태를 **`CANCELLED`**로 분리했다(`PENDING_PAYMENT → PAYMENT_FAILED` 삭제. `PAYMENT_FAILED`는 승인 시작 뒤의 PG 거절·보상만)
 > 2026-10-12: 로드맵 용어 정리에 맞춰 "2-4 제안"을 "2-4 추가 항목"으로 바꿨다

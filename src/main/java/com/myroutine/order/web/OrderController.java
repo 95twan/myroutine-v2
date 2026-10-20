@@ -27,6 +27,7 @@ public class OrderController {
     private final ConfirmPaymentService confirmPaymentService;
     private final PendingOrderCancelService pendingOrderCancelService;
     private final CancelOrderLineService cancelOrderLineService;
+    private final ReturnService returnService;
     private final ImageUrls imageUrls;
 
     @PostMapping("/checkout")
@@ -85,5 +86,17 @@ public class OrderController {
         } else {
             return ResponseEntity.accepted().body(RefundResponse.from(result));
         }
+    }
+
+    @PostMapping("/{id}/lines/{lineId}/return-requests")
+    @Idempotent
+    public ResponseEntity<RefundResponse> request(
+            @CurrentMember UUID memberId,
+            @PathVariable UUID id,
+            @PathVariable UUID lineId,
+            @RequestBody @Valid ReturnRequest request
+    ) {
+        RefundResult result = returnService.request(memberId, id, lineId, request.reason());
+        return ResponseEntity.status(HttpStatus.CREATED).body(RefundResponse.from(result));
     }
 }

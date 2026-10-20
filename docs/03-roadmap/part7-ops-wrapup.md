@@ -1,6 +1,13 @@
 # Part 7. 관측 · 운영 · 마무리
 
-> 버전 0.14 · 2026-10-18 · **읽기 헬퍼 참조를 앞 단계 정의에 맞췄다**: `refundSnapshotOf`를 2-9의 `refundRowOf`로 통일하고(7-3은 `pgAttempts`만 더한다), `snapshotOf`는 2-8a 정의에 7-3(결제 `id`·`method`·`approvedAt`·`reconcileAttempts`)·7-4(`reservationStatuses`)가 필드를 더하게 했으며, `paymentCancelOf`(7-3)·`cartSnapshotOf`(3-6)·`countOf`(3-1) 참조를 바로잡았다. outbox `payload`는 `JsonNode` 접근으로 적었다. 규격 변경 없음
+> 버전 0.21 · 2026-10-20 · **4.1 기준 점검에서 '하' 후보를 권장안대로 정리했다**(사용자 요청): 7-2 `StockCheckJobTest` 1번의 로그 부재, 7-3 `AdminOutboxTest`의 `nextAttemptAt`·거부 뒤 `attempts`/`sentAt`/행 수, 동작 뒤 목록 0건(`AdminReconcileTest`·`AdminRefundRetryTest`), `AdminNotificationTest`의 재시도 거부 뒤 메일 건수, 7-4 S6 3번의 두 번째 실행 뒤 알림 건수. 규격 외 변경 없음
+> 0.20 · 2026-10-20 · **7-4 E2E 시나리오를 단계 사이의 연결만 남기고 줄였고, 4.1 기준 점검의 '중' 후보를 뺐다**(사용자 요청): 앞 단계 테스트가 같은 경로로 이미 확인하는 응답·결제 상태·재고·PG 요청·수수료/실수령액·같은 값의 재조회(S1~S6)와 `KafkaOutageE2ETest`의 `processedCountOf`·발송 메일 건수를 뺐다. 7-2 `MetricsTest`·`StockCheckJobTest`의 부정 문장, 7-3 `AdminOutboxTest`의 SENT 재확인·`AdminDltTest`의 `processedCountOf`·`AdminReconcileTest`의 재호출·`AdminRefundRetryTest`의 취소 행·`AdminNotificationTest`의 메일 건수·`AdminAuthorizationTest`의 PG 0건도 뺐다. 규격 외 변경 없음
+> 0.19 · 2026-10-20 · **7-3 완료 확인에서 확신 '상'을 뺐다**(사용자 요청): `AdminReconcileTest` 1·2·3번의 결제 상태·재고·장바구니(2-6 대사 1·2·6번이 같은 경로로 확인), `AdminRefundRetryTest` 1번의 품목 `CANCELLED`·결제·재고(2-8b 복구 2번이 확인). 7-4 시나리오의 같은 종류 후보는 따로 정한다. 규격 외 변경 없음
+> 0.18 · 2026-10-20 · **7-4 S1 7번의 `WELCOME` 3건 설명을 "구매자 1명·판매자 2명의 가입"으로 고쳤다**(가입자는 `sellerA`·`sellerB`·구매자로 3명이라 건수는 맞고 "구매자·판매자 2명"이 모호했다). 규격 외 변경 없음
+> 0.17 · 2026-10-20 · **7-1·7-2·7-3·7-4 완료 확인에서 '하' 후보를 뺐다**(사용자 요청): `MetricsTest` 1번의 빈 DB 0.0과 준비 `UNKNOWN`, `StockCheckJobTest` 3번의 첫 `check()` 0, 7-3·7-4의 `amount` 6000. 규격 외 변경 없음
+> 0.16 · 2026-10-20 · **7-3·7-4 완료 확인에서 '중' 후보를 뺐다**(사용자 요청): DLT 목록 조회의 `processed` 0, 대사·환불 재시도 준비가 만든 상태 나열, 구매확정의 `refundedAmount` 0. 규격 외 변경 없음
+> 0.15 · 2026-10-20 · **7-4 시나리오 S1 1번·S2 2번에서 동작이 건드리지 않는 PG 요청 0건·결제 행 없음 확인을 뺐다**(사용자 지적: 하지도 않는 동작을 검증한다). 규격 외 변경 없음
+> 0.14 · 2026-10-18 · **읽기 헬퍼 참조를 앞 단계 정의에 맞췄다**: `refundSnapshotOf`를 2-9의 `refundRowOf`로 통일하고(7-3은 `pgAttempts`만 더한다), `snapshotOf`는 2-8a 정의에 7-3(결제 `id`·`method`·`approvedAt`·`reconcileAttempts`)·7-4(`reservationStatuses`)가 필드를 더하게 했으며, `paymentCancelOf`(7-3)·`cartSnapshotOf`(3-6)·`countOf`(3-1) 참조를 바로잡았다. outbox `payload`는 `JsonNode` 접근으로 적었다. 규격 변경 없음
 > 0.13 · 2026-10-18 · **확인 값을 읽는 방법을 읽기 헬퍼 한 번 호출로 바꿨다**(사용자 지적: 확인할 값마다 JDBC 쿼리·`Map` 변환·캐스팅 코드를 테스트마다 짜야 해서 비효율): 주문·결제·재고·장바구니·outbox·환불·PG 취소 기록·구독·정산·가게·회원·상품·알림 상태는 앞 단계가 정한 헬퍼(`snapshotOf`, `cartSnapshotOf`, `stockOf`, `outboxSnapshotOf`·`OutboxAssert.rows`, `refundSnapshotOf`, `paymentCancelOf`, `subscriptionSnapshotOf`·`cyclesOf`, `settlementSnapshotOf`·`settlementItemSnapshotOf`, `shopSnapshotOf`·`memberSnapshotOf`·`productSnapshotOf`, `notificationRowsOf`, `processedCountOf`, `countOf`)로 읽게 했고, 없는 것만 새로 정했다(7-3 `RefundSnapshot.pgAttempts`·`NotificationRow.version` 필드 추가, 7-4 `unsentOutboxCount`·`notificationCounts`). 7-3의 ADMIN 토큰은 `changeRole`·`login`을 쓰도록 했다(헬퍼 이름 "확인 필요" 해소). 같은 값을 반복 확인하던 곳(`AdminOutboxTest` 1번의 `nextCursor`, 7-4 S1 7번의 알림 건수, S4 3번의 결제 상태·승인액, S6 준비의 품목 금액, 장애 시나리오 4번의 `SENT`)은 목적인 곳에만 남겼다. 규격·동작은 0.12와 같다
 > 0.12 · 2026-10-18 · **7-1~7-5 완료 확인을 확인 값 읽는 방법·준비·동작·확인할 값 단위로 다시 썼다**: 응답은 jsonPath, DB는 테이블·컬럼, 로그·메트릭·Kibana·Grafana는 읽는 곳과 이름을 적었다. 7-4 `InvariantChecker` 자체 테스트의 예시(`stock.available` 단독 변경)는 `ck_stock_balance`가 UPDATE를 거부하므로 `received`와 `available`을 함께 바꾸는 것으로 고쳤고, 7-5에 완료 확인을 새로 두었다. 규격·동작은 0.11과 같다
 > 0.11 · 2026-10-16 · **쓰지 않는 요소를 걷어내고 2-6 변경에 맞췄다**(구현 전 점검): ① 7-4 시나리오 보조 호출 표의 "환불 복구"(`recoverBatch()`) 행을 지웠다(S1~S7·장애 어느 시나리오도 부르지 않는다). ② 7-3 `reconcileOne`의 설명이 옛 2-6(`queryOutcome` → `apply` 한 경로)을 가리키고 있어, 확정된 결제는 `applyPaymentState`로 바로 처리하는 지금의 `reconcileBatch` 처리로 맞췄다. 규격·동작은 0.10과 같다
@@ -270,14 +277,13 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 #### `common/MetricsTest` (`IntegrationTestSupport`)
 
 **1. 수집기 Gauge 값** — 준비: 판매자·가게·상품(`registerProduct(sellerId, shopId, 1000, 10)`)과 구매자 1명, `pg.on("/v1/payments/confirm", Behavior.delay(1000))`.
-- 초기 상태: 세 수집기의 `refresh()` 뒤 `outbox_ready_count`, `outbox_oldest_age_seconds`, `outbox_dead_count`, `payment_unknown_count`, `payment_unknown_oldest_age_seconds`가 모두 0.0이다(READY가 없으면 age 0).
 - outbox 준비: `common.outbox_event`에 JDBC `INSERT`로 4행을 넣는다. 공통 값은 `aggregate_type` `TEST`, `event_type` `TestEvent`, `topic` `test.metrics.v1`, `payload` `'{}'::jsonb`, `attempts` 0, `next_attempt_at` 지금, `updated_at` 지금. 행별로 다른 값: READY 행 A(`created_at` = 지금 - 120초), READY 행 B·C(`created_at` = 지금), DEAD 행 D(`status` `DEAD`, `attempts` 10, `created_at` = 지금).
 - outbox 동작·확인: `outboxMetrics.refresh()` 뒤 `outbox_ready_count` = 3.0 / `outbox_oldest_age_seconds`는 120.0 이상 130.0 미만 / `outbox_dead_count` = 1.0. 행 A를 `SENT`로 바꾸고 다시 `refresh()`하면 `outbox_ready_count` = 2.0이고 `outbox_oldest_age_seconds`는 0 이상 10.0 미만이다(가장 오래된 READY가 B·C로 바뀐다).
-- 결제 준비: `createPendingOrder(구매자 ID, 상품 ID)` → `confirmPayment(구매자 ID, orderId)`(응답 202, `testFixtures.snapshotOf(orderId).payment().status()` = `UNKNOWN`). 다른 주문 하나는 `pg.on("/v1/payments/confirm", Behavior.approve())`로 되돌린 뒤 `createPaidOrder`로 만들어 `APPROVED` 결제를 하나 더 둔다. JDBC로 UNKNOWN 결제의 `updated_at`을 지금 - 90초로 바꾼다(`UPDATE payment.payment SET updated_at = ? WHERE order_id = ?`).
+- 결제 준비: `createPendingOrder(구매자 ID, 상품 ID)` → `confirmPayment(구매자 ID, orderId)`(응답 202). 다른 주문 하나는 `pg.on("/v1/payments/confirm", Behavior.approve())`로 되돌린 뒤 `createPaidOrder`로 만들어 `APPROVED` 결제를 하나 더 둔다. JDBC로 UNKNOWN 결제의 `updated_at`을 지금 - 90초로 바꾼다(`UPDATE payment.payment SET updated_at = ? WHERE order_id = ?`).
 - 결제 동작·확인: `paymentMetrics.refresh()` 뒤 `payment_unknown_count` = 1.0(APPROVED는 세지 않는다) / `payment_unknown_oldest_age_seconds`는 90.0 이상 100.0 미만.
 
 **2. DLT Counter** — 동작: 3-2 `KafkaDltTest`의 항상 실패하는 테스트 리스너 토픽 `test.always-fail.v1`에 메시지 1건을 보낸다. 보내기 전 `registry.get("kafka_dlt_records_total").tag("topic", "test.always-fail.v1").counter().count()`를 `before`로 읽는다(Counter가 아직 없으면 `registry.find(...)`가 null이라 `before` = 0).
-- 확인: `Eventually.await(Duration.ofSeconds(20), ...)` 안에서 같은 Counter의 `count()` - `before` = 1.0(재시도 1·2·4초를 거쳐 DLT에 도착한다). 다른 토픽 라벨의 Counter는 늘지 않는다.
+- 확인: `Eventually.await(Duration.ofSeconds(20), ...)` 안에서 같은 Counter의 `count()` - `before` = 1.0(재시도 1·2·4초를 거쳐 DLT에 도착한다).
 
 **3. `saga_stuck_count` 기준 시간** (기준 시각은 `updated_at`) — 준비: `pg.on("/v1/payments/confirm", Behavior.delay(1000))` + `createPendingOrder` + `confirmPayment`로 `PAYMENT_IN_PROGRESS` 주문 1개, `createPaidOrder` 주문의 품목 1개를 2-8a 6번 방식(`pg.on("/v1/payments/" + paymentKey, Behavior.delay(1000))` 후 취소 요청, 응답 202)으로 `APPROVED`에 멈춘 환불 1건. 환불 ID는 응답의 `$.refundId`.
 - 주문: `setOrderUpdatedAt(orderId, 지금 - 4분)` → `orderMetrics.refresh()` → `saga_stuck_count{type="order_payment"}` = 0.0 / `setOrderUpdatedAt(orderId, 지금 - 6분)` → `refresh()` → 1.0.
@@ -291,13 +297,13 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 `check()`를 직접 부른다. 준비: 판매자·가게·상품(`registerProduct(sellerId, shopId, 1000, 10)` → `product.stock` `received` 10·`available` 10·`reserved` 0·`sold` 0, `stock_movement`에 `RECEIVE` 10 1행).
 
 **1. 정상 재고** — 동작: `check()`.
-- 반환값 0, `stock_balance_mismatch_count` = 0.0, 출력에 `stock mismatch productId=`가 없다.
+- 반환값 0, `stock_balance_mismatch_count` = 0.0.
 
 **2. 입고 합 불일치** — 동작: JDBC `UPDATE product.stock SET received = received + 5, available = available + 5 WHERE product_id = ?`(`ck_stock_balance`는 합이 같아 통과한다. `available`만 바꾸면 CHECK가 UPDATE를 거부한다) → `check()`.
-- 반환값 1, `stock_balance_mismatch_count` = 1.0, 출력에 `"stock mismatch productId=" + productId` 한 줄(다른 상품 ID는 없다).
+- 반환값 1, `stock_balance_mismatch_count` = 1.0, 출력에 `"stock mismatch productId=" + productId` 한 줄.
 - `UPDATE`를 되돌리고(`received - 5`, `available - 5`) `check()` → 반환값 0, Gauge 0.0.
 
-**3. 예약 합 불일치** (SQL의 `reserved <> HELD 합` 조건) — 준비: `createPendingOrder(구매자 ID, productId)`(`reserved` 1, `stock_reservation` `HELD` 1건). 동작: `check()` → 반환값 0. 이어서 `breakReservedStock(productId)`(`available`에 `reserved`를 더하고 `reserved` 0) → `check()`.
+**3. 예약 합 불일치** (SQL의 `reserved <> HELD 합` 조건) — 준비: `createPendingOrder(구매자 ID, productId)`(`reserved` 1, `stock_reservation` `HELD` 1건). 동작: `breakReservedStock(productId)`(`available`에 `reserved`를 더하고 `reserved` 0) → `check()`.
 - 확인: 두 번째 `check()` 반환값 1, Gauge 1.0, 출력에 `"stock mismatch productId=" + productId`.
 
 #### 수동 확인: 노출과 대시보드
@@ -436,14 +442,14 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 **1. 목록·재시도·발행** — 동작 순서와 확인
 - `GET /admin/api/outbox?status=DEAD` → 200, `$.items.length()` = 1(S는 없다), `$.items[0].id` = X, `.topic` = `test.admin-outbox.v1`, `.aggregateId` = K, `.attempts` = 10, `.lastError` = `kafka timeout`, `.createdAt`이 null이 아니다(`nextCursor`는 4번이 확인한다).
-- `POST /admin/api/outbox/{X}/retry` → 2xx(상태·본문은 확인 필요). `outboxSnapshotOf(X)`: `status()` = `READY`, `attempts()` = 0, `nextAttemptAt()` ≤ 지금. 출력에 `"target=" + X + " by=" + adminId`가 있다.
-- `outboxRelay.relayOnce()` → 반환값 1. `outboxSnapshotOf(X)`: `status()` = `SENT`, `sentAt()`이 null이 아니다. 테스트용 `KafkaConsumer`로 `test.admin-outbox.v1`을 읽으면 key = K, 봉투 `eventId` = X인 메시지가 1건이다.
+- `POST /admin/api/outbox/{X}/retry` → 2xx(상태·본문은 확인 필요). `outboxSnapshotOf(X)`: `status()` = `READY`, `attempts()` = 0. 출력에 `"target=" + X + " by=" + adminId`가 있다.
+- `outboxRelay.relayOnce()` → 반환값 1. 테스트용 `KafkaConsumer`로 `test.admin-outbox.v1`을 읽으면 key = K, 봉투 `eventId` = X인 메시지가 1건이다.
 
 **2. 같은 retry 두 번** — 준비: 1번 끝 상태(X가 SENT). 동작: `POST /admin/api/outbox/{X}/retry` 다시.
-- 응답 4xx(코드는 확인 필요). `outboxSnapshotOf(X)`가 1번 끝에서 읽은 값과 같다(`status()` = `SENT`, `attempts()`·`sentAt()` 변화 없음). `relayOnce()` 반환값 0, 토픽의 K 메시지는 1건 그대로.
+- 응답 4xx(코드는 확인 필요). `outboxSnapshotOf(X)`가 1번 끝에서 읽은 값과 같다. `relayOnce()` 반환값 0, 토픽의 K 메시지는 1건 그대로.
 
 **3. 없는 id** — 동작: 임의의 UUID로 `POST /admin/api/outbox/{임의 UUID}/retry`.
-- 응답 4xx(404 `NOT_FOUND`가 후보, 확인 필요). `countOf("common.outbox_event")`가 호출 전과 같다.
+- 응답 4xx(404 `NOT_FOUND`가 후보, 확인 필요).
 
 **4. 목록 페이지** (모든 목록 API의 규칙을 outbox로 대표 확인) — 준비: DEAD 행 3개를 `created_at`을 서로 다르게(지금 - 3시간, - 2시간, - 1시간) 넣는다. 동작: `GET /admin/api/outbox?status=DEAD&size=2` → 응답의 `$.nextCursor`를 `cursor`로 `GET ...&size=2&cursor={값}`.
 - 첫 응답: `$.items.length()` = 2, `$.nextCursor`가 null이 아니다, `items`가 `createdAt` 오름차순. 둘째 응답: `$.items.length()` = 1, `$.nextCursor` = null. 두 응답의 `id` 합이 3개이고 중복이 없다.
@@ -454,14 +460,13 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 **1. DLT 목록 조회** — 동작: 메시지를 보낸다 → `Eventually.await(Duration.ofSeconds(20), ...)` 안에서 `GET /admin/api/dlt/test.admin-dlt.v1?limit=50`(재시도 1·2·4초를 거쳐 DLT에 도착한다).
 - 응답 200. 항목 중 `key` = K인 것이 정확히 1개다(응답 모양과 필드 이름은 확인 필요. 권장: `partition`, `offset`, `key`, `value`, `exception`). 그 항목의 `value`는 보낸 봉투 JSON과 같은 문자열(500자 미만이라 잘리지 않는다), 예외 헤더 값에 `always-fail`이 들어 있다(`DLT_EXCEPTION_MESSAGE`). 항목의 `partition`·`offset`을 `P`·`O`로 적어 둔다.
-- 이 시점의 부수효과: `processed` = 0, `processedCountOf("test.admin-dlt", E)` = 0.
 
 **2. replay로 처리 성공** — 준비: 1번 상태. 동작: `fail = false` → `POST /admin/api/dlt/test.admin-dlt.v1/{P}/{O}/replay`.
 - 응답 2xx(상태·본문은 확인 필요). 출력에 `"target=" + "test.admin-dlt.v1/" + P + "/" + O + " by=" + adminId`(`target` 표기는 `topic/partition/offset`, 7-3 "모든 API에 공통").
-- `Eventually.await(Duration.ofSeconds(10), ...)` 안에서 `received` = 1, `processed` = 1, `processedCountOf("test.admin-dlt", E)` = 1.
+- `Eventually.await(Duration.ofSeconds(10), ...)` 안에서 `received` = 1, `processed` = 1.
 
 **3. 같은 메시지 두 번 replay → 처리 한 번** — 준비: 2번 상태. 동작: 같은 `P`·`O`로 replay를 한 번 더.
-- 응답 2xx. `Eventually.await(Duration.ofSeconds(10), ...)` 안에서 `received` = 2(원래 토픽에 두 번째 복사본이 도착했다). 그 뒤 `processed` = 1, `processedCountOf("test.admin-dlt", E)` = 1 그대로. DLT 목록의 `key` = K 항목은 여전히 1개(replay가 DLT 레코드를 지우지 않는다).
+- 응답 2xx. `Eventually.await(Duration.ofSeconds(10), ...)` 안에서 `received` = 2(원래 토픽에 두 번째 복사본이 도착했다). 그 뒤 `processed` = 1 그대로. DLT 목록의 `key` = K 항목은 여전히 1개(replay가 DLT 레코드를 지우지 않는다).
 
 **4. 없는 offset** — 동작: `POST /admin/api/dlt/test.admin-dlt.v1/{P}/9999/replay`.
 - 응답 4xx("대상 없음", 코드는 확인 필요). 3초 기다린 뒤에도 `received`가 호출 전과 같다(아무것도 보내지 않았다).
@@ -470,33 +475,31 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 공통 준비: 위 주문 준비에서 `product1`만 쓴다. 주문·결제 상태는 확인하는 시점(동작 전, 동작 뒤)마다 `OrderSnapshot s = testFixtures.snapshotOf(orderId)`를 한 번 읽어 확인한다. 호출은 `POST /admin/api/payments/{orderId}/reconcile`(ADMIN). 대사 잡 대상 조건(`setOrderUpdatedAt`)은 필요 없다(이 API는 그 주문만 바로 처리한다).
 
-**1. 승인 기록이 있는 UNKNOWN 결제 → PAID** — 준비: `pg.on("/v1/payments/confirm", Behavior.delay(1000))` → `createPendingOrder(구매자 ID, product1)` → `confirmPayment(구매자 ID, orderId)`(응답 202). 이때 `s.payment().status()` = `UNKNOWN`, `s.status()` = `PAYMENT_IN_PROGRESS`, 재고 `product1` → `available` 9, `reserved` 1, `sold` 0, 가짜 PG에는 승인 기록이 있다(지연 응답은 승인을 처리한 뒤에 기다린다).
-- 목록 확인(동작 전): `GET /admin/api/payments?status=UNKNOWN` → 200, `$.items.length()` = 1, `$.items[0].id` = `s.payment().id()`, `.orderId` = orderId, `.amount` = 1000, `.reconcileAttempts` = `s.payment().reconcileAttempts()`(0), `.updatedAt`이 null이 아니다, `$.nextCursor` = null.
+**1. 승인 기록이 있는 UNKNOWN 결제 → PAID** — 준비: `pg.on("/v1/payments/confirm", Behavior.delay(1000))` → `createPendingOrder(구매자 ID, product1)` → `confirmPayment(구매자 ID, orderId)`(응답 202). 지연 응답은 승인을 처리한 뒤에 기다리므로 가짜 PG에는 승인 기록이 있다.
+- 목록 확인(동작 전): `GET /admin/api/payments?status=UNKNOWN` → 200, `$.items.length()` = 1, `$.items[0].id` = `s.payment().id()`, `.orderId` = orderId, `.amount` = 1000, `.updatedAt`이 null이 아니다.
 - 동작: reconcile 호출. 응답: 200, `$.orderId` = orderId, `$.status` = `PAID`.
-- 상태: `s.status()` = `PAID` / `s.payment()`의 `status()` = `APPROVED`, `method()` = `카드`, `approvedAt()`이 null이 아니다 / 재고 `product1` → `available` 9, `reserved` 0, `sold` 1 / `cartSnapshotOf(구매자 ID).quantity(product1)` = 0 / 가짜 PG: `/v1/payments/orders/` 요청 1건, `/v1/payments/confirm` 요청 1건(처음 승인뿐) / 출력에 `"target=" + orderId + " by=" + adminId`.
-- 목록 확인(동작 후): `GET /admin/api/payments?status=UNKNOWN` → `$.items.length()` = 0.
-- 같은 호출을 한 번 더: 200, `$.status` = `PAID`, 가짜 PG `/v1/payments/orders/` 요청은 1건 그대로(확정된 결제는 조회하지 않는다), 재고 `sold` 1 그대로, `OutboxAssert.rows("order.order-paid.v1")`가 1건(두 번 발행하지 않는다, 3-3).
+- 상태: `s.status()` = `PAID` / 가짜 PG: `/v1/payments/orders/` 요청 1건 / 출력에 `"target=" + orderId + " by=" + adminId`.
+- 같은 호출을 한 번 더: 200, `$.status` = `PAID`.
 
 **2. 승인 기록이 없는 UNKNOWN 결제 → PAYMENT_FAILED** — 준비: `pg.on("/v1/payments/confirm", Behavior.drop())` → `createPendingOrder` → `confirmPayment`(202, 가짜 PG에는 승인 기록 없음). 동작: reconcile.
-- 응답: 200, `$.status` = `PAYMENT_FAILED`. 상태: `s.status()` = `PAYMENT_FAILED` / `s.payment().status()` = `FAILED` / 재고 `product1` → `available` 10, `reserved` 0, `sold` 0 / `cartSnapshotOf(구매자 ID).quantity(product1)` = 1 그대로 / 가짜 PG `/v1/payments/orders/` 요청 1건(404 응답).
+- 응답: 200, `$.status` = `PAYMENT_FAILED`. 상태: `s.status()` = `PAYMENT_FAILED` / `cartSnapshotOf(구매자 ID).quantity(product1)` = 1 그대로 / 가짜 PG `/v1/payments/orders/` 요청 1건(404 응답).
 
 **3. 조회도 실패하면 상태 그대로** — 준비: `pg.on("/v1/payments/confirm", Behavior.delay(1000))` + `pg.on("/v1/payments/orders", Behavior.serverError())` → `createPendingOrder` → `confirmPayment`(202). 동작: reconcile.
-- 응답: 200, `$.status` = `PAYMENT_IN_PROGRESS`. 상태: `s.status()` = `PAYMENT_IN_PROGRESS` / `s.payment()`의 `status()` = `UNKNOWN`, `reconcileAttempts()` = 1 / 재고 `product1` → `available` 9, `reserved` 1.
+- 응답: 200, `$.status` = `PAYMENT_IN_PROGRESS`. `s.payment().reconcileAttempts()` = 1.
 
 **4. 없는 주문** — 동작: 임의의 UUID로 reconcile. 응답 4xx(코드는 확인 필요: 목록의 "정해지지 않은 것"). 가짜 PG 요청 0건.
 
 #### `order/web/AdminRefundRetryTest` (`@AutoConfigureMockMvc` + `IntegrationTestSupport`)
 
-**준비**: 위 주문 준비의 상품 3개를 구매자가 `createPaidOrder`로 결제 완료(총액 6,000). `paymentKey`는 `snapshotOf(orderId).payment().paymentKey()`. `pg.on("/v1/payments/" + paymentKey, Behavior.reject("NOT_CANCELABLE_AMOUNT"))` 후 구매자가 `product1` 품목을 취소한다(`POST /api/orders/{orderId}/lines/{lineId}/cancel`, `Idempotency-Key` 새 UUID, 본문 `{"reason":"단순 변심"}`, `lineId`는 `orderLineIdOf(orderId, product1)`) → 응답 502, `$.code` = `PG_ERROR`. 환불 ID는 `refundIdOf(lineId)`(2-8b). 이때 `refundRowOf(refundId)`: `status()` = `FAILED`, `pgAttempts()` = 0 / `paymentCancelOf(refundId)`: `status()` = `FAILED`, `failureCode()` = `NOT_CANCELABLE_AMOUNT` / 가짜 PG `/cancel` 요청 1건.
+**준비**: 위 주문 준비의 상품 3개를 구매자가 `createPaidOrder`로 결제 완료(총액 6,000). `paymentKey`는 `snapshotOf(orderId).payment().paymentKey()`. `pg.on("/v1/payments/" + paymentKey, Behavior.reject("NOT_CANCELABLE_AMOUNT"))` 후 구매자가 `product1` 품목을 취소한다(`POST /api/orders/{orderId}/lines/{lineId}/cancel`, `Idempotency-Key` 새 UUID, 본문 `{"reason":"단순 변심"}`, `lineId`는 `orderLineIdOf(orderId, product1)`) → 응답 502, `$.code` = `PG_ERROR`. 환불 ID는 `refundIdOf(lineId)`(2-8b). 이 시점에 가짜 PG `/cancel` 요청은 1건이다.
 
 **1. FAILED 환불 재시도 → COMPLETED**
 - 목록(동작 전): `GET /admin/api/refunds?status=FAILED` → 200, `$.items.length()` = 1, 항목의 환불 ID가 refundId(필드 이름은 확인 필요, 권장 `id`).
 - 동작: `pg.on("/v1/payments/" + paymentKey, Behavior.approve())`로 정상 응답으로 되돌린 뒤 `POST /admin/api/refunds/{refundId}/retry`. 응답 2xx(상태·본문은 확인 필요).
 - `refundRowOf(refundId)`: `status()` = `COMPLETED`, `pgAttempts()` = 1.
-- `paymentCancelOf(refundId).status()` = `FAILED` 그대로, `paymentCancelOf(refundId + "-r1").status()` = `DONE`.
-- 가짜 PG `/cancel` 요청 총 2건. 첫째 `idempotency-key` = refundId, 둘째 = `{refundId}-r1`, 둘 다 `cancelAmount` = 1000.
-- `s = snapshotOf(orderId)`: `s.line(product1)` → `CANCELLED`·`refundedAmount` 1000 / `s.line(product2)`, `s.line(product3)` → `PAID`·0 / `s.payment()` → `cancelledAmount` 1000, `status` `PARTIAL_CANCELLED`, `amount` 6000. 재고 `product1` → `available` 10, `reserved` 0, `sold` 0.
-- 목록(동작 후): `GET /admin/api/refunds?status=FAILED` → `$.items.length()` = 0. 출력에 `"target=" + refundId + " by=" + adminId`.
+- 가짜 PG `/cancel` 요청 총 2건. 둘째 `idempotency-key` = `{refundId}-r1`.
+- `s = snapshotOf(orderId)`: `s.line(product2)`, `s.line(product3)` → `PAID`·0.
+- 출력에 `"target=" + refundId + " by=" + adminId`.
 
 **2. 재시도를 두 번 누르면 두 번째는 거부** — 준비: 1번 끝 상태. 동작: 같은 retry 다시.
 - 응답 4xx(코드는 확인 필요, 후보 409 `INVALID_STATE_TRANSITION`). `refundRowOf(refundId)`: `status()` = `COMPLETED`, `pgAttempts()` = 1 그대로. 가짜 PG `/cancel` 요청 2건 그대로(`paymentCancelOf(refundId + "-r1")`도 `DONE` 그대로). `snapshotOf(orderId).payment().cancelledAmount()` = 1000 그대로.
@@ -509,8 +512,8 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 **준비**: `notification.notification`에 JDBC `INSERT`로 FAILED 행 N(`member_id` `memberId`(임의 UUID), `type` `ORDER_PAID`, `channel` `EMAIL`, `recipient` `buyer@test.com`, `title` `t`, `body` `b`, `dedup_key` 임의 문자열, `status` `FAILED`, `attempts` 5, `last_error` `smtp down`, `next_attempt_at` = 지금 - 1시간, `version` 0, `created_at`·`updated_at` = 지금)과 SENT 행 1개(다른 `member_id`)를 넣는다. N의 상태는 `notificationRowsOf(memberId).get(0)`으로 읽는다.
 - 목록: `GET /admin/api/notifications?status=FAILED` → 200, `$.items.length()` = 1, 항목의 알림 ID가 N(필드 이름은 확인 필요).
 - 재시도: `POST /admin/api/notifications/{N}/retry` → 2xx. N의 행: `status()` = `PENDING`, `attempts()` = 0, `version()` = 1(INSERT한 0보다 1 크다).
-- 발송: `notificationDispatcher.dispatchBatch()` → 반환값 1. N의 행 `status()` = `SENT`, `fakeMailSender.sent()` 1건(`to` = `buyer@test.com`).
-- 같은 retry 한 번 더: 4xx(코드는 확인 필요), N의 행 `status()` = `SENT` 그대로, `fakeMailSender.sent()` 1건 그대로.
+- 발송: `notificationDispatcher.dispatchBatch()` → 반환값 1. N의 행 `status()` = `SENT`.
+- 같은 retry 한 번 더: 4xx(코드는 확인 필요), N의 행 `status()` = `SENT` 그대로.
 
 #### `common/web/AdminAuthorizationTest` (`@ExtendWith(OutputCaptureExtension.class)` + `@AutoConfigureMockMvc` + `IntegrationTestSupport`)
 
@@ -530,13 +533,13 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 | 10 | `POST /admin/api/notifications/{임의 UUID}/retry` | 〃 | 〃 |
 | 11 | `POST /admin/api/settlements/run?period=2026-09` | 〃 | 〃 |
 
-- 부수효과 없음: 11개 호출을 마친 뒤 `outboxSnapshotOf(X)`가 호출 전에 읽은 값과 같고 `status()` = `DEAD`다. 출력에 `admin action=`이 없다(실행 로그는 컨트롤러에 들어간 요청만 남긴다). 가짜 PG 요청 0건.
+- 부수효과 없음: 11개 호출을 마친 뒤 `outboxSnapshotOf(X)`가 호출 전에 읽은 값과 같고 `status()` = `DEAD`다. 출력에 `admin action=`이 없다(실행 로그는 컨트롤러에 들어간 요청만 남긴다).
 
 **이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다. 반환 record는 `support/`에 둔다. 7-4도 이 헬퍼를 쓴다)
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `RefundRow`에 `int pgAttempts` 추가 | 2-9가 만든 `refundRowOf`의 쿼리에 `orders.refund.pg_attempts`(2-8 마이그레이션) 컬럼을 더한다 | `AdminRefundRetryTest` 준비·1·2·3 |
+| `RefundRow`에 `int pgAttempts` 추가 | 2-9가 만든 `refundRowOf`의 쿼리에 `orders.refund.pg_attempts`(2-8 마이그레이션) 컬럼을 더한다 | `AdminRefundRetryTest` 1·2·3 |
 | `paymentCancelOf(idempotencyKey)` → `PaymentCancelState` | 2-6 표에 정의된 헬퍼다. 처음 쓰는 미구현 단계인 이 단계에서 `TestFixtures`에 추가한다 | `AdminRefundRetryTest` |
 | `OrderSnapshot`에 결제 필드 추가 | 2-4 표에 정의된 결제 `id`·`method`·`approvedAt`과 2-6 표에 정의된 `reconcileAttempts`를 이 단계에서 `OrderSnapshot.PaymentState`에 더한다(주문 `status`는 3-5가 더했다) | `AdminReconcileTest` |
 | `NotificationRow`에 `long version` 추가 | 3-5가 만든 `notificationRowsOf`·`notificationRows`의 쿼리에 `notification.notification.version` 컬럼을 더한다 | `AdminNotificationTest` |
@@ -650,22 +653,22 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 **준비**: 가게 A(판매자 `sellerA`)의 `productA1` 10,000원·`productA2` 5,000원, 가게 B(판매자 `sellerB`)의 `productB1` 30,000원, 구매자 1명. 장바구니: `addToCart(구매자 ID, productA1, 1)`, `addToCart(구매자 ID, productA2, 2)`, `addToCart(구매자 ID, productB1, 1)`.
 
-1. **체크아웃** — `POST /api/orders/checkout` 본문 `{"cartItemIds":[세 항목], "addressId": ...}` → 201, `$.status` = `PENDING_PAYMENT`, `$.totalAmount` = 50000, `$.shopOrders.length()` = 2. 재고: A1 `available` 9·`reserved` 1 / A2 `available` 8·`reserved` 2 / B1 `available` 9·`reserved` 1. 가짜 PG 요청 0건.
-2. **결제 승인** — `POST /api/orders/{orderId}/payment/confirm` 본문 `{"paymentKey":"pk_s1_{orderId}","pgOrderId": 1번 $.pgOrderId,"amount":50000}` → 200, `$.status` = `PAID`. `s = snapshotOf(orderId)`: `s.status()` = `PAID` / `s.payment()`의 `status` = `APPROVED`, `amount` = 50000 / `s.shopOrderStatuses()` = [`PAID`, `PAID`], 세 상품의 `s.line(productId).status()` = `PAID` / 재고 `reserved` 0, `sold` A1 1·A2 2·B1 1 / `cartSnapshotOf(구매자 ID).itemCount()` = 0 / 가짜 PG `/v1/payments/confirm` 요청 1건.
+1. **체크아웃** — `POST /api/orders/checkout` 본문 `{"cartItemIds":[세 항목], "addressId": ...}` → 201, `$.status` = `PENDING_PAYMENT`, `$.totalAmount` = 50000, `$.shopOrders.length()` = 2.
+2. **결제 승인** — `POST /api/orders/{orderId}/payment/confirm` 본문 `{"paymentKey":"pk_s1_{orderId}","pgOrderId": 1번 $.pgOrderId,"amount":50000}` → 200, `$.status` = `PAID`. `s = snapshotOf(orderId)`: `s.shopOrderStatuses()` = [`PAID`, `PAID`] / `cartSnapshotOf(구매자 ID).itemCount()` = 0.
 3. **outbox와 알림** — `OutboxAssert.rows("order.order-paid.v1")` 1건. 릴레이+대기(`notificationCounts().type("ORDER_PAID")` = 1, `.type("SHOP_ORDER_RECEIVED")` = 2) → `notificationDispatcher.dispatchBatch()`로 알림 발송.
-4. **발송·배송완료** — 가게마다 판매자 토큰으로 `POST /api/shops/{shopId}/orders/{shopOrderId}/ship` 본문 `{"carrier":"CJ대한통운","trackingNumber":"1234567890"}` → 200, `$.status` = `SHIPPED`; `POST .../deliver` → 200, `$.status` = `DELIVERED`. `s = snapshotOf(orderId)`: `s.shopOrderStatuses()` = [`DELIVERED`, `DELIVERED`], 세 품목 `DELIVERED`. outbox `order.shop-order-shipped.v1` 2건, `order.shop-order-delivered.v1` 2건.
-5. **구매확정** — 구매자 토큰으로 품목 3개 각각 `POST /api/orders/{orderId}/lines/{lineId}/confirm` → 200, `$.status` = `CONFIRMED`, `$.confirmedAt`이 null이 아니다. `s = snapshotOf(orderId)`: 세 품목 `CONFIRMED`·`refundedAmount` 0, `s.shopOrderStatuses()` = [`COMPLETED`, `COMPLETED`]. outbox `order.order-line-confirmed.v1` 3건. 릴레이+대기(`unsettledItemCount()` = 3) 뒤 `settlementItemSnapshotOf(orderLineIdOf(orderId, 상품))`의 `amount()` — `productA1` 10000, `productA2` 10000, `productB1` 30000.
-6. **정산** — `month = YearMonth.from(s.line(productA1).confirmedAt().atZone(businessZone))`(`s`는 5번의 `snapshotOf`)로 `settlementService.run(month)` → `SettlementRunResult(settledShops=2, paid=2, payoutFailed=0)`. `countOf("settlement.settlement")` = 2. `settlementSnapshotOf(shopA, month)` → `grossAmount` 20000, `feeAmount` 1000, `netAmount` 19000, `itemCount` 2, `feeRateBp` 500, `status` `PAID`, `payoutReference`가 null이 아니다 / `settlementSnapshotOf(shopB, month)` → 30000, 1500, 28500, 1, 500, `PAID`, null 아님. `unsettledItemCount()` = 0(세 품목 모두 정산에 붙었다). `FakePayoutGateway` 호출 2건(금액 19000, 28500).
-7. **지급 알림** — outbox `settlement.settlement-paid.v1` 2건 → 릴레이+대기(`notificationCounts().type("SETTLEMENT_PAID")` = 2) → `dispatchBatch()`. 최종 `notificationCounts()`의 `type`별 건수는 3번의 `ORDER_PAID` 1·`SHOP_ORDER_RECEIVED` 2에 더해 `WELCOME` 3(구매자·판매자 2명의 가입), `SHIPPED` 2, `DELIVERED` 2, `SETTLEMENT_PAID` 2로 합계 12건이고 `status("SENT")` = 12(전부 `SENT`), `fakeMailSender.sent()` 12건. `unsentOutboxCount()` = 0.
+4. **발송·배송완료** — 가게마다 판매자 토큰으로 `POST /api/shops/{shopId}/orders/{shopOrderId}/ship` 본문 `{"carrier":"CJ대한통운","trackingNumber":"1234567890"}` → 200; `POST .../deliver` → 200. `s = snapshotOf(orderId)`: `s.shopOrderStatuses()` = [`DELIVERED`, `DELIVERED`]. outbox `order.shop-order-shipped.v1` 2건, `order.shop-order-delivered.v1` 2건.
+5. **구매확정** — 구매자 토큰으로 품목 3개 각각 `POST /api/orders/{orderId}/lines/{lineId}/confirm` → 200. `s = snapshotOf(orderId)`: `s.shopOrderStatuses()` = [`COMPLETED`, `COMPLETED`]. outbox `order.order-line-confirmed.v1` 3건. 릴레이+대기(`unsettledItemCount()` = 3) 뒤 `settlementItemSnapshotOf(orderLineIdOf(orderId, 상품))`의 `amount()` — `productA1` 10000, `productA2` 10000, `productB1` 30000.
+6. **정산** — `month = YearMonth.from(s.line(productA1).confirmedAt().atZone(businessZone))`(`s`는 5번의 `snapshotOf`)로 `settlementService.run(month)` → `SettlementRunResult(settledShops=2, paid=2, payoutFailed=0)`. `countOf("settlement.settlement")` = 2. `settlementSnapshotOf(shopA, month)` → `grossAmount` 20000, `itemCount` 2, `status` `PAID` / `settlementSnapshotOf(shopB, month)` → 30000, 1, `PAID`. `unsettledItemCount()` = 0(세 품목 모두 정산에 붙었다). `FakePayoutGateway` 호출 2건(금액 19000, 28500).
+7. **지급 알림** — outbox `settlement.settlement-paid.v1` 2건 → 릴레이+대기(`notificationCounts().type("SETTLEMENT_PAID")` = 2) → `dispatchBatch()`. 최종 `notificationCounts()`의 `type`별 건수는 3번의 `ORDER_PAID` 1·`SHOP_ORDER_RECEIVED` 2에 더해 `WELCOME` 3(구매자 1명·판매자 2명의 가입), `SHIPPED` 2, `DELIVERED` 2, `SETTLEMENT_PAID` 2로 합계 12건이고 `status("SENT")` = 12(전부 `SENT`). `unsentOutboxCount()` = 0.
 8. `checkAll()`.
 
 #### 시나리오 S2: `e2e/AbandonedPaymentE2ETest`
 
 **준비**: 판매자, 가게, 상품 1개(10,000원), 구매자. 동작: `POST /api/orders/checkout`(상품 1개, 수량 1) → 201 후 결제 승인을 하지 않는다.
 1. `setOrderExpired(orderId, 지금 - 1분)` → `orderExpirationService.expireBatch()` 반환값 1.
-2. `s = snapshotOf(orderId)`: `s.status()` = `EXPIRED` / `s.shopOrderStatus()` = `CANCELLED`, `s.line(productId).status()` = `CANCELLED` / 재고 `available` 10·`reserved` 0·`sold` 0 / `s.reservationStatuses()` = [`EXPIRED`] / `cartSnapshotOf(구매자 ID).quantity(productId)` = 1 그대로 / `s.payment()` = `null`(결제 행 없음) / 가짜 PG `/v1/payments/` 요청 0건.
+2. `s = snapshotOf(orderId)`: `s.status()` = `EXPIRED` / `cartSnapshotOf(구매자 ID).quantity(productId)` = 1 그대로.
 3. `OutboxAssert.rows("order.order-expired.v1")` 1건, `payload().get("reason").asText()` = `EXPIRED`. 릴레이+대기(`notificationCounts().type("ORDER_CLOSED")` = 1).
-4. `expireBatch()` 한 번 더 → 반환값 0, 재고·`order.order-expired.v1` 1건 그대로.
+4. `expireBatch()` 한 번 더 → 반환값 0, `order.order-expired.v1` 1건 그대로.
 5. `checkAll()`.
 
 #### 시나리오 S3: `e2e/UncertainPaymentE2ETest`
@@ -673,45 +676,44 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 공통 준비: 판매자, 가게, 상품 1개(10,000원), 구매자. 아래 두 테스트 메서드가 각각 새 주문을 만든다.
 
 **승인은 됐지만 응답이 늦은 결제** — 준비: `pg.on("/v1/payments/confirm", Behavior.delay(1000))`(가짜 PG는 승인을 기록한 뒤 늦게 응답한다).
-1. 체크아웃 → `POST /api/orders/{id}/payment/confirm` → 202, `$.status` = `PAYMENT_IN_PROGRESS`. `snapshotOf(orderId).payment().status()` = `UNKNOWN` / 재고 `available` 9·`reserved` 1·`sold` 0 / `cartSnapshotOf(구매자 ID).quantity(productId)` = 1 그대로.
+1. 체크아웃 → `POST /api/orders/{id}/payment/confirm` → 202, `$.status` = `PAYMENT_IN_PROGRESS`.
 2. `setOrderUpdatedAt(orderId, 지금 - 1분)` → `orderReconcileService.reconcileBatch()` 반환값 1.
-3. `s = snapshotOf(orderId)`: `s.status()` = `PAID` / `s.payment().status()` = `APPROVED` / 재고 `reserved` 0·`sold` 1 / `cartSnapshotOf(구매자 ID).quantity(productId)` = 0 / 가짜 PG `/v1/payments/orders/` 요청 1건, `/v1/payments/confirm` 요청 1건 그대로 / `OutboxAssert.rows("order.order-paid.v1")` 1건.
+3. `s = snapshotOf(orderId)`: `s.status()` = `PAID` / `OutboxAssert.rows("order.order-paid.v1")` 1건.
 4. `checkAll()`.
 
 **승인 기록이 없는 결제** — 준비: `pg.on("/v1/payments/confirm", Behavior.drop())`(가짜 PG는 승인을 기록하지 않는다).
-1. 체크아웃 → confirm → 202, `$.status` = `PAYMENT_IN_PROGRESS`, `snapshotOf(orderId).payment().status()` = `UNKNOWN`.
+1. 체크아웃 → confirm → 202, `$.status` = `PAYMENT_IN_PROGRESS`.
 2. `setOrderUpdatedAt(orderId, 지금 - 1분)` → `reconcileBatch()` 반환값 1.
-3. `s = snapshotOf(orderId)`: `s.status()` = `PAYMENT_FAILED` / `s.payment().status()` = `FAILED` / 재고 `available` 10·`reserved` 0·`sold` 0 / `cartSnapshotOf(구매자 ID).quantity(productId)` = 1 그대로 / 가짜 PG `/v1/payments/orders/` 요청 1건 / `OutboxAssert.rows("order.order-expired.v1")` 1건, `payload().get("reason").asText()` = `PAYMENT_FAILED`.
+3. `s = snapshotOf(orderId)`: `s.status()` = `PAYMENT_FAILED` / `cartSnapshotOf(구매자 ID).quantity(productId)` = 1 그대로 / `OutboxAssert.rows("order.order-expired.v1")` 1건, `payload().get("reason").asText()` = `PAYMENT_FAILED`.
 4. `checkAll()`.
 
 #### 시나리오 S4: `e2e/LineCancelE2ETest`
 
 **준비**: 한 가게의 `product1` 1,000원·`product2` 2,000원·`product3` 3,000원(재고 각 10), 구매자가 3개를 수량 1씩 `createPaidOrder`(총액 6,000). 품목 ID는 `orderLineIdOf(orderId, productId)`.
-1. **첫 취소** — `POST /api/orders/{orderId}/lines/{line1}/cancel` 본문 `{"reason":"단순 변심"}` → 200, `$.status` = `COMPLETED`, `$.amount` = 1000. 가짜 PG `/cancel` 요청 1건: `idempotency-key` = `$.refundId`, `cancelAmount` = 1000. `s = snapshotOf(orderId)`: `s.payment()`의 `cancelledAmount` 1000, `status` `PARTIAL_CANCELLED`, `amount` 6000.
-2. **나머지 품목은 그대로** — `s.line(product2)`, `s.line(product3)` → `PAID`·`refundedAmount` 0 / `s.shopOrderStatus()` = `PAID` / `s.status()` = `PAID` / 재고 `product1` → `available` 10·`sold` 0, `product2`·`product3` → `available` 9·`sold` 1.
-3. **두 번째 취소**(발송 뒤에는 취소할 수 없으므로 발송 전에 한다) — `line2` 취소 → 200, `$.status` = `COMPLETED`, `$.amount` = 2000. 가짜 PG `/cancel` 요청 총 2건이고 `cancelAmount`가 {1000, 2000}. `s = snapshotOf(orderId)`: `s.payment().cancelledAmount()` 3000(= 1000 + 2000), `s.refundStatuses()` = [`COMPLETED`, `COMPLETED`], `refundedAmount`는 `product1` 1000, `product2` 2000, `product3` 0. 재고 `product2` → `available` 10·`sold` 0.
-4. **남은 품목 정상 진행** — 판매자가 발송·배송완료 API, 구매자가 `product3` 품목 구매확정 API → `s.line(product3)` = `CONFIRMED`·`refundedAmount` 0, `s.shopOrderStatus()` = `COMPLETED`.
-5. **이벤트** — `OutboxAssert.rows("order.order-line-refunded.v1")` 2건(`payload().get("amount").asText()`가 1000, 2000), `"order.order-line-confirmed.v1"` 1건(`payload().get("amount").asText()` = 3000). 릴레이+대기(`notificationCounts().type("REFUNDED")` = 2, `settlementItemSnapshotOf(orderLineIdOf(orderId, product3)).amount()` = 3000, `countOf("settlement.settlement_item")` = 1).
-6. `checkAll()`(INV-06: 품목별 환불액 ≤ 품목 금액, 누적 취소액 3000 ≤ 승인액 6000).
+1. **첫 취소** — `POST /api/orders/{orderId}/lines/{line1}/cancel` 본문 `{"reason":"단순 변심"}` → 200, `$.status` = `COMPLETED`, `$.amount` = 1000.
+2. **두 번째 취소**(발송 뒤에는 취소할 수 없으므로 발송 전에 한다) — `line2` 취소 → 200, `$.status` = `COMPLETED`, `$.amount` = 2000. `s = snapshotOf(orderId)`: `s.payment().cancelledAmount()` 3000(= 1000 + 2000).
+3. **남은 품목 정상 진행** — 판매자가 발송·배송완료 API, 구매자가 `product3` 품목 구매확정 API → `s.line(product3)` = `CONFIRMED`·`refundedAmount` 0, `s.shopOrderStatus()` = `COMPLETED`.
+4. **이벤트** — `OutboxAssert.rows("order.order-line-refunded.v1")` 2건(`payload().get("amount").asText()`가 1000, 2000), `"order.order-line-confirmed.v1"` 1건(`payload().get("amount").asText()` = 3000). 릴레이+대기(`notificationCounts().type("REFUNDED")` = 2, `settlementItemSnapshotOf(orderLineIdOf(orderId, product3)).amount()` = 3000, `countOf("settlement.settlement_item")` = 1).
+5. `checkAll()`(INV-06: 품목별 환불액 ≤ 품목 금액, 누적 취소액 3000 ≤ 승인액 6000).
 
 #### 시나리오 S5: `e2e/SubscriptionE2ETest`
 
 **준비**: 판매자, 가게, 구독 상품 `registerSubscribableProduct(sellerId, shopId, 10000, 20)`, 구매자, `billingKeyId = registerBillingKey(구매자 ID)`, `subscriptionId = createSubscription(구매자 ID, 상품 ID, billingKeyId)`(주기 WEEKLY 1 = 월요일, 수량 1). 아래 "다시 실행"은 `UPDATE orders.subscription SET next_run_date = today`(= `setSubscriptionNextRunDate`)와 이미 있는 회차를 어제로 미루는 `UPDATE orders.subscription_cycle SET cycle_date = cycle_date - 1 WHERE subscription_id = ?`(회차가 둘 이상이면 `setCycleDate`가 같은 날짜로 모아 `(subscription_id, cycle_date)` unique와 충돌하므로 이 SQL을 쓴다)다.
 
-1. **성공 회차** — `setSubscriptionNextRunDate(subscriptionId, today)` → `subscriptionCycleService.runDue()` 반환값 1. `cyclesOf(subscriptionId)` 1건 — `cycleDate()` = today, `status()` = `PAID`, `appliedUnitPrice()` = 10000, `orderId()` = 구독 주문 ID(`subOrderId`로 둔다) / 구독 주문: `snapshotOf(subOrderId)`의 `status()` = `PAID`, `payment().amount()` = 10000. `orders.orders`는 이 1건뿐이고 `type` = `SUBSCRIPTION`, `total_amount` = 10000(JDBC 한 줄) / `subscriptionSnapshotOf(subscriptionId)`: `status()` = `ACTIVE`, `consecutiveFailures()` = 0, `nextRunDate()`가 today보다 크고 today + 7 이하이며 `getDayOfWeek()` = `MONDAY` / 재고 `available` 19·`sold` 1 / 가짜 PG `/v1/billing/bk_` 요청 1건.
-2. **거절 1회** — `pg.on("/v1/billing/bk_", Behavior.reject("REJECT_CARD_COMPANY"))` → 다시 실행 → `runDue()` 반환값 1. `cyclesOf(subscriptionId)`의 마지막 회차 `status()` = `FAILED`, 그 회차의 주문 `snapshotOf(마지막 회차의 orderId()).status()` = `PAYMENT_FAILED` / `subscriptionSnapshotOf(subscriptionId)`: `status()` = `ACTIVE`, `consecutiveFailures()` = 1, `nextRunDate()` = today + 1 / 재고 `available` 19·`reserved` 0·`sold` 1(원복) / `OutboxAssert.rows("order.subscription-cycle-failed.v1")` 1건, `payload().get("consecutiveFailures").asText()` = 1.
-3. **거절 2회** — 다시 실행 → 반환값 1. `subscriptionSnapshotOf(subscriptionId)`: `consecutiveFailures()` = 2, `status()` = `ACTIVE`, `order.subscription-cycle-failed.v1` 누적 2건.
+1. **성공 회차** — `setSubscriptionNextRunDate(subscriptionId, today)` → `subscriptionCycleService.runDue()` 반환값 1. `cyclesOf(subscriptionId)` 1건 — `cycleDate()` = today, `status()` = `PAID`, `appliedUnitPrice()` = 10000, `orderId()` = 구독 주문 ID(`subOrderId`로 둔다) / 구독 주문: `snapshotOf(subOrderId)`의 `status()` = `PAID` / `subscriptionSnapshotOf(subscriptionId)`: `consecutiveFailures()` = 0, `nextRunDate()`가 today보다 크고 today + 7 이하이며 `getDayOfWeek()` = `MONDAY`.
+2. **거절 1회** — `pg.on("/v1/billing/bk_", Behavior.reject("REJECT_CARD_COMPANY"))` → 다시 실행 → `runDue()` 반환값 1. `cyclesOf(subscriptionId)`의 마지막 회차 `status()` = `FAILED`, 그 회차의 주문 `snapshotOf(마지막 회차의 orderId()).status()` = `PAYMENT_FAILED` / `subscriptionSnapshotOf(subscriptionId)`: `consecutiveFailures()` = 1, `nextRunDate()` = today + 1 / `OutboxAssert.rows("order.subscription-cycle-failed.v1")` 1건, `payload().get("consecutiveFailures").asText()` = 1.
+3. **거절 2회** — 다시 실행 → 반환값 1. `subscriptionSnapshotOf(subscriptionId)`: `consecutiveFailures()` = 2, `order.subscription-cycle-failed.v1` 누적 2건.
 4. **거절 3회** — 다시 실행 → 반환값 1. `subscriptionSnapshotOf(subscriptionId)`: `status()` = `SUSPENDED`, `consecutiveFailures()` = 3 / `cyclesOf(subscriptionId)`의 `status()` 목록 = [`PAID`, `FAILED`, `FAILED`, `FAILED`](생성 순). outbox `order.subscription-status-changed.v1` 1건: `payload().get("from").asText()` = `ACTIVE`, `payload().get("to").asText()` = `SUSPENDED`. `order.subscription-cycle-failed.v1`은 2건 그대로(3번째 실패는 상태 변경 이벤트로 낸다).
-5. **정지 중에는 실행되지 않음** — 다시 실행 → `runDue()` 반환값 0. `cyclesOf(subscriptionId)`의 `status()` 목록이 4번과 같다(회차 4건 그대로), 가짜 PG `/v1/billing/bk_` 요청 총 4건(성공 1 + 거절 3) 그대로.
+5. **정지 중에는 실행되지 않음** — 다시 실행 → `runDue()` 반환값 0. `cyclesOf(subscriptionId)`의 `status()` 목록이 4번과 같다(회차 4건 그대로).
 6. **재개** — 구매자 토큰으로 `POST /api/subscriptions/{subscriptionId}/resume` → 200. `subscriptionSnapshotOf(subscriptionId)`: `status()` = `ACTIVE`, `consecutiveFailures()` = 0, `nextRunDate()` > today(내일 이후 첫 주기 날).
 7. `checkAll()`(INV-08: 회차 날짜마다 행 1개, `PAID` 회차의 주문 `PAID`, 한 주문이 두 회차에 연결되지 않음).
 
 #### 시나리오 S6: `e2e/SettlementE2ETest`
 
 **준비**: 가게 3곳(판매자 3명)의 상품 `productA` 10,000원·`productB` 20,000원·`productC` 30,000원, 구매자 1명. 가게마다 `createDeliveredOrder(구매자 ID, 판매자 ID, 가게 ID, 상품 ID)` → 구매자 토큰으로 품목 3개를 구매확정 API로 확정(각 200, `$.status` = `CONFIRMED`) → 릴레이+대기(`unsettledItemCount()` = 3. 품목 금액 10000·20000·30000은 아래 가게별 `grossAmount`로 확인한다).
-1. `month = YearMonth.from(snapshotOf(세 주문 중 하나).line(그 주문의 상품).confirmedAt().atZone(businessZone))`로 `settlementService.run(month)` → `SettlementRunResult.settledShops` = 3. `countOf("settlement.settlement")` = 3. 가게별 `settlementSnapshotOf(shopId, month)`: A → `grossAmount` 10000, `feeAmount` 500, `netAmount` 9500 / B → 20000, 1000, 19000 / C → 30000, 1500, 28500. 모두 `itemCount` 1, `feeRateBp` 500, `status` `PAID`, `payoutReference`가 null이 아니다. `unsettledItemCount()` = 0. `FakePayoutGateway` 호출 3건. outbox `settlement.settlement-paid.v1` 3건. 이 시점의 `settlementSnapshotOf` 세 값을 `before`로 둔다.
-2. **두 번째 실행** — 같은 인자로 `run` 한 번 더 → `settledShops` = 0. `countOf("settlement.settlement")` = 3 그대로, 가게별 `settlementSnapshotOf(shopId, month)`가 `before`와 같다(금액·`payoutReference`·`paidAt` 변화 없음), `FakePayoutGateway` 호출 3건 그대로, outbox `settlement.settlement-paid.v1` 3건 그대로.
-3. 릴레이+대기(`notificationCounts().type("SETTLEMENT_PAID")` = 3, 두 번째 실행 뒤에도 3) → `dispatchBatch()`.
+1. `month = YearMonth.from(snapshotOf(세 주문 중 하나).line(그 주문의 상품).confirmedAt().atZone(businessZone))`로 `settlementService.run(month)` → `SettlementRunResult.settledShops` = 3. `countOf("settlement.settlement")` = 3. 가게별 `settlementSnapshotOf(shopId, month)`: A → `grossAmount` 10000 / B → 20000 / C → 30000. 모두 `status` `PAID`. `unsettledItemCount()` = 0. `FakePayoutGateway` 호출 3건. outbox `settlement.settlement-paid.v1` 3건.
+2. **두 번째 실행** — 같은 인자로 `run` 한 번 더 → `settledShops` = 0. `FakePayoutGateway` 호출 3건 그대로, outbox `settlement.settlement-paid.v1` 3건 그대로.
+3. 릴레이+대기(`notificationCounts().type("SETTLEMENT_PAID")` = 3) → `dispatchBatch()`.
 4. `checkAll()`(INV-07: 확정 품목마다 `settlement_item` 정확히 1행, 한 품목은 정산 1건에만).
 
 #### 시나리오 S7: `e2e/ShopCloseE2ETest`
@@ -730,7 +732,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 2. **중단 중 결제** — 주문 2건(`productX`, `productY` 각 1건)을 `POST /api/orders/checkout` → `POST /api/orders/{id}/payment/confirm`으로 승인한다. 두 응답 모두 200 `$.status` = `PAID`(Kafka와 무관하다). `OutboxAssert.rows("order.order-paid.v1")` 2건이 모두 `status` = `READY`.
 3. **중단 중 릴레이** — `outboxRelay.relayOnce()` → 반환값 0. `OutboxAssert.rows("order.order-paid.v1")`의 두 행은 `READY` 그대로이고 `attempts` = 1. `notificationCounts().type("ORDER_PAID")`·`.type("SHOP_ORDER_RECEIVED")` = 0.
 4. **재개** — `unpauseContainerCmd(...)` → JDBC `UPDATE common.outbox_event SET next_attempt_at = now() - interval '1 second' WHERE status = 'READY'` → `outboxRelay.relayOnce()` 반환값 2.
-5. **consumer 처리 완료** — `Eventually.await(Duration.ofSeconds(30), ...)`(consumer 재접속 시간은 확인 필요): `notificationCounts().type("ORDER_PAID")` = 2, `.type("SHOP_ORDER_RECEIVED")` = 2, `processedCountOf("notification.order-paid")` = 2. `dispatchBatch()` 반환값 4, `fakeMailSender.sent()` 4건.
+5. **consumer 처리 완료** — `Eventually.await(Duration.ofSeconds(30), ...)`(consumer 재접속 시간은 확인 필요): `notificationCounts().type("ORDER_PAID")` = 2, `.type("SHOP_ORDER_RECEIVED")` = 2. `dispatchBatch()` 반환값 4.
 6. `unsentOutboxCount()` = 0(이벤트 유실 0, NFR-REL-02. 4번의 두 행이 `SENT`가 된 것도 이것이 포함한다). `checkAll()`.
 
 #### 이 단계에서 추가하는 헬퍼

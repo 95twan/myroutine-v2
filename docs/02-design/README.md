@@ -1,4 +1,4 @@
-# Phase 2. 설계서 (MyRoutin v2)
+# Phase 2. 설계서 (MyRoutine v2)
 
 > 버전 0.1 · 2026-10-02 · 근거: [01-requirements](../01-requirements/README.md), [00-as-is](../00-as-is/README.md)
 
@@ -14,6 +14,7 @@
 | [07-api-spec.md](07-api-spec.md) | 공통 규약, 에러 코드, 엔드포인트 목록, 핵심 API 계약 |
 | [08-stock-design-evolution.md](08-stock-design-evolution.md) | 재고 설계의 진화: 가장 단순한 구조 → 조건부 UPDATE → 예약 → CAS → 이력 → 데드락 회피, 면접 Q&A |
 | [09-order-flow.md](09-order-flow.md) | 주문 프로세스 한눈에 보기: 장바구니 담기 → 체크아웃(주문·재고 예약) → 결제 승인 → 거절·불확실·만료 처리, 숫자로 따라가기 |
+| [10-state-combinations.md](10-state-combinations.md) | 상태 조합: 주문·가게주문·품목·환불·결제·재고 예약이 함께 가질 수 있는 상태와 각 조합에 도달하는 상황·코드 경로, 확인 필요 항목 |
 | [../adr/](../adr/) | 설계 결정 기록 12건 (005는 폐기) |
 
 ## 핵심 결정 요약

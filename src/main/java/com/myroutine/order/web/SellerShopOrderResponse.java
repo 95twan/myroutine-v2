@@ -18,6 +18,7 @@ public record SellerShopOrderResponse(
         Instant deliveredAt,
         long amount,
         List<SellerLineResponse> lines,
+        List<SellerRefundResponse> refunds,
         Instant createdAt
 ) {
     public static SellerShopOrderResponse from(SellerShopOrderResult result) {
@@ -33,6 +34,9 @@ public record SellerShopOrderResponse(
                 result.amount(),
                 result.lines().stream()
                         .map(SellerLineResponse::from)
+                        .toList(),
+                result.refunds().stream()
+                        .map(SellerRefundResponse::from)
                         .toList(),
                 result.createdAt()
         );

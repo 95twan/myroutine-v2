@@ -220,4 +220,54 @@ class CancelLineConcurrencyTest extends IntegrationTestSupport {
             assertThat(s.shopOrderStatus()).isEqualTo("SHIPPED");
         }
     }
+
+    @Test
+    @DisplayName("품목이 두 개뿐인 가게주문의 두 품목을 동시에 취소하면 가게주문과 결제가 모두 CANCELLED가 된다.")
+    void cancelBothLinesOfTwoLineShopOrderConcurrently() throws InterruptedException {
+        // Given
+        UUID sellerId = testFixtures.signup("seller1@test.com");
+        UUID shopId = testFixtures.openShop(sellerId, "1111111111");
+        UUID product1Id = testFixtures.registerProduct(sellerId, shopId, 1000, 10);
+        UUID product2Id = testFixtures.registerProduct(sellerId, shopId, 2000, 10);
+
+        UUID buyerId = testFixtures.signup("buyer@test.com");
+        String token = testFixtures.login("buyer@test.com");
+        UUID orderId = testFixtures.createPaidOrder(buyerId, product1Id, product2Id);
+        UUID line1Id = testFixtures.orderLineIdOf(orderId, product1Id);
+        UUID line2Id = testFixtures.orderLineIdOf(orderId, product2Id);
+
+        CancelLineRequest request = new CancelLineRequest("단순 변심");
+
+        // When
+        Callable<MvcResult> task1 = () -> mockMvc.perform(post("/api/orders/{orderId}/lines/{lineId}/cancel", orderId, line1Id)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", Ids.newId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andReturn();
+
+        Callable<MvcResult> task2 = () -> mockMvc.perform(post("/api/orders/{orderId}/lines/{lineId}/cancel", orderId, line2Id)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", Ids.newId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andReturn();
+
+        List<ConcurrencyRunner.Result<MvcResult>> results = ConcurrencyRunner.run(List.of(task1, task2));
+
+        // Then
+        List<Integer> statuses = results.stream().map(r -> r.value().getResponse().getStatus()).toList();
+        assertThat(statuses).containsExactly(200, 200);
+
+        OrderSnapshot snapshot = testFixtures.snapshotOf(orderId);
+        assertThat(snapshot.refundStatuses()).containsExactly("COMPLETED", "COMPLETED");
+        assertThat(snapshot.line(product1Id).status()).isEqualTo("CANCELLED");
+        assertThat(snapshot.line(product1Id).refundedAmount()).isEqualTo(1000);
+        assertThat(snapshot.line(product2Id).status()).isEqualTo("CANCELLED");
+        assertThat(snapshot.line(product2Id).refundedAmount()).isEqualTo(2000);
+        assertThat(snapshot.shopOrderStatus()).isEqualTo("CANCELLED");
+        assertThat(snapshot.payment().status()).isEqualTo("CANCELLED");
+        assertThat(snapshot.payment().cancelledAmount()).isEqualTo(3000);
+        assertThat(pg.requests("/v1/payments/").stream().filter(r -> r.path().endsWith("/cancel"))).hasSize(2);
+    }
 }
