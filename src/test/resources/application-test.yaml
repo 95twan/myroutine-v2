@@ -16,3 +16,6 @@ spring:
     properties:
       hibernate:
         generate_statistics: true
+  modulith:
+    moments:
+      enabled: false

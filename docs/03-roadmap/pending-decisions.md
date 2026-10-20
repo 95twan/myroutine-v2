@@ -1,7 +1,8 @@
 # 구현 때 정할 것
 
-> 버전 0.2 · 2026-10-19 · 4절을 더했다: 로드맵·설계 문서의 열린 "확인 필요"를 단계별로 모았다(서브에이전트 4개가 파일 그룹별로 추출, 줄 번호는 이 날짜 기준). 2-9 `approve`의 `findByIdForUpdate` 행은 락 없이 가기로 정해(로드맵 0.90) 지웠다
-> 버전 0.1 · 2026-10-16 · 로드맵·설계 문서 전체에서 "쓰지 않는 요소", "재사용하려고 억지로 맞춘 경로", 단계 사이 어긋남을 점검한 결과 중 아직 결정하지 않은 항목을 모았다. 점검은 문서와 `src/`를 grep으로 확인한 것이고 코드를 실행하지는 않았다.
+> 버전 0.3 · 2026-10-20 · 2-10 착수로 2절의 "전체 상수 위치"(서비스 안 상수로 확정)와 "2-7~2-10 권장 이름"(구현된 이름으로 확정), 4절의 2-10 행(150건 테스트)과 상태 조합 4번(구매확정의 가게주문 재계산)을 지웠다
+> 0.2 · 2026-10-19 · 4절을 더했다: 로드맵·설계 문서의 열린 "확인 필요"를 단계별로 모았다(서브에이전트 4개가 파일 그룹별로 추출, 줄 번호는 이 날짜 기준). 2-9 `approve`의 `findByIdForUpdate` 행은 락 없이 가기로 정해(로드맵 0.90) 지웠다
+> 0.1 · 2026-10-16 · 로드맵·설계 문서 전체에서 "쓰지 않는 요소", "재사용하려고 억지로 맞춘 경로", 단계 사이 어긋남을 점검한 결과 중 아직 결정하지 않은 항목을 모았다. 점검은 문서와 `src/`를 grep으로 확인한 것이고 코드를 실행하지는 않았다.
 
 각 항목은 해당 단계를 구현할 때 정하고, 정하면 그 단계 문서에 반영한 뒤 이 표에서 지운다. 4절의 "확인 필요"는 단계 착수 전에 Claude가 풀고 시작한다([CLAUDE.md §2](../../CLAUDE.md)).
 
@@ -27,10 +28,8 @@
 
 | 단계 | 항목 | 선택지와 영향 |
 |---|---|---|
-| 전체 | 대사 30초·보상 5분·환불 복구 5분·자동 확정 7일 상수의 위치 | 2-5의 15분처럼 `OrderProperties`에 두는지 정한다 |
 | 전체 | `TestFixtures` 헬퍼("테스트 준비")가 "완료 확인" 표 뒤에 있는 구조 | 만드는 순서는 헬퍼 → 테스트다. 구조를 바꾸려면 2-1~2-5를 포함해 고친다 |
 | 2-6 | `cancel` A-2·A-3의 재조회 | `insertIfAbsent`가 1행이면 방금 만든 `REQUESTED` 행이고 `id`도 알아서 재조회가 필요 없다. 0행일 때만 읽으면 취소마다 SELECT가 하나 준다. 분기가 늘어난다 |
-| 2-7~2-10 | 문서에 이름이 없던 구현물에 붙인 권장 이름 | `OrderLine.markShipped`·`markDelivered`·`addRefundedAmount`·`markReturned`·`markReturnRequested`·`markConfirmed(Instant)`, `ShopOrder.markCancelledWithoutLines`·`markCompleted(Instant)`, `findShopOrderFirstPage`·`findShopOrderNextPage`, `findAutoConfirmTargetsFirstPage`. 컨트롤러는 2-8 `cancel`·2-9 `return-requests`·2-10 `confirm`이 `OrderController`, 2-9의 `/api/shops/{shopId}/refunds/...`가 새 `SellerRefundController` |
 | 3 공통 규칙 P | `SettlementPaidEvent`의 `LocalDate periodStart`·`periodEnd` | 규칙 P는 필드 타입을 원시 타입·UUID·String·long·Instant·List로 제한한다. `LocalDate`를 허용하거나 필드를 `String`·`Instant`로 바꾼다 |
 | 3 공통 규칙 S | `notification`의 `payment::api` 의존 | 3-3에서 payment는 이벤트를 발행하지 않고 3-5 consumer도 payment를 쓰지 않는다. 불필요하면 지운다. `order` 행의 "Part 2 + 없음" 표기도 모호하다 |
 | 3-2 | `InboxGuard.runOnce`가 `EventContext`와 같은 MDC put/remove를 따로 구현한다 | `EventContext.run` 안에서 실행하게 하면 중복이 없다. 7-1의 "각자 finally" 설명도 고친다 |
@@ -129,13 +128,7 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 | 2-8a | E | `RefundResponse` 필드. 코드는 `refundId, status, amount`로 `RefundResult`와 같음 | p2:2236 | 문서에 기록 |
 | 공통 | D | springdoc-openapi의 Boot 4 호환 버전(사용하는 단계 없음) | development-guide:110 | 사용 단계 착수 시 확인 |
 | 공통 | E | 격리 수준 `READ COMMITTED` 가정. `src/main`에 격리 수준 설정이 없어 기본값을 쓴다 | 08-stock-design-evolution:27 | 확정 문장으로 교체 |
-| 상태 조합 | A·C | [10-state-combinations 7절](../02-design/10-state-combinations.md) 11건(발송 가드와 `FAILED` 환불, 구매확정의 가게주문 재계산, 대사가 못 닫는 경우 등) | 10 문서 7절 | 해당 단계 착수 때 같이 푼다 |
-
-### Part 2 남은 단계
-
-| 단계 | 종류 | 항목 | 위치 | 풀 방법 |
-|---|---|---|---|---|
-| 2-10 | D | 150건 테스트 데이터를 `createDeliveredOrder` 150회로 만들지 JDBC 직접 INSERT로 만들지 | p2:2696 | 느리면 JDBC로 전환 |
+| 상태 조합 | A·C | [10-state-combinations 7절](../02-design/10-state-combinations.md) 10건(발송 가드와 `FAILED` 환불, 대사가 못 닫는 경우 등) | 10 문서 7절 | 해당 단계 착수 때 같이 푼다 |
 
 ### Part 3
 

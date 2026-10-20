@@ -16,10 +16,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.sql.Timestamp;
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.util.*;
-
-import static org.testcontainers.shaded.org.bouncycastle.asn1.x500.style.RFC4519Style.l;
 
 @Component
 @RequiredArgsConstructor
@@ -244,11 +241,15 @@ public class TestFixtures {
     public OrderSnapshot snapshotOf(UUID orderId) {
         Map<UUID, OrderSnapshot.LineState> lines = new LinkedHashMap<>();
         jdbcTemplate.query(
-                "SELECT ol.product_id, ol.status, ol.refunded_amount FROM orders.order_line ol "
+                "SELECT ol.product_id, ol.status, ol.refunded_amount, ol.confirmed_at FROM orders.order_line ol "
                         + "JOIN orders.shop_order so ON so.id = ol.shop_order_id WHERE so.order_id = ?",
                 (rs, rowNum) -> lines.put(
                         rs.getObject("product_id", UUID.class),
-                        new OrderSnapshot.LineState(rs.getString("status"), rs.getLong("refunded_amount"))),
+                        new OrderSnapshot.LineState(
+                                rs.getString("status"),
+                                rs.getLong("refunded_amount"),
+                                rs.getTimestamp("confirmed_at") == null ? null : rs.getTimestamp("confirmed_at").toInstant())
+                ),
                 orderId);
 
         List<String> shopOrderStatuses = jdbcTemplate.queryForList(
@@ -314,5 +315,9 @@ public class TestFixtures {
                     );
                 },
                 shopOrderId);
+    }
+
+    public void setShopOrderDeliveredAt(UUID shopOrderId, Instant deliveredAt) {
+        jdbcTemplate.update("UPDATE orders.shop_order SET delivered_at = ? WHERE id = ?", Timestamp.from(deliveredAt), shopOrderId);
     }
 }

@@ -110,4 +110,13 @@ public class OrderLine extends BaseTimeEntity {
     public void markReturnRequested() {
         this.status = this.status.transitTo(OrderLineStatus.RETURN_REQUESTED);
     }
+
+    public void markConfirmed(Instant now) {
+        this.status = this.status.transitTo(OrderLineStatus.CONFIRMED);
+        this.confirmedAt = now;
+    }
+
+    public Money confirmedAmount() {
+        return this.lineAmount.minus(this.refundedAmount);
+    }
 }

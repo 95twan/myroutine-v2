@@ -190,4 +190,24 @@ public class Order extends BaseTimeEntity {
         }
         line.markDelivered();
     }
+
+    public void confirmLine(UUID lineId, Instant now) {
+        OrderLine line = findLine(lineId);
+        line.markConfirmed(now);
+
+        recalculateShopOrder(shopOrderOf(lineId), now);
+    }
+
+    public int autoConfirm(UUID shopOrderId, Instant now) {
+        ShopOrder shopOrder = findShopOrder(shopOrderId);
+        int confirmedCount = 0;
+        for (OrderLine line : shopOrder.getLines()) {
+            if (line.getStatus() == OrderLineStatus.DELIVERED) {
+                line.markConfirmed(now);
+                confirmedCount++;
+            }
+        }
+        recalculateShopOrder(shopOrder, now);
+        return confirmedCount;
+    }
 }
