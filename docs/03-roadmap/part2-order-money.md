@@ -1,6 +1,7 @@
 # Part 2. 주문과 돈
 
-> 버전 0.121 · 2026-10-20 · **2-10 동시성 케이스의 한계를 적었다**(리뷰 결정): `@Version`을 뺀 임시 복사본에서도 통과함을 실험으로 확인해, 이 케이스가 락의 증거가 아니라 이상 상태가 없는지만 본다고 완료 확인과 알려진 한계에 적었다. 규격 외 변경 없음
+> 버전 0.122 · 2026-10-20 · **Part 2 마무리**: 남은 "확인 필요" 3건을 코드와 테스트 SQL 로그로 확정했다(2-5 `JobLock`은 `RuntimeException`으로 감싼다, 2-8a `findByShopOrderIdForUpdate`는 `for no key update of o1_0`으로 주문 행만 잠근다, 2-8a `RefundResponse` 필드). "Part 2 완료"의 알려진 한계 표를 채웠다(썸네일, `FAILED` 환불, 발송 가드, 대사가 닫지 못하는 주문, `UNKNOWN` 상한, Toss 에러 표, 결제 내역 API, 추론만 한 항목). 공통 규칙 P-6에 동시성 테스트가 장치를 지워도 통과할 수 있다는 2-10의 확인을 더했다. 규격 외 변경 없음
+> 0.121 · 2026-10-20 · **2-10 동시성 케이스의 한계를 적었다**(리뷰 결정): `@Version`을 뺀 임시 복사본에서도 통과함을 실험으로 확인해, 이 케이스가 락의 증거가 아니라 이상 상태가 없는지만 본다고 완료 확인과 알려진 한계에 적었다. 규격 외 변경 없음
 > 0.120 · 2026-10-20 · **테스트 중 스케줄러를 끄는 설정을 고쳤다**(2-10 `AutoConfirmServiceTest` 150건 케이스가 정각에 `expected: 150, but was: 52`로 실패): `myroutine.scheduling.enabled: false`만으로는 꺼지지 않았다. Spring Modulith `MomentsAutoConfiguration`이 `@EnableScheduling`을 따로 갖고 있어 `spring.modulith.moments.enabled: false`도 필요하다(임시 복사본에서 스케줄링 처리기 빈이 사라지고 전체 651개가 통과함을 확인). 규격 외 변경 없음
 > 0.119 · 2026-10-20 · **2-10 `ConfirmPurchaseTest` 2번을 이미 확정된 품목 재확정 하나로 줄였다**(사용자 질문 "가, 나 둘 다 하라고?"): `SHIPPED` 품목 확정은 `OrderLineStatusTest.transitFail`이 허용되지 않은 모든 전이로 이미 확인하고, 웹 계층에서만 볼 수 있는 값은 409 응답 코드와 재요청이 `confirmed_at`을 덮어쓰지 않는 것이다. 규격 외 변경 없음
 > 0.118 · 2026-10-20 · **2-10 `OrderConfirmTest`의 "확정 거부" 케이스를 반품 요청 중 하나로 줄였다**(사용자 질문 "가나다를 다 하라고?"): 미배송·이미 확정은 `OrderLineStatusTest`의 전이 표와 `ConfirmPurchaseTest` 2번이 같은 규칙으로 확인한다. 수동 확정이 반품 요청 중 품목을 막는 것은 다른 곳에서 확인하지 않아 남겼다. 규격 외 변경 없음
@@ -248,7 +249,7 @@ return tx.execute(status -> applier.apply(...));          // 트랜잭션 2: 결
 | 3 | 컨트롤러 클래스에 `@Validated`를 붙이면 쿼리 파라미터 검증 실패가 500이 된다 | `@Min`·`@Max`는 메서드 파라미터에만 붙인다(Part 1의 `HandlerMethodValidationException` 핸들러가 400으로 바꾼다) | 1-7 |
 | 4 | `TestFixtures.token(email)`은 **가입까지** 한다. 이미 `signup(email)`한 이메일로 부르면 중복 가입 예외가 난다 | 가입한 회원의 토큰은 `login(email)`로 받는다 | Part 1 테스트 |
 | 5 | `jsonPath(...).doesNotExist()`는 경로가 응답 모양과 맞지 않아도 통과한다(객체 응답에 `$[0].x`, 배열 응답에 `$.x`) | 값은 `value(...)`로 단언한다. null 확인은 `value(nullValue())` — 경로가 틀리면 실패한다(2026-10-10 확인). 응답이 객체인지 배열인지 먼저 본다. **필터 경로(`$.items[?(@.productId == '%s')].x`)는 결과가 리스트**다: 값 비교(`value(false)`)는 원소가 하나면 풀어서 통과하지만 매처는 리스트 그대로 받으므로 null 확인은 `value(contains(nullValue()))`로 한다(`value(nullValue())`는 `was <[null]>`로 실패, 2026-10-11 확인) | 1-5 재수정(#21), 2-1 |
-| 6 | 통과하는 테스트가 실제로 결함을 막는지는 통과만으로 알 수 없다 | 핵심 장치(정렬·CAS 조건·멱등 키·검증 어노테이션)를 일부러 지우고 테스트가 실패하는지 본다. 1-9 데드락 테스트는 정렬을 지우면 50/50회 실패했다 | [공통 완료 기준](README.md#4-공통-완료-기준-모든-단계) |
+| 6 | 통과하는 테스트가 실제로 결함을 막는지는 통과만으로 알 수 없다 | 핵심 장치(정렬·CAS 조건·멱등 키·검증 어노테이션)를 일부러 지우고 테스트가 실패하는지 본다. 1-9 데드락 테스트는 정렬을 지우면 50/50회 실패했다. 동시성 테스트는 장치를 지워도 통과할 수 있다. 두 작업이 같은 행을 읽는 구간이 짧으면 한쪽이 먼저 끝나기 때문이다(2-10 구매확정은 `@Version`을 지워도 200회 모두 통과). 그때는 작업 안의 대기(3-2 `InboxGuardTest` 4번의 `Thread.sleep`)나 spy로 겹침을 만들거나, 그 케이스가 장치의 증거가 아니라고 완료 확인과 알려진 한계에 적는다 | [공통 완료 기준](README.md#4-공통-완료-기준-모든-단계) |
 | 7 | 한 쿼리에서 `List` 컬렉션 두 개 이상(중첩 포함)을 fetch하면 `MultipleBagFetchException`이 난다 | `@EntityGraph`에는 한 단계의 `List`만 넣고, 그 아래는 `default_batch_fetch_size`로 `IN` 한 번에 읽는다(2-2 상세 조회) | 2026-10-10 확인(Hibernate 7.4.5) |
 | 8 | `@JdbcTypeCode(SqlTypes.JSON)` jsonb 매핑은 Boot의 Jackson 3이 아니라 Hibernate가 찾은 **Jackson 2**(`JacksonJsonFormatMapper`, `jjwt-jackson`이 끌어온 `jackson-databind` 2.19.2)로 직렬화한다 | 문자열 필드만 있는 record(`ShippingAddress`)는 그대로 저장·조회된다(확인함). 날짜·enum을 jsonb에 넣거나 jjwt 의존성이 바뀌면 다시 확인한다 | 2026-10-10 확인 |
 | 9 | develop에 머지하면 VM에 자동 배포된다. 새 **필수 설정**(`@NotBlank` 프로퍼티·환경변수)이 VM `.env`에 없으면 기동 실패 → 자동 롤백 → CD 빨간불 | 필수 설정을 추가하는 PR은 **머지 전에** VM `/opt/myroutine/.env`와 `.env.ops.example`에 키를 넣는다(2-3 `TOSS_SECRET_KEY`) | 1-11 롤백 확인 |
@@ -1560,7 +1561,7 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 3. `try { task.run(); } finally { c로 SELECT pg_advisory_unlock(hashtext(?)) }` → `return true`
 - **unlock을 빼먹으면** 커넥션이 풀로 돌아가도 락이 남는다(세션 레벨 락은 커넥션이 닫힐 때까지 유지). 그래서 finally에서 반드시 푼다.
 - **unlock은 락을 잡은 같은 커넥션 `c`로 한다.** 세션 락은 잡은 세션의 것이라 다른 커넥션에서 풀면 `false`만 돌아오고 락은 남는다.
-- `SQLException`은 체크 예외인데 시그니처에 `throws`가 없다. 잡아서 비검사 예외로 감싸 던진다. 예외 종류는 문서에 정해져 있지 않다(확인 필요) — `JobRunner`가 어떤 예외든 로그로 남기고 삼킨다.
+- `SQLException`은 체크 예외인데 시그니처에 `throws`가 없다. 잡아서 `RuntimeException("job lock failed: " + jobName, e)`로 감싸 던진다. `JobRunner`가 어떤 예외든 로그로 남기고 삼키므로 전용 예외 타입은 두지 않는다.
 
 `JobRunner.run` 순서
 1. `MDC.put(TraceIds.MDC_KEY, TraceIds.newId())`, `MDC.put("job", jobName)` — 요청이 없는 스케줄 스레드에서도 로그에 `traceId`가 찍히게 한다(`org.slf4j.MDC`, `TraceIds`는 `common.web`)
@@ -2168,7 +2169,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 |---|---|---|
 | `@Lock(LockModeType.PESSIMISTIC_WRITE) @Query("select o from Order o where o.id = :id and o.memberId = :memberId") Optional<Order> findByIdAndMemberIdForUpdate(UUID id, UUID memberId)` | 구매자 품목 취소(`CancelOrderLineService`) | 주문 행을 읽으면서 **잠근다**(`SELECT ... FOR UPDATE`). 잠그는 트랜잭션이 끝날 때까지 같은 주문을 잠그려는 다른 트랜잭션은 기다린다. 소유자 확인이 필요한 요청용 |
 | `@Lock(LockModeType.PESSIMISTIC_WRITE) @Query("select o from Order o where o.id = :id") Optional<Order> findByIdForUpdate(UUID id)` | `RefundCompleter` | 같은 잠금. 내부 처리용(소유자 확인 없음) |
-| `@Lock(LockModeType.PESSIMISTIC_WRITE) @Query("select o from Order o join o.shopOrders so where so.id = :shopOrderId") Optional<Order> findByShopOrderIdForUpdate(UUID shopOrderId)` | `ShipmentService.ship` | 가게주문 ID로 그 가게주문이 속한 주문 행을 읽으면서 잠근다(`findByShopOrderId`와 같은 조회에 잠금을 더한 것). 조인이 있는 쿼리의 `FOR UPDATE`가 주문 행만 잠그는지, 가게주문 행까지 잠그는지는 확인 필요(어느 쪽이든 발송과 취소를 줄 세우는 데는 충분하다) |
+| `@Lock(LockModeType.PESSIMISTIC_WRITE) @Query("select o from Order o join o.shopOrders so where so.id = :shopOrderId") Optional<Order> findByShopOrderIdForUpdate(UUID shopOrderId)` | `ShipmentService.ship` | 가게주문 ID로 그 가게주문이 속한 주문 행을 읽으면서 잠근다(`findByShopOrderId`와 같은 조회에 잠금을 더한 것). 실제 SQL은 `select o1_0.… from orders.orders o1_0 join orders.shop_order so1_0 on … where so1_0.id=? for no key update of o1_0`이다(테스트 SQL 로그). Hibernate의 PostgreSQL 방언이 `PESSIMISTIC_WRITE`를 `FOR NO KEY UPDATE`로 내보내고 `of o1_0`이 붙어 **주문 행만 잠근다**. 가게주문 행은 잠그지 않는다. 취소(`findByIdAndMemberIdForUpdate`)도 같은 주문 행을 같은 모드로 잠그므로 발송과 취소가 주문 행에서 줄을 선다 |
 
 두 메서드 모두 `@Query`가 필요하다. `ForUpdate`는 Spring Data 파생 쿼리의 키워드가 아니라서 이름만 두면 `forUpdate`를 `Order`의 속성으로 찾다가 기동이 실패한다.
 
@@ -2243,7 +2244,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 |---|---|
 | 컨트롤러 | 기존 `OrderController`(`/api/orders`)에 메서드를 더한다(권장) |
 | `CancelLineRequest` | `(@Size(max=200) String reason)` |
-| `RefundResponse` | `RefundResult`와 같은 필드(`refundId`, `status`, `amount`)를 가진 응답 record다(정의가 문서에 없어 `RefundResult`에 맞췄다. 확인 필요) |
+| `RefundResponse` | `record (UUID refundId, RefundStatus status, long amount)`. `static RefundResponse from(RefundResult result)`로 `RefundResult`의 같은 이름 필드를 옮긴다 |
 | `OrderDetailResponse` (2-2) | `OrderDetailResult.refunds`에 맞춰 `List<RefundDetailResponse> refunds`를 더한다. `RefundDetailResponse`는 `RefundDetailResult`와 같은 필드의 record이고 `static RefundDetailResponse from(RefundDetailResult result)`를 가진다 |
 
 | API | 요청 | 응답 |
@@ -2755,10 +2756,10 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 ## Part 2 완료
 - [ ] develop → main, 태그 `v0.2.0`. Release 노트에 "결제 불확실성 처리"와 "품목 단위 환불" 요약
-- [ ] Part 3 문서 다듬기
-- [ ] Release 노트용 "알려진 한계"를 Part 1처럼 이 절에 표로 모아 둔다
+- [x] Part 3 문서 다듬기(Part 3 0.22: Part 1·2 코드와 이름 대조, 테스트 스케줄러 규칙 연결)
+- [x] Release 노트용 "알려진 한계"를 Part 1처럼 이 절에 표로 모아 둔다(아래 표)
 
-**알려진 한계 (2-2 시점, 단계가 끝날 때마다 더한다)**
+### Release 노트에 적을 알려진 한계
 
 | 한계 | 영향 | 회복·방어 | 출처 |
 |---|---|---|---|
@@ -2766,4 +2767,12 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | 결제 중 장바구니 표시 | 결제 대기 중인 항목이 구매 가능·`OUT_OF_STOCK`으로 보임 | 표시만 영향 | 2-2 |
 | 차감이 상품 단위 | 결제 중 항목을 삭제 후 재담기하면 새 수량에서 차감 | 드문 경우, 수용 | 2-2 |
 | 재고 점유 남용 | 회원당 결제 대기 수·체크아웃 횟수 상한 없음 → 반복 점유 가능 | Part 4 이메일 인증, Part 7 모니터링, 2-2 "추가 항목" | 2-2 |
-| 수동·자동 구매확정 동시성 | `ConfirmConcurrencyTest`가 `@Version`의 증거가 아니라 이상 상태가 없는지만 봄 | 같은 품목을 동시에 확정하는 충돌의 방어는 `OrderLine`의 `@Version`과 `transitTo`. 증거를 얻으려면 2-8a처럼 한쪽을 읽은 뒤 멈추게 하는 장치가 필요하다 | 2-10 |
+| 지난 주문의 썸네일 | 판매자가 상품 이미지를 지우면 지난 주문의 썸네일 URL이 404가 된다 | 의도한 한계(주문은 이미지 키만 저장하고 이미지를 복사하지 않는다) | 2-2 |
+| PG가 거절한 환불(`FAILED`) | 구매자 취소는 502로 끝나고 품목은 `PAID` 그대로라 다시 취소를 요청할 수 있다(새 환불 행이 생긴다). 반품 승인 뒤 거절이면 품목이 `RETURN_REQUESTED`로 남아 구매자·판매자 모두 더 할 수 있는 것이 없다. 자동 재시도는 없다 | 운영자 재시도는 7-3. 재시도해도 계속 거절되는 환불을 닫는 방법도 7-3에서 정한다 | 2-8a, 2-9 |
+| `FAILED` 환불이 있는 품목의 발송 | 발송 가드는 진행 중 환불(`REQUESTED`·`APPROVED`·`PG_CANCELLED`)만 봐서 `FAILED` 환불이 있는 `PAID` 품목도 발송된다. 7-3에서 그 환불을 `APPROVED`로 되돌리면 이미 발송된 품목이 PG 취소될 수 있다 | 7-3에서 재시도 조건과 함께 정한다 | [상태 조합 7절](../02-design/10-state-combinations.md) 1 |
+| 대사가 닫지 못하는 주문 | `PAYMENT_IN_PROGRESS` 주문의 payment 행이 없거나 `PARTIAL_CANCELLED`이면 대사가 로그만 남기고 매번 다시 시도한다 | 로그로 찾아 운영자가 처리. Part 7 모니터링 | 2-6, 상태 조합 7절 4 |
+| `UNKNOWN` 재조회 상한 | `reconcile_attempts`가 늘기만 하고 상한·알림이 없다 | Part 7 지표·알림 | 2-6, 상태 조합 7절 9 |
+| Toss API별 에러 표 | 불확실 코드 목록(`UNCERTAIN_CODES`)은 Toss 전체 에러 목록과만 대조했다. 승인·취소 API에만 나오는 "처리 중" 4xx 코드가 목록에 없으면 조회 대신 거절로 처리된다 | 개발자센터의 API별 에러 표와 대조한다(2-3 확인 필요) | 2-3 |
+| 결제 내역 조회 API 없음 | `payment.method`·`approved_at`을 보여 줄 `GET /api/payments`(FR-PAY-08)를 만드는 단계가 로드맵에 없다 | 단계를 추가할지 정한다 | [pending-decisions 3절](pending-decisions.md) |
+| 코드를 읽고 추론만 한 것 | 서로 다른 키로 동시에 온 두 PG 취소 중 하나의 `payment_cancel` 행이 `REQUESTED`/`UNKNOWN`으로 남을 수 있다. PG 조회의 `CANCELED`·`PARTIAL_CANCELED`를 `APPROVED`로 매핑해, 로컬 `UNKNOWN` 결제가 PG에서 이미 취소됐어도 `APPROVED`가 될 수 있다 | 테스트로 재현하지 않았다. 재현한 뒤 고친다 | 상태 조합 7절 5·6 |
+| 수동·자동 구매확정 동시성 | `ConfirmConcurrencyTest`가 `@Version`의 증거가 아니라 이상 상태가 없는지만 봄 | 같은 품목을 동시에 확정하는 충돌의 방어는 `OrderLine`의 `@Version`과 `transitTo`. 증거를 얻으려면 작업 안의 대기나 spy로 두 작업이 같은 품목을 읽는 구간을 겹치게 하고, "확정에 성공한 쪽은 하나"를 단언한다 | 2-10 |
