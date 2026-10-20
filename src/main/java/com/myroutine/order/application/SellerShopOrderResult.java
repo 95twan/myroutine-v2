@@ -17,9 +17,10 @@ public record SellerShopOrderResult(
         Instant deliveredAt,
         long amount,
         List<SellerLineResult> lines,
+        List<SellerRefundResult> refunds,
         Instant createdAt
 ) {
-    public static SellerShopOrderResult from(Order order, ShopOrder shopOrder) {
+    public static SellerShopOrderResult from(Order order, ShopOrder shopOrder, List<Refund> refunds) {
         return new SellerShopOrderResult(
                 shopOrder.getId(),
                 order.getId(),
@@ -36,11 +37,14 @@ public record SellerShopOrderResult(
                 shopOrder.getLines().stream()
                         .map(SellerLineResult::from)
                         .toList(),
+                refunds.stream()
+                        .map(SellerRefundResult::from)
+                        .toList(),
                 shopOrder.getCreatedAt()
         );
     }
 
-    public static SellerShopOrderResult from(ShopOrderListRow row, List<OrderLine> lines) {
+    public static SellerShopOrderResult from(ShopOrderListRow row, List<OrderLine> lines, List<Refund> refunds) {
         return new SellerShopOrderResult(
                 row.shopOrderId(),
                 row.orderId(),
@@ -56,6 +60,9 @@ public record SellerShopOrderResult(
                         .sum(),
                 lines.stream()
                         .map(SellerLineResult::from)
+                        .toList(),
+                refunds.stream()
+                        .map(SellerRefundResult::from)
                         .toList(),
                 row.createdAt()
         );

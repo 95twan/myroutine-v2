@@ -148,9 +148,8 @@ public class Order extends BaseTimeEntity {
 
     public void verifyCancellable(UUID lineId) {
         OrderLine line = findLine(lineId);
-        ShopOrder shopOrder = shopOrderOf(lineId);
 
-        if (this.status != OrderStatus.PAID || shopOrder.getStatus() != ShopOrderStatus.PAID || line.getStatus() != OrderLineStatus.PAID) {
+        if (line.getStatus() != OrderLineStatus.PAID) {
             throw new BusinessException(CommonErrorCode.INVALID_STATE_TRANSITION);
         }
     }
@@ -177,5 +176,18 @@ public class Order extends BaseTimeEntity {
         if (shopOrder.getStatus() == ShopOrderStatus.DELIVERED && shopOrder.allLinesSettled()) {
             shopOrder.markCompleted(now);
         }
+    }
+
+    public void requestReturn(UUID lineId) {
+        OrderLine line = findLine(lineId);
+        line.markReturnRequested();
+    }
+
+    public void rejectReturn(UUID lineId) {
+        OrderLine line = findLine(lineId);
+        if (line.getStatus() != OrderLineStatus.RETURN_REQUESTED) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATE_TRANSITION);
+        }
+        line.markDelivered();
     }
 }

@@ -16,7 +16,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.*;
+
+import static org.testcontainers.shaded.org.bouncycastle.asn1.x500.style.RFC4519Style.l;
 
 @Component
 @RequiredArgsConstructor
@@ -185,7 +188,7 @@ public class TestFixtures {
     public CheckoutResult createPendingOrder(UUID buyerId, UUID... productIds) {
         UUID addressId = address(buyerId);
         List<UUID> cartItemIds = new ArrayList<>();
-        for (UUID productId: productIds) {
+        for (UUID productId : productIds) {
             UUID cartItemId = addToCart(buyerId, productId, 1);
             cartItemIds.add(cartItemId);
         }
@@ -273,5 +276,43 @@ public class TestFixtures {
 
     public void setRefundUpdatedAt(UUID refundId, Instant updateAt) {
         jdbcTemplate.update("UPDATE orders.refund SET updated_at = ? WHERE id = ?", Timestamp.from(updateAt), refundId);
+    }
+
+    public UUID createDeliveredOrder(UUID buyerId, UUID sellerId, UUID shopId, UUID... productIds) {
+        UUID orderId = createPaidOrder(buyerId, productIds);
+        UUID shopOrderId = shopOrderIdOf(orderId, shopId);
+        shipShopOrder(sellerId, shopId, shopOrderId);
+        deliverShopOrder(sellerId, shopId, shopOrderId);
+        return orderId;
+    }
+
+    public RefundRow refundRowOf(UUID refundId) {
+        return jdbcTemplate.queryForObject("SELECT status, reason_type, amount, reason, reject_reason, completed_at FROM orders.refund WHERE id = ?",
+                (rs, rowNum) -> {
+                    return new RefundRow(
+                            rs.getString("status"),
+                            rs.getString("reason_type"),
+                            rs.getLong("amount"),
+                            rs.getString("reason"),
+                            rs.getString("reject_reason"),
+                            rs.getTimestamp("completed_at") != null ? rs.getTimestamp("completed_at").toInstant() : null
+                    );
+                },
+                refundId);
+    }
+
+    public ShopOrderSnapshot shopOrderSnapshotOf(UUID shopOrderId) {
+        return jdbcTemplate.queryForObject("SELECT status, carrier, tracking_number, shipped_at, delivered_at, completed_at FROM orders.shop_order WHERE id = ?",
+                (rs, rowNum) -> {
+                    return new ShopOrderSnapshot(
+                            rs.getString("status"),
+                            rs.getString("carrier"),
+                            rs.getString("tracking_number"),
+                            rs.getTimestamp("shipped_at") != null ? rs.getTimestamp("shipped_at").toInstant() : null,
+                            rs.getTimestamp("delivered_at") != null ? rs.getTimestamp("delivered_at").toInstant() : null,
+                            rs.getTimestamp("completed_at") != null ? rs.getTimestamp("completed_at").toInstant() : null
+                    );
+                },
+                shopOrderId);
     }
 }

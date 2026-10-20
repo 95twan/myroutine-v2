@@ -38,7 +38,9 @@ public class ShipmentService {
 
         order.ship(shopOrderId, carrier, trackingNumber, clock.instant());
 
-        return SellerShopOrderResult.from(order, shopOrder);
+        List<Refund> refunds = refundRepository.findAllByShopOrderIdInOrderByCreatedAtAsc(List.of(shopOrderId));
+
+        return SellerShopOrderResult.from(order, shopOrder, refunds);
     }
 
     @Transactional
@@ -53,6 +55,8 @@ public class ShipmentService {
         }
         order.deliver(shopOrderId, clock.instant());
 
-        return SellerShopOrderResult.from(order, shopOrder);
+        List<Refund> refunds = refundRepository.findAllByShopOrderIdInOrderByCreatedAtAsc(List.of(shopOrderId));
+
+        return SellerShopOrderResult.from(order, shopOrder, refunds);
     }
 }
