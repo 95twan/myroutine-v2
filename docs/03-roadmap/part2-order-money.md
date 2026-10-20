@@ -1,6 +1,7 @@
 # Part 2. 주문과 돈
 
-> 버전 0.115 · 2026-10-20 · **2-9 `ReturnTest` 9번을 더했다**(사용자 제안): 8번에서 뺀 "거절 이력이 있는 품목" 준비를 따로 떼어 `findLine` → `REJECTED` 확인 순서만 보는 케이스로 만들었다. 규격 외 변경 없음
+> 버전 0.116 · 2026-10-20 · **2-9 승인·거절에 `@Idempotent`가 없는 이유를 적었다**(PR #36 리뷰 질문): 상태 가드(두 번째는 409)와 `refundId` 멱등 키가 돈을 지키고, 결과는 가게주문 `refunds`로 확인한다. 규격 외 변경 없음
+> 0.115 · 2026-10-20 · **2-9 `ReturnTest` 9번을 더했다**(사용자 제안): 8번에서 뺀 "거절 이력이 있는 품목" 준비를 따로 떼어 `findLine` → `REJECTED` 확인 순서만 보는 케이스로 만들었다. 규격 외 변경 없음
 > 0.114 · 2026-10-20 · **2-9 `ReturnTest` 8번에서 "`line1`을 거절해 두기"를 뺐다**(사용자 요청): 주문 B의 경로로 첫 주문의 `line1`을 보내 404 `ORDER_LINE_NOT_FOUND`를 확인하는 것으로 줄였다. `findLine`을 `REJECTED` 확인보다 앞에 두는 순서는 이 케이스가 보지 않는다. 규격 외 변경 없음
 > 0.113 · 2026-10-20 · **2-9 `ReturnTest` 8번을 "주문 B의 경로 + `line1`"로 바꿨다**(사용자 제안): 공통 준비의 `line1`을 거절해 두고 두 번째 주문 B의 경로로 보낸다. `lineB`를 따로 만들 필요가 없고 같은 순서 오류를 잡는다. 규격 외 변경 없음
 > 0.112 · 2026-10-20 · **2-9 `ReturnTest` 8번의 이름을 "다른 주문의 품목 ID"로 고쳤다**(사용자 질문): "남의 주문"이라 쓰면 다른 회원의 주문으로 읽히는데, 이 케이스는 같은 구매자의 다른 주문 품목이다. 다른 회원의 주문이면 `findByIdAndMemberId`에서 404 `ORDER_NOT_FOUND`로 먼저 막힌다. 규격 외 변경 없음
@@ -2514,6 +2515,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | `POST /api/shops/{shopId}/refunds/{refundId}/approve` | | 200 / 202 / 502 |
 | `POST /api/shops/{shopId}/refunds/{refundId}/reject` | `RejectReturnRequest(@NotBlank @Size(max=200) String reason)` | 200 `RefundResponse` (REJECTED) |
 
+- 승인·거절에는 `@Idempotent`를 붙이지 않는다. 같은 환불에 다시 누르면 `REQUESTED`가 아니라서 409 `INVALID_STATE_TRANSITION`이고, 승인의 PG 취소는 `refundId`를 멱등 키로 쓰므로 이중 취소가 없다(돈이 상태 가드와 PG 키로 지켜진다). 응답을 받지 못한 판매자는 가게주문의 `refunds`에서 `status`로 결과를 확인한다. 반품 요청은 호출마다 새 환불 행을 만드는 동작이라 `@Idempotent`를 붙인다.
 - `SellerRefundResponse` (새 record): `SellerRefundResult`와 같은 칸, `static from(SellerRefundResult)`. `SellerShopOrderResponse`(2-7)에 `List<SellerRefundResponse> refunds`를 더하고 `from`에서 옮긴다. 판매자는 이 목록에서 `status`가 `REQUESTED`인 환불의 `refundId`로 승인·거절을 부른다.
 
 ### 완료 확인
