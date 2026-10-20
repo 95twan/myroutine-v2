@@ -28,6 +28,7 @@ public class OrderController {
     private final PendingOrderCancelService pendingOrderCancelService;
     private final CancelOrderLineService cancelOrderLineService;
     private final ReturnService returnService;
+    private final ConfirmPurchaseService confirmPurchaseService;
     private final ImageUrls imageUrls;
 
     @PostMapping("/checkout")
@@ -98,5 +99,15 @@ public class OrderController {
     ) {
         RefundResult result = returnService.request(memberId, id, lineId, request.reason());
         return ResponseEntity.status(HttpStatus.CREATED).body(RefundResponse.from(result));
+    }
+
+    @PostMapping("/{id}/lines/{lineId}/confirm")
+    public ResponseEntity<OrderLineResponse> confirm(
+            @CurrentMember UUID memberId,
+            @PathVariable UUID id,
+            @PathVariable UUID lineId
+    ) {
+        OrderLineResult result = confirmPurchaseService.confirm(memberId, id, lineId);
+        return ResponseEntity.ok(OrderLineResponse.from(result));
     }
 }

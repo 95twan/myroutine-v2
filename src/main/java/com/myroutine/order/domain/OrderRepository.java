@@ -42,4 +42,8 @@ public interface OrderRepository {
     Optional<Order> findByIdForUpdate(UUID id);
 
     Optional<Order> findByShopOrderIdForUpdate(UUID shopOrderId);
+
+    List<AutoConfirmTarget> findAutoConfirmTargetsFirstPage(ShopOrderStatus status, Instant before, Limit limit);
+
+    List<AutoConfirmTarget> findAutoConfirmTargets(ShopOrderStatus status, Instant before, Instant cursorAt, UUID cursorId, Limit limit);
 }

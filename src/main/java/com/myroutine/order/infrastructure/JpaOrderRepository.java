@@ -115,4 +115,20 @@ public interface JpaOrderRepository extends JpaRepository<Order, UUID>, OrderRep
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from Order o join o.shopOrders so where so.id = :shopOrderId")
     Optional<Order> findByShopOrderIdForUpdate(UUID shopOrderId);
+
+    @Query("""
+            select new com.myroutine.order.domain.AutoConfirmTarget(so.id, so.deliveredAt)
+            from ShopOrder so
+            where so.status = :status and so.deliveredAt < :before
+            order by so.deliveredAt , so.id
+            """)
+    List<AutoConfirmTarget> findAutoConfirmTargetsFirstPage(ShopOrderStatus status, Instant before, Limit limit);
+
+    @Query("""
+            select new com.myroutine.order.domain.AutoConfirmTarget(so.id, so.deliveredAt)
+            from ShopOrder so
+            where so.status = :status and so.deliveredAt < :before and (so.deliveredAt > :cursorAt or (so.deliveredAt = :cursorAt and so.id > :cursorId))
+            order by so.deliveredAt , so.id
+            """)
+    List<AutoConfirmTarget> findAutoConfirmTargets(ShopOrderStatus status, Instant before, Instant cursorAt, UUID cursorId, Limit limit);
 }
