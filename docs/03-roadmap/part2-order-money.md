@@ -1,6 +1,11 @@
 # Part 2. 주문과 돈
 
-> 버전 0.116 · 2026-10-20 · **2-9 승인·거절에 `@Idempotent`가 없는 이유를 적었다**(PR #36 리뷰 질문): 상태 가드(두 번째는 409)와 `refundId` 멱등 키가 돈을 지키고, 결과는 가게주문 `refunds`로 확인한다. 규격 외 변경 없음
+> 버전 0.121 · 2026-10-20 · **2-10 동시성 케이스의 한계를 적었다**(리뷰 결정): `@Version`을 뺀 임시 복사본에서도 통과함을 실험으로 확인해, 이 케이스가 락의 증거가 아니라 이상 상태가 없는지만 본다고 완료 확인과 알려진 한계에 적었다. 규격 외 변경 없음
+> 0.120 · 2026-10-20 · **테스트 중 스케줄러를 끄는 설정을 고쳤다**(2-10 `AutoConfirmServiceTest` 150건 케이스가 정각에 `expected: 150, but was: 52`로 실패): `myroutine.scheduling.enabled: false`만으로는 꺼지지 않았다. Spring Modulith `MomentsAutoConfiguration`이 `@EnableScheduling`을 따로 갖고 있어 `spring.modulith.moments.enabled: false`도 필요하다(임시 복사본에서 스케줄링 처리기 빈이 사라지고 전체 651개가 통과함을 확인). 규격 외 변경 없음
+> 0.119 · 2026-10-20 · **2-10 `ConfirmPurchaseTest` 2번을 이미 확정된 품목 재확정 하나로 줄였다**(사용자 질문 "가, 나 둘 다 하라고?"): `SHIPPED` 품목 확정은 `OrderLineStatusTest.transitFail`이 허용되지 않은 모든 전이로 이미 확인하고, 웹 계층에서만 볼 수 있는 값은 409 응답 코드와 재요청이 `confirmed_at`을 덮어쓰지 않는 것이다. 규격 외 변경 없음
+> 0.118 · 2026-10-20 · **2-10 `OrderConfirmTest`의 "확정 거부" 케이스를 반품 요청 중 하나로 줄였다**(사용자 질문 "가나다를 다 하라고?"): 미배송·이미 확정은 `OrderLineStatusTest`의 전이 표와 `ConfirmPurchaseTest` 2번이 같은 규칙으로 확인한다. 수동 확정이 반품 요청 중 품목을 막는 것은 다른 곳에서 확인하지 않아 남겼다. 규격 외 변경 없음
+> 0.117 · 2026-10-20 · **2-10 착수 전 정할 것을 확정했다**: 자동 확정 7일을 `AutoConfirmService`의 상수로(설정 프로퍼티 아님), 150건 테스트는 `createDeliveredOrder` 반복으로, 2-10 메서드·쿼리·컨트롤러 이름의 "권장" 표기를 지웠다. 구현된 `OrderLine.addRefundAmount`에 맞춰 문서의 `addRefundedAmount`를 고쳤다(2-8, 2-10). 규격 외 변경 없음
+> 0.116 · 2026-10-20 · **2-9 승인·거절에 `@Idempotent`가 없는 이유를 적었다**(PR #36 리뷰 질문): 상태 가드(두 번째는 409)와 `refundId` 멱등 키가 돈을 지키고, 결과는 가게주문 `refunds`로 확인한다. 규격 외 변경 없음
 > 0.115 · 2026-10-20 · **2-9 `ReturnTest` 9번을 더했다**(사용자 제안): 8번에서 뺀 "거절 이력이 있는 품목" 준비를 따로 떼어 `findLine` → `REJECTED` 확인 순서만 보는 케이스로 만들었다. 규격 외 변경 없음
 > 0.114 · 2026-10-20 · **2-9 `ReturnTest` 8번에서 "`line1`을 거절해 두기"를 뺐다**(사용자 요청): 주문 B의 경로로 첫 주문의 `line1`을 보내 404 `ORDER_LINE_NOT_FOUND`를 확인하는 것으로 줄였다. `findLine`을 `REJECTED` 확인보다 앞에 두는 순서는 이 케이스가 보지 않는다. 규격 외 변경 없음
 > 0.113 · 2026-10-20 · **2-9 `ReturnTest` 8번을 "주문 B의 경로 + `line1`"로 바꿨다**(사용자 제안): 공통 준비의 `line1`을 거절해 두고 두 번째 주문 B의 경로로 보낸다. `lineB`를 따로 만들 필요가 없고 같은 순서 오류를 잡는다. 규격 외 변경 없음
@@ -173,7 +178,7 @@ return tx.execute(status -> applier.apply(...));          // 트랜잭션 2: 결
 
 ### M. 시간 흉내 내기
 - 테스트에서 "15분 경과", "7일 경과"는 `Clock`을 바꾸지 않고 **DB의 시각 컬럼을 과거로 UPDATE**해서 만든다(예: `UPDATE orders.orders SET expires_at = now() - interval '1 minute' WHERE id = ?`). 컨텍스트를 새로 띄우지 않아 빠르다.
-- 잡은 테스트에서 직접 호출한다. `application-test.yaml`에 `myroutine.scheduling.enabled: false`(2-5에서 만듦)를 둬서 스케줄러가 테스트 중에 끼어들지 않게 한다.
+- 잡은 테스트에서 직접 호출한다. `application-test.yaml`에 `myroutine.scheduling.enabled: false`(2-5에서 만듦)와 `spring.modulith.moments.enabled: false`를 둬서 스케줄러가 테스트 중에 끼어들지 않게 한다. 둘 다 있어야 한다: 앞의 것은 우리 `SchedulingConfig`를 끄고, 뒤의 것은 Spring Modulith `MomentsAutoConfiguration`(`@EnableScheduling`을 가진다)을 끈다. 뒤의 것이 없으면 `@Scheduled` 잡이 테스트 중에 돌아, 2-10 자동 확정이 정각에 끼어들어 150건 테스트의 반환값이 어긋난다.
 
 ### N. 테스트 지원 (Part 2에서 추가)
 | 클래스 | 위치 | 단계 |
@@ -1564,7 +1569,7 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 4. 예외는 `log.error("job {} failed", jobName, e)`로 남기고 다시 던지지 않는다(다음 주기에 재실행)
 5. `finally`에서 MDC 두 키 제거
 
-- `application-test.yaml`: `myroutine.scheduling.enabled: false`
+- `application-test.yaml`: `myroutine.scheduling.enabled: false`, `spring.modulith.moments.enabled: false`
 
 **2) 만료 처리**
 
@@ -2171,7 +2176,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 | 대상 | 시그니처 | 규격 |
 |---|---|---|
-| `OrderLine` | `void addRefundedAmount(Money amount)` | `refundedAmount = refundedAmount.plus(amount)`. DB는 `refunded_amount <= line_amount` CHECK가 최종 방어선 |
+| `OrderLine` | `void addRefundAmount(Money amount)` | `refundedAmount = refundedAmount.plus(amount)`. DB는 `refunded_amount <= line_amount` CHECK가 최종 방어선 |
 | `OrderLine` | `void markReturned()` | `status = status.transitTo(RETURNED)` (`RETURN_REQUESTED → RETURNED`) |
 | `ShopOrder` | `void markCancelledWithoutLines()` | `status = status.transitTo(CANCELLED)`만 한다. 기존 `markCancelled()`(2-2)는 품목도 `markCancelled()`로 바꾸는데, 이미 `CANCELLED`인 품목은 나가는 전이가 없어 `INVALID_STATE_TRANSITION`이 나므로 여기서 쓰지 않는다 |
 | `ShopOrder` | `void markCompleted(Instant now)` | `status = status.transitTo(COMPLETED)` (`DELIVERED → COMPLETED`), `completedAt = now` |
@@ -2187,7 +2192,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 `applyRefund` 순서
 1. `OrderLine line = findLine(lineId)`, `ShopOrder shopOrder = shopOrderOf(lineId)`
-2. `line.addRefundedAmount(amount)`
+2. `line.addRefundAmount(amount)`
 3. 품목 상태: `BUYER_CANCEL`이면 `line.markCancelled()`(`PAID → CANCELLED`), `RETURN`이면 `line.markReturned()`(`RETURN_REQUESTED → RETURNED`)
 4. `recalculateShopOrder(shopOrder, now)`
 
@@ -2635,7 +2640,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 **2) order.domain**
 
-구매확정은 품목 단위다. 확정한 품목은 정산(3-4)·리뷰(6-1)의 대상이 된다. 메서드 이름은 권장안이다(2-7·2-8의 `OrderLine`·`ShopOrder` 메서드와 같은 규칙).
+구매확정은 품목 단위다. 확정한 품목은 정산(3-4)·리뷰(6-1)의 대상이 된다. 가게주문을 `COMPLETED`로 바꾸는 `ShopOrder.markCompleted(Instant)`는 2-8이 만든 것을 `recalculateShopOrder`가 그대로 쓴다.
 
 | 대상 | 시그니처 | 하는 일 |
 |---|---|---|
@@ -2644,7 +2649,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | `Order` | `void confirmLine(UUID lineId, Instant now)` | 구매자가 한 품목을 확정한다. `findLine(lineId).markConfirmed(now)` → `recalculateShopOrder`(2-8. 마지막 품목이면 가게주문 `COMPLETED`) |
 | `Order` | `int autoConfirm(UUID shopOrderId, Instant now)` | 배송완료 후 7일이 지난 가게주문의 품목을 한꺼번에 확정한다. `findShopOrder(shopOrderId)`의 품목 중 `DELIVERED`인 것만 `markConfirmed(now)`(`RETURN_REQUESTED`·`CANCELLED`·`RETURNED` 등은 건너뜀. 건너뛴 품목에 `transitTo`를 하면 예외라 상태를 먼저 거른다) → `recalculateShopOrder`. 확정한 품목 수를 반환한다 |
 | `AutoConfirmTarget` | `record (UUID shopOrderId, Instant deliveredAt)` (`order.domain`) | 자동 확정 후보 한 건. 다음 페이지의 커서가 된다 |
-| `OrderRepository` | `List<AutoConfirmTarget> findAutoConfirmTargetsFirstPage(ShopOrderStatus status, Instant before, Limit limit)` (권장 이름) | `select new ...AutoConfirmTarget(so.id, so.deliveredAt) from ShopOrder so where so.status = :status and so.deliveredAt < :before order by so.deliveredAt, so.id`. 커서가 없어 `cursorAt`·`cursorId` 조건이 빠진다 |
+| `OrderRepository` | `List<AutoConfirmTarget> findAutoConfirmTargetsFirstPage(ShopOrderStatus status, Instant before, Limit limit)` | `select new ...AutoConfirmTarget(so.id, so.deliveredAt) from ShopOrder so where so.status = :status and so.deliveredAt < :before order by so.deliveredAt, so.id`. 커서가 없어 `cursorAt`·`cursorId` 조건이 빠진다 |
 | `OrderRepository` | `List<AutoConfirmTarget> findAutoConfirmTargets(ShopOrderStatus status, Instant before, Instant cursorAt, UUID cursorId, Limit limit)` | 첫 페이지 쿼리의 `where`에 `and (so.deliveredAt > :cursorAt or (so.deliveredAt = :cursorAt and so.id > :cursorId))`를 더한다. 시그니처는 `OrderRepository`(domain), `@Query`는 `JpaOrderRepository`. `status`는 `ShopOrderStatus.DELIVERED`. offset이 아니라 keyset인 이유: 처리하는 동안 가게주문이 `COMPLETED`로 바뀌어 목록에서 빠져도 offset처럼 다음 페이지가 건너뛰어지지 않는다(As-Is BAT-02) |
 
 **3) order.application**
@@ -2661,13 +2666,13 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 3. `OrderLine line = order.findLine(lineId)`에서 `OrderLineResult(lineId, line.getStatus(), line.getConfirmedAt())`를 만들어 반환(저장은 커밋 때 더티 체킹). 자동 확정과 같은 품목을 동시에 바꾸면 `@Version` 충돌로 한쪽이 낙관적 락 예외가 되고 `GlobalExceptionHandler`가 409 `CONFLICT_RETRY`로 바꾼다
 
 `confirmBatch` 순서 — 후보를 100건씩 읽어 가게주문 한 건마다 트랜잭션으로 확정한다
-1. `Instant now = clock.instant()`, `before = now - 7일`, 커서 없음으로 시작 (`delivered_at + 7일 < now`와 같다)
+1. `Instant now = clock.instant()`, `before = now.minus(AUTO_CONFIRM_DELAY)`, 커서 없음으로 시작 (`delivered_at + 7일 < now`와 같다). `AUTO_CONFIRM_DELAY`는 `AutoConfirmService`의 `private static final Duration AUTO_CONFIRM_DELAY = Duration.ofDays(7)`이고 `OrderProperties`에 넣지 않는다. 테스트는 `setShopOrderDeliveredAt`으로 배송완료 시각을 옮기므로 값을 바꿀 일이 없고, 2-6 대사의 5분·2-8b 복구의 5분도 서비스 안 상수다
 2. `List<AutoConfirmTarget> targets` = 커서가 없으면 `findAutoConfirmTargetsFirstPage(DELIVERED, before, Limit.of(100))`, 있으면 `findAutoConfirmTargets(DELIVERED, before, cursor.deliveredAt(), cursor.shopOrderId(), Limit.of(100))` → 비면 종료
 3. 각 대상마다 `try { count += tx.execute(s -> findByShopOrderId(id).orElseThrow().autoConfirm(id, now)) } catch (Exception e) { log }` — `tx.execute`가 확정한 품목 수(`int`)를 돌려준다. 낙관적 락 충돌(구매자가 동시에 수동 확정)은 커밋 때 나지만 `tx.execute` 안이라 여기서 잡혀 그 건만 건너뛴다
 4. `targets`가 100건 미만이면 마지막 페이지라 종료한다(다음 조회는 빈 결과일 뿐이다). 아니면 커서 = 마지막 대상 `(deliveredAt, id)` → 2로
 5. 확정한 품목 수 반환
 
-**4) order.web**: 기존 `OrderController`에 `POST /api/orders/{id}/lines/{lineId}/confirm`을 더한다(권장) → 200 `OrderLineResponse(orderLineId, status, confirmedAt)` — `OrderLineResult`를 그대로 옮긴 응답 record다. `@Idempotent`는 붙이지 않는다(이미 확정된 품목에 다시 보내면 409라서 안전하다)
+**4) order.web**: 기존 `OrderController`에 `POST /api/orders/{id}/lines/{lineId}/confirm`을 더한다 → 200 `OrderLineResponse(orderLineId, status, confirmedAt)` — `OrderLineResult`를 그대로 옮긴 응답 record다. `@Idempotent`는 붙이지 않는다(이미 확정된 품목에 다시 보내면 409라서 안전하다)
 
 ### 완료 확인
 
@@ -2684,10 +2689,10 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | 케이스 | 준비 / 동작 | 확인할 것 |
 |---|---|---|
 | 한 품목 확정 | `order.confirmLine(line1.getId(), now)` | `line1` `CONFIRMED`, `getConfirmedAt()` = `now` / `line2` `DELIVERED`, `getConfirmedAt()` null / 가게주문 `DELIVERED` |
-| `DELIVERED`가 아니면 확정 거부 | (가) `ship`·`deliver`를 하지 않아 품목이 `PAID`인 주문 (나) `line1`을 한 번 확정한 뒤 다시 `confirmLine` (다) `line1.markReturnRequested()` 후 `confirmLine` | 각각 `BusinessException`, `errorCode` = `INVALID_STATE_TRANSITION` / 부정 확인: (가) 품목 `PAID`·`getConfirmedAt()` null (나) 첫 확정의 `getConfirmedAt()` 그대로 `CONFIRMED` (다) 품목 `RETURN_REQUESTED`·`getConfirmedAt()` null |
+| 반품 요청 중인 품목 확정 거부 | `line1.markReturnRequested()` 후 `order.confirmLine(line1.getId(), now)` | `BusinessException`, `errorCode` = `INVALID_STATE_TRANSITION` / 부정 확인: `line1` `RETURN_REQUESTED`·`getConfirmedAt()` null. 미배송(`PAID`·`SHIPPED`) 같은 나머지 상태는 `transitTo`의 허용 표 밖의 전이라 `OrderLineStatusTest`의 `transitFail`이 모두 확인하고, 이미 확정은 `ConfirmPurchaseTest` 2번이 확인한다 |
 | 마지막 품목 확정 | `confirmLine(line1)` 직후 가게주문 확인 → `confirmLine(line2)` 후 확인 | `line1` 확정 직후 가게주문 `DELIVERED`, `line2`까지 확정한 뒤 가게주문 `COMPLETED`, `getCompletedAt()` = `now` |
 | 자동 확정은 반품 요청 중인 품목을 건너뛴다 | `line1.markReturnRequested()` → `order.autoConfirm(shopOrderId, now)` | 반환 1 / `line1` `RETURN_REQUESTED`·`getConfirmedAt()` null / `line2` `CONFIRMED`, `getConfirmedAt()` = `now` / 가게주문 `DELIVERED`(`line1`이 아직 종결이 아니다) |
-| 확정 금액 | `line2.addRefundedAmount(Money.of(500))` 후 `confirmedAmount()`, 환불 없는 `line1`의 `confirmedAmount()` | `line2` = `Money.of(1500)`(2000 − 500), `line1` = `Money.of(1000)` |
+| 확정 금액 | `line2.addRefundAmount(Money.of(500))` 후 `confirmedAmount()`, 환불 없는 `line1`의 `confirmedAmount()` | `line2` = `Money.of(1500)`(2000 − 500), `line1` = `Money.of(1000)` |
 
 #### `order/application/AutoConfirmServiceTest`
 
@@ -2704,7 +2709,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 - `product2` 품목: `CONFIRMED`.
 - 가게주문 `status` = `DELIVERED`(`product1` 품목이 아직 종결이 아니다).
 
-**3. 100건을 넘는 대상 150건** — 준비: `createDeliveredOrder`를 150번 반복해 주문 150개를 만들고 모두 배송완료를 `지금 - 8일`로 옮긴다(상품 재고는 150 이상). 느리면 JDBC로 `shop_order`·`order_line`을 직접 채우는 방법을 검토한다(확인 필요). 동작: `confirmBatch()` 한 번.
+**3. 100건을 넘는 대상 150건** — 준비: `createDeliveredOrder`를 150번 반복해 주문 150개를 만들고 모두 배송완료를 `지금 - 8일`로 옮긴다(상품 재고는 150 이상). 주문마다 체크아웃·결제 승인·발송·배송완료를 서비스로 거치지만 PG는 같은 JVM의 가짜 서버라 150건이 테스트로 감당할 만하다. 직접 INSERT로 줄이지 않는다(컬럼과 CHECK를 손으로 맞추는 코드가 더 위험하다). 동작: `confirmBatch()` 한 번.
 - 반환 150.
 - `SELECT count(*) FROM orders.order_line WHERE status = 'CONFIRMED'` = 150(첫 100건에서 멈추지 않았다).
 
@@ -2713,6 +2718,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 **수동 확정과 자동 확정이 동시에 (20회 반복)** — 준비: 판매자·가게·상품은 한 번 만들고, 반복마다 `createDeliveredOrder`로 새 주문을 만들어 배송완료를 `지금 - 8일`로 옮긴다. 동작(반복마다): 서로 다른 작업이라 `ConcurrencyRunner.run(List.of(수동, 배치))`. 수동 = `confirmPurchaseService.confirm(buyerId, orderId, lineId)`, 배치 = `autoConfirmService.confirmBatch()`.
 - 각 `Result`의 예외는 null이거나 `OptimisticLockingFailureException`이거나 `errorCode`가 `INVALID_STATE_TRANSITION`인 `BusinessException`뿐이다(배치는 건별 try/catch로 삼키므로 보통 수동 쪽에서 난다).
 - 매 반복의 끝: 품목 `status` = `CONFIRMED`. 가게주문 `status` = `COMPLETED`.
+- 이 케이스는 `OrderLine`의 `@Version`이 있다는 증거가 아니다. `@Version`을 빼도 통과한다(두 작업이 같은 품목을 읽는 구간이 짧아 한쪽이 먼저 커밋하는 순서로 끝난다). "허용되지 않은 예외나 상태가 없다"만 확인한다.
 
 #### `order/web/ConfirmPurchaseTest`
 
@@ -2722,9 +2728,9 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 - 응답: 200, `$.orderLineId` = `lineId`, `$.status` = `CONFIRMED`, `$.confirmedAt`은 null이 아니다.
 - DB: 품목 `status` = `CONFIRMED`. 가게주문 `status` = `COMPLETED`.
 
-**2. `DELIVERED`가 아닌 품목 확정 거부** — 준비: (가) `createPaidOrder` 후 `shipShopOrder`만 해서 품목이 `SHIPPED` (나) 공통 준비의 품목을 한 번 확정해 `CONFIRMED`. 동작: 각각 확정 요청.
-- (가)·(나) 모두 409, `$.code` = `INVALID_STATE_TRANSITION`.
-- 부정 확인: (가) 품목 `SHIPPED` (나) `confirmed_at`이 첫 확정 때 값 그대로.
+**2. 이미 확정된 품목 재확정 거부** — 준비: 공통 준비의 품목을 한 번 확정해 `CONFIRMED`. 동작: 같은 품목에 확정 요청을 다시 보낸다.
+- 응답: 409, `$.code` = `INVALID_STATE_TRANSITION`.
+- 부정 확인: `confirmed_at`이 첫 확정 때 값 그대로(재요청이 시각을 덮어쓰지 않는다).
 
 **3. 남의 주문 거부** — 준비: 다른 회원 `token("other@test.com")`. 동작: 다른 회원 토큰으로 확정 요청.
 - 응답: 404, `$.code` = `ORDER_NOT_FOUND`.
@@ -2760,3 +2766,4 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | 결제 중 장바구니 표시 | 결제 대기 중인 항목이 구매 가능·`OUT_OF_STOCK`으로 보임 | 표시만 영향 | 2-2 |
 | 차감이 상품 단위 | 결제 중 항목을 삭제 후 재담기하면 새 수량에서 차감 | 드문 경우, 수용 | 2-2 |
 | 재고 점유 남용 | 회원당 결제 대기 수·체크아웃 횟수 상한 없음 → 반복 점유 가능 | Part 4 이메일 인증, Part 7 모니터링, 2-2 "추가 항목" | 2-2 |
+| 수동·자동 구매확정 동시성 | `ConfirmConcurrencyTest`가 `@Version`의 증거가 아니라 이상 상태가 없는지만 봄 | 같은 품목을 동시에 확정하는 충돌의 방어는 `OrderLine`의 `@Version`과 `transitTo`. 증거를 얻으려면 2-8a처럼 한쪽을 읽은 뒤 멈추게 하는 장치가 필요하다 | 2-10 |

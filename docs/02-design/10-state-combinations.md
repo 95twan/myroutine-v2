@@ -1,6 +1,7 @@
 # 10. 상태 조합 — 어떤 상태끼리 함께 있을 수 있고, 어떻게 거기 도달하는가
 
-> 버전 0.3 · 2026-10-19 · 반품 환불 `FAILED` 때 품목 상태를 정해(로드맵 0.98) 확인 필요 3번을 "남은 것"으로 바꿨다
+> 버전 0.4 · 2026-10-20 · 2-10 규격이 `confirmLine`·`autoConfirm`에서 `recalculateShopOrder`를 부르게 정해 확인 필요 4번을 지웠다(뒤 번호가 하나씩 당겨진다)
+> 0.3 · 2026-10-19 · 반품 환불 `FAILED` 때 품목 상태를 정해(로드맵 0.98) 확인 필요 3번을 "남은 것"으로 바꿨다
 > 0.2 · 2026-10-19 · `Order.rejectReturn`에 품목 `RETURN_REQUESTED` 검사를 넣기로 해(로드맵 0.96) 확인 필요 4번을 지웠다
 > 0.1 · 2026-10-19 · 사유: `Order.verifyCancellable`·`Order.requestReturn`의 주문·가게주문 `PAID` 검사를 "품목이 `PAID`이면 항상 참"이라는 불변식으로 뺐는데, 그 근거가 로드맵 버전 줄에만 있고 [04-state-machines](04-state-machines.md)에는 엔티티별 전이만 있어서 엔티티 간 조합을 한 곳에 정리한다
 
@@ -183,11 +184,10 @@ DB는 이 조합을 막지 않는다. `ck_orders_status`, `ck_shop_order_status`
 | 1 | 발송 가드가 `FAILED` 환불을 보지 않는다. `FAILED` 환불이 있는 `PAID` 품목이 발송될 수 있고, 그 뒤 운영자가 `FAILED → APPROVED`로 되돌리면 `SHIPPED` 품목의 PG 취소가 성공하거나 활성 환불이 둘이 되어 인덱스에 걸린다 | `order/application/ShipmentService.java:33`(`REQUESTED`/`APPROVED`/`PG_CANCELLED`만 확인), `uk_refund_order_line_active` |
 | 2 | `RefundStatus`는 코드에서 `FAILED`가 종결인데 04 문서 §4는 `FAILED → APPROVED`(7-3)를 그린다 | `order/domain/RefundStatus.java:13-15`, 04-state-machines §4 |
 | 3 | 반품 승인 뒤 PG 취소가 `FAILED`이면 품목은 `RETURN_REQUESTED`로 남고 운영자가 7-3 재시도로 처리하기로 했다(로드맵 2-9, 0.98). 재시도해도 PG가 계속 거절하는 환불(예: 이미 PG에서 취소된 결제)을 닫는 방법은 아직 없다. 7-3에서 정한다 | 로드맵 2-9 `approve`, part7 7-3 |
-| 4 | `recalculateShopOrder`는 `applyRefund`에서만 부른다. 2-10의 `confirmLine`·`autoConfirm`이 이것을 부르지 않으면 모든 품목이 종결인데 가게주문이 `DELIVERED`로 남는다 | `Order.java:168` |
-| 5 | 대사는 payment 행이 없거나 `PARTIAL_CANCELLED`이면 로그만 남기고 영원히 다시 시도한다(주문이 `PAYMENT_IN_PROGRESS`로 남음) | `OrderReconcileService:49, 67` |
-| 6 | `PaymentApiImpl.cancel`의 상태·잔액 검사가 `payment` 행 락 밖(첫 트랜잭션)이다. 서로 다른 키로 동시에 온 두 취소가 모두 통과할 수 있고, 두 번째는 `applyCancel`에서 예외로 롤백돼 그 `payment_cancel` 행이 `REQUESTED`/`UNKNOWN`으로 남는다(추론) | `PaymentApiImpl.java:139-144`, `:160` |
-| 7 | PG 조회 결과 `CANCELED`·`PARTIAL_CANCELED`를 `APPROVED`로 매핑한다. 우리 쪽이 `UNKNOWN`인 결제가 PG에서는 이미 취소된 경우 로컬이 `APPROVED`가 된다(추론) | `payment/infrastructure/TossClient.java:59, 81` |
-| 8 | 04 문서 §4는 "누적 취소액 ≤ 승인액은 payment의 CHECK와 **주문 행 잠금**으로 지킨다"고 쓰지만 PG 취소 반영은 `payment` 행 잠금으로 직렬화한다(로드맵 0.83) | 04-state-machines §4, `PaymentApiImpl.java:160` |
-| 9 | 04 문서에 상태머신이 없는 것: `payment_cancel`, `billing_key`, `idempotency_key`, `review`, `inquiry`, `product_embedding` | 03-erd |
-| 10 | 코드에는 쓰기만 하고 읽지 않거나 저장만 하는 값이 있다: `payment.reconcile_attempts`(상한 없이 `UNKNOWN`이 반복될 수 있음), `stock_reservation.expires_at`, `refund.pg_attempts`(증가시키는 코드가 없어 멱등 키 접미사가 쓰이지 않음) | `JpaPaymentRepository.java:53`, `JpaStockReservationRepository.java:19` |
-| 11 | 설계 문서 간 어긋남(미구현 영역): 제재 회원의 로그인과 문의 허용 방식(4-x 대 6-6), `SUSPENDED` 재개 조건(04 대 5-2), 진행 중 구독 주문과 구독 상태 변경(`PAUSED`/`CANCELLED`/`TERMINATED`)의 대사 처리, 정산 지급 재시도 주기(04 §7 대 3-4) | 각 단계 문서 |
+| 4 | 대사는 payment 행이 없거나 `PARTIAL_CANCELLED`이면 로그만 남기고 영원히 다시 시도한다(주문이 `PAYMENT_IN_PROGRESS`로 남음) | `OrderReconcileService:49, 67` |
+| 5 | `PaymentApiImpl.cancel`의 상태·잔액 검사가 `payment` 행 락 밖(첫 트랜잭션)이다. 서로 다른 키로 동시에 온 두 취소가 모두 통과할 수 있고, 두 번째는 `applyCancel`에서 예외로 롤백돼 그 `payment_cancel` 행이 `REQUESTED`/`UNKNOWN`으로 남는다(추론) | `PaymentApiImpl.java:139-144`, `:160` |
+| 6 | PG 조회 결과 `CANCELED`·`PARTIAL_CANCELED`를 `APPROVED`로 매핑한다. 우리 쪽이 `UNKNOWN`인 결제가 PG에서는 이미 취소된 경우 로컬이 `APPROVED`가 된다(추론) | `payment/infrastructure/TossClient.java:59, 81` |
+| 7 | 04 문서 §4는 "누적 취소액 ≤ 승인액은 payment의 CHECK와 **주문 행 잠금**으로 지킨다"고 쓰지만 PG 취소 반영은 `payment` 행 잠금으로 직렬화한다(로드맵 0.83) | 04-state-machines §4, `PaymentApiImpl.java:160` |
+| 8 | 04 문서에 상태머신이 없는 것: `payment_cancel`, `billing_key`, `idempotency_key`, `review`, `inquiry`, `product_embedding` | 03-erd |
+| 9 | 코드에는 쓰기만 하고 읽지 않거나 저장만 하는 값이 있다: `payment.reconcile_attempts`(상한 없이 `UNKNOWN`이 반복될 수 있음), `stock_reservation.expires_at`, `refund.pg_attempts`(증가시키는 코드가 없어 멱등 키 접미사가 쓰이지 않음) | `JpaPaymentRepository.java:53`, `JpaStockReservationRepository.java:19` |
+| 10 | 설계 문서 간 어긋남(미구현 영역): 제재 회원의 로그인과 문의 허용 방식(4-x 대 6-6), `SUSPENDED` 재개 조건(04 대 5-2), 진행 중 구독 주문과 구독 상태 변경(`PAUSED`/`CANCELLED`/`TERMINATED`)의 대사 처리, 정산 지급 재시도 주기(04 §7 대 3-4) | 각 단계 문서 |
