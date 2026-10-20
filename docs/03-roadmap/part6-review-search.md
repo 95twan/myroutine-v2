@@ -1,6 +1,11 @@
 # Part 6. 리뷰 · 검색 · 추천
 
-> 버전 0.13 · 2026-10-18 · **읽기 헬퍼 정의를 앞 단계와 맞췄다**: `reviewCreatedEvents`가 `OutboxSnapshot.payload()`(`JsonNode`)를 읽게 했고, `changeRole`은 3-1, `orderLineIdOf`는 2-8a를 가리키게 고쳤으며, 6-4의 `processedCountOf(consumer)`는 3-2 `processedCountOf(consumer, eventId)`의 오버로드로 밝혔다. 규격 변경 없음
+> 버전 0.18 · 2026-10-20 · **4.1 기준 점검에서 '하' 후보를 권장안대로 정리했다**(사용자 요청): 6-1 동시성 3번의 `rating(2)` 0, 6-4 추천 4번의 캐시 재생성(3번이 확인), 6-5 건너뛰기의 빈 요약(호출 0건에서 따라온다), 6-6 2번 본인 조회의 `$.status`. 규격 외 변경 없음
+> 0.17 · 2026-10-20 · **4.1 기준 점검에서 '중' 후보를 뺐다**(사용자 요청): 6-1 3번의 `rating` 재확인, 6-2 4번의 `name`·`price`·`description`(`version()` = 3과 검색 `name`이 확인한다), 5번의 `name`·`price`. 규격 외 변경 없음
+> 0.16 · 2026-10-20 · **6-4 `ProductEmbeddingTest` 1번에서 `dims` = 1536 확인을 뺐다**(사용자 요청): 컬럼이 `vector(1536)`이라 행이 있으면 항상 1536이다. 규격 외 변경 없음
+> 0.15 · 2026-10-20 · **6-1·6-2·6-4 완료 확인에서 '하' 후보를 뺐다**(사용자 요청): 6-1 작성·별점 수정의 초기값, 6-2 1번의 없는 검색어, 6-4 2번의 `status` `ACTIVE`, 추천 1번의 `thumbnailUrl` null. 규격 외 변경 없음
+> 0.14 · 2026-10-20 · **6-1 `ReviewControllerTest` 3번에서 리뷰 작성이 건드리지 않는 `$.latestSummary` null 확인을 뺐다**(사용자 요청: '중' 후보 일괄 삭제). 규격 외 변경 없음
+> 0.13 · 2026-10-18 · **읽기 헬퍼 정의를 앞 단계와 맞췄다**: `reviewCreatedEvents`가 `OutboxSnapshot.payload()`(`JsonNode`)를 읽게 했고, `changeRole`은 3-1, `orderLineIdOf`는 2-8a를 가리키게 고쳤으며, 6-4의 `processedCountOf(consumer)`는 3-2 `processedCountOf(consumer, eventId)`의 오버로드로 밝혔다. 규격 변경 없음
 > 0.12 · 2026-10-18 · **완료 확인에서 값을 읽는 방법을 읽기 헬퍼로 올리고 중복 확인을 걷어냈다**(사용자 지적: 확인할 값마다 JDBC 쿼리·`Map` 변환·캐스팅 코드를 테스트마다 짜야 해서 비효율): 한 번 읽어 필드로 단언하는 헬퍼를 정하고 각 단계의 "이 단계에서 추가하는 헬퍼" 표에 읽는 곳과 반환 필드를 적었다 — 6-1 `reviewSnapshotOf`·`reviewStatOf`·`reviewCountOf`·`reviewCreatedEvents`·`setReviewCreatedAt`, 6-2 `productSearchDocOf`, 6-3 `searchIndexStateOf`, 6-4 `embeddingOf`·`purchasedProductIdsOf`·`processedCountOf`·`recommendationCacheOf`·`setEmbedding`·`setEmbeddingStatus`·`FakeOpenAiServer.embeddingInputs`, 6-5 `reviewSummariesOf`·`insertReviewStat`·`insertReviewSummary`·`FakeOpenAiServer.chatUserPrompts`, 6-6 `inquiryOf`·`inquiriesOf`. 6-3·6-6의 관리자 토큰은 4-4의 `adminToken`·`changeRole`, 6-4의 DLT 확인은 3-1의 `TestKafka.readAll`로 바꿨다("확인 필요" 해소). 같은 클래스 안에서 다른 케이스가 되풀이하던 확인을 걷어냈다: 6-1 케이스 6의 목록 `likeCount`(케이스 8이 확인)·케이스 5의 통계 `reviewCount`·분포(DB 통계와 같은 값)·동시성 2번의 목록 `likeCount`·동시성 3번의 "모두 `ACTIVE`"(케이스 3이 확인), 6-2 케이스 4의 검색 결과 `price`(ES 문서 확인과 같은 값), 6-4의 기본키가 이미 보장하는 "1행". 부정 확인(0건·그대로·호출 0회)과 수치·순서는 그대로다. 규격·동작은 0.11과 같다
 > 0.11 · 2026-10-18 · **6-1~6-6 "완료 확인"을 케이스마다 준비·동작·확인할 값으로 풀어 썼다**(구현 중 지적 "뭘 확인해야 하는지 애매하다"): 값을 읽는 방법(jsonPath·JDBC 테이블/컬럼·ES REST·Redis 키·가짜 OpenAI 서버 요청)과 공통 준비를 단계마다 적고, 케이스마다 구체 데이터(상품 이름·가격, 리뷰 점수, 임베딩 벡터, 정렬·페이지 기대 순서, 캐시 키·TTL)와 확인할 값(상태 코드, `$.필드` = 값, 목록의 개수와 순서, 부수효과가 없어야 하는 곳의 "0행·0건")을 적었다. 한 줄로 뭉쳐 있던 케이스를 나누고, 문서 규격에 있으나 완료 확인에 없던 부정 확인을 더했다(6-1 입력 검증·남의 리뷰 수정/삭제·삭제 후 재작성·좋아요 취소, 6-2 숨김·카테고리·정렬·커서·요청 검증·자동완성 10개, 6-3 실패 정리·API 권한, 6-4 설명 1,000자·90일·복귀, 6-5 겹침 제거·`latestSummary`, 6-6 입력 검증·관리자 권한·관리자 목록). 규격·동작은 0.10과 같다
 > 0.10 · 2026-10-16 · **쓰지 않는 요소를 걷어냈다**(구현 전 점검): ① 6-1 `ConfirmedLineInfo`의 `shopId`·`confirmedAt`(리뷰가 읽지 않는 값)을 뺐다. ② 반환값을 아무도 읽지 않는 `ReviewStatRepository.add`·`remove`·`change`, `ReviewRepository.increaseLikeCount`·`decreaseLikeCount`의 "반영 행 수"를 "없음"으로 바꿨다. ③ 6-2 ES 문서의 `updatedAt` 필드(검색·정렬·테스트 어디서도 읽지 않고 값 출처도 없었다)를 매핑과 `upsert` 본문에서 뺐다. ④ 6-3 `ProductIndexSnapshot`(이벤트 record와 필드가 같아 `upsert`에 넘길 때마다 변환해야 했다)을 없애고 `findForIndexing`이 `List<ProductUpsertedEvent>`를 돌려주게 했다(구현물 번호를 당겼다). ⑤ 6-4 `recommendation/api/package-info.java`(공개할 것이 없는 패키지)를 뺐다. 외부에서 보이는 동작·계약은 0.9와 같다
@@ -243,14 +248,13 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 **3. 작성하면 통계가 쌓인다** — 동작: 공통 준비 B를 실행한다.
 - 세 응답 모두 201, `$.reviewId`가 비어 있지 않다.
-- `reviewSnapshotOf`: `R1`·`R2`·`R3` 모두 `status` = `ACTIVE`, `likeCount` = 0, `rating`은 `R1` 5 / `R2` 4 / `R3` 4.
 - `reviewStatOf(productA)`: `reviewCount` 3, `ratingSum` 13, `rating(4)` 2, `rating(5)` 1, `rating(1)`~`rating(3)` 0.
-- `GET /api/products/{productA}/review-stats`(Authorization 없이): 200, `$.reviewCount` = 3, `$.average` = 4.3(13÷3=4.333…), `$.distribution['4']` = 2, `['5']` = 1, `['1']`·`['2']`·`['3']` = 0, `$.latestSummary`는 `value(nullValue())`(6-5 전이라 `null`).
+- `GET /api/products/{productA}/review-stats`(Authorization 없이): 200, `$.reviewCount` = 3, `$.average` = 4.3(13÷3=4.333…), `$.distribution['4']` = 2, `['5']` = 1, `['1']`·`['2']`·`['3']` = 0.
 - `reviewCreatedEvents()` 3건. 각 이벤트의 `reviewId` = 해당 응답의 `reviewId`, `productId` = `productA`, `content` = 보낸 본문.
 
 **4. 별점 수정으로 분포가 옮겨 간다** — 준비: 공통 준비 B. 동작: `buyer3`이 `PATCH /api/reviews/{R3}`에 `{"rating":2,"content":"수정한 본문입니다 열 글자 이상"}`.
-- 응답: 200, `$.id` = `R3`, `$.rating` = 2, `$.content` = 새 본문, `$.likeCount` = 0.
-- `reviewStatOf(productA)`: `reviewCount` 3, `ratingSum` 11, `rating(2)` 1, `rating(4)` 1, `rating(5)` 1, `rating(1)`·`rating(3)` 0.
+- 응답: 200, `$.id` = `R3`, `$.rating` = 2, `$.content` = 새 본문.
+- `reviewStatOf(productA)`: `reviewCount` 3, `ratingSum` 11, `rating(2)` 1, `rating(4)` 1, `rating(5)` 1.
 - review-stats: `$.average` = 3.7(11÷3=3.666…), `$.distribution['2']` = 1(새로 생긴 칸이 응답에도 나온다).
 - 수정 거부 두 가지(같은 준비에서 이어서):
   - `buyer1`이 `R3`을 수정 → 404, `$.code` = `REVIEW_NOT_FOUND`. `reviewSnapshotOf(R3).rating()`은 2 그대로.
@@ -298,7 +302,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 **3. 서로 다른 품목 리뷰 동시 50건** — 준비: 구매자 50명(`signup` + `login`)이 각자 `createConfirmedLine`으로 `productA`의 구매확정 품목을 하나씩 가진다(재고 100이라 충분). 별점은 번호 `i`(0~49)에 따라 `i < 20` → 5점, `20 ≤ i < 35` → 4점, `35 ≤ i < 45` → 3점, `i ≥ 45` → 1점. 동작: 50명이 동시에 작성한다.
 - 상태 코드: 50개 모두 201.
 - `reviewCountOf(productA)` = 50, `reviewCreatedEvents()` 50건.
-- `reviewStatOf(productA)`: `reviewCount` 50, `ratingSum` 195(20×5 + 15×4 + 10×3 + 5×1), `rating(1)` 5, `rating(2)` 0, `rating(3)` 10, `rating(4)` 15, `rating(5)` 20.
+- `reviewStatOf(productA)`: `reviewCount` 50, `ratingSum` 195(20×5 + 15×4 + 10×3 + 5×1), `rating(1)` 5, `rating(3)` 10, `rating(4)` 15, `rating(5)` 20.
 - review-stats: `$.average` = 3.9(195÷50).
 
 **테스트 준비** ([Part 2 공통 규칙 N-1](part2-order-money.md#n-1-단계별-testfixtures-추가)과 같은 방식)
@@ -422,7 +426,6 @@ ON CONFLICT (product_id) DO UPDATE SET
 **1. 등록 → 검색됨** (검색어 **마그네슘**, **근육이완**) — 준비: 상품 `P` = 이름 `"마그네슘 데일리 정"`, 설명 `"수면용 근육이완 보충제"`, `HEALTH`, 15000원. 동작: `relayOnce()` → Eventually로 `q=마그네슘` 조회.
 - 응답: 200, `$.items.length()` = 1, `$.items[0].productId` = `P`, `.shopId` = 가게 ID, `.name` = `"마그네슘 데일리 정"`, `.category` = `HEALTH`, `.price` = 15000, `$.nextCursor`는 `value(nullValue())`.
 - 설명으로도 찾아진다: `q=근육이완` → `$.items.length()` = 1, `$.items[0].productId` = `P`.
-- 없는 검색어 `q=존재하지않는검색어` → 200, `$.items.length()` = 0, `$.nextCursor` = null.
 
 **2. 숨김·단종은 검색에서 빠진다** (검색어 **오메가**) — 준비: 상품 `P` = 이름 `"오메가 쓰리 캡슐"`, 설명 `"혈행 개선 보충제"`, `HEALTH`, 22000원. 아래를 차례로 하고 매번 `relayOnce()` 후 Eventually로 `q=오메가`를 확인한다.
 - 등록 직후: `$.items.length()` = 1.
@@ -450,10 +453,10 @@ ON CONFLICT (product_id) DO UPDATE SET
 - `v3` = 이름 `"순서역전 버전삼"`, 설명 `"세 번째 내용"`, 가격 3000, `version` 3.
 - `v2` = 이름 `"순서역전 버전이"`, 설명 `"두 번째 내용"`, 가격 2000, `version` 2.
 - 동작: `productIndexer.upsert(v3, "products")` → `productIndexer.upsert(v2, "products")`(v2가 늦게 도착).
-- 확인: 두 번째 호출이 예외 없이 끝난다. `productSearchDocOf(X)` → `version()` = 3, `name()` = `"순서역전 버전삼"`, `price()` = 3000, `description()` = `"세 번째 내용"`. Eventually로 `q=순서역전` → `$.items.length()` = 1, `$.items[0].name` = `"순서역전 버전삼"`.
+- 확인: 두 번째 호출이 예외 없이 끝난다. `productSearchDocOf(X)` → `version()` = 3. Eventually로 `q=순서역전` → `$.items.length()` = 1, `$.items[0].name` = `"순서역전 버전삼"`.
 
 **5. 같은 이벤트 두 번** (검색어 **중복이벤트**) — 준비: `ProductUpsertedEvent` `Y` = 이름 `"중복이벤트 상품"`, 설명 `"같은 이벤트 검증"`, 가격 1000, `version` 1. 동작: `productIndexer.upsert(Y, "products")`를 두 번 호출.
-- 확인: 두 번째 호출도 예외가 없다. `productSearchDocOf(Y.productId())` → `version()` = 1, `name()` = `"중복이벤트 상품"`, `price()` = 1000. Eventually로 `q=중복이벤트` → `$.items.length()` = 1.
+- 확인: 두 번째 호출도 예외가 없다. `productSearchDocOf(Y.productId())` → `version()` = 1. Eventually로 `q=중복이벤트` → `$.items.length()` = 1.
 
 **6. 정렬과 페이지** (검색어 **프로폴리스**, **동점검증**) — 이 케이스는 문서의 정렬 규격(관련도 → `productId`, `search_after` 커서)을 확인하려고 더했다.
 - 준비 1: 상품 `A` = 이름 `"프로폴리스 스프레이"`, 설명 `"목 건강 케어"` / 상품 `B` = 이름 `"목 케어 스프레이"`, 설명 `"프로폴리스 함유"`(둘 다 `HEALTH`, `ON_SALE`). 이름 필드가 설명보다 3배 가중(`name^3`)이라 `A`가 `B`보다 점수가 높다.
@@ -690,12 +693,12 @@ ES 호출 전에 막히는 요청 검증을 확인하려고 더했다. 모두 `G
 공통: 상품 `P` = 이름 `"비타민 C 1000"`, 설명 `"하루 한 알 비타민"`, `HEALTH`, 10000원. 임베딩 입력은 `expectedInput` = `"비타민 C 1000\nHEALTH\n하루 한 알 비타민"`, `expectedHash` = `expectedInput`의 UTF-8 SHA-256 16진수(테스트가 `MessageDigest`로 계산).
 
 **1. 같은 이벤트가 두 번 와도 임베딩 호출은 1번** — 동작 1: `P` 등록 → `relayOnce()` → Eventually로 `embeddingOf(P)`가 `null`이 아닐 때까지.
-- 확인 1: `openAi.embeddingInputs()` = [`expectedInput`]. `embeddingOf(P)`: `status` = `ACTIVE`, `sourceHash` = `expectedHash`, `dims` = 1536, `model` = `text-embedding-3-small`(저장하는 값은 문서에 없다. 확인 필요). `processedCountOf("recommendation.product-upserted")` = 1. 이때 `updatedAt`을 읽어 둔다.
+- 확인 1: `openAi.embeddingInputs()` = [`expectedInput`]. `embeddingOf(P)`: `status` = `ACTIVE`, `sourceHash` = `expectedHash`, `model` = `text-embedding-3-small`(저장하는 값은 문서에 없다. 확인 필요). `processedCountOf("recommendation.product-upserted")` = 1. 이때 `updatedAt`을 읽어 둔다.
 - 동작 2: 같은 이벤트를 다시 발행한다 — JDBC `UPDATE common.outbox_event SET status = 'READY', next_attempt_at = now() WHERE topic = 'product.product-upserted.v1'` → `relayOnce()` → 3초 대기("없음" 확인이라 Eventually로 기다릴 수 없다).
 - 확인 2: `embeddingInputs()` 여전히 1건, `embeddingOf(P).updatedAt()`이 읽어 둔 값과 같다, `processedCountOf(…)` 여전히 1.
 
 **2. 가격만 바뀐 수정은 호출하지 않는다** — 준비: 1번 동작 1까지. 동작: `updateProductService.update(sellerId, shopId, P, new UpdateProductCommand(null, null, null, 12000L, null))` → `relayOnce()` → Eventually로 `processedCountOf(…)`가 2가 될 때까지(새 이벤트가 처리됐다는 신호).
-- 확인: `embeddingInputs()` 여전히 1건. `embeddingOf(P)`: `sourceHash` = `expectedHash`, `status` = `ACTIVE`.
+- 확인: `embeddingInputs()` 여전히 1건. `embeddingOf(P)`: `sourceHash` = `expectedHash`.
 - 본문이 바뀌면 호출한다(추가): 이어서 `update(…, new UpdateProductCommand("비타민 C 2000", null, null, null, null))` → `relayOnce()` → Eventually로 `embeddingInputs()`가 2건이 될 때까지. 두 번째 입력 = `"비타민 C 2000\nHEALTH\n하루 한 알 비타민"`, `embeddingOf(P).sourceHash()` = 그 문자열의 SHA-256(`expectedHash`와 다르다).
 
 **3. 설명은 앞 1,000자만 쓴다** (추가) — 준비: 상품 이름 `"자르기 검증"`, 설명 `"가"×1500`, `HEALTH`. 동작: 등록 → `relayOnce()` → Eventually로 `embeddingInputs()`가 1건이 될 때까지. 확인: 그 입력 = `"자르기 검증\nHEALTH\n" + "가"×1000`. `embeddingOf(상품).sourceHash()`도 그 문자열의 SHA-256.
@@ -731,7 +734,6 @@ ES 호출 전에 막히는 요청 검증을 확인하려고 더했다. 모두 `G
 - 응답: 200, `$.length()` = 3.
 - 순서 `[B, C, D]`: `$[0].productId` = B, `$[1].productId` = C, `$[2].productId` = D. F는 임베딩 후보에 있지만 숨김이라 빠졌고(판매 중 재확인), A(산 상품)·E(`INACTIVE`)도 없다.
 - `$[0].name` = `"비타민 D 2000"`, `.price` = 12000 / `$[1].name` = `"오메가 쓰리"`, `.price` = 20000 / `$[2].name` = `"고양이 사료"`, `.price` = 30000.
-- `$[0].thumbnailUrl`은 `value(nullValue())`(이미지를 등록하지 않았다).
 
 **2. 구매 이력이 없으면 빈 목록** — 동작: 구매가 없는 회원 `buyer2`(`signup` + `login`)로 호출.
 - 응답: 200, `$.length()` = 0. `recommendationCacheOf(buyer2)` = `null`(빈 목록은 캐시에 저장하지 않는다).
@@ -746,7 +748,6 @@ ES 호출 전에 막히는 요청 검증을 확인하려고 더했다. 모두 `G
 - `purchasedProductIdsOf(buyer)` = `{A, C}`.
 - `recommendationCacheOf(buyer)` = `null`.
 - 다시 호출: 200, `$.length()` = 2, `[B, D]`. 취향이 A·C의 평균 (0.8, 0.4, 0)으로 바뀌어 거리가 작은 순서가 F(≈0.016) → B(≈0.062) → D(1.0)가 되고, F는 숨김이라 빠지고 C는 산 상품이라 빠진다.
-- 응답 뒤 `recommendationCacheOf(buyer)`가 `null`이 아니다(캐시가 다시 생겼다).
 
 **테스트 준비**
 
@@ -835,7 +836,7 @@ ES 호출 전에 막히는 요청 검증을 확인하려고 더했다. 모두 `G
 - `Pb`: `ACTIVE` 리뷰 1개, `2026-08-31T23:59:59+09:00`(기간 직전).
 - `Pc`: `ACTIVE` 리뷰 1개, `2026-10-01T00:00:00+09:00`(기간 끝, 미포함).
 - `Pd`: `DELETED` 리뷰 1개, `2026-09-15T12:00+09:00`.
-- 동작: `summarizeMonth(YearMonth.of(2026, 9))`. 확인: 반환값 0, `chatUserPrompts()` 0건, `reviewSummariesOf(Pb)`·`(Pc)`·`(Pd)` 모두 빈 목록.
+- 동작: `summarizeMonth(YearMonth.of(2026, 9))`. 확인: 반환값 0, `chatUserPrompts()` 0건.
 
 **3. 리뷰 100개인 상품도 프롬프트는 40개 이하** — 준비: 상품 `Pe`에 `ACTIVE` 리뷰 100개. `i` = 1~100:
 - `content` = `"리뷰본문-" + 3자리 0패딩 i`(예: `리뷰본문-007`). 단 `i` = 100은 `"리뷰본문-100 " + "힣"×500`.
@@ -919,7 +920,7 @@ ES 호출 전에 막히는 요청 검증을 확인하려고 더했다. 모두 `G
 - `user2` 토큰으로 `GET /api/inquiries/{Q1}` → 404, `$.code` = `INQUIRY_NOT_FOUND`.
 - `user2` 토큰으로 `GET /api/inquiries/{Ids.newId()}`(없는 ID) → 404, `$.code` = `INQUIRY_NOT_FOUND`(남의 문의와 같은 응답).
 - `user2` 토큰으로 `GET /api/inquiries` → 200, `$.items.length()` = 0, `$.nextCursor` = null.
-- 본인: `user1` 토큰으로 `GET /api/inquiries/{Q1}` → 200, `$.status` = `OPEN`, `$.title` = `"배송이 늦어요"` / `GET /api/inquiries` → 200, `$.items.length()` = 1, `$.items[0].id` = `Q1`.
+- 본인: `user1` 토큰으로 `GET /api/inquiries/{Q1}` → 200, `$.title` = `"배송이 늦어요"` / `GET /api/inquiries` → 200, `$.items.length()` = 1, `$.items[0].id` = `Q1`.
 - 관리자 API는 일반 회원에게 막힌다(추가): `user1` 토큰으로 `GET /admin/api/inquiries?status=OPEN`과 `POST /admin/api/inquiries/{Q1}/answer` → 403, `$.code` = `FORBIDDEN`.
 
 **3. 답변하면 ANSWERED, 두 번째 답변은 409** — 준비: `user1`이 `Q1`을 작성. 동작 1: `admin`이 답변 요청.

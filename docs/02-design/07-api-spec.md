@@ -1,6 +1,7 @@
 # 07. API 명세 (Stage 1)
 
 > 엔드포인트 목록과 핵심 API의 요청·응답 계약. 필드 단위 상세는 구현 시 springdoc(OpenAPI)로 생성하고, 이 문서와 어긋나면 이 문서를 갱신한다.
+> 2026-10-19 · 판매자 가게주문 응답(목록·상세·발송·배송완료)에 환불 목록 `refunds`를 더했다. 판매자는 여기서 반품 승인·거절에 쓸 `refundId`와 구매자가 적은 사유를 읽는다(로드맵 2-9)
 > 2026-10-15 · 관리자 결제 대사 경로를 `/admin/api/payments/{orderId}/reconcile`로 맞췄다(로드맵 7-3)
 > 2026-10-15 · 이메일 인증 API를 로그인 회원 전용으로 정리하고 OAuth 가입용 발송 API(`/api/auth/oauth/signup/email-verifications`)를 더했다(로드맵 4-2·4-3), 구독 신청 응답을 `{ subscriptionId }`로 맞췄다(로드맵 5-2)
 > 2026-10-13 · 결제 전 주문 취소 `POST /api/orders/{id}/cancel`을 필수로 올림(기존 선택 API `payment/fail`을 합침, 상태는 `CANCELLED`, §3.2.1)
@@ -113,11 +114,11 @@
 ### order — 판매자
 | Method | Path | 권한 | 설명 | 요구사항 |
 |---|---|---|---|---|
-| GET | `/api/shops/{shopId}/orders` | O | 가게주문 목록 (status, 기간, cursor) | FR-ORD-10 |
-| GET | `/api/shops/{shopId}/orders/{shopOrderId}` | O | 상세 | FR-ORD-10 |
+| GET | `/api/shops/{shopId}/orders` | O | 가게주문 목록 (status, 기간, cursor). 항목마다 품목·환불 목록 | FR-ORD-10 |
+| GET | `/api/shops/{shopId}/orders/{shopOrderId}` | O | 상세 (품목, 환불 목록 `refunds`: refundId·품목·사유 유형·상태·금액·사유) | FR-ORD-10 |
 | POST | `/api/shops/{shopId}/orders/{shopOrderId}/ship` | O | 발송 `{carrier, trackingNumber}` | FR-ORD-10 |
 | POST | `/api/shops/{shopId}/orders/{shopOrderId}/deliver` | O | 배송완료 | FR-ORD-10 |
-| POST | `/api/shops/{shopId}/refunds/{refundId}/approve`, `/reject` | O | 반품 승인·거절 | FR-ORD-09 |
+| POST | `/api/shops/{shopId}/refunds/{refundId}/approve`, `/reject` | O | 반품 승인·거절. `refundId`는 가게주문 응답의 `refunds`에서 읽는다 | FR-ORD-09 |
 
 ### order — 구독
 | Method | Path | 권한 | 설명 | 요구사항 |
