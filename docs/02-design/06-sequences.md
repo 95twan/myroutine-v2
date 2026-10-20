@@ -1,5 +1,9 @@
 # 06. 핵심 시퀀스
 
+> 2026-10-16: 대사(§2)에서 조회한 결제는 payment 확정과 주문 처리를 별도 트랜잭션으로 그렸고 보상 앞의 승인 기록 단계를 뺐다(로드맵 2-6)
+> 2026-10-16: 대사(§2)를 결제 상태별 경로(확정 → 주문만 처리, 취소됨 → `failOrder`, 미확정 → `queryPgOutcome`)로 다시 그렸고 호출 이름을 `queryPgOutcome`으로 바꿨다(로드맵 2-6)
+> 2026-10-15: 만료 잡 조회 조건을 `expires_at <= now()`로 맞췄다(로드맵 2-5)
+> 2026-10-12: 장바구니는 체크아웃 때 건드리지 않고 결제 완료(§2, 대사 포함) 때 주문 수량만큼 차감. 중복 체크아웃은 막지 않는다(§1)
 > 2026-10-09: 로드맵·실제 모듈 API와 맞춤 — §2에 남아 있던 예치금 "보류" 잔재 삭제, 대사·만료·구독 회차의 호출 이름(`queryOutcome`, `releaseReservation`, `callBillingCharge`)과 대사 대상·보상 조건, refresh 재사용 시 폐기 범위(그 세션), 이미지 업로드 응답 필드
 > 2026-10-02: 예치금 제거 반영(체크아웃·만료·환불·구독·정산에서 wallet 삭제, §8 충전 → 상품 이미지 업로드로 교체)
 
@@ -25,6 +29,8 @@ sequenceDiagram
   O-->>C: 201 {orderId, pgOrderId, totalAmount, expiresAt, status}
 ```
 - 재고 부족이면 트랜잭션 전체(주문 저장 포함)가 롤백된다(모놀리스 로컬 트랜잭션의 이점). Stage 3에서는 이 블록이 Saga로 바뀐다.
+- 장바구니는 건드리지 않는다(항목은 주문 품목으로 복사만 한다). 결제가 완료되면 주문 수량만큼 뺀다(§2). 실패·만료되면 장바구니에 할 일이 없다.
+- 같은 장바구니 항목의 중복 체크아웃은 막지 않는다. 결제 대기 주문이 둘 이상 생길 수 있고 둘 다 결제하면 별개의 주문 두 건이다. 의도하지 않았다면 결제 전에는 주문 취소(로드맵 2-4)로 바로 풀고, 결제됐다면 발송 전 품목 취소·환불(§4)로 정리한다(로드맵 2-2).
 - 여러 상품을 예약할 때 **상품 ID 정렬 순서로 UPDATE**해 교차 주문 간 데드락을 막는다.
 - 성능 관점: 인기상품 `stock` 행이 핫스팟이 된다 → Stage 2-5 실험 대상.
 
@@ -50,7 +56,7 @@ sequenceDiagram
     PG-->>P: DONE
     rect rgba(80,200,120,0.15)
       P->>P: APPROVED
-      O->>O: PAID, 예약 COMMITTED, 가게주문·품목 PAID, outbox(order-paid)
+      O->>O: PAID, 예약 COMMITTED, 가게주문·품목 PAID, 장바구니에서 주문 수량만큼 차감, outbox(order-paid)
     end
     O-->>C: 200 PAID
   else 명확한 실패 (4xx, 거절)
@@ -75,26 +81,42 @@ sequenceDiagram
   participant PG as Toss API
   J->>O: PAYMENT_IN_PROGRESS로 30초 넘게 머문 주문 (updated_at 기준, 100건)
   loop 주문별
-    O->>P: queryOutcome(orderId)
-    P->>PG: GET /v1/payments/orders/{pgOrderId}
-    alt 승인됨
-      P->>P: UNKNOWN → APPROVED
-      P-->>O: APPROVED
+    O->>P: find(orderId) — 결제 상태 요약
+    alt 결제가 이미 APPROVED·FAILED
       rect rgba(80,200,120,0.15)
-        O->>O: PAYMENT_IN_PROGRESS → PAID, 예약 확정 (이미 PAID면 무시)
+        O->>O: applyPaymentState: PAID(예약 확정, 장바구니 차감) 또는 PAYMENT_FAILED(예약 해제)
       end
-      opt 완료 불가 (예: 데이터 이상) 이고 승인 후 5분 경과
-        O->>P: applyOutcome(APPROVED) — 승인 사실 먼저 기록
-        O->>P: cancel(orderId, 전액, idempotencyKey=order-compensate-{orderId}) → PG 전액취소
-        O->>O: DONE이면 PAYMENT_FAILED (아니면 다음 주기)
+    else 결제가 CANCELLED (보상 취소는 끝났고 주문 처리만 남음)
+      rect rgba(80,200,120,0.15)
+        O->>O: failOrder: PAYMENT_FAILED, 예약 해제
       end
-    else 미승인
-      P->>P: UNKNOWN → FAILED
-      P-->>O: FAILED
-      O->>O: PAYMENT_IN_PROGRESS → PAYMENT_FAILED, 예약 해제
-    else 조회도 실패
-      P->>P: reconcile_attempts++
-      P-->>O: UNKNOWN (다음 주기에 재시도)
+    else 결제가 IN_PROGRESS·UNKNOWN
+      O->>P: queryPgOutcome(orderId)
+      P->>PG: GET /v1/payments/orders/{pgOrderId}
+      alt 승인됨
+        P-->>O: APPROVED
+        rect rgba(80,200,120,0.15)
+          O->>P: applyOutcome(APPROVED): UNKNOWN → APPROVED
+        end
+        rect rgba(80,200,120,0.15)
+          O->>O: applyPaymentState: PAYMENT_IN_PROGRESS → PAID, 예약 확정, 장바구니 차감 (이미 PAID면 무시)
+        end
+      else 미승인
+        P-->>O: REJECTED
+        rect rgba(80,200,120,0.15)
+          O->>P: applyOutcome(REJECTED): UNKNOWN → FAILED
+        end
+        rect rgba(80,200,120,0.15)
+          O->>O: applyPaymentState: PAYMENT_IN_PROGRESS → PAYMENT_FAILED, 예약 해제
+        end
+      else 조회도 실패
+        P->>P: reconcile_attempts++
+        P-->>O: UNKNOWN (다음 주기에 재시도)
+      end
+    end
+    opt 완료 불가 (예: 데이터 이상) 이고 승인 후 5분 경과
+      O->>P: cancel(orderId, 전액, idempotencyKey=order-compensate-{orderId}) → PG 전액취소
+      O->>O: DONE이면 PAYMENT_FAILED (아니면 다음 주기)
     end
   end
 ```
@@ -107,7 +129,7 @@ sequenceDiagram
   participant J as 만료 잡 (1분)
   participant O as order
   participant PR as product
-  J->>O: PENDING_PAYMENT AND expires_at < now() LIMIT 100
+  J->>O: PENDING_PAYMENT AND expires_at <= now() LIMIT 100
   loop 주문별 트랜잭션
     rect rgba(80,140,255,0.12)
       O->>O: CAS PENDING_PAYMENT → EXPIRED (0건이면 skip: 결제 진행 중)

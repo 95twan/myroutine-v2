@@ -64,6 +64,7 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         // When & Then
         MvcResult result = mockMvc.perform(post("/api/shops/" + shopId + "/products")
                         .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -104,6 +105,7 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         // When & Then
         mockMvc.perform(post("/api/shops/" + shopId + "/products")
                         .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isForbidden());
@@ -129,6 +131,7 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         // When & Then
         mockMvc.perform(post("/api/shops/" + shopId + "/products")
                         .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isUnprocessableContent())
@@ -152,6 +155,7 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         // When & Then
         mockMvc.perform(post("/api/shops/" + UUID.randomUUID() + "/products")
                         .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound())
@@ -179,7 +183,62 @@ class SellerProductControllerTest extends IntegrationTestSupport {
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("subscribable을 생략하고 상품을 등록하면 구독 불가(false)로 저장된다.")
+    void registerProductWithoutSubscribable() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("test@test.com");
+        String token = testFixtures.login("test@test.com");
+        UUID shopId = testFixtures.openShop(memberId, "1111111111");
+
+        // When & Then
+        MvcResult result = mockMvc.perform(post("/api/shops/{shopId}/products", shopId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"테스트상품\",\"description\":\"설명\",\"category\":\"FOOD\",\"price\":1000,\"initialStock\":10}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        UUID productId = UUID.fromString(JsonPath.read(result.getResponse().getContentAsString(), "$.productId"));
+
+        Boolean subscribable = jdbcTemplate.queryForObject("SELECT subscribable FROM product.product WHERE id = ?", Boolean.class, productId);
+        assertThat(subscribable).isFalse();
+    }
+
+    @Test
+    @DisplayName("subscribable을 true로 상품을 등록하면 구독 가능(true)으로 저장된다.")
+    void registerProductWithSubscribableTrue() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("test@test.com");
+        String token = testFixtures.login("test@test.com");
+        UUID shopId = testFixtures.openShop(memberId, "1111111111");
+        RegisterProductRequest request = new RegisterProductRequest(
+                "product",
+                "product description",
+                ProductCategory.ETC,
+                10000L,
+                100,
+                true
+        );
+
+        // When & Then
+        MvcResult result = mockMvc.perform(post("/api/shops/{shopId}/products", shopId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        UUID productId = UUID.fromString(JsonPath.read(result.getResponse().getContentAsString(), "$.productId"));
+
+        Boolean subscribable = jdbcTemplate.queryForObject("SELECT subscribable FROM product.product WHERE id = ?", Boolean.class, productId);
+        assertThat(subscribable).isTrue();
     }
 
     @Test
@@ -373,6 +432,7 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         // When & Then
         mockMvc.perform(post("/api/shops/" + shopId + "/products/" + productId + "/stock-adjustments")
                         .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isUnprocessableContent())

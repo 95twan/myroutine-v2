@@ -1,4 +1,4 @@
-# Git 정책 (MyRoutin v2)
+# Git 정책 (MyRoutine v2)
 
 > 브랜치, 커밋, PR, 릴리스 규칙. 1인 개발이지만 **팀 개발과 같은 절차**로 진행해서, 이력(커밋·PR)만 봐도 무엇을 왜 바꿨는지 알 수 있게 한다.
 > 관련: [개발 가이드](development-guide.md), [로드맵](03-roadmap/README.md)
@@ -165,7 +165,7 @@ Refs: S2-M2
 | Stage 3 MSA 전환 | `v2.0.0` | |
 | main 긴급 수정 | PATCH 증가 (`v0.3.1`) | hotfix 브랜치 |
 
-> 릴리스(태그)와 **배포는 별개**다. 배포는 `develop` push마다 VM에 자동으로 이뤄진다([ADR-011](adr/ADR-011-ops-practice-environment.md), 로드맵 1-11).
+> 릴리스(태그)와 **배포는 별개**다. 배포는 `develop` push마다 VM에 자동으로 이뤄진다([ADR-011](adr/ADR-011-ops-practice-environment.md), 로드맵 1-11). 단 문서만 바뀐 push(바뀐 파일이 모두 `docs/**` 또는 `*.md`)는 CI가 돌지 않아 배포도 일어나지 않는다(`ci.yml`의 `push.paths-ignore`, CD는 push CI의 완료로 시작한다). PR의 CI에는 이 필터를 걸지 않는다. 경로 필터로 건너뛴 필수 체크(`build`)는 보고되지 않아 문서 PR이 머지되지 않기 때문이다.
 
 Release 노트에는 완료한 단계 목록, 주요 설계 결정(ADR), 알려진 한계를 쓴다. 이력서 링크로 쓸 수 있게 정리한다.
 

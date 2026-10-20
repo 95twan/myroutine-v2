@@ -16,9 +16,9 @@ public record SignupRequest(
         @Pattern(regexp = "^(?=.*[A-Za-z])(?=.*\\d).+$", message = "비밀번호는 8~64자, 영문과 숫자를 포함해야 합니다.")
         String password,
         @NotBlank(message = "필수 값입니다.")
-        @Size(min = 2, max = 20, message = "닉네임은 2~20자입니다.")
+        @Size(min = 2, max = 20, message = "닉네임은 2~20자여야 합니다.")
         String nickname,
-        @NotBlank(message = "이름을 입력해 주세요.")
+        @NotBlank(message = "필수 값입니다.")
         @Size(max = 50, message = "이름은 50자 이하여야 합니다.")
         String name
 ) {

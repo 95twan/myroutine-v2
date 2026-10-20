@@ -5,8 +5,17 @@ logging:
 myroutine:
   jwt:
     secret: 8kZ3yF1vN6tE9aB2qX4mP7rL0cI8eG5wJ1vN6tE9aB0=
+  toss:
+    secret-key: test_sk_dummy
+    read-timeout: 500ms
+  scheduling:
+    enabled: false
+
 spring:
   jpa:
     properties:
       hibernate:
         generate_statistics: true
+  modulith:
+    moments:
+      enabled: false

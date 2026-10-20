@@ -1,5 +1,7 @@
 # 02. Stage 1 아키텍처 — 모듈러 모놀리스
 
+> 2026-10-16 · 대사 호출 이름을 `queryOutcome`에서 `queryPgOutcome`으로 바꿨다(로드맵 2-6)
+> 2026-10-14 · 운영 MinIO를 NAS로 이전(ADR-011 §8)해 운영의 호스트 포트·인프라 위치 서술을 고쳤다
 > 2026-10-09 · 로드맵과 맞춤: 인프라 표에 MinIO(`chainguard/minio`, 1-10)와 운영 VM(1-11) 추가, 스케줄 표의 릴레이·탐지 주기, 에러 응답 예시 코드(`ORDER_EXPIRED`)
 
 ## 1. 시스템 구성
@@ -126,7 +128,7 @@ com.myroutine
 | 작업 | 주기 | 모듈 |
 |---|---|---|
 | 재고 예약·주문 만료 | 1분 | order (product API 호출) |
-| 결제 대사 | 1분 (결과미확정 결제 대상) | order (PaymentApi.queryOutcome 호출) |
+| 결제 대사 | 1분 (결과미확정 결제 대상) | order (PaymentApi.queryPgOutcome 호출) |
 | 자동 구매확정 | 1시간 | order |
 | 구독 회차 실행 | 매일 06:00 | order |
 | 정산 | 매월 5일 03:00 | settlement |
@@ -159,7 +161,7 @@ com.myroutine
 | prometheus, grafana | 메트릭·대시보드·알림 — compose 프로필 `observability` |
 | pg-fake | 부하 테스트용 Toss Fake. 테스트용 가짜 PG 서버(`FakePgServer`)에 main을 붙여 컨테이너로 띄움. 지연·실패 비율을 환경변수로 설정 |
 
-- 로컬은 `docker/docker-compose.yml`, 운영 연습 VM은 `docker/docker-compose.ops.yml`(1-11, [ADR-011](../adr/ADR-011-ops-practice-environment.md))이다. 운영에서는 앱도 컨테이너로 돌고, 호스트에 여는 포트는 앱(8080)과 MinIO API(9000)뿐이다.
+- 로컬은 `docker/docker-compose.yml`, 운영 연습 VM은 `docker/docker-compose.ops.yml`(1-11, [ADR-011](../adr/ADR-011-ops-practice-environment.md))이다. 운영에서는 앱도 컨테이너로 돌고, VM이 호스트에 여는 포트는 앱(8080)뿐이다. MinIO는 NAS에서 돌며 API(9000)만 LAN에 연다([ops/nas-minio.md](../ops/nas-minio.md)).
 
 ## 7. 테스트 전략
 | 계층 | 도구 | 대상 |

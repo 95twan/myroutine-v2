@@ -1,5 +1,9 @@
 # 04. 상태머신
 
+> 2026-10-19: 엔티티 사이의 상태 조합과 도달 경로는 [10-state-combinations](10-state-combinations.md)로 모았다(전이는 이 문서, 조합은 그 문서)
+> 2026-10-13: 주문의 `PAYMENT_FAILED`·`EXPIRED`·`CANCELLED`는 "끝난 원인", 가게주문·품목의 `CANCELLED`는 원인과 무관한 "이행하지 않음"임을 핵심 규칙에 적었다
+> 2026-10-13: 결제 전 구매자 주문 취소를 필수 API(`POST /api/orders/{id}/cancel`, 2-4)로 올리고 상태를 **`CANCELLED`**로 분리했다(`PENDING_PAYMENT → PAYMENT_FAILED` 삭제. `PAYMENT_FAILED`는 승인 시작 뒤의 PG 거절·보상만)
+> 2026-10-12: 로드맵 용어 정리에 맞춰 "2-4 제안"을 "2-4 추가 항목"으로 바꿨다
 > 2026-10-09: 로드맵과 맞춤 — 결제창 실패 통지는 선택(2-4 제안)임을 표시, Outbox·알림 재시도는 고정 간격(3-1·3-5), 회차 적용가 기준 날짜 이름(`cycle_date`), 재고 부족 SKIPPED는 확정 정책(5-3)
 > 2026-10-02: 예치금 제거 — 주문은 항상 PG 결제를 거친다(즉시 PAID 경로 삭제), 환불은 PG 부분취소만, 예치금 보류·출금 상태머신 삭제.
 
@@ -17,21 +21,24 @@ stateDiagram-v2
   [*] --> PENDING_PAYMENT: 체크아웃 (재고 예약)
   PENDING_PAYMENT --> PAYMENT_IN_PROGRESS: 결제 승인 요청 시작 (CAS)
   PENDING_PAYMENT --> EXPIRED: 만료 스윕 (expires_at 경과)
-  PENDING_PAYMENT --> PAYMENT_FAILED: 사용자 결제 취소·실패 통지 (선택 API, 2-4 제안)
+  PENDING_PAYMENT --> CANCELLED: 구매자 주문 취소·결제창 이탈 (POST /orders/{id}/cancel, 2-4)
   PAYMENT_IN_PROGRESS --> PAID: PG 승인 확정
   PAYMENT_IN_PROGRESS --> PAYMENT_FAILED: PG 명확한 실패
   PAYMENT_IN_PROGRESS --> PAYMENT_IN_PROGRESS: PG 결과 불확실 → 대사 대기
   PAID --> [*]
   EXPIRED --> [*]
   PAYMENT_FAILED --> [*]
+  CANCELLED --> [*]
 ```
 
 | 전이 | 함께 일어나는 일 (같은 로컬 트랜잭션) |
 |---|---|
 | → PAID | 재고 예약 COMMITTED, 가게주문·품목 PAID, outbox `order-paid` |
-| → EXPIRED / PAYMENT_FAILED | 재고 예약 RELEASED·EXPIRED, 가게주문·품목 CANCELLED |
+| → EXPIRED / PAYMENT_FAILED / CANCELLED | 재고 예약 RELEASED·EXPIRED, 가게주문·품목 CANCELLED |
 
 핵심 규칙
+- **`PAYMENT_FAILED`와 `CANCELLED`는 다르다.** PG 거절·승인 후 완료 불가(보상)는 `PAYMENT_FAILED`, 구매자가 결제 전에 취소한 주문은 `CANCELLED`다. 나눠 두어 결제 실패율에 구매자 취소가 섞이지 않는다. 취소·승인 시작·만료는 모두 `PENDING_PAYMENT`를 조건으로 하는 CAS라 하나만 성공한다.
+- **끝난 원인은 주문에만 남고, 가게주문·품목은 원인과 상관없이 `CANCELLED`다.** `PAYMENT_FAILED`·`EXPIRED`·`CANCELLED`는 주문이 "왜 끝났나"를 나타낸다. 가게주문·품목의 상태머신에는 이 값들이 없어서 "이행하지 않는다"를 뜻하는 `CANCELLED` 하나로 모인다. 결제 실패 주문의 가게주문이 `CANCELLED`인 것은 구매자가 취소해서가 아니라 결제되지 않아 이행되지 않는다는 뜻이다. 원인은 `orders.status`와 `failure_reason`으로 읽는다.
 - **PG 승인은 우리 서버가 confirm API를 호출할 때만 일어난다.** 만료 스윕은 `PENDING_PAYMENT`만 대상으로 하므로, 승인 요청이 진행 중인 주문(`PAYMENT_IN_PROGRESS`)은 만료되지 않는다 → "만료됐는데 승인됨" 경합을 상태 전이로 차단한다.
 - 승인 요청 시작(CAS)이 실패하면 이미 만료·실패한 주문이다 → PG를 호출하지 않고 거절한다. PG 인증 건은 승인하지 않으면 PG 측에서 자동 소멸한다.
 - PG 승인은 확정됐는데 로컬 완료 처리가 실패하면(버그·DB 장애) 대사 잡이 `payment.APPROVED && order != PAID`를 찾아 완료를 재시도한다. 재시도로도 완료할 수 없으면 PG 승인을 취소한다(INV-02).

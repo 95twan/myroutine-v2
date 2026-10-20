@@ -1,13 +1,13 @@
-# MyRoutin v2
+# MyRoutine v2
 
 판매자가 가게를 열어 상품을 팔고, 구매자는 여러 가게의 상품을 **카드(Toss) 결제**로 한 번에 구매하거나 **정기 구독**하는 오픈마켓.
 
 팀 프로젝트(MSA 8개 서비스)를 분석해 **모듈러 모놀리스로 재설계**하고, 측정 기반 성능 개선을 거쳐 MSA로 전환하는 과정을 기록하는 개인 프로젝트다.
 
-> 현재 단계: **Stage 1 · Part 1 완료**(회원·가게·상품·재고 예약·이미지 업로드, VM 자동 배포) → 다음은 Part 2(주문과 돈) — [로드맵](docs/03-roadmap/README.md)
+> 현재 단계: **Stage 1 · Part 2 완료**(장바구니·체크아웃, Toss 결제와 대사·만료, 발송·배송완료, 품목 단위 취소·반품 환불, 구매확정) → 다음은 Part 3(이벤트) — [로드맵](docs/03-roadmap/README.md)
 
 ## 기술 스택
-Java 25 · Spring Boot 4.1 · Spring Data JPA (Hibernate 7) · Spring Security(JWT) · Spring Modulith · PostgreSQL 17 (pgvector) · Flyway · MinIO(S3 호환, AWS SDK v2) · Testcontainers · Gradle 9 · Docker Compose · GitHub Actions(CI/CD)
+Java 25 · Spring Boot 4.1 · Spring Data JPA (Hibernate 7) · Spring Security(JWT) · Spring Modulith · PostgreSQL 17 (pgvector) · Flyway · MinIO(S3 호환, AWS SDK v2) · Toss Payments(결제 승인·취소·조회 API) · Testcontainers · Gradle 9 · Docker Compose · GitHub Actions(CI/CD)
 (이후 단계에서 Kafka, Redis, Elasticsearch, ELK, Prometheus/Grafana, k6가 추가된다)
 
 ## 로컬 실행
@@ -20,6 +20,7 @@ cp .env.example .env.local
 # JWT_SECRET은 비워 두면 앱이 시작되지 않는다. 32바이트 이상 Base64 값으로 채운다
 #   openssl rand -base64 32
 # MINIO_ROOT_USER·MINIO_ROOT_PASSWORD도 채운다(MinIO 계정이자 앱이 저장소에 접속하는 계정)
+# TOSS_SECRET_KEY는 Toss 개발자센터의 테스트 시크릿 키(test_sk_...)로 채운다. 비워 두면 앱이 시작되지 않는다
 
 # 2. 인프라 실행 (Postgres + MinIO. MinIO가 꺼져 있으면 앱이 기동에 실패한다)
 docker compose --env-file .env.local -f docker/docker-compose.yml up -d
