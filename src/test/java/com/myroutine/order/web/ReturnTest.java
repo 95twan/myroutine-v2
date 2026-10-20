@@ -283,7 +283,6 @@ class ReturnTest extends IntegrationTestSupport {
     void requestReturnTwiceWithDifferentKeysFails() throws Exception {
         // Given
         UUID sellerId = testFixtures.signup("seller@test.com");
-        String sellerToken = testFixtures.login("seller@test.com");
         UUID shopId = testFixtures.openShop(sellerId, "1111111111");
         UUID product1Id = testFixtures.registerProduct(sellerId, shopId, 1000, 10);
 
