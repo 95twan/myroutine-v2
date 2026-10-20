@@ -1,8 +1,9 @@
 # 구현 때 정할 것
 
+> 버전 0.2 · 2026-10-19 · 4절을 더했다: 로드맵·설계 문서의 열린 "확인 필요"를 단계별로 모았다(서브에이전트 4개가 파일 그룹별로 추출, 줄 번호는 이 날짜 기준). 2-9 `approve`의 `findByIdForUpdate` 행은 락 없이 가기로 정해(로드맵 0.90) 지웠다
 > 버전 0.1 · 2026-10-16 · 로드맵·설계 문서 전체에서 "쓰지 않는 요소", "재사용하려고 억지로 맞춘 경로", 단계 사이 어긋남을 점검한 결과 중 아직 결정하지 않은 항목을 모았다. 점검은 문서와 `src/`를 grep으로 확인한 것이고 코드를 실행하지는 않았다.
 
-각 항목은 해당 단계를 구현할 때 정하고, 정하면 그 단계 문서에 반영한 뒤 이 표에서 지운다.
+각 항목은 해당 단계를 구현할 때 정하고, 정하면 그 단계 문서에 반영한 뒤 이 표에서 지운다. 4절의 "확인 필요"는 단계 착수 전에 Claude가 풀고 시작한다([CLAUDE.md §2](../../CLAUDE.md)).
 
 ## 1. 구현이 이미 있어 코드와 문서를 함께 고쳐야 하는 것
 
@@ -30,7 +31,6 @@
 | 전체 | `TestFixtures` 헬퍼("테스트 준비")가 "완료 확인" 표 뒤에 있는 구조 | 만드는 순서는 헬퍼 → 테스트다. 구조를 바꾸려면 2-1~2-5를 포함해 고친다 |
 | 2-6 | `cancel` A-2·A-3의 재조회 | `insertIfAbsent`가 1행이면 방금 만든 `REQUESTED` 행이고 `id`도 알아서 재조회가 필요 없다. 0행일 때만 읽으면 취소마다 SELECT가 하나 준다. 분기가 늘어난다 |
 | 2-7~2-10 | 문서에 이름이 없던 구현물에 붙인 권장 이름 | `OrderLine.markShipped`·`markDelivered`·`addRefundedAmount`·`markReturned`·`markReturnRequested`·`markConfirmed(Instant)`, `ShopOrder.markCancelledWithoutLines`·`markCompleted(Instant)`, `findShopOrderFirstPage`·`findShopOrderNextPage`, `findAutoConfirmTargetsFirstPage`. 컨트롤러는 2-8 `cancel`·2-9 `return-requests`·2-10 `confirm`이 `OrderController`, 2-9의 `/api/shops/{shopId}/refunds/...`가 새 `SellerRefundController` |
-| 2-9 | `approve`의 `findByIdForUpdate` | 읽은 `order`를 `refund.approve()`가 쓰지 않고, 중복 승인은 `refund`의 `@Version`과 `transitTo`가 막는다. `findById`로 바꾸면 2-8 표의 "반품 승인" 사용처도 고친다 |
 | 3 공통 규칙 P | `SettlementPaidEvent`의 `LocalDate periodStart`·`periodEnd` | 규칙 P는 필드 타입을 원시 타입·UUID·String·long·Instant·List로 제한한다. `LocalDate`를 허용하거나 필드를 `String`·`Instant`로 바꾼다 |
 | 3 공통 규칙 S | `notification`의 `payment::api` 의존 | 3-3에서 payment는 이벤트를 발행하지 않고 3-5 consumer도 payment를 쓰지 않는다. 불필요하면 지운다. `order` 행의 "Part 2 + 없음" 표기도 모호하다 |
 | 3-2 | `InboxGuard.runOnce`가 `EventContext`와 같은 MDC put/remove를 따로 구현한다 | `EventContext.run` 안에서 실행하게 하면 중복이 없다. 7-1의 "각자 finally" 설명도 고친다 |
@@ -100,3 +100,156 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 | 항목 | 문제 |
 |---|---|
 | `06-sequences.md` §4 환불 시퀀스의 `opt 항상 (전액 PG 부분취소, POL-08)` | 예치금 제거 뒤 항상 실행되는 블록인데 선택(`opt`)으로 그려져 있다 |
+
+## 4. 확인 필요
+
+로드맵·설계 문서에 "확인 필요"로 남은 항목을 단계별로 모았다. 단계 착수("N-M 진행할게")를 알리면 Claude가 그 단계 행부터 푼 뒤 시작한다. 풀면 그 단계 문서에 반영하고 이 표에서 지운다.
+
+| 종류 | 뜻 | Claude가 하는 일 |
+|---|---|---|
+| A | 설계 결정이 비어 있음 | 선택지와 권장안을 제시해 사용자 결정을 받고, 문서에 반영한다 |
+| B | 외부 라이브러리·API·도구 동작 확인 | 공식 문서·소스·실험으로 확인한다. 외부 조회가 필요하면 사용자에게 먼저 묻는다. 기동 실험은 사용자가 구현한 뒤에 하는 것이 많아 그때 확인한다 |
+| C | 문서 간 또는 문서-코드 어긋남 | 어느 쪽이 맞는지 확인해 문서를 고친다 |
+| D | 구현 방식 선택(권장안 있음) | 권장안을 문서에 확정해 적는다. 쓰다 바꿔도 된다 |
+| E | 이미 코드에서 정해짐 | 코드를 확인해 문서의 "확인 필요"를 확정 문장으로 바꾼다 |
+
+파일 약칭: p1~p7은 `docs/03-roadmap/partN-*.md`다. 줄 번호는 2026-10-19 기준이라 밀리면 "확인 필요"로 찾는다. 이미 구현한 단계(1-x, 2-1~2-8)의 항목은 단계 착수가 없으므로 E·C를 먼저 문서에서 정리한다.
+
+### 이미 구현한 단계 (문서만 정리)
+
+| 단계 | 종류 | 항목 | 위치 | 풀 방법 |
+|---|---|---|---|---|
+| 1-2 | D | CI가 테스트를 실제로 돌렸는지 보는 방법(`--info` 또는 test-results 업로드)을 정하지 않음 | p1:321 | 하나 골라 PR에 기록 |
+| 1-2 | B | Testcontainers 컨테이너 시작 로그 문구가 버전마다 다를 수 있음 | p1:323 | `--info` 로그로 확인 |
+| 1-11 | E | GHCR용 LABEL. `docker/Dockerfile:7`에 이미 있음 | p1:2272 | 문구 삭제 |
+| 1-11 | B | VM이 amd64인지, 맥 LAN 인터페이스가 `en0`인지, `sudo -l` 거부 메시지 문구 | p1:2289, 2334, 2657 | VM·맥에서 실행해 확인 |
+| 2-3 | B | Toss 승인·취소·조회 API별 에러 코드 표를 대조하지 못함 | p2:1023 | 개발자센터 에러 표 확인 |
+| 2-5 | E | `JobLock`이 `SQLException`을 감싸는 예외. 코드는 `RuntimeException`(`JobLock.java:28`) | p2:1546 | 문서에 기록 |
+| 2-8a | B | `findByShopOrderIdForUpdate`(join 쿼리)의 `FOR UPDATE`가 주문 행만 잠그는지 가게주문 행까지인지. 발송·취소 줄 세우기에는 어느 쪽이든 충분 | p2:2161 | 실행 SQL 로그로 확인 |
+| 2-8a | E | `RefundResponse` 필드. 코드는 `refundId, status, amount`로 `RefundResult`와 같음 | p2:2236 | 문서에 기록 |
+| 공통 | D | springdoc-openapi의 Boot 4 호환 버전(사용하는 단계 없음) | development-guide:110 | 사용 단계 착수 시 확인 |
+| 공통 | E | 격리 수준 `READ COMMITTED` 가정. `src/main`에 격리 수준 설정이 없어 기본값을 쓴다 | 08-stock-design-evolution:27 | 확정 문장으로 교체 |
+| 상태 조합 | A·C | [10-state-combinations 7절](../02-design/10-state-combinations.md) 11건(발송 가드와 `FAILED` 환불, 구매확정의 가게주문 재계산, 대사가 못 닫는 경우 등) | 10 문서 7절 | 해당 단계 착수 때 같이 푼다 |
+
+### Part 2 남은 단계
+
+| 단계 | 종류 | 항목 | 위치 | 풀 방법 |
+|---|---|---|---|---|
+| 2-10 | D | 150건 테스트 데이터를 `createDeliveredOrder` 150회로 만들지 JDBC 직접 INSERT로 만들지 | p2:2696 | 느리면 JDBC로 전환 |
+
+### Part 3
+
+| 단계 | 종류 | 항목 | 위치 | 풀 방법 |
+|---|---|---|---|---|
+| 3-1 | A | Kafka가 멈추면 행당 5초 대기라 100건이면 리스 30초를 넘을 수 있음. 배치 크기·리스 시간·중단 조건 | p3:221 | 사용자 결정 |
+| 3-1 | B | 운영 compose의 Kafka advertised listeners 환경변수 이름(`apache/kafka:4.2.2`), Jackson 3 `treeToValue` 시그니처, `shop.api.event` 같은 하위 패키지를 Modulith가 `api`로 보는지 | p3:112, 225, 234(635) | 이미지 문서·IDE·`ModularityTest`로 확인 |
+| 3-1 | D | 봉투 `occurredAt`을 outbox `created_at`으로 채움 | p3:177 | `created_at`으로 확정 |
+| 3-3 | D | `existsByShopIdAndStatusIn`을 `JpaOrderRepository`에 둠 | p3:437 | 확정 |
+| 3-4a | A | `payoutAll()` 반환 타입. `SettlementRunResult.paid`·`payoutFailed`를 둘지(위 API 표와 같은 건) | p3:947(1155) | 사용자 결정 |
+| 3-4a | C | `payoutAttempts` +1을 `markPayoutFailed` 안에서 할지 `payoutAll`에서 할지. 901행과 979행이 다르게 읽힘 | p3:901 | 한 곳으로 정해 문서 수정 |
+| 3-4a | B | Spring Data 저장소 프록시에 `@MockitoSpyBean` 스파이가 붙는지 | p3:1079 | 구현 후 실험 |
+| 3-4a | D | `sumBySettlementId` native 결과를 record로 받는 방법(`::bigint` 캐스팅), `insertIfAbsent`의 초깃값(`CALCULATED`, 금액 0), `calculate` 첫 인자 `Money`, 테스트용 `Settlement` 생성 방법 | p3:918, 928, 956, 1021 | 권장안으로 확정 |
+| 3-4b | A | `prod` 프로필에서 `PayoutGateway`·`MailSender` 빈이 없어 기동 실패 가능. 실제 구현 범위 또는 prod 대체 빈 | p3:980 | 사용자 결정 |
+| 3-4b | D | `SETTLEMENT_PAID`의 `aggregateType` `"SETTLEMENT"`, 정산 목록·품목 목록 keyset 시그니처와 읽기 모델, 남의 가게 정산 조회는 404 `SETTLEMENT_NOT_FOUND` | p3:974(1113), 987, 988(1148) | 확정 |
+| 3-5 | A | `getContact`에서 `BANNED` 회원의 `active` 값. 회원 없음은 `MEMBER_NOT_FOUND` | p3:1226 | 사용자 결정 |
+| 3-5 | D | `Notification`을 native 쿼리로 구현(3-4 정산과 같은 방식), 알림 제목 숫자에 천 단위 구분 기호 없음 | p3:1238, 1292 | 확정 |
+| 3-6 | A | "진행 중 환불" 상태 집합(`REQUESTED, APPROVED, PG_CANCELLED`)이 정책에 없음. 탈퇴 차단 정책 | p3:1404 | 사용자 결정 |
+| 3-6 | D | settlement 저장소의 탈퇴 조건 조회 메서드 이름·시그니처 | p3:1407 | 구현하며 정함 |
+
+### Part 4
+
+| 단계 | 종류 | 항목 | 위치 | 풀 방법 |
+|---|---|---|---|---|
+| 공통 | B | Spring Data Redis 4.x에서 `StringRedisTemplate` 호출 시그니처가 표와 같은지 | p4:51 | IDE·공식 문서로 확인 |
+| 4-1 | A | `rotate`가 `auth:member-sessions:{memberId}` TTL도 연장해야 하는지(규칙 T와 불일치) | p4:164 | 사용자 결정 후 인자·규칙 T 수정 |
+| 4-1 | B | `DefaultRedisScript`의 `setLocation`·`setResultType`이 4.x에서 같은 이름인지 | p4:177 | 4.x API 확인 |
+| 4-1 | C | Lua의 `==` 해시 비교가 규칙 T(36행)의 "isEqual 비교"와 어긋남 | p4:178 | 규칙 T에 "Lua 내부 비교는 예외" 적기 |
+| 4-1 | E | sessionId 생성은 `Ids.newId()`(`common/model/Ids.java`)로 확정 | p4:189 | 문구 삭제 |
+| 4-1 | D | `sid` 없는 옛 토큰은 거절, device(`User-Agent` 200자)를 Command 필드로 넘김(4-3과 같은 결정), refresh 때 회원 행이 없으면 401 후 세션 삭제 | p4:120, 200(235, 324), 208 | 권장안으로 확정 |
+| 4-2 | A | 존재하는 이메일만 429가 나와 "항상 202" 정책과 충돌, 가입 여부가 노출됨 | p4:431 | 사용자 결정 |
+| 4-2 | A | 비밀번호 재설정 메일 제목·본문 문구(테스트가 의존) | p4:460 | 사용자 결정 |
+| 4-2 | D | 재설정 확인에서 코드는 통과했는데 회원이 없으면 400 `EMAIL_CODE_INVALID`로 통일 | p4:435 | 확정 |
+| 4-3 | A | `OAuthLoginResponse` 필드 모양(token 중첩 vs 펼침). 테스트 JSON 경로가 달림 | p4:733, 746 | 사용자 결정 |
+| 4-3 | B | 제공자별 authorize 파라미터·Naver `state` 요구·읽는 필드 경로, `@PathVariable` enum이 소문자 `kakao`를 받는지 | p4:645, 649, 657, 731 | 제공자 문서·테스트로 확인 |
+| 4-3 | C | `FakeOAuthServer` 규격에 요청 기록(`requests`)·`failWith` 범위·Kakao id 숫자 응답이 없음, 가입 인증 메일 제목·본문이 4-2와 같은지 | p4:750, 756, 762 | 규격 절에 추가 |
+| 4-3 | D | state consume을 Lua·원자 삭제로, 가입 토큰용 코드 발송 메서드 위치, 소셜 컨트롤러 이름, `providerEmail`은 제공자가 준 이메일(없으면 null) | p4:674, 715, 733, 735, 766 | 권장안으로 확정 |
+| 4-4 | C | `NotificationType`에 `BANNED`가 3-5에 없다는 표현. part3:1234가 4-4에서 추가한다고 계획함 | p4:925, 1020 | 문구 정리 |
+| 4-4 | D | `tokenVersion` 조회 시 회원 행 없으면 401, 검색 쿼리 시그니처·대소문자·정렬, 관리자 컨트롤러·테스트 헬퍼 이름, `BANNED` 회원은 `loginAttemptStore.reset`하지 않음 | p4:887, 908(1012, 1016), 925, 926, 945 | 권장안으로 확정 |
+
+### Part 5
+
+| 단계 | 종류 | 항목 | 위치 | 풀 방법 |
+|---|---|---|---|---|
+| 5-1 | A | 등록창의 `customerKey`와 발급 시 서버의 `customerKey`를 같게 맞추는 방법(DTO는 `authKey`만 받음) | p5:70 | 사용자 결정(회원별 고정 키 또는 DTO), Toss 문서 대조 |
+| 5-1 | A | 이미 `DELETED`인 빌링키를 다시 삭제할 때의 응답(404 또는 멱등 204) | p5:180 | 사용자 결정 |
+| 5-1 | D | `decrypt` 실패 예외 타입, 로그에 `paymentId`가 없을 때 칸, 빌링키 목록 정렬(`createdAt desc`) | p5:101(212), 144, 168 | 확정 |
+| 5-2 | C | `SubscriptionResult`가 도메인 `ShippingAddress`를 노출함(2-2는 `ShippingAddressResult`) | p5:397 | 문서를 맞추거나 예외로 명시 |
+| 5-2 | D | `OWN_SHOP_PRODUCT`의 `details`, PATCH 200 본문과 응답 필드 | p5:415, 436 | 체크아웃·`SubscriptionResult`에 맞춤 |
+| 5-3 | A | 구매자의 일시정지·재개·해지(5-2)에서도 `subscription-status-changed`를 낼지 | p5:658 | 사용자 결정 |
+| 5-3 | D | `OrderType` enum 전환, 회차 이력 keyset, `findDueIds` 첫 `lastId`(`new UUID(0,0)`), 알림 type 이름·문구, outbox `aggregateType`, `runDue()` 반환값, `orderName` 100자 자름, SKIPPED 사유 문자열과 `consecutiveFailures` 처리, `onOrderClosed` 회차 없음은 예외, SUSPENDED 이벤트 `reason` | p5:600, 652(696), 653, 661, 667, 669(710), 682, 684(806), 809, 689, 692(786) | 권장안으로 확정 |
+| 5-4 | A | 가격 변경 이벤트의 `oldPrice`·`effectiveDate`, 특히 인하 시 즉시 적용인지 | p5:900, 966 | 사용자 결정 |
+| 5-4 | D | 가격 알림 type·문구, 종료 이벤트 `reason`은 `endReason`과 같게, 판매자 목록 쿼리·클래스 이름 | p5:901(967), 912(971), 934, 935, 936 | 확정 |
+
+### Part 6
+
+| 단계 | 종류 | 항목 | 위치 | 풀 방법 |
+|---|---|---|---|---|
+| 6-1 | A | 리뷰 수정 요청을 부분 수정(null=안 바꿈)으로 볼지(규칙 E는 null=안 바꿈, `Review.edit`은 `int`) | p6:125, 181 | 사용자 결정 |
+| 6-1 | A | 이미 `DELETED`인 리뷰의 재삭제·수정, 숨겨진 리뷰에 좋아요 응답 | p6:180 | 사용자 결정 |
+| 6-1 | A | 평균 반올림 방식, 통계 행이 없거나 0건일 때 응답 | p6:187 | 사용자 결정 |
+| 6-1 | A | `sort` 기본값·허용 밖 값 처리·좋아요순 동점 정렬 | p6:192, 281 | 사용자 결정 |
+| 6-1 | A | 수정 가능 기간 30일의 경계(30일째 포함 여부) | p6:231 | 사용자 결정 |
+| 6-1 | B | Jackson 3 `treeToValue` 시그니처 | p6:314 | 사용 버전으로 확인 |
+| 6-1 | D | 품목 조회 쿼리 모양, `review_like`·`product_review_stat`을 `JdbcTemplate`으로, `ReviewTopicConfig` DLT, `aggregateType` `"REVIEW"` | p6:85, 120, 123, 167 | 확정 |
+| 6-2 | A | 기동 시 ES가 내려가 있으면 앱 기동을 막을지(경고만 권장) | p6:376 | 사용자 결정 |
+| 6-2 | B | 없는 alias로 쓰면 ES가 일반 인덱스를 자동 생성하는지, `_id` 정렬이 막혀 `productId`(keyword)를 쓰는지 | p6:375, 386 | 로컬 ES로 실험 |
+| 6-2 | D | ES 클라이언트 선택(`ElasticsearchClient` vs `ElasticsearchOperations`), `SearchErrorCode` 패키지, `TestFixtures`의 `es` 접근 | p6:357, 366, 497 | 확정 |
+| 6-3 | A | 재색인 실패 시 `reindex()`가 예외를 던질지 | p6:563 | 사용자 결정 |
+| 6-3 | B | alias 교체 전 `refresh`가 필요한지(기본 1초) | p6:536 | ES 실험 |
+| 6-3 | D | 상품 keyset 쿼리 이름·첫 `afterId`, ES 쓰기 클래스(`ProductIndexer`) | p6:525, 527 | 확정 |
+| 6-4 | A | `member_purchase.purchased_at`에 넣을 시각(이벤트에 결제 시각 없음, 후보 `occurredAt`) | p6:652 | 사용자 결정 |
+| 6-4 | A | "이미 산 상품 제외"가 최근 20개만인지 전체 구매 이력인지, 90일 내 20개 선택 순서 | p6:667 | 사용자 결정 |
+| 6-4 | A | 탈퇴(`member-withdrawn`)가 구매 이력·캐시를 지우는 테스트를 넣을지(Part 3 의존) | p6:765 | 사용자 범위 결정 |
+| 6-4 | B | Spring AI 2.0이 `base-url` 뒤에 `/v1`을 붙이는지, pgvector가 쉼표 뒤 공백을 허용하는지, 가짜 서버가 받는 `input`이 문자열인지 배열인지 | p6:616, 621, 683 | 요청 로그·pgvector 실험 |
+| 6-4 | D | `JdbcTemplate` 선택, `InboxGuard`에 조회 메서드, 서비스·consumer 역할, 임베딩 `model`은 설정값, 취향 벡터 NULL이면 빈 목록 | p6:629, 637(658), 639, 662(693), 668 | 확정 |
+| 6-5 | A | `period_end`에 넣을 날짜(말일 포함 권장, 3-4 정산과 동일) | p6:800, 831 | 사용자 결정 |
+| 6-5 | A | 대표 리뷰 쿼리가 전체 ACTIVE인지 대상 월만인지, `source_review_count`가 프롬프트 개수인지 전체인지 | p6:801, 848 | 사용자 결정 |
+| 6-5 | B | `gpt-4o-mini`가 착수 시점의 저가 모델인지, Spring AI 2.0.1 `ChatClient` 호출 형태, chat `content`가 문자열인지 배열인지 | p6:779, 793(802), 810 | 공식 문서·요청 로그 확인 |
+| 6-5 | D | `review_summary` 읽기 repository, 요약 `model`은 설정값, `latestSummary` JSON 키 | p6:795, 803, 857 | 확정 |
+| 6-6 | D | `InquiryAnswer` 생성 위치, `InquiryResult`·`InquiryDetailResult` 필드, 문의 목록 정렬(본인 최신순·관리자 오래된 순) | p6:885, 888(906, 926), 892(932) | 확정 |
+
+### Part 7
+
+| 단계 | 종류 | 항목 | 위치 | 풀 방법 |
+|---|---|---|---|---|
+| 7-1 | B | Logstash 재접속·버퍼 동작, `LogstashEncoder` 기본 필드 이름, Logstash 파이프라인 마운트 경로와 Kibana의 ES 주소 환경변수, Kibana 9.4 Saved Objects 메뉴 위치 | p7:62, 64, 86, 88 | 라이브러리 README·이미지 문서·화면 확인 |
+| 7-1 | B | 체크아웃 → 알림 흐름이 `traceId` 하나로 묶이는지(`JobRunner`가 새 `traceId` 생성) | p7:133 | Kibana로 실측 |
+| 7-1 | D | MDC `close()`가 복원이 아니라 삭제라 중첩 시 `orderId` 구간이 사라짐(가장 바깥에서만 열기), `LogMailSender`가 인증코드를 로그에 찍는 문제의 점검 방법 | p7:79, 120 | 확정 |
+| 7-1 | E | Kibana 5601 호스트 publish 여부 | p7:124 | compose 작성 때 결정 |
+| 7-2 | A | `pg_call_seconds`·`mail_send_seconds`·`openai_call_seconds`의 `operation`·`result` 라벨 값, 빌링 호출 포함 여부, 메일 계측 위치 | p7:207, 208 | 사용자 결정(권장: 소문자 메서드명) |
+| 7-2 | A | 재고 점검 잡을 수동 실행하는 방법(05:00 대기, cron 임시 변경, 별도 트리거) | p7:259, 323 | 사용자 결정 |
+| 7-2 | A | `payment_unknown_oldest_age_seconds`의 기준 컬럼을 `updated_at`(대사마다 갱신돼 알림이 안 뜰 수 있음)에서 `created_at`으로 바꿀지 | p7:323 | 사용자 결정(권장: `created_at`) |
+| 7-2 | B | percentiles-histogram 속성 효과, `_total`/`_seconds` 접미사 중복, 카프카 lag 지표 이름, Gauge 수집기에 잡 락을 안 쓰는 근거, `DeadLetterPublishingRecoverer` 시그니처, Grafana 13 provider·알림 규칙 YAML, Kafka 중단 시 `DEAD` 알림 이름 | p7:160, 173, 237, 195, 205, 233, 242, 323 | `/actuator/prometheus` 출력·소스·화면 확인 |
+| 7-2 | C | 기준 컬럼 `updated_at`이 2-6·2-8b 코드(`findStuckIds`)와 같은지 문서에 명시 | p7:202 | 코드 확인 후 명시 |
+| 7-2 | D | prometheus·grafana 호스트 포트 publish | p7:226 | 확정 |
+| 7-3 | A | DLT 목록 `limit`이 파티션별인지 전체 상한인지·최대값·내려줄 헤더 | p7:386 | 사용자 결정 |
+| 7-3 | A | 환불·알림 목록 응답 항목 필드 | p7:401, 406, 493, 510 | 사용자 결정 |
+| 7-3 | A | 쓰기 API의 `Idempotency-Key` 요구 여부(WHERE 상태 가드로 충분한지 포함) | p7:430 | 사용자 결정 |
+| 7-3 | A | 대상 없음·상태 불일치 응답 코드, 쓰기 API 성공 응답 상태·본문, DLT 목록 응답 모양. 반품 환불이 재시도해도 계속 `FAILED`로 남는 경우를 닫는 방법 | p7:426, 439, 443, 446, 456, 460, 467, 486, 494, 502, 513 | 사용자가 한 번에 결정 |
+| 7-3 | B | Toss가 같은 멱등 키의 실패 응답을 어떻게 처리하는지 | p7:403 | Toss 문서·샌드박스 |
+| 7-3 | D | 목록 쿼리 메서드, DLT 코드를 `AdminDltService`로, `AdminOutboxTest`는 JDBC로 `DEAD` 만들기, 실행 로그 `action` 문자열 | p7:364, 366, 380, 367, 372 | 확정 |
+| 7-4 | B | Consumer 재접속 시간(await 30초 적정성) | p7:733 | 측정 |
+| 7-4 | D | e2e 패키지에서 `IntegrationTestSupport.kafka` 접근은 헬퍼 메서드로 | p7:599, 728 | 확정 |
+| 7-5 | A | v1.0.0 때 `v0.7.0` 태그를 따로 찍을지(git-policy:162는 Part 7 완료 시 `v0.7.0`) | p7:765, 785 | 사용자 결정 후 git-policy와 맞춤 |
+| 7-5 | A | ADR-012 미정 항목(노드 수, 상태 서비스 위치), K-1~K-5 문서 파일 이름 | p7:766, 786 | Stage 1.5 시작 전에 결정 |
+
+### ADR·운영 문서
+
+| 문서 | 종류 | 항목 | 위치 | 풀 방법 |
+|---|---|---|---|---|
+| ADR-011 | B | VM 자원(16GB·8vCPU)이 적정한지 | ADR-011:13 | 7-1 구현 뒤 실측 |
+| ADR-012 | A | 세부(노드 수, 상태 서비스 위치, 도구)가 제안 상태. MinIO를 클러스터에 다시 올릴지 NAS의 것을 쓸지(문구 없음, 20~21행) | ADR-012:3, 20~21 | Stage 1.5 시작 전에 결정(7-5의 항목과 같은 건) |
+| ADR-012 | B | 24GB 호스트에서 멀티 노드가 가능한지, local-path PVC에서 MinIO uid 65532용 `fsGroup`이 필요한지 | ADR-012:16, 19 | 실측·k3s에서 확인 |
+| ADR-012 | D | 러너 ServiceAccount의 네임스페이스 한정 RBAC | ADR-012:22 | Role/RoleBinding 작성·검증 |
+| ops | B | NAS: Container Manager 패키지명·메모리 기본값, 시놀로지 ACL이 `chown 65532`를 막는지, 프로젝트·방화벽·HDD 절전·스냅샷 메뉴, 호스트 9000 포트 충돌 | nas-minio:22, 24, 31, 35, 48, 49, 84, 85 | NAS 화면·실행으로 확인 |
+| ops | B | VM: Proxmox/Ubuntu 설치 화면·LVM 체크 해제 이유, GHCR 패키지 연결·가시성, Proxmox 스토리지 추가 메뉴 | vm-setup:33, 59, 227, 232 | VM·GitHub·Proxmox 화면에서 확인 |
