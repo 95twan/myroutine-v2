@@ -1,6 +1,7 @@
 # Part 3. 이벤트
 
-> 버전 0.21 · 2026-10-20 · **4.1 기준 점검에서 '하' 후보를 권장안대로 정리했다**(사용자 요청): 3-4a의 `netAmount` 공식 재서술, 3-4b의 정산 건수 재확인·`payoutFailed`, 3-4b 컨트롤러 5번의 정산 건수 0, 3-6 재가입의 `$.memberId` 비교·`reasons` 개수·성공 케이스의 `WITHDRAWN` 재확인. 규격 외 변경 없음
+> 버전 0.22 · 2026-10-20 · **Part 2 구현에 맞춰 다듬었다**: Part 3이 가리키는 Part 1·2 클래스·메서드·`TestFixtures` 헬퍼를 코드와 대조해 모두 있음을 확인했다(없는 이름은 모두 Part 3이 새로 만드는 것). 공통 규칙 Q에 테스트 중 스케줄러를 끄려면 두 설정이 모두 필요하다는 근거(Part 2 규칙 M)를 이었고, 3-1의 `memberSnapshotOf`가 코드에 아직 없어 이 단계에서 추가한다는 점을 본문에도 맞췄다. 규격 외 변경 없음
+> 0.21 · 2026-10-20 · **4.1 기준 점검에서 '하' 후보를 권장안대로 정리했다**(사용자 요청): 3-4a의 `netAmount` 공식 재서술, 3-4b의 정산 건수 재확인·`payoutFailed`, 3-4b 컨트롤러 5번의 정산 건수 0, 3-6 재가입의 `$.memberId` 비교·`reasons` 개수·성공 케이스의 `WITHDRAWN` 재확인. 규격 외 변경 없음
 > 0.20 · 2026-10-20 · **4.1 기준 점검에서 '중' 후보를 뺐다**(사용자 요청): 3-1·3-3의 outbox `eventType`·`status`(3-1 `OutboxPublisherTest`가 확인), 3-2 `InboxGuardTest`·3-4a·3-5의 `processedCountOf`와 초기값(`channel`·`attempts`·`sentAt`), 3-3 결제 전 취소의 `$.status`·롤백 케이스의 이벤트 0건/`confirmedAt`, 3-4a의 `periodStart`·가게 수·`net_amount`, 3-4b의 `payoutAttempts`·`lastError`·0원 정산의 `gross`·`net`, 3-5의 재고·발송 실패 반환값. 규격 외 변경 없음
 > 0.19 · 2026-10-20 · **4.1 기준 점검에서 확신 '상'을 뺐다**(사용자 요청): 3-1 `OutboxPublisherTest` 3번과 3-4a 소비 1번의 `id()` not null, 3-2 `InboxGuardTest` 1번의 `processed_at` not null(NOT NULL 컬럼), 3-4a 3번의 "예외 없이 끝난다"(반환값을 읽는다), 3-5 2번의 알림 행 총 5개와 5·6번의 개수 중복. 규격 외 변경 없음
 > 0.18 · 2026-10-20 · **3-2 `CloseShopTest` 3번에서 준비가 만든 `product3`의 `DISCONTINUED` 확인을 뺐다**(사용자 요청). `product3`은 이미 단종된 상품이 있어도 폐업이 예외 없이 끝나는지 보는 준비로 남는다. 규격 외 변경 없음
@@ -53,7 +54,7 @@
 | 문서 | 새 이벤트·필드는 [이벤트 카탈로그](../02-design/05-events.md)와 일치해야 한다(Claude가 리뷰 때 문서를 맞춘다) |
 
 ### Q. 비동기 테스트
-- Kafka는 Testcontainers로 띄운다(3-1). 스케줄러가 꺼져 있으므로 **릴레이는 테스트에서 직접 호출**한다(`outboxRelay.relayOnce()`). consumer(`@KafkaListener`)는 테스트 중에도 동작한다.
+- Kafka는 Testcontainers로 띄운다(3-1). 스케줄러가 꺼져 있으므로 **릴레이는 테스트에서 직접 호출**한다(`outboxRelay.relayOnce()`). 스케줄러를 끄는 데는 `application-test.yaml`의 두 설정이 모두 필요하다([Part 2 공통 규칙 M](part2-order-money.md#m-시간-흉내-내기)). 하나라도 빠지면 1초마다 도는 `OutboxRelayJob`이 테스트 중에 행을 먼저 발행해 `relayOnce()`의 반환값과 outbox 상태 확인이 어긋난다. consumer(`@KafkaListener`)는 테스트 중에도 동작한다.
 - "잠시 후 반영"은 직접 만든 헬퍼로 기다린다: `support/Eventually.await(Duration timeout, ThrowingRunnable assertion)` — 100ms마다 단언을 다시 실행하고, 시간이 다 되면 마지막 실패를 던진다. 새 라이브러리(Awaitility)는 쓰지 않는다.
 - 이전 테스트가 남긴 메시지가 다음 테스트에서 소비될 수 있다(테이블은 비워졌는데 메시지는 남음). consumer는 **대상이 없으면 경고 로그 후 정상 종료**해야 한다(재시도 대상이 아님).
 
@@ -269,7 +270,7 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
 **확인 값을 읽는 방법** (3-2 이후도 같다)
 - 응답: `jsonPath`. 에러 응답의 코드는 `$.code`. 응답 헤더는 `result.getResponse().getHeader("X-Request-Id")`.
 - outbox: 토픽의 행은 `OutboxAssert.rows(topic)`(위 5)) → `List<OutboxSnapshot>`(생성 순). id를 아는 행 하나는 `testFixtures.outboxSnapshotOf(outboxId)`. 한 행의 필드는 `id()`, `aggregateType()`, `aggregateId()`, `eventType()`, `topic()`, `status()`, `attempts()`, `traceId()`, `lastError()`, `nextAttemptAt()`, `lockedUntil()`, `sentAt()`, `payload()`(`JsonNode`: `payload().get("shopId").asText()`)다. 전체 행 수는 `testFixtures.countOf("common.outbox_event")`.
-- 회원: `testFixtures.memberSnapshotOf(memberId)`(Part 1의 헬퍼. 이 단계에서 `role()`을 더한다)의 `role()`.
+- 회원: `testFixtures.memberSnapshotOf(memberId)`의 `role()`. 헬퍼는 1-3 표에 정의돼 있고 코드에는 아직 없어, 이 단계에서 `TestFixtures`에 추가하며 `role()`을 더한다(아래 "테스트 준비" 표).
 - Kafka 메시지: `TestKafka.messages(topic, key)` → `List<ReceivedMessage>`. 토픽에서 `key`(집계 ID 문자열)가 같은 레코드만 모은 것이다. 브로커는 테스트 JVM 전체에서 하나라 이전 테스트가 남긴 메시지가 섞여 있어서 키로 거른다. 한 건은 `key()`, `partition()`, `value()`(원문 문자열), `envelope()`(`EventEnvelope`. `value()`가 봉투 JSON이 아니면 `null`)이고, 봉투는 `envelope().eventId()`, `aggregateId()`, `eventType()`, `traceId()`, `payload().get("shopId").asText()`로 읽는다.
 - consumer가 처리한 결과: `Eventually.await(Duration.ofSeconds(5), () -> assertThat(...))` 안에서 읽는다.
 
