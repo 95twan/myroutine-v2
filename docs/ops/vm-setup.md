@@ -1,6 +1,7 @@
 # 운영 환경 VM 준비 가이드 (Proxmox + Docker + Actions runner)
 
-> 버전 0.4 · 2026-10-14 · **MinIO를 NAS로 이전**(ADR-011 §8): VM 디스크·ufw 9000 규칙·`STORAGE_*` 주소·백업 범위를 고치고 [nas-minio.md](nas-minio.md)를 연결했다
+> 버전 0.5 · 2026-10-21 · **`.env` 표에 `STORAGE_PRESIGN_ENDPOINT`를 더했다**(외부 공개용 설정, 로드맵 3-0). 외부 공개 전에는 비워 둔다 외부 공개 때는 `CORS_ALLOWED_ORIGINS`에도 공개 주소를 더한다
+> 0.4 · 2026-10-14 · **MinIO를 NAS로 이전**(ADR-011 §8): VM 디스크·ufw 9000 규칙·`STORAGE_*` 주소·백업 범위를 고치고 [nas-minio.md](nas-minio.md)를 연결했다
 > 0.3 · 2026-10-10 · VM이 처음인 경우를 위해 §1-1(ISO 준비·VM 생성·Ubuntu 설치 순서) 추가, RAM을 호스트 24GB에 맞춰 16GB로 변경
 > 0.2 · 2026-10-09 · OS 버전·ufw 우회·러너 토큰 만료·`svc.sh` 인자·포크 PR 승인 메뉴 이름을 공식 문서로 확인해 확정, `.env` 키 이름을 1-11의 `.env.ops.example`(로컬과 같은 `SPRING_DATASOURCE_*`)에 맞춤
 > 0.1 · 2026-10-07 · 로드맵 [1-11](../03-roadmap/part1-foundation.md)의 "0) VM 준비" 절차. 결정 근거는 [ADR-011](../adr/ADR-011-ops-practice-environment.md).
@@ -165,7 +166,8 @@ sudo -u runner touch /opt/myroutine/.env && sudo chmod 600 /opt/myroutine/.env
 | JWT 서명 키 | `JWT_SECRET` | `openssl rand -base64 48` |
 | MinIO 접속 키 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | 비밀번호: `openssl rand -base64 32`. **NAS의 MinIO에도 같은 값**을 넣는다([nas-minio.md](nas-minio.md) §3) |
 | 저장소 주소 | `STORAGE_ENDPOINT=http://{NAS_IP}:9000`, `STORAGE_PUBLIC_BASE_URL=http://{NAS_IP}:9000/myroutine` | **컨테이너 내부 주소를 쓰지 않는다**(presigned URL 때문. 1-11 S3) |
-| CORS | `CORS_ALLOWED_ORIGINS=http://{프론트 주소}` | `*` 금지 |
+| 업로드 URL 서명 주소 | `STORAGE_PRESIGN_ENDPOINT=` (외부 공개 전에는 비워 둔다) | 외부 공개 때만 `https://{공개 주소}`를 넣고 `STORAGE_PUBLIC_BASE_URL`도 `https://{공개 주소}/myroutine`로 바꾼다. `STORAGE_ENDPOINT`는 그대로 둔다. 순서와 이유는 로드맵 [3-0](../03-roadmap/part3-events.md) |
+| CORS | `CORS_ALLOWED_ORIGINS=http://{프론트 주소}` | `*` 금지. 외부 공개 때는 `https://{공개 주소}`를 쉼표로 더한다. 프록시 뒤에서 앱이 요청을 http로 받아 POST의 `Origin`이 다른 오리진으로 판정되기 때문이다(로드맵 [3-0](../03-roadmap/part3-events.md)) |
 
 **한 번에 만들기** — 비밀번호를 직접 짓지 않고, 값이 화면·셸 기록에 남지 않게 만든다(`tee ... > /dev/null`이라 출력이 없고, `$(openssl ...)`는 명령 글자만 기록에 남는다). `NAS_IP`와 `CORS_ALLOWED_ORIGINS`만 환경에 맞게 바꾼다(프론트가 아직 없으면 `http://localhost:5173` 그대로 둔다. curl로만 시험하면 CORS는 영향이 없다).
 ```bash

@@ -1,6 +1,6 @@
 # ADR-011. 운영 환경 연습: Proxmox VM 1대 + Docker Compose, GitHub Actions self-hosted runner로 자동 배포
 
-- 상태: 승인 (2026-10-07, 개정: 쿠버네티스를 최종 목표로 기록 / 2026-10-09: "확인 필요" 항목을 공식 문서·실행으로 확인, `workflow_run` 트리거의 안전 조건과 인프라 이미지 고정 방식 추가 / 2026-10-14: 운영 MinIO를 VM에서 시놀로지 NAS(DS720+)로 이전 — §5·§6 수정, §8 추가)
+- 상태: 승인 (2026-10-07, 개정: 쿠버네티스를 최종 목표로 기록 / 2026-10-09: "확인 필요" 항목을 공식 문서·실행으로 확인, `workflow_run` 트리거의 안전 조건과 인프라 이미지 고정 방식 추가 / 2026-10-14: 운영 MinIO를 VM에서 시놀로지 NAS(DS720+)로 이전 — §5·§6 수정, §8 추가 / 2026-10-21: 외부 접속 보류를 풀고 Cloudflare Tunnel로 연다)
 - 관련: 로드맵 [1-11](../03-roadmap/part1-foundation.md), NFR-SEC-01, [ADR-010](ADR-010-observability.md), [Git 정책 §7](../git-policy.md)
 
 ## 맥락
@@ -23,7 +23,7 @@
    - 배포 job은 GitHub Environment `ops`를 쓰고, 배포 가능한 브랜치를 `develop`·`main`으로 제한한다.
    - 러너는 전용 비root 사용자로 실행하고, VM에는 이 프로젝트 외의 중요한 데이터를 두지 않는다. (docker 그룹은 사실상 root 권한이다. VM을 격리된 용도로만 쓰는 것으로 위험을 받아들인다.)
 4. **시크릿**: 운영 `.env`는 VM의 고정 경로(예: `/opt/myroutine/.env`)에 사람이 한 번 만든다. 리포와 GitHub Secrets에는 두지 않는다(NFR-SEC-01, 공격면 축소). 배포는 이 파일을 읽기만 한다. GHCR 로그인은 워크플로의 `GITHUB_TOKEN`을 쓴다. push하는 job은 `permissions: packages: write`, pull만 하는 배포 job은 `packages: read`(GitHub 문서 "Publishing Docker images"의 예시와 같다, 2026-10-09 확인).
-5. **접속**: 집 네트워크(LAN) 안에서만. VM은 앱 포트(8080)만 LAN에 열고, DB·Redis·Kafka·ES와 actuator 관리 포트(8081)는 호스트에 publish하지 않는다(MEM-05). MinIO API(9000)는 NAS가 LAN에 연다(§8). 외부 접속은 **보류**한다(아래).
+5. **접속**: 집 네트워크(LAN) 안에서만. VM은 앱 포트(8080)만 LAN에 열고, DB·Redis·Kafka·ES와 actuator 관리 포트(8081)는 호스트에 publish하지 않는다(MEM-05). MinIO API(9000)는 NAS가 LAN에 연다(§8). 외부 접속은 Cloudflare Tunnel을 거치는 공개 주소로 연다(아래 "외부 접속").
 6. **데이터**: Postgres 등은 VM의 named volume, MinIO는 NAS 로컬 볼륨(§8). 백업은 Stage 1 범위 밖이고 회고에 남긴다.
    - 인프라 이미지도 고정한다: 버전 태그가 있으면 태그로(예: `pgvector/pgvector:pg17`), 태그가 `latest`뿐인 이미지(`chainguard/minio`, 2026-09-11 공식 `minio/minio` 삭제 후 사용)는 **digest**(`image@sha256:...`)로. 매일 다시 빌드되는 `latest`로 두면 롤백해도 인프라 버전이 바뀐다.
 7. **스키마와 롤백**: 롤백은 이미지만 되돌린다(Flyway는 되돌리지 않는다). 따라서 **이전 버전 앱이 새 스키마에서 동작해야** 한다. 컬럼 삭제·이름 변경 같은 파괴적 마이그레이션은 "추가 → 코드 전환 → 삭제"의 두 번 이상의 배포로 나눈다.
@@ -52,10 +52,11 @@
 - 옮기기 쉽게 **1-11에서 미리 지키는 것**: 이미지는 sha 태그, 설정은 전부 환경변수, 헬스체크 경로·포트 고정(readiness/liveness로 재사용), 앱의 종료 시 요청 마무리(`server.shutdown=graceful` — Boot 4.1.1에서는 기본값이라 따로 켜지 않는다. 단계별 최대 대기는 `spring.lifecycle.timeout-per-shutdown-phase`, 기본 30s. 2026-10-09 jar의 설정 메타데이터로 확인).
 - **시기와 세부는 [ADR-012](ADR-012-kubernetes-zero-downtime.md)**: Stage 1 완료 후, Stage 2 시작 전(2026-10-07 결정). 노드 수·상태 서비스 위치·무중단 조건·단계(K-1~K-5)는 거기서 다룬다.
 
-## 보류: 외부 접속
-- Cloudflare Tunnel로 도메인을 연결하는 방안을 검토했으나 **2026-10-07 보류**했다(고정 주소에는 Cloudflare에 등록한 도메인이 필요하다. Synology DDNS 주소는 Cloudflare에 추가할 수 없다).
+## 외부 접속
+- Cloudflare Tunnel로 도메인을 VM의 프록시(nginx)에 연결한다. 2026-10-07에는 고정 주소에 Cloudflare에 등록한 도메인이 필요하고 Synology DDNS 주소는 Cloudflare에 추가할 수 없어 보류했고, 2026-10-21에 도메인 `myroutine.dev`(Cloudflare Registrar)를 구입해 보류를 풀었다. 터널은 VM에서 밖으로 나가는 연결이라 공유기 포트를 열지 않고 집 IP가 드러나지 않는다.
+- 공개 범위는 Cloudflare Access로 지정한 이메일(사용자 본인)만 허용하는 것으로 시작한다. 전체 공개는 누구나 가입·사진 업로드·Toss 테스트 결제를 할 수 있게 되므로, 남용 대책을 정한 뒤에 바꾼다.
 - 대안으로 Synology DDNS + 포트포워딩은 집 포트를 직접 열어야 해서 선택하지 않았다.
-- 영향: ① 프론트·외부 서비스가 쓰는 주소(CORS 허용 오리진, 이미지 공개 URL, Toss 리다이렉트 URL)를 코드에 고정하지 않고 **환경변수**로 받는다. ② Toss 웹훅처럼 외부에서 앱에 들어와야 하는 흐름은 LAN에서 검증할 수 없다 → Part 2 시작 전에 이 ADR을 다시 연다.
+- 영향: ① 프론트·외부 서비스가 쓰는 주소(CORS 허용 오리진, 이미지 공개 URL, Toss 리다이렉트 URL)를 코드에 고정하지 않고 **환경변수**로 받는다. ② 프록시 뒤에서는 앱이 요청을 내부 주소의 http로 받아 POST의 `Origin`이 다른 오리진으로 판정되므로 `CORS_ALLOWED_ORIGINS`에 공개 주소를 넣고, 업로드 URL은 브라우저가 닿는 주소로 서명해야 한다 → 로드맵 [3-0](../03-roadmap/part3-events.md). ③ Access가 걸려 있는 동안은 외부에서 앱으로 들어오는 서버 간 호출(Toss 웹훅 등)도 막힌다. 전체 공개로 바꿀 때 그런 경로를 Access에서 제외할지 정한다.
 
 ## 결과
 - 모든 단계가 머지되면 VM에 자동 반영되고, `v0.1.0`부터 "배포해서 돌려본 버전"이 된다.
