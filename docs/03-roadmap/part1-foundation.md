@@ -2318,7 +2318,7 @@ docker history --no-trunc myroutine:local | grep -i -E 'secret|password' ; echo 
 | `STORAGE_ENDPOINT`, `STORAGE_PUBLIC_BASE_URL` | `http://{VM_IP}:9000`, `http://{VM_IP}:9000/myroutine` (아래 ⚠) |
 | `CORS_ALLOWED_ORIGINS` | 쉼표로 구분한 오리진 목록, 예: `http://192.168.0.20:5173` |
 
-- ⚠ **presigned URL의 호스트는 `STORAGE_ENDPOINT`로 서명된다.** 컨테이너 내부 주소(`http://minio:9000`)로 두면 클라이언트가 받은 업로드 URL을 열 수 없다. 앱도 같은 LAN 주소로 MinIO에 접근한다(포트 9000이 publish돼 있으므로 컨테이너에서도 닿는다). **단, VM에 ufw가 있으면 막힌다**: 컨테이너에서 호스트의 LAN IP로 가는 패킷은 출발지가 Docker 브리지 대역(`172.x`)이라 "LAN에서만 허용" 규칙에 걸려 조용히 차단되고, 앱은 기동 때 `BucketInitializer`에서 `ApiCallTimeoutException`(5000 millis)으로 죽는다. 그래서 ufw에 `172.16.0.0/12`에서 9000으로 오는 것을 허용하는 규칙이 필요하다([`vm-setup.md` §2-4](../ops/vm-setup.md)). 맥 리허설은 ufw가 없어 이 문제를 못 잡는다.
+- ⚠ **presigned URL의 호스트는 `STORAGE_ENDPOINT`로 서명된다**(외부 공개 때 `STORAGE_PRESIGN_ENDPOINT`를 넣으면 그 주소로 서명한다. 로드맵 [3-0](part3-events.md)). 컨테이너 내부 주소(`http://minio:9000`)로 두면 클라이언트가 받은 업로드 URL을 열 수 없다. 앱도 같은 LAN 주소로 MinIO에 접근한다(포트 9000이 publish돼 있으므로 컨테이너에서도 닿는다). **단, VM에 ufw가 있으면 막힌다**: 컨테이너에서 호스트의 LAN IP로 가는 패킷은 출발지가 Docker 브리지 대역(`172.x`)이라 "LAN에서만 허용" 규칙에 걸려 조용히 차단되고, 앱은 기동 때 `BucketInitializer`에서 `ApiCallTimeoutException`(5000 millis)으로 죽는다. 그래서 ufw에 `172.16.0.0/12`에서 9000으로 오는 것을 허용하는 규칙이 필요하다([`vm-setup.md` §2-4](../ops/vm-setup.md)). 맥 리허설은 ufw가 없어 이 문제를 못 잡는다.
 
 **맥 리허설** (VM 없이 같은 파일을 맥에서 그대로 돌려 본다. S4도 이 준비를 쓴다)
 ```bash

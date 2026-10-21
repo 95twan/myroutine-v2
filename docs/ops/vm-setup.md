@@ -1,6 +1,6 @@
 # 운영 환경 VM 준비 가이드 (Proxmox + Docker + Actions runner)
 
-> 버전 0.5 · 2026-10-21 · **`.env` 표에 `STORAGE_PRESIGN_ENDPOINT`를 더했다**(외부 공개용 설정, 로드맵 3-0). 외부 공개 전에는 비워 둔다 외부 공개 때는 `CORS_ALLOWED_ORIGINS`에도 공개 주소를 더한다
+> 버전 0.5 · 2026-10-21 · **`.env` 표에 `STORAGE_PRESIGN_ENDPOINT`를 더했다**(외부 공개용 설정, 로드맵 3-0). 외부 공개 전에는 비워 두고, 공개 때는 `CORS_ALLOWED_ORIGINS`에도 공개 주소를 더한다
 > 0.4 · 2026-10-14 · **MinIO를 NAS로 이전**(ADR-011 §8): VM 디스크·ufw 9000 규칙·`STORAGE_*` 주소·백업 범위를 고치고 [nas-minio.md](nas-minio.md)를 연결했다
 > 0.3 · 2026-10-10 · VM이 처음인 경우를 위해 §1-1(ISO 준비·VM 생성·Ubuntu 설치 순서) 추가, RAM을 호스트 24GB에 맞춰 16GB로 변경
 > 0.2 · 2026-10-09 · OS 버전·ufw 우회·러너 토큰 만료·`svc.sh` 인자·포크 PR 승인 메뉴 이름을 공식 문서로 확인해 확정, `.env` 키 이름을 1-11의 `.env.ops.example`(로컬과 같은 `SPRING_DATASOURCE_*`)에 맞춤
