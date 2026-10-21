@@ -14,6 +14,7 @@ import java.time.Duration;
 public record StorageProperties(
         @NotNull
         URI endpoint,
+        String presignEndpoint,
         @NotBlank
         String region,
         @NotBlank
