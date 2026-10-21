@@ -1,6 +1,8 @@
 # Part 3. 이벤트
 
-> 버전 0.22 · 2026-10-20 · **Part 2 구현에 맞춰 다듬었다**: Part 3이 가리키는 Part 1·2 클래스·메서드·`TestFixtures` 헬퍼를 코드와 대조해 모두 있음을 확인했다(없는 이름은 모두 Part 3이 새로 만드는 것). 공통 규칙 Q에 테스트 중 스케줄러를 끄려면 두 설정이 모두 필요하다는 근거(Part 2 규칙 M)를 이었고, 3-1의 `memberSnapshotOf`가 코드에 아직 없어 이 단계에서 추가한다는 점을 본문에도 맞췄다. 규격 외 변경 없음
+> 버전 0.24 · 2026-10-21 · **3-0을 서명 주소 하나로 줄였다**: 프록시 뒤 POST 403을 `server.forward-headers-strategy: native`로 풀던 것을 `CORS_ALLOWED_ORIGINS`에 공개 주소를 넣는 방식으로 바꿨다. CORS 설정이 없는 경로는 Spring이 검사 없이 통과시키고(`DefaultCorsProcessor`), `src/main`에 요청 scheme에 기대는 코드(리다이렉트·`Secure` 쿠키·절대 URL 생성)가 없어 `native`가 풀어 줄 것이 없었다. 코드 할 일에서 `application-prod.yaml` 설정이, 완료 확인에서 `ForwardedHeadersTest`가 빠졌다
+> 0.23 · 2026-10-21 · **Part 3 앞에 3-0(외부 공개용 설정)을 더했다**: 도메인(`myroutine.dev`)을 구입해 Cloudflare Tunnel로 외부에 공개하기로 해(ADR-011 "외부 접속" 갱신), HTTPS 프록시 뒤에서 POST가 403 `Invalid CORS request`가 되는 문제와 업로드 URL의 서명 호스트 문제를 푸는 설정 두 가지를 단계로 올렸다. 값을 넣기 전에는 동작이 같은 설정 추가라 Part 3 본문(3-1~3-6)은 바꾸지 않았다
+> 0.22 · 2026-10-20 · **Part 2 구현에 맞춰 다듬었다**: Part 3이 가리키는 Part 1·2 클래스·메서드·`TestFixtures` 헬퍼를 코드와 대조해 모두 있음을 확인했다(없는 이름은 모두 Part 3이 새로 만드는 것). 공통 규칙 Q에 테스트 중 스케줄러를 끄려면 두 설정이 모두 필요하다는 근거(Part 2 규칙 M)를 이었고, 3-1의 `memberSnapshotOf`가 코드에 아직 없어 이 단계에서 추가한다는 점을 본문에도 맞췄다. 규격 외 변경 없음
 > 0.21 · 2026-10-20 · **4.1 기준 점검에서 '하' 후보를 권장안대로 정리했다**(사용자 요청): 3-4a의 `netAmount` 공식 재서술, 3-4b의 정산 건수 재확인·`payoutFailed`, 3-4b 컨트롤러 5번의 정산 건수 0, 3-6 재가입의 `$.memberId` 비교·`reasons` 개수·성공 케이스의 `WITHDRAWN` 재확인. 규격 외 변경 없음
 > 0.20 · 2026-10-20 · **4.1 기준 점검에서 '중' 후보를 뺐다**(사용자 요청): 3-1·3-3의 outbox `eventType`·`status`(3-1 `OutboxPublisherTest`가 확인), 3-2 `InboxGuardTest`·3-4a·3-5의 `processedCountOf`와 초기값(`channel`·`attempts`·`sentAt`), 3-3 결제 전 취소의 `$.status`·롤백 케이스의 이벤트 0건/`confirmedAt`, 3-4a의 `periodStart`·가게 수·`net_amount`, 3-4b의 `payoutAttempts`·`lastError`·0원 정산의 `gross`·`net`, 3-5의 재고·발송 실패 반환값. 규격 외 변경 없음
 > 0.19 · 2026-10-20 · **4.1 기준 점검에서 확신 '상'을 뺐다**(사용자 요청): 3-1 `OutboxPublisherTest` 3번과 3-4a 소비 1번의 `id()` not null, 3-2 `InboxGuardTest` 1번의 `processed_at` not null(NOT NULL 컬럼), 3-4a 3번의 "예외 없이 끝난다"(반환값을 읽는다), 3-5 2번의 알림 행 총 5개와 5·6번의 개수 중복. 규격 외 변경 없음
@@ -27,6 +29,7 @@
 
 | 단계 | 제목 | 크기 |
 |---|---|---|
+| 3-0 | 외부 공개용 설정 (업로드 URL 서명 주소) | S |
 | 3-1 | 이벤트가 필요한 이유 · Kafka · Outbox (가게 개설 → SELLER 역할) | L |
 | 3-2 | 멱등 소비 · 재시도 · DLT · 가게 폐업 | M |
 | 3-3 | 기존 흐름에 이벤트 발행 붙이기 | M |
@@ -77,6 +80,85 @@
 | notification | `common`, `member::api`, `shop::api`, `order::api`, `payment::api`, `settlement::api` | 이벤트 구독, 수신자 연락처·가게 주인 조회 |
 
 - **순환 금지**: member가 shop을 참조하므로 shop은 member를 참조할 수 없다. 그래서 "운영 중인 가게가 있으면 탈퇴 불가"는 shop이 `WithdrawalPrecondition`을 구현하지 않고 **member가 `ShopApi.countActiveShops`로 직접 확인**한다.
+
+---
+
+## 3-0. 외부 공개용 설정 (S)
+
+**목표**: HTTPS 리버스 프록시(Cloudflare Tunnel → nginx) 뒤에서 상품 이미지 업로드 URL이 브라우저가 닿는 주소로 발급된다. 같은 환경에서 로그인·주문 같은 POST가 막히지 않게 하는 일은 코드가 아니라 운영 `.env`의 `CORS_ALLOWED_ORIGINS`로 한다(운영 반영 순서 2번). 새 설정 값을 넣기 전에는 지금과 똑같이 동작한다.
+
+**왜 지금**: 외부 공개([ADR-011](../adr/ADR-011-ops-practice-environment.md) "외부 접속")가 이 설정을 기다린다. 기존 동작을 바꾸지 않는 설정 추가라서 Kafka가 들어오는 3-1 전에 끝내 두면, 이후 배포에서 공개 설정 문제와 이벤트 문제가 섞이지 않는다.
+
+**새로 등장**
+
+| 개념 | 한 줄 설명 |
+|---|---|
+| 오리진 검사 | Spring은 요청에 `Origin` 헤더가 있으면 그 값(scheme·host·port)을 요청을 받은 주소와 비교한다. 같으면 통과하고, 다르면 CORS 요청으로 보고 `CORS_ALLOWED_ORIGINS`에 있는 오리진만 통과시킨다. 프록시 뒤에서는 앱이 요청을 내부 주소의 `http`로 받는데 브라우저는 `Origin: https://{공개 주소}`를 붙여 보내므로 달라 보이고, 목록에 없으면 `/api/**`의 POST가 403 `Invalid CORS request`가 된다. GET은 `Origin` 헤더가 없어 통과한다. 목록에 공개 주소를 넣으면 풀린다 |
+| 서명 호스트 | presigned URL은 호스트를 서명에 넣는다. URL을 받아 쓰는 브라우저가 닿는 주소로 서명해야 하고, 서버가 MinIO를 부르는 주소와 달라질 수 있다 |
+
+**정책 (이 단계에서 정함)**
+- `STORAGE_PRESIGN_ENDPOINT`가 비어 있으면 `STORAGE_ENDPOINT`로 서명한다(지금 동작). 값이 있으면 **`S3Presigner`만** 그 주소로 서명한다. `S3Client`(버킷 초기화, 객체 확인·삭제)는 언제나 `STORAGE_ENDPOINT`로 MinIO에 직접 간다.
+- 서명 주소를 `STORAGE_ENDPOINT` 하나로 합쳐 공개 주소로 바꾸지 않는다. 서버의 MinIO 호출까지 인터넷과 프록시를 돌게 되고, 프록시가 읽기·업로드만 MinIO로 넘기면 `BucketInitializer`의 호출이 실패해 앱이 기동하지 못한다.
+- 프록시 뒤의 오리진 검사는 운영 `.env`의 `CORS_ALLOWED_ORIGINS`에 공개 주소(`https://{공개 주소}`)를 더해 푼다. 앱은 요청을 `http`로 아는 채로 둔다. 앱이 요청의 scheme·호스트로 URL을 만들거나(리다이렉트·절대 URL) `Secure` 쿠키를 쓰게 되면 그때 `server.forward-headers-strategy: native`와 프록시의 `X-Forwarded-Proto` 전달을 도입한다.
+- 이미지 공개 URL은 `STORAGE_PUBLIC_BASE_URL`이 만든다(`ImageUrls.toUrl`은 DB의 객체 키 앞에 이 값을 붙인다). 코드 변경이 없고, 값을 바꾸면 기존 이미지의 응답 주소도 같이 바뀐다.
+
+### 할 일
+
+**1) `StorageProperties`** — 서명 주소를 받는다.
+- 필드 `String presignEndpoint`를 `endpoint` 다음에 더한다(`myroutine.storage.presign-endpoint`). 검증 어노테이션은 붙이지 않는다. `URI`가 아니라 `String`인 이유: 환경변수가 비어 있을 때 `URI`가 null이 아니라 빈 주소로 바인딩되는지 확인하지 않았고, 비어 있음을 코드가 직접 판단하게 하는 편이 분명하다.
+- record 생성자 순서가 바뀐다. `new StorageProperties(...)`를 쓰는 곳이 있으면 같이 고친다(Part 2 기준 `src`에는 없다).
+
+**2) `StorageConfig`** — 서명 주소를 고른다.
+- `static URI presignEndpointOf(StorageProperties properties)`: `presignEndpoint`가 null이거나 공백이면 `endpoint()`, 아니면 `URI.create(presignEndpoint)`.
+- `s3Presigner`의 `endpointOverride`만 `presignEndpointOf(properties)`로 바꾼다. `s3Client`는 건드리지 않는다. path-style 서명(`pathStyleAccessEnabled(true)`)은 그대로 둔다 — 서명 URL이 `https://{공개 주소}/{버킷}/{키}` 모양이 되고, 프록시가 이 경로를 MinIO로 그대로 넘기려면 필요하다.
+
+**3) 설정 파일**
+- `application.yaml`: `myroutine.storage.presign-endpoint: ${STORAGE_PRESIGN_ENDPOINT:}` — `endpoint` 아래에 한 줄. 기본값은 빈 문자열이다.
+- `.env.ops.example`: `STORAGE_PRESIGN_ENDPOINT=`를 `STORAGE_ENDPOINT=` 다음 줄에 더한다. 운영 compose는 `env_file`로 `.env` 전체를 넘기므로 compose 파일은 고치지 않는다.
+
+**4) 문서** (Claude)
+- [vm-setup.md](../ops/vm-setup.md) `.env` 표에 `STORAGE_PRESIGN_ENDPOINT` 행, [ADR-011](../adr/ADR-011-ops-practice-environment.md) "외부 접속"에 결정을 반영한다. 이 문서의 버전 줄과 함께 이 단계에서 이미 반영돼 있다.
+
+**운영 반영 순서** — 외부 공개를 켜기 전에 이 순서를 지킨다.
+
+| 순서 | 할 일 | 이 시점의 상태 |
+|---|---|---|
+| 1 | 이 단계를 develop에 머지한다(새 값은 비어 있다) | 지금 접속과 똑같이 동작한다 |
+| 2 | 프록시·터널을 연결하고, 운영 `.env`의 `CORS_ALLOWED_ORIGINS`에 `https://{공개 주소}`를 쉼표로 더한 뒤 앱 컨테이너를 다시 만든다 | `https://{공개 주소}`로 화면과 API가 열리고 로그인 POST가 통과한다. 이미지는 아직 기존 주소다 |
+| 3 | 운영 `.env`에 `STORAGE_PRESIGN_ENDPOINT=https://{공개 주소}`, `STORAGE_PUBLIC_BASE_URL=https://{공개 주소}/{버킷}`을 넣고 앱 컨테이너를 다시 만든다. `STORAGE_ENDPOINT`는 그대로 둔다 | 업로드 URL과 이미지 URL이 공개 주소로 나온다 |
+
+되돌리려면 2번의 `CORS_ALLOWED_ORIGINS`와 3번의 두 값을 원래대로 돌리고 컨테이너를 다시 만든다. 1번은 되돌릴 필요가 없다.
+
+### 완료 확인
+
+값을 읽는 방법: 서명된 URL은 `presigner.presignPutObject(...)`가 돌려주는 `PresignedPutObjectRequest.url()`(`java.net.URL`의 `getProtocol()`·`getHost()`·`getPort()`·`getPath()`)로 읽는다.
+
+#### `common/storage/StorageConfigTest` (Spring 없이 `new StorageConfig().s3Presigner(properties)` 호출)
+
+준비: `endpoint` = `http://minio.internal:9000`, 나머지 필수 값은 아무 값. 키는 `products/p1/a.jpg`. 서명은 네트워크를 쓰지 않는다.
+
+**1. 서명 주소가 있으면 그 주소로 서명** — 동작: `presignEndpoint` = `https://files.example.test`로 서명.
+- `url().getProtocol()` = `"https"`, `getHost()` = `"files.example.test"`, `getPath()`는 `"/myroutine/products/p1/a.jpg"`로 시작(버킷이 앞에 붙는 path-style).
+
+**2. 비어 있으면 endpoint로 서명** — 동작: `presignEndpoint`가 `null`, `""`, `" "`일 때 각각 서명(`@ParameterizedTest` + `@NullAndEmptySource` + `@ValueSource(strings = " ")`).
+- 세 경우 모두 `getHost()` = `"minio.internal"`, `getPort()` = `9000`.
+
+#### `common/storage/PresignEndpointIntegrationTest` (`IntegrationTestSupport` 상속, `@TestPropertySource(properties = "myroutine.storage.presign-endpoint=https://files.example.test")`)
+
+준비: 컨테이너(MinIO 포함)가 뜬 `IntegrationTestSupport`의 기본 설정에 서명 주소만 더한다.
+
+**3. 업로드 URL만 공개 주소, 서버의 MinIO 호출은 그대로** — 동작: 컨텍스트가 뜬 뒤 `objectStorage.presignPut("products/p1/a.jpg", "image/jpeg", 1024)`, 이어서 `objectStorage.exists("products/p1/none.jpg")`.
+- 컨텍스트가 뜬다: `BucketInitializer`가 `endpoint`로 MinIO에 닿아야 한다(서명 주소로 가면 5초 타임아웃으로 기동이 실패한다).
+- `presigned.url()`이 `"https://files.example.test/myroutine/products/p1/a.jpg"`로 시작한다.
+- `exists(...)`가 예외 없이 `false`다(`S3Client`가 실제 MinIO에 닿았다).
+
+기존 `ProductImageControllerTest`는 서명 주소를 넣지 않은 채 그대로 통과해야 한다. 새 값이 비어 있을 때 동작이 같다는 회귀 확인이다.
+
+**리뷰 때 물어볼 것**
+- 프록시 뒤에서 GET은 되는데 POST만 403인 이유는?
+- 서명 주소를 `STORAGE_ENDPOINT` 하나로 합치면 무엇이 깨지나? 어느 시점에 드러나나?
+- `CORS_ALLOWED_ORIGINS`에 공개 주소를 넣으면 403이 풀리는 이유는? 목록에 `/api/**` 밖의 경로는 어떻게 되나?
+- 이 방법이 부족해지는 때는 언제이고, 그때는 무엇을 도입하나?
 
 ---
 
