@@ -1,6 +1,9 @@
 # Part 2. 주문과 돈
 
-> 버전 0.123 · 2026-10-20 · **Part 2 릴리스 완료**: develop → main(#40), 태그 `v0.2.0`, GitHub Release. 규격 변경 없음
+> 버전 0.126 · 2026-10-23 · **테스트 준비 헬퍼 표의 시그니처를 타입까지 적었다**(사용자 지적: 어떤 메서드를 만드는지 안 보인다): 첫 칸을 `이름(타입 인자…)` → `반환타입`으로 고치고(코드가 있는 헬퍼는 `TestFixtures` 실제 시그니처 기준. 매개변수 이름 `stock`·`updateAt`은 `initialStock`·`updatedAt`으로 맞췄다), `ConcurrencyRunner` 행에는 public 메서드 시그니처를, `stockOf`·`idempotencyKeyOf` 행에는 반환 record의 필드 타입을 적었다. 규격·동작 변경 없음
+> 0.125 · 2026-10-23 · **테스트 준비가 아래 테스트 절을 가리키던 곳을 위로 옮겼다**(사용자 지적: 헬퍼를 만드는 방법이 테스트 절에 있다): 2-8a·2-8b의 "아래 …Test를 따른다" 안내를 없애고 필요한 내용만 남겼다. 규격·동작 변경 없음
+> 0.124 · 2026-10-23 · **모든 단계의 "테스트 준비"를 완료 확인 맨 앞(테스트 클래스 앞)으로 옮겼다**(사용자 지적: 헬퍼 설명이 테스트보다 뒤에 있다): 헬퍼 표·이미 있는 헬퍼·쓰는 방법과 도입부의 "확인 값을 읽는 방법"을 한 블록으로 묶어 첫 테스트 클래스 앞에 두고, 표에 있던 내용과 겹치던 읽는 방법 항목(2-1 `cartSnapshotOf`, 2-2 `orderCountOf`·`idempotencyKeyOf`·`stockOf`, 2-3 `pg.requests`, 2-6 `paymentCancelOf`, 2-7 `shopOrderSnapshotOf`)은 표 행으로 합쳤다. 위치가 바뀌어 "위 …"가 된 두 곳(2-8a·2-8b)을 "아래 …"로 고쳤다. 규격·동작 변경 없음
+> 0.123 · 2026-10-20 · **Part 2 릴리스 완료**: develop → main(#40), 태그 `v0.2.0`, GitHub Release. 규격 변경 없음
 > 0.122 · 2026-10-20 · **Part 2 마무리**: 남은 "확인 필요" 3건을 코드와 테스트 SQL 로그로 확정했다(2-5 `JobLock`은 `RuntimeException`으로 감싼다, 2-8a `findByShopOrderIdForUpdate`는 `for no key update of o1_0`으로 주문 행만 잠근다, 2-8a `RefundResponse` 필드). "Part 2 완료"의 알려진 한계 표를 채웠다(썸네일, `FAILED` 환불, 발송 가드, 대사가 닫지 못하는 주문, `UNKNOWN` 상한, Toss 에러 표, 결제 내역 API, 추론만 한 항목). 공통 규칙 P-6에 동시성 테스트가 장치를 지워도 통과할 수 있다는 2-10의 확인을 더했다. 규격 외 변경 없음
 > 0.121 · 2026-10-20 · **2-10 동시성 케이스의 한계를 적었다**(리뷰 결정): `@Version`을 뺀 임시 복사본에서도 통과함을 실험으로 확인해, 이 케이스가 락의 증거가 아니라 이상 상태가 없는지만 본다고 완료 확인과 알려진 한계에 적었다. 규격 외 변경 없음
 > 0.120 · 2026-10-20 · **테스트 중 스케줄러를 끄는 설정을 고쳤다**(2-10 `AutoConfirmServiceTest` 150건 케이스가 정각에 `expected: 150, but was: 52`로 실패): `myroutine.scheduling.enabled: false`만으로는 꺼지지 않았다. Spring Modulith `MomentsAutoConfiguration`이 `@EnableScheduling`을 따로 갖고 있어 `spring.modulith.moments.enabled: false`도 필요하다(임시 복사본에서 스케줄링 처리기 빈이 사라지고 전체 651개가 통과함을 확인). 규격 외 변경 없음
@@ -348,9 +351,20 @@ DO UPDATE SET quantity = LEAST(orders.cart_item.quantity + EXCLUDED.quantity, 99
 
 ### 완료 확인
 
+**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
+
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 구현된 단계라 이 단계 테스트는 기존 코드를 쓴다. `cartSnapshotOf`는 처음 쓰는 미구현 단계 3-6에서 `TestFixtures`에 추가한다. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `registerProduct(UUID memberId, UUID shopId, long price, int initialStock)` → `UUID` | `RegisterProductService.register` (이미 있음) | `CartControllerTest` 가격·재고 0 케이스 |
+| `ConcurrencyRunner` (`support/`) | 메서드는 `static <T> List<Result<T>> run(int threads, Callable<T> task) throws InterruptedException`, `static <T> List<Result<T>> run(List<Callable<T>> tasks) throws InterruptedException`, 결과 `record Result<T>(T value, Throwable error)`의 `boolean ok()`다. 동작은 공통 규칙 N 표의 `ConcurrencyRunner` 행(스레드 풀 + latch 2개, 결과는 제출 순서대로) | `CartConcurrencyTest` |
+| `cartSnapshotOf(UUID memberId)` → `CartSnapshot` | JDBC 쿼리 2개로 한 번에 읽는다: `orders.cart`의 `count(*)`(`WHERE member_id = ?`), `orders.cart_item`의 `product_id`·`quantity`(`JOIN orders.cart c ON c.id = ci.cart_id WHERE c.member_id = ?`). `CartSnapshot`은 `support/`의 record `(int cartCount, Map<UUID, Integer> quantityByProduct)`이고 `itemCount()`(맵 크기), `quantity(productId)`(없으면 0. `quantity`는 1~99라 0은 항목 없음과 구별된다)를 가진다. `cartCount()`는 회원의 `orders.cart` 행 수다. 테스트는 한 번 읽고 쿼리를 쓰지 않는다 | `CartControllerTest` 7번, `CartConcurrencyTest`, 2-4~2-6의 장바구니 확인 |
+
+이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`
+
 **확인 값을 읽는 방법**
 - 응답: `jsonPath`. 에러 응답의 코드는 `$.code`. 장바구니 조회(`GET /api/cart`)에서 상품 하나의 칸은 `$.items[?(@.productId == '%s')].필드`로 읽는다. 필터 경로는 결과가 리스트라서 값은 `value(...)`로 비교하고, null은 `value(contains(nullValue()))`로 확인한다(공통 규칙 P-5).
-- DB: `CartSnapshot cs = testFixtures.cartSnapshotOf(memberId)` 한 번으로 읽는다. `cs.cartCount()`(회원의 `orders.cart` 행 수), `cs.itemCount()`(항목 수), `cs.quantity(productId)`(그 상품 항목의 수량, 항목이 없으면 0). 쿼리를 테스트에 쓰지 않는다.
 - SQL 수: `entityManagerFactory.unwrap(SessionFactory.class).getStatistics()`의 `getPrepareStatementCount()`. 재려는 요청 직전에 `statistics.clear()`를 부른다.
 
 **공통 준비** (`CartControllerTest`): 판매자 1명·가게 1개(`signup` → `openShop`), 구매자 1명(판매자와 다른 회원, `login`으로 토큰). 상품은 `registerProduct(sellerId, shopId, 가격, 재고)`로 만든다. 장바구니는 구매자 토큰으로 `POST /api/cart/items`(본문 `{"productId":"...","quantity":N}`)를 MockMvc로 호출해 만들고, 응답의 `$.cartItemId`가 항목 ID다. 수량 변경은 `PATCH /api/cart/items/{id}`(본문 `{"quantity":N}`), 삭제는 `DELETE /api/cart/items/{id}`다.
@@ -399,20 +413,7 @@ DO UPDATE SET quantity = LEAST(orders.cart_item.quantity + EXCLUDED.quantity, 99
 - 열 개의 `Result` 모두 `error == null`(`ok()`).
 - DB: `cs.cartCount()` = 1, `cs.itemCount()` = 1, `cs.quantity(productId)` = 10(덮어쓰기로 줄거나 중복 행이 생기지 않았다).
 
-**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
-
-**이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 구현된 단계라 이 단계 테스트는 기존 코드를 쓴다. `cartSnapshotOf`는 처음 쓰는 미구현 단계 3-6에서 `TestFixtures`에 추가한다. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `registerProduct(memberId, shopId, long price, int stock)` → productId | `RegisterProductService.register` (이미 있음) | `CartControllerTest` 가격·재고 0 케이스 |
-| `ConcurrencyRunner` (`support/`) | 공통 규칙 N 표의 `ConcurrencyRunner` 행(스레드 풀 + latch 2개, 결과는 제출 순서대로) | `CartConcurrencyTest` |
-| `cartSnapshotOf(memberId)` → `CartSnapshot` | JDBC 쿼리 2개로 한 번에 읽는다: `orders.cart`의 `count(*)`(`WHERE member_id = ?`), `orders.cart_item`의 `product_id`·`quantity`(`JOIN orders.cart c ON c.id = ci.cart_id WHERE c.member_id = ?`). `CartSnapshot`은 `support/`의 record `(int cartCount, Map<UUID, Integer> quantityByProduct)`이고 `itemCount()`(맵 크기), `quantity(productId)`(없으면 0. `quantity`는 1~99라 0은 항목 없음과 구별된다)를 가진다 | `CartControllerTest` 7번, `CartConcurrencyTest`, 2-4~2-6의 장바구니 확인 |
-
-이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`
-
-- 동시성 테스트를 쓰기 전에 `support/ConcurrencyRunner`를 먼저 만든다.
-- 일부러 깨뜨려 확인(P-6): `addQuantity`를 "조회 후 INSERT/UPDATE"로 바꿔 동시성 테스트가 실패하는지 본다.
+일부러 깨뜨려 확인(P-6): `addQuantity`를 "조회 후 INSERT/UPDATE"로 바꿔 동시성 테스트가 실패하는지 본다.
 
 **리뷰 때 물어볼 것**
 - 장바구니에 가격을 저장하지 않는 이유는?
@@ -762,12 +763,28 @@ List<Order> findByMemberNextPage(UUID memberId, Instant cursorCreatedAt, UUID cu
 
 ### 완료 확인
 
+**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
+
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 구현된 단계라 이 단계 테스트는 기존 코드를 쓴다. `orderCountOf`·`idempotencyKeyOf`는 미구현 단계에서 쓰지 않으므로 새로 쓰거나 고칠 때 추가한다. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `address(UUID memberId)` → `UUID` | `MemberAddressService.register(memberId, new AddressCommand(...))` | 체크아웃 전부, "남의 배송지 → 404" |
+| `addToCart(UUID memberId, UUID productId, int quantity)` → `UUID` | `CartService.addItem` | 체크아웃 전부 |
+| `checkout(UUID memberId, List<UUID> cartItemIds, UUID addressId)` → `CheckoutResult` | `CheckoutService.checkout(memberId, new CheckoutCommand(...))` | 체크아웃의 준비 상태, 2-4 이후 전부 |
+| `stockOf(UUID productId)` → `StockSnapshot` (선택) | JDBC `SELECT available, reserved, sold FROM product.stock WHERE product_id = ?`. `StockSnapshot`은 `support/`의 record `(int available, int reserved, int sold)` | "reserved 증가·원복"을 보는 2-2·2-4·2-5·2-6·2-8의 단언. 반복되면 만든다 |
+| `orderCountOf(UUID memberId)` → `int` | JDBC `SELECT count(*) FROM orders.orders WHERE member_id = ?`(그 회원의 `orders.orders` 행 수. 주문 하나의 상태는 이 단계의 케이스가 응답으로 확인한다) | 체크아웃 거부 케이스의 "주문 0건", 멱등 케이스의 1건·2건 |
+| `idempotencyKeyOf(String key)` → `IdempotencyKeyState` 또는 `null` | JDBC `SELECT status, response_status FROM common.idempotency_key WHERE idempotency_key = ?`. `IdempotencyKeyState`는 `support/`의 record `(String status, Integer responseStatus)`. 행이 없으면 `null`. 키는 테스트마다 새 UUID라 키만으로 한 행을 찾는다 | `IdempotencyAspectTest` 2·4번 |
+
+이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `cartSnapshotOf`
+
+헬퍼를 쓰는 방법은 다음과 같다.
+- `IdempotencyAspectTest`는 요청이 가게 개설 API라 `openShop`을 호출하지 않고 `signup`·`token`만 쓴다(4번만 중복 사업자번호를 만들려고 `openShop`을 쓴다). 5·6번의 만료 `UPDATE`에 쓰는 JDBC는 테스트 클래스 생성자로 `JdbcTemplate`을 주입받는다(`IntegrationTestSupport.jdbc`는 패키지 전용이라 다른 패키지에서 못 쓴다).
+
 **확인 값을 읽는 방법**
 - 응답: `jsonPath`. 에러 응답의 코드는 `$.code`, 부가 정보는 `$.details.필드`(`$.details.productIds`는 배열이라 `contains(...)`로 원소와 순서까지 비교한다).
-- 주문 건수: `testFixtures.orderCountOf(memberId)`(그 회원의 `orders.orders` 행 수). 주문 하나의 상태는 이 단계의 케이스가 응답으로 확인한다.
-- 재고: `testFixtures.stockOf(productId)` → `available`, `reserved`, `sold`. 예약 행이 없음은 3번에서만 확인하므로 한 줄 JDBC `SELECT count(*) FROM product.stock_reservation WHERE product_id IN (?, ?)`로 읽는다.
+- 예약 행: 예약 행이 없음은 3번에서만 확인하므로 한 줄 JDBC `SELECT count(*) FROM product.stock_reservation WHERE product_id IN (?, ?)`로 읽는다. 재고 수량은 `stockOf`(표)의 `available`, `reserved`, `sold`다.
 - 장바구니: 체크아웃 전에 `cartBefore = cartService.getCart(buyerId)`를 저장해 두고, 이후 `cartService.getCart(buyerId)`와 `isEqualTo`로 비교한다(항목·수량·금액 전체가 같다).
-- 멱등 키 행: `testFixtures.idempotencyKeyOf(key)` → `IdempotencyKeyState`의 `status()`·`responseStatus()`. 행이 없으면 `null`이다. 키는 테스트마다 새 UUID라 키만으로 한 행을 찾는다.
 - SQL 수: 2-1과 같다(`Statistics.getPrepareStatementCount()`, 요청 직전 `statistics.clear()`).
 
 **공통 준비** (`OrderControllerTest`의 체크아웃, `CheckoutIdempotencyConcurrencyTest`): 판매자 1명·가게 1개, `product1`(1000원, 재고 100). 구매자 1명(`signup` → `login`), `address(buyerId)`, `addToCart(buyerId, product1, 2)`로 `cartItemId`. 체크아웃 요청은 `POST /api/orders/checkout`에 `Authorization: Bearer {구매자 토큰}`, `Idempotency-Key`(새 UUID), 본문 `{"cartItemIds":["{cartItemId}"],"addressId":"{addressId}"}`다.
@@ -892,23 +909,6 @@ List<Order> findByMemberNextPage(UUID memberId, Instant cursorCreatedAt, UUID cu
 #### `ModularityTest`
 
 `ApplicationModules.verify()`를 부르는 기존 테스트가 통과한다(order가 product·shop·member의 `api` 패키지만 참조한다). 실패하면 예외 메시지에 위반한 의존이 나온다.
-
-**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
-
-**이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 구현된 단계라 이 단계 테스트는 기존 코드를 쓴다. `orderCountOf`·`idempotencyKeyOf`는 미구현 단계에서 쓰지 않으므로 새로 쓰거나 고칠 때 추가한다. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `address(memberId)` → addressId | `MemberAddressService.register(memberId, new AddressCommand(...))` | 체크아웃 전부, "남의 배송지 → 404" |
-| `addToCart(memberId, productId, quantity)` → cartItemId | `CartService.addItem` | 체크아웃 전부 |
-| `checkout(memberId, List<UUID> cartItemIds, UUID addressId)` → `CheckoutResult` | `CheckoutService.checkout(memberId, new CheckoutCommand(...))` | 체크아웃의 준비 상태, 2-4 이후 전부 |
-| `stockOf(productId)` → `StockSnapshot(available, reserved, sold)` (선택) | JDBC `SELECT available, reserved, sold FROM product.stock WHERE product_id = ?` | "reserved 증가·원복"을 보는 2-2·2-4·2-5·2-6·2-8의 단언. 반복되면 만든다 |
-| `orderCountOf(memberId)` → `int` | JDBC `SELECT count(*) FROM orders.orders WHERE member_id = ?` | 체크아웃 거부 케이스의 "주문 0건", 멱등 케이스의 1건·2건 |
-| `idempotencyKeyOf(key)` → `IdempotencyKeyState(status, responseStatus)` 또는 `null` | JDBC `SELECT status, response_status FROM common.idempotency_key WHERE idempotency_key = ?`. 행이 없으면 `null` | `IdempotencyAspectTest` 2·4번 |
-
-이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `cartSnapshotOf`
-
-- `IdempotencyAspectTest`는 요청이 가게 개설 API라 `openShop`을 호출하지 않고 `signup`·`token`만 쓴다(4번만 중복 사업자번호를 만들려고 `openShop`을 쓴다). 5·6번의 만료 `UPDATE`에 쓰는 JDBC는 테스트 클래스 생성자로 `JdbcTemplate`을 주입받는다(`IntegrationTestSupport.jdbc`는 패키지 전용이라 다른 패키지에서 못 쓴다).
 
 **추가 항목**
 - 바로 구매(장바구니를 거치지 않고 상품·수량으로 체크아웃): 요청에 `items`를 받는 경로 추가. 만들면 결제 완료 때 장바구니 차감 대상에서 빼야 하므로 주문에 출처(`from_cart` 등)를 남긴다
@@ -1140,10 +1140,18 @@ void resetPg() { pg.reset(); }    // 기존 truncateAllTables 옆에 둔다
 
 ### 완료 확인
 
+**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
+
+아래 테스트를 쓰기 전에 만든다. `TestFixtures`에 더할 것은 없다. `FakePgServer`·`Behavior`(`support/`)가 이 단계의 준비물이다.
+
+이미 있는 헬퍼: `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `address`, `addToCart`, `checkout`, `stockOf`, `StockSnapshot`, `cartSnapshotOf`, `orderCountOf`, `idempotencyKeyOf`
+
+헬퍼를 쓰는 방법은 다음과 같다.
+- `FakePgServer`는 `IntegrationTestSupport`가 띄운다. 테스트는 `pg.on(경로 접두어, Behavior...)`, `pg.requests(...)`, `pg.markApproved(...)`만 쓴다. `pg.requests("/v1/payments/confirm")`가 돌려주는 `RecordedRequest`는 `headers().get("idempotency-key")`·`headers().get("authorization")`로 읽는다(헤더 키는 소문자).
+
 **확인 값을 읽는 방법**
 - 반환값: `PgResult`. `isInstanceOf(PgResult.Approved.class)`로 종류를 확인한 뒤 캐스팅해 `Approved.paymentKey()`·`totalAmount()`, `Rejected.code()`, `Unknown.reason()`을 값으로 비교한다. 종류만 보고 끝내지 않는다.
 - `Unknown.reason()`의 값: 5xx인데 본문이 비어 있으면 `HTTP_5xx`, 타임아웃·연결 끊김은 예외 클래스 이름 `ResourceAccessException`, 불확실 코드는 그 코드 문자열이다.
-- 가짜 PG가 받은 요청: `pg.requests("/v1/payments/confirm")` → `RecordedRequest`의 `headers().get("idempotency-key")`, `headers().get("authorization")`(헤더 키는 소문자).
 
 **공통 준비** (`payment/infrastructure/TossClientTest`, `extends IntegrationTestSupport`, `TossClient` 주입): 호출은 `tossClient.confirm(paymentId, "pk_1", "order-1", Money.of(1000))`이고 `paymentId`는 `Ids.newId()`다. 가짜 서버는 `pg.on(...)`을 하지 않으면 승인으로 응답하고, 테스트가 끝나면 `pg.reset()`이 상태를 비운다. `application-test.yaml`의 `secret-key`는 `test_sk_dummy`, `read-timeout`은 500ms다.
 
@@ -1174,14 +1182,6 @@ void resetPg() { pg.reset(); }    // 기존 truncateAllTables 옆에 둔다
 - `pg.requests("/v1/payments/confirm")` 정확히 1건.
 - `headers().get("idempotency-key")` = `paymentId.toString()`.
 - `headers().get("authorization")` = `"Basic " + Base64(("test_sk_dummy" + ":").getBytes(UTF_8))`. 시크릿 키 뒤의 콜론을 빠뜨리면 값이 달라져 실패한다(`startsWith("Basic ")`만으로는 콜론 누락을 잡지 못한다).
-
-**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
-
-**이 단계에서 추가하는 헬퍼**: `TestFixtures`에 더할 것은 없다. `FakePgServer`·`Behavior`(`support/`)가 이 단계의 준비물이다.
-
-이미 있는 헬퍼: `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `address`, `addToCart`, `checkout`, `stockOf`, `StockSnapshot`, `cartSnapshotOf`, `orderCountOf`, `idempotencyKeyOf`
-
-- `TestFixtures` 추가 없음. `FakePgServer`는 `IntegrationTestSupport`가 띄운다. 테스트는 `pg.on(경로 접두어, Behavior...)`, `pg.requests(...)`, `pg.markApproved(...)`만 쓴다.
 
 **추가 항목**
 - PG 호출 감사 테이블(`payment.pg_call_log`: 작업·HTTP 상태·결과·지연시간·요약) — 지금은 로그 한 줄로 대신한다. Part 7 ELK가 붙으면 로그로 같은 것을 검색할 수 있다
@@ -1382,6 +1382,19 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 
 ### 완료 확인
 
+**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
+
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 구현된 단계라 이 단계 테스트는 기존 코드를 쓴다. `snapshotOf`와 `OrderSnapshot`은 2-8a에서 만들고, 아래 필드는 처음 쓰는 미구현 단계에서 더한다: `status`는 3-5, 결제 `id`·`method`·`approvedAt`은 7-3, `reservationStatuses`는 7-4. `failureReason`·`paidAt`·결제 `failureCode`는 미구현 단계에서 쓰지 않는다. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `createPendingOrder(UUID buyerId, UUID... productIds)` → `CheckoutResult` | 상품마다 1개씩 `addToCart` → `address` → `checkout`. 수량이 필요하면 `createPendingOrder(UUID buyerId, Map<UUID, Integer> productIds)` → `CheckoutResult`(`LinkedHashMap`)를 오버로드 | `PaymentConfirmTest`·`OrderCancelTest`의 결제 대기 주문 |
+| `confirmPayment(UUID memberId, UUID orderId)` → `ConfirmResult` | `ConfirmPaymentService.confirm(memberId, orderId, new ConfirmPaymentCommand("pk_" + orderId, "ORD-" + orderId, totalAmount))`. `totalAmount`는 JDBC로 읽는다. 가짜 서버의 기본 동작이 승인이다. 거절·불확실이면 서비스가 예외나 202 결과를 돌려주므로 그대로 둔다 | 2-5·2-6·2-7 이후 "결제된 주문", 2-6의 타임아웃 주입 |
+| `setOrderExpired(UUID orderId, Instant expiresAt)` → `void` | JDBC `UPDATE orders.orders SET expires_at = ? WHERE id = ?` | `PaymentConfirmTest` 만료, `OrderExpirationServiceTest` |
+| `OrderSnapshot`에 주문·예약·결제 필드 추가 | `snapshotOf`(정의는 2-8a)에 쿼리와 필드를 더한다. 주문(`orders.orders`의 `status`·`failure_reason`·`paid_at`, `WHERE id = ?`)은 `String status`·`String failureReason`·`Instant paidAt`(행이 없으면 세 값 모두 `null`), 예약 상태 목록(`product.stock_reservation.status`, `WHERE order_id = ?`)은 `List<String> reservationStatuses`다. 결제 쿼리에는 `payment.payment`의 `id`·`failure_code`·`method`·`approved_at`을 더해 `PaymentState`를 `(UUID id, long amount, long cancelledAmount, String status, String failureCode, String method, Instant approvedAt, String paymentKey)`로 넓힌다. 이후 단계가 필드를 더한다(2-6 `PaymentState.reconcileAttempts`, 2-10 `LineState.confirmedAt`) | 2-4 이후 주문·예약·결제 확인 |
+
+이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `address`, `addToCart`, `checkout`, `stockOf`, `StockSnapshot`, `cartSnapshotOf`, `orderCountOf`, `idempotencyKeyOf`
+
 **확인 값을 읽는 방법**
 - 응답: `jsonPath`. 에러 응답의 코드는 `$.code`, 거절 코드는 `$.details.pgCode`.
 - 주문 전체: `OrderSnapshot s = testFixtures.snapshotOf(orderId)` 한 번으로 읽는다. 주문은 `s.status()`·`s.failureReason()`·`s.paidAt()`, 가게주문은 `s.shopOrderStatus()`(가게주문이 하나일 때), 품목은 `s.line(productId).status()`, 예약 행은 `s.reservationStatuses()`, 결제는 `s.payment()`의 `.id()`·`.status()`·`.failureCode()`·`.amount()`·`.cancelledAmount()`다. 결제 행이 없어야 하는 케이스는 `s.payment()`가 `null`이다. 쿼리를 테스트에 쓰지 않는다.
@@ -1505,19 +1518,6 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 - `DataIntegrityViolationException`이 던져지고 예외 메시지의 제약 이름이 `uk_payment_order`다. 두 번째 `begin`은 `pgOrderId`·`paymentKey`를 바꿨으므로 `uk_payment_pg_order_id`·`uk_payment_payment_key`는 위반되지 않고 `orderId` 중복만 남는다.
 - 부정 확인: 한 줄 JDBC `SELECT count(*) FROM payment.payment WHERE order_id = ?` = 1(두 번째 행이 만들어지지 않았다. 행 수는 스냅샷으로 읽지 못해 이 케이스만 직접 센다).
 
-**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
-
-**이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 구현된 단계라 이 단계 테스트는 기존 코드를 쓴다. `snapshotOf`와 `OrderSnapshot`은 2-8a에서 만들고, 아래 필드는 처음 쓰는 미구현 단계에서 더한다: `status`는 3-5, 결제 `id`·`method`·`approvedAt`은 7-3, `reservationStatuses`는 7-4. `failureReason`·`paidAt`·결제 `failureCode`는 미구현 단계에서 쓰지 않는다. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `createPendingOrder(UUID buyerId, UUID... productIds)` → `CheckoutResult` | 상품마다 1개씩 `addToCart` → `address` → `checkout`. 수량이 필요하면 `createPendingOrder(UUID buyerId, Map<UUID, Integer>)`(`LinkedHashMap`)를 오버로드 | `PaymentConfirmTest`·`OrderCancelTest`의 결제 대기 주문 |
-| `confirmPayment(memberId, orderId)` → `ConfirmResult` | `ConfirmPaymentService.confirm(memberId, orderId, new ConfirmPaymentCommand("pk_" + orderId, "ORD-" + orderId, totalAmount))`. `totalAmount`는 JDBC로 읽는다. 가짜 서버의 기본 동작이 승인이다. 거절·불확실이면 서비스가 예외나 202 결과를 돌려주므로 그대로 둔다 | 2-5·2-6·2-7 이후 "결제된 주문", 2-6의 타임아웃 주입 |
-| `setOrderExpired(orderId, Instant)` | JDBC `UPDATE orders.orders SET expires_at = ? WHERE id = ?` | `PaymentConfirmTest` 만료, `OrderExpirationServiceTest` |
-| `OrderSnapshot`에 주문·예약·결제 필드 추가 | `snapshotOf`(정의는 2-8a)에 쿼리와 필드를 더한다. 주문(`orders.orders`의 `status`·`failure_reason`·`paid_at`, `WHERE id = ?`)은 `String status`·`String failureReason`·`Instant paidAt`(행이 없으면 세 값 모두 `null`), 예약 상태 목록(`product.stock_reservation.status`, `WHERE order_id = ?`)은 `List<String> reservationStatuses`다. 결제 쿼리에는 `payment.payment`의 `id`·`failure_code`·`method`·`approved_at`을 더해 `PaymentState`를 `(UUID id, long amount, long cancelledAmount, String status, String failureCode, String method, Instant approvedAt, String paymentKey)`로 넓힌다. 이후 단계가 필드를 더한다(2-6 `PaymentState.reconcileAttempts`, 2-10 `LineState.confirmedAt`) | 2-4 이후 주문·예약·결제 확인 |
-
-이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `address`, `addToCart`, `checkout`, `stockOf`, `StockSnapshot`, `cartSnapshotOf`, `orderCountOf`, `idempotencyKeyOf`
-
 **리뷰 때 물어볼 것**
 - 트랜잭션 1과 2 사이에서 앱이 죽으면 무엇이 남고, 누가 이어서 처리하나? (→ 2-6)
 - `@Transactional` 메서드 안에서 Toss를 부르면 정확히 어떤 문제가 생기나? (As-Is ORD-02)
@@ -1606,6 +1606,16 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 
 ### 완료 확인
 
+**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
+
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `breakReservedStock(UUID productId)` → `void` | JDBC `UPDATE product.stock SET available = available + reserved, reserved = 0 WHERE product_id = ?`. `ck_stock_balance`(합 = received)는 합이 같아 통과하고, 이후 해제·확정이 "예약된 재고가 부족해"(`IllegalStateException`)로 실패한다 | `OrderExpirationServiceTest` 한 건 실패 주입, 2-6 보상 |
+
+이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `address`, `addToCart`, `checkout`, `stockOf`, `StockSnapshot`, `createPendingOrder`, `confirmPayment`, `setOrderExpired`, `snapshotOf`, `cartSnapshotOf`, `orderCountOf`, `idempotencyKeyOf`
+
 **확인 값을 읽는 방법**
 - 반환값: `expireBatch()`는 만료시킨 건수(`int`), `runExclusively`는 작업을 실행했으면 `true`(`boolean`).
 - 주문·가게주문·품목·예약·재고·장바구니는 2-4와 같다(`snapshotOf(orderId)`의 `s.status()`·`s.shopOrderStatus()`·`s.line(productId).status()`·`s.reservationStatuses()`, 재고 `stockOf`, 장바구니 `cartSnapshotOf(buyerId).quantity(productId)`).
@@ -1649,16 +1659,6 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 - 반환 2.
 - `order1`: `status` = `PENDING_PAYMENT` 그대로(그 건의 트랜잭션이 롤백됐다).
 - `order2`·`order3`: `status` = `EXPIRED`.
-
-**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
-
-**이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `breakReservedStock(productId)` | JDBC `UPDATE product.stock SET available = available + reserved, reserved = 0 WHERE product_id = ?`. `ck_stock_balance`(합 = received)는 합이 같아 통과하고, 이후 해제·확정이 "예약된 재고가 부족해"(`IllegalStateException`)로 실패한다 | `OrderExpirationServiceTest` 한 건 실패 주입, 2-6 보상 |
-
-이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `address`, `addToCart`, `checkout`, `stockOf`, `StockSnapshot`, `createPendingOrder`, `confirmPayment`, `setOrderExpired`, `snapshotOf`, `cartSnapshotOf`, `orderCountOf`, `idempotencyKeyOf`
 
 **리뷰 때 물어볼 것**
 - 트랜잭션 레벨 advisory lock과 세션 레벨 advisory lock의 차이는?
@@ -1800,9 +1800,22 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 ### 완료 확인
 
+**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
+
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 구현된 단계라 이 단계 테스트는 기존 코드를 쓴다. `paymentCancelOf`와 `reconcileAttempts`는 처음 쓰는 미구현 단계 7-3에서 추가한다. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `setOrderUpdatedAt(UUID orderId, Instant updatedAt)` → `void` | JDBC `UPDATE orders.orders SET updated_at = ? WHERE id = ?` | `OrderReconcileServiceTest` (대사 대상 = 30초 넘게 머문 주문) |
+| `createPaidOrder(UUID buyerId, UUID... productIds)` → `UUID` | `createPendingOrder` + `confirmPayment`(승인). `CheckoutResult.orderId()`를 돌려준다 | `PaymentCancelTest`(승인된 결제가 필요), 2-7 이후 |
+| `paymentCancelOf(String idempotencyKey)` → `PaymentCancelState` 또는 `null` | JDBC `SELECT status, failure_code FROM payment.payment_cancel WHERE idempotency_key = ?`. `PaymentCancelState`는 `support/`의 record `(String status, String failureCode)`. 행이 없으면 `null`. `idempotency_key`가 unique(`uk_payment_cancel_idempotency_key`)라 키마다 행이 하나다 | `PaymentCancelTest` 1~6번, `OrderReconcileServiceTest` 8·9번 |
+| `OrderSnapshot.PaymentState`에 `int reconcileAttempts` 추가 | `snapshotOf`의 결제 쿼리에 `payment.payment.reconcile_attempts` 컬럼을 더한다 | `OrderReconcileServiceTest` 6번 |
+
+이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `address`, `addToCart`, `checkout`, `stockOf`, `StockSnapshot`, `createPendingOrder`, `confirmPayment`, `setOrderExpired`, `breakReservedStock`, `snapshotOf`, `cartSnapshotOf`, `orderCountOf`, `idempotencyKeyOf`
+
 **확인 값을 읽는 방법**
 - 반환값: `paymentApi.cancel(...)`은 `CancelOutcome`(`DONE`·`FAILED`·`UNKNOWN`), `orderReconcileService.reconcileBatch()`는 `PAID` 또는 `PAYMENT_FAILED`로 끝낸 건수(`int`).
-- 결제: `s = testFixtures.snapshotOf(orderId)`의 `s.payment()` → `.status()`·`.amount()`·`.cancelledAmount()`·`.failureCode()`·`.reconcileAttempts()`·`.paymentKey()`. 취소 호출 기록: `testFixtures.paymentCancelOf(idempotencyKey)` → `PaymentCancelState`의 `status()`·`failureCode()`. `idempotency_key`가 unique(`uk_payment_cancel_idempotency_key`)라 키마다 행이 하나이고, 행이 없으면 `null`이다.
+- 결제: `s = testFixtures.snapshotOf(orderId)`의 `s.payment()` → `.status()`·`.amount()`·`.cancelledAmount()`·`.failureCode()`·`.reconcileAttempts()`·`.paymentKey()`. 취소 호출 기록은 `paymentCancelOf`(표)의 `status()`·`failureCode()`로 읽는다.
 - 주문·재고·장바구니는 2-4와 같다(`s.status()`·`s.failureReason()`·`s.reservationStatuses()`, 재고 `stockOf`, 장바구니 `cartSnapshotOf(buyerId).quantity(productId)`).
 - 가짜 PG가 받은 요청: 취소는 `pg.requests("/v1/payments/" + s.payment().paymentKey() + "/cancel")`, 조회는 `pg.requests("/v1/payments/orders/")`, 승인은 `pg.requests("/v1/payments/confirm")`. 취소 본문의 `cancelAmount`는 `readTree`로 읽어 `asLong()`으로 비교한다.
 
@@ -1897,19 +1910,6 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 - 결제 `cancelledAmount()` = `amount()`. `paymentCancelOf("order-compensate-" + orderId).status()` = `DONE`.
 - 주문 `s.status()` = `PAYMENT_FAILED`.
 - 장바구니 `quantity(productId)` = 1 그대로.
-
-**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
-
-**이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 구현된 단계라 이 단계 테스트는 기존 코드를 쓴다. `paymentCancelOf`와 `reconcileAttempts`는 처음 쓰는 미구현 단계 7-3에서 추가한다. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `setOrderUpdatedAt(orderId, Instant)` | JDBC `UPDATE orders.orders SET updated_at = ? WHERE id = ?` | `OrderReconcileServiceTest` (대사 대상 = 30초 넘게 머문 주문) |
-| `createPaidOrder(UUID buyerId, UUID... productIds)` → orderId | `createPendingOrder` + `confirmPayment`(승인). `CheckoutResult.orderId()`를 돌려준다 | `PaymentCancelTest`(승인된 결제가 필요), 2-7 이후 |
-| `paymentCancelOf(idempotencyKey)` → `PaymentCancelState` 또는 `null` | JDBC `SELECT status, failure_code FROM payment.payment_cancel WHERE idempotency_key = ?`. `PaymentCancelState`는 `support/`의 record `(String status, String failureCode)`. 행이 없으면 `null` | `PaymentCancelTest` 1~6번, `OrderReconcileServiceTest` 8·9번 |
-| `OrderSnapshot.PaymentState`에 `int reconcileAttempts` 추가 | `snapshotOf`의 결제 쿼리에 `payment.payment.reconcile_attempts` 컬럼을 더한다 | `OrderReconcileServiceTest` 6번 |
-
-이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `address`, `addToCart`, `checkout`, `stockOf`, `StockSnapshot`, `createPendingOrder`, `confirmPayment`, `setOrderExpired`, `breakReservedStock`, `snapshotOf`, `cartSnapshotOf`, `orderCountOf`, `idempotencyKeyOf`
 
 **리뷰 때 물어볼 것**
 - 외부 결제가 타임아웃 나면 어떻게 처리하나? (면접 단골 — 이 단계의 테스트가 답)
@@ -2008,10 +2008,22 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 ### 완료 확인
 
+**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
+
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 구현된 단계라 이 단계 테스트는 기존 코드를 쓴다. `shopOrderSnapshotOf`는 처음 쓰는 미구현 단계 2-9에서 추가한다. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `shopOrderIdOf(UUID orderId, UUID shopId)` → `UUID` | JDBC `SELECT id FROM orders.shop_order WHERE order_id = ? AND shop_id = ?` | `SellerOrderControllerTest`, 2-9·2-10 |
+| `shipShopOrder(UUID sellerId, UUID shopId, UUID shopOrderId)` → `void`, `deliverShopOrder(UUID sellerId, UUID shopId, UUID shopOrderId)` → `void` | `ShipmentService.ship(..., "CJ대한통운", "1234567890")`, `deliver` | 2-8 "발송된 품목 취소", 2-9·2-10 |
+| `shopOrderSnapshotOf(UUID shopOrderId)` → `ShopOrderSnapshot` | JDBC `SELECT status, carrier, tracking_number, shipped_at, delivered_at, completed_at FROM orders.shop_order WHERE id = ?`(컬럼은 2-2 마이그레이션에 있다). `ShopOrderSnapshot`은 `support/`의 record `(String status, String carrier, String trackingNumber, Instant shippedAt, Instant deliveredAt, Instant completedAt)` | `SellerOrderControllerTest` 3~6번, 2-9 가게주문 `completed_at` |
+
+이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `address`, `addToCart`, `checkout`, `stockOf`, `StockSnapshot`, `createPendingOrder`, `confirmPayment`, `setOrderExpired`, `breakReservedStock`, `setOrderUpdatedAt`, `createPaidOrder`, `snapshotOf`, `cartSnapshotOf`, `orderCountOf`, `idempotencyKeyOf`, `paymentCancelOf`
+
 **확인 값을 읽는 방법**
 - 도메인 테스트: `Order`·`ShopOrder`·`OrderLine`의 getter(`getStatus()`, `getCarrier()`, `getTrackingNumber()`, `getShippedAt()`, `getDeliveredAt()`)로 읽는다.
 - 응답: `jsonPath`. 에러 응답의 코드는 `$.code`. 상세·발송·배송완료 응답의 품목은 `$.lines[*].status`(품목이 여러 개면 `value(everyItem(is("SHIPPED")))`처럼 모든 원소를 비교한다), 목록은 `$.items[*]`·`$.nextCursor`. null은 `value(nullValue())`로 확인한다(경로가 틀리면 실패한다).
-- DB: 가게주문은 `ShopOrderSnapshot so = testFixtures.shopOrderSnapshotOf(shopOrderId)` 한 번으로 읽는다(`so.status()`·`so.carrier()`·`so.trackingNumber()`·`so.shippedAt()`·`so.deliveredAt()`·`so.completedAt()`). 품목은 `testFixtures.snapshotOf(orderId).line(productId).status()`. 쿼리를 테스트에 쓰지 않는다.
+- DB: 가게주문은 `ShopOrderSnapshot so = testFixtures.shopOrderSnapshotOf(shopOrderId)` 한 번으로 읽는다(`status()`·`carrier()`·`trackingNumber()`·`shippedAt()`·`deliveredAt()`·`completedAt()`. 표의 `ShopOrderSnapshot` 필드와 같다). 품목은 `testFixtures.snapshotOf(orderId).line(productId).status()`. 쿼리를 테스트에 쓰지 않는다.
 - SQL 수: 2-1과 같다.
 
 #### `order/domain/OrderShipmentTest`
@@ -2057,18 +2069,6 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 **7. 목록 SQL 수는 가게주문 개수와 무관하다** — 준비: 판매자 1·`shop1`·`product1`(`registerProduct(seller1Id, shop1Id, 10000, 50)`, 10번 주문하려면 재고가 10보다 커야 한다). 구매자가 `createPaidOrder(buyerId, product1)`를 3번 한다. 동작: `statistics.clear()` → `GET /api/shops/{shop1}/orders` → `first` → 7번 더 주문해 10개로 만든다 → `statistics.clear()` → `GET` → `second`.
 - 첫 응답 `$.items` 크기 3, 둘째 응답 크기 10(둘 다 200, 기본 `size` 20 이내).
 - `first` > 0, `first` = `second`.
-
-**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
-
-**이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 구현된 단계라 이 단계 테스트는 기존 코드를 쓴다. `shopOrderSnapshotOf`는 처음 쓰는 미구현 단계 2-9에서 추가한다. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `shopOrderIdOf(orderId, shopId)` → shopOrderId | JDBC `SELECT id FROM orders.shop_order WHERE order_id = ? AND shop_id = ?` | `SellerOrderControllerTest`, 2-9·2-10 |
-| `shipShopOrder(sellerId, shopId, shopOrderId)`, `deliverShopOrder(sellerId, shopId, shopOrderId)` | `ShipmentService.ship(..., "CJ대한통운", "1234567890")`, `deliver` | 2-8 "발송된 품목 취소", 2-9·2-10 |
-| `shopOrderSnapshotOf(shopOrderId)` → `ShopOrderSnapshot` | JDBC `SELECT status, carrier, tracking_number, shipped_at, delivered_at, completed_at FROM orders.shop_order WHERE id = ?`(컬럼은 2-2 마이그레이션에 있다). `ShopOrderSnapshot`은 `support/`의 record `(String status, String carrier, String trackingNumber, Instant shippedAt, Instant deliveredAt, Instant completedAt)` | `SellerOrderControllerTest` 3~6번, 2-9 가게주문 `completed_at` |
-
-이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `address`, `addToCart`, `checkout`, `stockOf`, `StockSnapshot`, `createPendingOrder`, `confirmPayment`, `setOrderExpired`, `breakReservedStock`, `setOrderUpdatedAt`, `createPaidOrder`, `snapshotOf`, `cartSnapshotOf`, `orderCountOf`, `idempotencyKeyOf`, `paymentCancelOf`
 
 **추가 항목**
 - 판매자 주문 목록의 기간 필터(`from`~`to`, 업무 날짜 기준)
@@ -2258,6 +2258,21 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 ### 완료 확인 (2-8a)
 
+**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
+
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `orderLineIdOf(UUID orderId, UUID productId)` → `UUID` | JDBC `SELECT ol.id FROM orders.order_line ol JOIN orders.shop_order so ON so.id = ol.shop_order_id WHERE so.order_id = ? AND ol.product_id = ?` | 품목 취소·반품·구매확정 URL의 `lineId` |
+| `snapshotOf(UUID orderId)` → `OrderSnapshot` (이 헬퍼의 정의는 여기 한 곳이다) | JDBC 쿼리 4개로 한 번에 읽는다: 품목(`orders.order_line` + `orders.shop_order` 조인에서 상품별 `status`·`refunded_amount`), 가게주문 상태 목록(`orders.shop_order.status`, 생성 순), 환불 상태 목록(`orders.refund.status`, 생성 순), 결제(`payment.payment`의 `amount`·`cancelled_amount`·`status`·`payment_key`, 없으면 `null`). `OrderSnapshot`은 `support/`의 record `(Map<UUID, LineState> linesByProduct, List<String> shopOrderStatuses, List<String> refundStatuses, PaymentState payment)`이고 `LineState(String status, long refundedAmount)`, `PaymentState(long amount, long cancelledAmount, String status, String paymentKey)`를 가진다. 메서드는 `line(productId)`, 가게주문이 하나일 때의 `shopOrderStatus()`. 2-4(주문·예약·결제), 2-6(`reconcileAttempts`), 2-10(`confirmedAt`)이 필드를 더한다 | 2-8a부터 모든 주문 상태 확인. 구현된 2-4~2-7의 테스트도 새로 쓰거나 고칠 때 이 헬퍼로 읽는다 |
+
+이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `address`, `addToCart`, `checkout`, `stockOf`, `StockSnapshot`, `createPendingOrder`, `confirmPayment`, `setOrderExpired`, `breakReservedStock`, `setOrderUpdatedAt`, `createPaidOrder`, `shopOrderIdOf`, `shipShopOrder`, `deliverShopOrder`
+
+헬퍼를 쓰는 방법은 다음과 같다.
+- 품목 ID: `orderLineIdOf(orderId, productId)`. 발송: `shipShopOrder(sellerId, shopId, shopOrderIdOf(orderId, shopId))`.
+- PG 취소 타임아웃·거절: 결제 키(`snapshotOf(orderId).payment().paymentKey()`)로 `pg.on("/v1/payments/" + paymentKey, Behavior.delay(1000))`(타임아웃) / `Behavior.reject("NOT_CANCELABLE_AMOUNT")`(거절)을 등록한다. 2-6 `PaymentCancelTest`와 같은 방식이다.
+
 **확인 값을 읽는 방법**
 - 응답: `jsonPath`. 에러 응답의 코드는 `$.code`.
 - 주문 상태 전체: `OrderSnapshot s = testFixtures.snapshotOf(orderId)` 한 번으로 읽는다. 품목은 `s.line(productId).status()`·`.refundedAmount()`, 가게주문은 `s.shopOrderStatus()`(가게주문이 하나일 때), 환불은 `s.refundStatuses()`(생성 순서), 결제는 `s.payment().amount()`·`.cancelledAmount()`·`.status()`·`.paymentKey()`. 쿼리를 테스트에 쓰지 않는다.
@@ -2371,21 +2386,6 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 - 가짜 PG의 `/cancel` 요청 2건.
 - 실패한다면: `s.shopOrderStatus()`가 `PAID`로 남으면 `RefundCompleter`가 주문 행을 잠그지 않고(`findByIdForUpdate`) 읽어, 두 완료가 서로 상대 품목을 아직 `PAID`로 본 것이다. 케이스 2는 품목이 하나 더 남아 가게주문이 어느 쪽이든 `PAID`라 이 누락을 잡지 못한다.
 
-**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
-
-**이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `orderLineIdOf(orderId, productId)` → lineId | JDBC `SELECT ol.id FROM orders.order_line ol JOIN orders.shop_order so ON so.id = ol.shop_order_id WHERE so.order_id = ? AND ol.product_id = ?` | 품목 취소·반품·구매확정 URL의 `lineId` |
-| `snapshotOf(orderId)` → `OrderSnapshot` (이 헬퍼의 정의는 여기 한 곳이다) | JDBC 쿼리 4개로 한 번에 읽는다: 품목(`orders.order_line` + `orders.shop_order` 조인에서 상품별 `status`·`refunded_amount`), 가게주문 상태 목록(`orders.shop_order.status`, 생성 순), 환불 상태 목록(`orders.refund.status`, 생성 순), 결제(`payment.payment`의 `amount`·`cancelled_amount`·`status`·`payment_key`, 없으면 `null`). `OrderSnapshot`은 `support/`의 record `(Map<UUID, LineState> linesByProduct, List<String> shopOrderStatuses, List<String> refundStatuses, PaymentState payment)`이고 `LineState(String status, long refundedAmount)`, `PaymentState(long amount, long cancelledAmount, String status, String paymentKey)`를 가진다. 메서드는 `line(productId)`, 가게주문이 하나일 때의 `shopOrderStatus()`. 2-4(주문·예약·결제), 2-6(`reconcileAttempts`), 2-10(`confirmedAt`)이 필드를 더한다 | 2-8a부터 모든 주문 상태 확인. 구현된 2-4~2-7의 테스트도 새로 쓰거나 고칠 때 이 헬퍼로 읽는다 |
-
-이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `address`, `addToCart`, `checkout`, `stockOf`, `StockSnapshot`, `createPendingOrder`, `confirmPayment`, `setOrderExpired`, `breakReservedStock`, `setOrderUpdatedAt`, `createPaidOrder`, `shopOrderIdOf`, `shipShopOrder`, `deliverShopOrder`
-
-- 품목 ID: `orderLineIdOf(orderId, productId)`. 발송: `shipShopOrder(sellerId, shopId, shopOrderIdOf(orderId, shopId))`.
-- PG 취소 타임아웃·거절: 결제 키(`snapshotOf(orderId).payment().paymentKey()`)로 `pg.on("/v1/payments/" + paymentKey, Behavior.delay(1000))`(타임아웃) / `Behavior.reject("NOT_CANCELABLE_AMOUNT")`(거절)을 등록한다. 2-6 `PaymentCancelTest`와 같은 방식이다.
-- 동시 취소는 위 `CancelLineConcurrencyTest`의 설명을 따른다.
-
 **리뷰 때 물어볼 것**
 - 부분 환불을 어떻게 구현했나? 누적 취소액이 승인액을 넘지 않는 것은 무엇이 보장하나?
 - 각 단계를 멱등하게 만든 키는 각각 무엇인가? (refund 상태 전이, PG Idempotency-Key, 재고 이력 unique)
@@ -2409,6 +2409,20 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 ### 완료 확인 (2-8b)
 
+**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
+
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `refundIdOf(UUID orderLineId)` → `UUID` | JDBC `SELECT id FROM orders.refund WHERE order_line_id = ? ORDER BY created_at DESC LIMIT 1` | 복구 잡 테스트(첫 호출이 예외로 끝나 응답이 없다) |
+| `setRefundUpdatedAt(UUID refundId, Instant updatedAt)` → `void` | JDBC `UPDATE orders.refund SET updated_at = ? WHERE id = ?` | `RefundRecoveryServiceTest` ("5분 전") |
+
+2-8a에서 만든 `orderLineIdOf`를 포함해 앞 단계 헬퍼를 그대로 쓴다.
+
+헬퍼를 쓰는 방법은 다음과 같다.
+- 복구 잡 테스트에서 취소는 MockMvc가 아니라 `CancelOrderLineService`를 직접 부른다(응답 코드는 `CancelOrderLineTest`가 확인한다). 예외로 끝나 반환값이 없는 경우(1번)만 `refundIdOf`를 쓰고, `RefundResult`가 반환되는 경우(2번)는 거기서 `refundId`를 읽는다.
+
 읽는 방법과 공통 준비는 2-8a와 같다.
 
 #### `order/application/RefundRecoveryServiceTest` (공통 준비 사용, `recoverBatch()`를 직접 부른다)
@@ -2422,19 +2436,6 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 - 동작 1: `CancelOrderLineService.cancel(...)`으로 `product1` 품목을 취소한다 → 반환된 `RefundResult`의 `status` = `APPROVED`. 그 `refundId`를 쓴다.
 - 동작 2: `pg.on("/v1/payments/" + paymentKey, Behavior.delay(0))`(정상 응답으로 되돌림) → `setRefundUpdatedAt(refundId, 지금 - 6분)` → `recoverBatch()`.
 - 확인: 반환값 1 / `refund.status` = `COMPLETED` / 가짜 PG `/cancel` 요청 총 2건.
-
-**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
-
-**이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `refundIdOf(orderLineId)` → refundId | JDBC `SELECT id FROM orders.refund WHERE order_line_id = ? ORDER BY created_at DESC LIMIT 1` | 복구 잡 테스트(첫 호출이 예외로 끝나 응답이 없다) |
-| `setRefundUpdatedAt(refundId, Instant)` | JDBC `UPDATE orders.refund SET updated_at = ? WHERE id = ?` | `RefundRecoveryServiceTest` ("5분 전") |
-
-2-8a에서 만든 `orderLineIdOf`를 포함해 앞 단계 헬퍼를 그대로 쓴다.
-
-- 복구 잡: 위 `RefundRecoveryServiceTest`의 순서를 따른다. 취소는 MockMvc가 아니라 `CancelOrderLineService`를 직접 부른다(응답 코드는 `CancelOrderLineTest`가 확인한다). 예외로 끝나 반환값이 없는 경우(1번)만 `refundIdOf`를 쓰고, `RefundResult`가 반환되는 경우(2번)는 거기서 `refundId`를 읽는다.
 
 **리뷰 때 물어볼 것**
 - PG 취소는 성공했는데 DB 반영이 실패하면?
@@ -2527,6 +2528,18 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 ### 완료 확인
 
+**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
+
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `createDeliveredOrder(UUID buyerId, UUID sellerId, UUID shopId, UUID... productIds)` → `UUID` | `createPaidOrder` → `shopOrderIdOf` → `shipShopOrder` → `deliverShopOrder`. **한 가게 상품만**(여러 가게면 가게마다 위 헬퍼를 직접 잇는다) | `ReturnTest`, 2-10 |
+| `refundRowOf(UUID refundId)` → `RefundRow` | JDBC `SELECT status, reason_type, amount, reason, reject_reason, completed_at FROM orders.refund WHERE id = ?`. `RefundRow`는 `support/`의 record `(String status, String reasonType, long amount, String reason, String rejectReason, Instant completedAt)` | `ReturnTest` 1·3·5번, `ReturnConcurrencyTest` |
+| `shopOrderSnapshotOf(UUID shopOrderId)` → `ShopOrderSnapshot` | 2-7 표에 정의된 헬퍼다. 처음 쓰는 미구현 단계인 이 단계에서 `TestFixtures`에 추가한다 | `ReturnTest` 가게주문 `completed_at` 확인 |
+
+이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `address`, `addToCart`, `checkout`, `stockOf`, `StockSnapshot`, `createPendingOrder`, `confirmPayment`, `setOrderExpired`, `breakReservedStock`, `setOrderUpdatedAt`, `createPaidOrder`, `shopOrderIdOf`, `shipShopOrder`, `deliverShopOrder`, `orderLineIdOf`, `refundIdOf`, `setRefundUpdatedAt`, `snapshotOf`
+
 **확인 값을 읽는 방법**
 - 응답: `jsonPath`. 반품 요청·거절·승인 응답은 `$.refundId`, `$.status`, `$.amount`. 에러 응답의 코드는 `$.code`. 판매자 가게주문 상세의 환불 목록은 `$.refunds[0].refundId`처럼, 목록 응답은 `$.items[0].refunds[0].refundId`처럼 읽는다.
 - 주문 상태 전체: `OrderSnapshot s = testFixtures.snapshotOf(orderId)` 한 번으로 읽는다. 품목은 `s.line(productId).status()`·`.refundedAmount()`, 가게주문은 `s.shopOrderStatus()`, 환불 건수와 상태는 `s.refundStatuses()`(생성 순. 비어 있으면 환불이 없다), 결제는 `s.payment().status()`·`.amount()`·`.cancelledAmount()`·`.paymentKey()`.
@@ -2608,18 +2621,6 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 - 어느 경우에도 없어야 하는 상태: 환불은 `REJECTED`인데 PG 취소가 나갔거나 `line1`이 `RETURNED`인 것(돈이 나가고 거절된 것으로 남음).
 - `s.refundStatuses()`는 한 건이다(새 환불이 생기지 않는다).
 
-**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
-
-**이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `createDeliveredOrder(UUID buyerId, UUID sellerId, UUID shopId, UUID... productIds)` → orderId | `createPaidOrder` → `shopOrderIdOf` → `shipShopOrder` → `deliverShopOrder`. **한 가게 상품만**(여러 가게면 가게마다 위 헬퍼를 직접 잇는다) | `ReturnTest`, 2-10 |
-| `refundRowOf(refundId)` → `RefundRow` | JDBC `SELECT status, reason_type, amount, reason, reject_reason, completed_at FROM orders.refund WHERE id = ?`. `RefundRow`는 `support/`의 record `(String status, String reasonType, long amount, String reason, String rejectReason, Instant completedAt)` | `ReturnTest` 1·3·5번, `ReturnConcurrencyTest` |
-| `shopOrderSnapshotOf(shopOrderId)` → `ShopOrderSnapshot` | 2-7 표에 정의된 헬퍼다. 처음 쓰는 미구현 단계인 이 단계에서 `TestFixtures`에 추가한다 | `ReturnTest` 가게주문 `completed_at` 확인 |
-
-이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `address`, `addToCart`, `checkout`, `stockOf`, `StockSnapshot`, `createPendingOrder`, `confirmPayment`, `setOrderExpired`, `breakReservedStock`, `setOrderUpdatedAt`, `createPaidOrder`, `shopOrderIdOf`, `shipShopOrder`, `deliverShopOrder`, `orderLineIdOf`, `refundIdOf`, `setRefundUpdatedAt`, `snapshotOf`
-
 **리뷰 때 물어볼 것**
 - 2-8 코드를 어떻게 재사용했나? 복사했다면 왜?
 - 반품 요청부터 승인까지 품목 상태와 환불 상태를 어떻게 맞췄나?
@@ -2677,6 +2678,17 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 **4) order.web**: 기존 `OrderController`에 `POST /api/orders/{id}/lines/{lineId}/confirm`을 더한다 → 200 `OrderLineResponse(orderLineId, status, confirmedAt)` — `OrderLineResult`를 그대로 옮긴 응답 record다. `@Idempotent`는 붙이지 않는다(이미 확정된 품목에 다시 보내면 409라서 안전하다)
 
 ### 완료 확인
+
+**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
+
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `setShopOrderDeliveredAt(UUID shopOrderId, Instant deliveredAt)` → `void` | JDBC `UPDATE orders.shop_order SET delivered_at = ? WHERE id = ?` | `AutoConfirmServiceTest`(8일 전·6일 전), `ConfirmConcurrencyTest` |
+| `OrderSnapshot.LineState`에 `Instant confirmedAt` 추가 | `snapshotOf`의 품목 쿼리에 `orders.order_line.confirmed_at` 컬럼을 더한다(컬럼은 2-2 마이그레이션에 있다) | `ConfirmPurchaseTest` 2번(나), 7-4 S1 |
+
+이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `address`, `addToCart`, `checkout`, `stockOf`, `StockSnapshot`, `createPendingOrder`, `confirmPayment`, `setOrderExpired`, `breakReservedStock`, `setOrderUpdatedAt`, `createPaidOrder`, `shopOrderIdOf`, `shipShopOrder`, `deliverShopOrder`, `orderLineIdOf`, `refundIdOf`, `setRefundUpdatedAt`, `createDeliveredOrder`, `snapshotOf`, `shopOrderSnapshotOf`, `refundRowOf`
 
 **확인 값을 읽는 방법**
 - 도메인 테스트: `Order`·`ShopOrder`·`OrderLine`의 getter(`getStatus()`, `getConfirmedAt()`, `getCompletedAt()`, `getRefundedAmount()`)와 `confirmedAmount()`.
@@ -2737,17 +2749,6 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 **3. 남의 주문 거부** — 준비: 다른 회원 `token("other@test.com")`. 동작: 다른 회원 토큰으로 확정 요청.
 - 응답: 404, `$.code` = `ORDER_NOT_FOUND`.
 - 부정 확인: 품목 `DELIVERED` 그대로.
-
-**테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
-
-**이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `setShopOrderDeliveredAt(shopOrderId, Instant)` | JDBC `UPDATE orders.shop_order SET delivered_at = ? WHERE id = ?` | `AutoConfirmServiceTest`(8일 전·6일 전), `ConfirmConcurrencyTest` |
-| `OrderSnapshot.LineState`에 `Instant confirmedAt` 추가 | `snapshotOf`의 품목 쿼리에 `orders.order_line.confirmed_at` 컬럼을 더한다(컬럼은 2-2 마이그레이션에 있다) | `ConfirmPurchaseTest` 2번(나), 7-4 S1 |
-
-이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `address`, `addToCart`, `checkout`, `stockOf`, `StockSnapshot`, `createPendingOrder`, `confirmPayment`, `setOrderExpired`, `breakReservedStock`, `setOrderUpdatedAt`, `createPaidOrder`, `shopOrderIdOf`, `shipShopOrder`, `deliverShopOrder`, `orderLineIdOf`, `refundIdOf`, `setRefundUpdatedAt`, `createDeliveredOrder`, `snapshotOf`, `shopOrderSnapshotOf`, `refundRowOf`
 
 **리뷰 때 물어볼 것**
 - 원 프로젝트의 스케줄러(As-Is ORD-07)와 무엇이 다른가?

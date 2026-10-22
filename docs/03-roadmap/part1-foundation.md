@@ -1,6 +1,7 @@
 # Part 1. 뼈대와 첫 기능
 
-> 버전 0.38 · 2026-10-20 · **4.1 기준 점검에서 '하' 후보를 권장안대로 정리했다**(사용자 요청): 1-4 토큰 없음의 `$.message`, 1-5 기본 배송지의 "A는 기본이 아니다"·응답 `$.isDefault`, 검증 실패(400)의 행 0건(1-3·1-5·1-6), 1-6 `requireActiveShops` 빈 입력의 "예외 없음"·개설 직후 `$[0].status`, 1-10 목록의 `$.items` 개수·동시 등록의 "실패 1건". 응답 필드 매핑을 보는 유일한 확인과 서로 다른 코드 경로(1-4 토큰 형식·만료, 1-7 상세 필드, 1-10 `thumbnailKey`)는 남겼다. 규격 외 변경 없음
+> 버전 0.39 · 2026-10-23 · **테스트 준비 헬퍼 표의 시그니처를 타입까지 적었다**(사용자 지적: 어떤 메서드를 만드는지 안 보인다): 1-3·1-5~1-9·1-10의 읽기 헬퍼 표에서 매개변수에 타입을 붙이고, snapshot record의 필드와 `address`·`defaultAddressIds`·`movements`·`of`·`size` 메서드를 타입이 있는 시그니처로 적었다. 규격·동작 변경 없음
+> 0.38 · 2026-10-20 · **4.1 기준 점검에서 '하' 후보를 권장안대로 정리했다**(사용자 요청): 1-4 토큰 없음의 `$.message`, 1-5 기본 배송지의 "A는 기본이 아니다"·응답 `$.isDefault`, 검증 실패(400)의 행 0건(1-3·1-5·1-6), 1-6 `requireActiveShops` 빈 입력의 "예외 없음"·개설 직후 `$[0].status`, 1-10 목록의 `$.items` 개수·동시 등록의 "실패 1건". 응답 필드 매핑을 보는 유일한 확인과 서로 다른 코드 경로(1-4 토큰 형식·만료, 1-7 상세 필드, 1-10 `thumbnailKey`)는 남겼다. 규격 외 변경 없음
 > 0.37 · 2026-10-20 · **4.1 기준 점검에서 '중' 후보를 뺐다**(사용자 요청): 1-2 `BUILD SUCCESSFUL`·`build` `fail`, 1-3 `createdAt`·`updatedAt`, 1-4 두 응답 `$.message` 일치, 1-6 `isActive()`, 1-8 가격·`available`·`priceChanges`·예외 0건·합 불변식, 1-9 실패 900건·합 불변식·만료 해제의 재고·예외 0건. 1-10 이미지 삭제의 `thumbnailKey` null은 컬럼을 지우지 않는 구현을 잡는 값이라 남겼다. 규격 외 변경 없음
 > 0.36 · 2026-10-20 · **4.1 기준 점검에서 확신 '상'을 뺐다**(사용자 요청): 1-3 가입 성공의 `passwordHash` ≠ 평문(`matches`가 같은 사실), 1-6 `requireActiveShops`의 반환 개수(`containsExactlyInAnyOrder`가 개수까지 검증), 1-7 커서 페이징의 "`p6` 없음"(정확히 같은 리스트에서 따라온다). 규격 외 변경 없음
 > 0.35 · 2026-10-20 · **1-7·1-9 완료 확인에서 '하' 후보의 `reserved`·`sold` 재단언을 뺐다**(사용자 요청): 1-7 등록·판매자 목록, 1-9 `reserve` 성공 3번. 규격 외 변경 없음
@@ -510,8 +511,8 @@ git status --short
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `memberSnapshotOf(memberId)` → `MemberSnapshot` | JDBC `SELECT nickname, name, phone, password_hash, created_at, updated_at FROM member.member WHERE id = ?`. `support/`의 record로 `nickname`, `name`, `phone`, `passwordHash`(String), `createdAt`·`updatedAt`(`Instant`)을 가진다. 행이 없으면 `null`. 1-5에서 `addresses`를 더한다 | 1-3 가입 성공, 1-5 프로필 수정과 수정 사항 |
-| `countOf(table)` → `long` | JDBC `SELECT count(*) FROM {table}`. `table`은 테스트 코드의 상수(`"member.member"`)만 넘긴다 | 거부·실패 케이스의 "행이 만들어지지 않았다"(1-3, 1-6, 1-7), `TableCleanupTest` |
+| `memberSnapshotOf(UUID memberId)` → `MemberSnapshot` | JDBC `SELECT nickname, name, phone, password_hash, created_at, updated_at FROM member.member WHERE id = ?`. `support/`의 `record MemberSnapshot(String nickname, String name, String phone, String passwordHash, Instant createdAt, Instant updatedAt)`로 돌려준다. 행이 없으면 `null`. 1-5에서 `addresses`를 더한다 | 1-3 가입 성공, 1-5 프로필 수정과 수정 사항 |
+| `countOf(String table)` → `long` | JDBC `SELECT count(*) FROM {table}`. `table`은 테스트 코드의 상수(`"member.member"`)만 넘긴다 | 거부·실패 케이스의 "행이 만들어지지 않았다"(1-3, 1-6, 1-7), `TableCleanupTest` |
 
 **공통 준비**: 가입 요청 본문은 `{"email":"test@test.com","password":"password123","nickname":"nick","name":"name"}`를 기본으로 하고, 케이스에서 바꾸는 필드만 적는다.
 
@@ -886,7 +887,7 @@ curl -s localhost:8080/api/members/me -H "Authorization: Bearer $TOKEN"        #
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `memberSnapshotOf(memberId)`에 배송지 추가 | 1-3의 `MemberSnapshot`에 `addresses`(`List<AddressState(id, recipient, address2, isDefault)>`)를 더한다. JDBC `SELECT id, recipient, address2, is_default FROM member.member_address WHERE member_id = ? ORDER BY created_at, id`. `address(addressId)`는 `id`로 찾고(없으면 `null`), `defaultAddressIds()`는 `isDefault`인 id 목록이다 | 1-5 배송지·수정 사항, `DefaultAddressConcurrencyTest` |
+| `memberSnapshotOf(UUID memberId)`에 배송지 추가 | 1-3의 `MemberSnapshot`에 `List<AddressState> addresses`를 더한다(`record AddressState(UUID id, String recipient, String address2, boolean isDefault)`). JDBC `SELECT id, recipient, address2, is_default FROM member.member_address WHERE member_id = ? ORDER BY created_at, id`. `MemberSnapshot`에 메서드 `address(UUID addressId)` → `AddressState`는 `id`로 찾고(없으면 `null`), `defaultAddressIds()` → `List<UUID>`는 `isDefault`인 id 목록이다 | 1-5 배송지·수정 사항, `DefaultAddressConcurrencyTest` |
 
 #### `member/web/MemberControllerTest` (`PATCH /api/members/me`)
 
@@ -1077,7 +1078,7 @@ public record ShopInfo(UUID shopId, UUID ownerId, String name) {}
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `shopSnapshotOf(shopId)` → `ShopSnapshot` | JDBC `SELECT name, email, phone, address, status, business_number FROM shop.shop WHERE id = ?`. `support/`의 record로 `name`, `email`, `phone`, `address`, `status`(String), `businessNumber`를 가진다. 행이 없으면 `null` | `ShopControllerTest`의 수정·거부 케이스 |
+| `shopSnapshotOf(UUID shopId)` → `ShopSnapshot` | JDBC `SELECT name, email, phone, address, status, business_number FROM shop.shop WHERE id = ?`. `support/`의 `record ShopSnapshot(String name, String email, String phone, String address, String status, String businessNumber)`로 돌려준다. 행이 없으면 `null` | `ShopControllerTest`의 수정·거부 케이스 |
 
 #### `ModularityTest`
 
@@ -1362,7 +1363,7 @@ public record Money(long amount) implements Comparable<Money> { ... }
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `productSnapshotOf(productId)` → `ProductSnapshot` | 쿼리 2개로 한 번에 읽는다: 상품·총입고(`product.product`의 `name`, `status`, `price`, `subscribable`과 `product.stock`의 `received`), 재고 이력(`product.stock_movement`의 `type`, `quantity`, `ref_type`, `ref_id`, `WHERE product_id = ? ORDER BY created_at, id`). `support/`의 record로 `name`, `status`(String), `price`(long), `subscribable`, `received`(int), `movements`(`List<MovementState(type, quantity, refType, refId)>`)를 가지고, `movements(type)`은 그 `type`인 것만 돌려준다. 상품 행이 없으면 `null`. 1-8·1-10이 필드를 더한다 | 1-7 등록, 1-8·1-9·1-10의 상품 상태·이력 확인, 수정 사항(`subscribable`) |
+| `productSnapshotOf(UUID productId)` → `ProductSnapshot` | 쿼리 2개로 한 번에 읽는다: 상품·총입고(`product.product`의 `name`, `status`, `price`, `subscribable`과 `product.stock`의 `received`), 재고 이력(`product.stock_movement`의 `type`, `quantity`, `ref_type`, `ref_id`, `WHERE product_id = ? ORDER BY created_at, id`). `support/`의 `record ProductSnapshot(String name, String status, long price, boolean subscribable, int received, List<MovementState> movements)`로 돌려주고(`record MovementState(String type, int quantity, String refType, UUID refId)`), 메서드 `movements(String type)` → `List<MovementState>`는 그 `type`인 것만 돌려준다. 상품 행이 없으면 `null`. 1-8·1-10이 필드를 더한다 | 1-7 등록, 1-8·1-9·1-10의 상품 상태·이력 확인, 수정 사항(`subscribable`) |
 
 행 수는 1-3 표의 `countOf`로 읽는다. 가용·예약·판매 수량은 2-2에서 만드는 `stockOf`(`StockSnapshot`)를 쓰고, `received`는 `StockSnapshot`에 없으므로 `productSnapshotOf(...).received()`로 읽는다.
 
@@ -1575,7 +1576,7 @@ SELECT product_id FROM product.stock WHERE available + reserved + sold <> receiv
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `productSnapshotOf(productId)`에 가격 이력 추가 | 1-7의 `ProductSnapshot`에 `priceChanges`(`List<PriceChangeState(oldPrice, newPrice)>`)를 더한다. JDBC `SELECT old_price, new_price FROM product.price_history WHERE product_id = ? ORDER BY changed_at, id` | 1-8 가격 변경·이름만 변경·단종 상품 수정 |
+| `productSnapshotOf(UUID productId)`에 가격 이력 추가 | 1-7의 `ProductSnapshot`에 `List<PriceChangeState> priceChanges`를 더한다(`record PriceChangeState(long oldPrice, long newPrice)`). JDBC `SELECT old_price, new_price FROM product.price_history WHERE product_id = ? ORDER BY changed_at, id` | 1-8 가격 변경·이름만 변경·단종 상품 수정 |
 
 **공통 준비**: 판매자 `memberId = fixtures.signup("seller@test.com")`, `token = fixtures.login("seller@test.com")`, `shopId = fixtures.openShop(memberId, "1111111111")`, `productId = fixtures.registerProduct(memberId, shopId)`(이름 `product`, 가격 10000, 재고 10). 수정은 `PATCH /api/shops/{shopId}/products/{productId}`, 상태 변경은 `PATCH .../products/{productId}/status`, 재고 조정은 `POST .../products/{productId}/stock-adjustments`.
 
@@ -1784,7 +1785,7 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `reservationSnapshotOf(orderId)` → `ReservationSnapshot` | JDBC `SELECT product_id, status, quantity FROM product.stock_reservation WHERE order_id = ?`. `support/`의 record로 상품별 `ReservationState(status, quantity)`(`status`는 String)를 담고 `of(productId)`(없으면 `null`)와 `size()`를 가진다 | `ProductApiImplTest`. 주문 단계의 예약 상태는 `snapshotOf(orderId)`로 읽는다 |
+| `reservationSnapshotOf(UUID orderId)` → `ReservationSnapshot` | JDBC `SELECT product_id, status, quantity FROM product.stock_reservation WHERE order_id = ?`. `support/`의 `ReservationSnapshot`이 상품별 `record ReservationState(String status, int quantity)`를 담고, 메서드 `of(UUID productId)` → `ReservationState`(없으면 `null`)와 `size()` → `int`를 가진다 | `ProductApiImplTest`. 주문 단계의 예약 상태는 `snapshotOf(orderId)`로 읽는다 |
 
 **공통 준비**: `memberId = fixtures.signup("test@test.com")`, `shopId = fixtures.openShop(memberId, "1111111111")`, 상품은 `fixtures.registerProduct(memberId, shopId, ProductCategory.ETC, 재고)`로 만든다.
 
@@ -2100,7 +2101,7 @@ static void storageProperties(DynamicPropertyRegistry registry) {
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `productSnapshotOf(productId)`에 이미지 추가 | 1-7의 `ProductSnapshot`에 `thumbnailKey`(`product.product.thumbnail_key`, 없으면 `null`)와 `imageKeys`(`List<String>`)를 더한다. 이미지는 JDBC `SELECT object_key FROM product.product_image WHERE product_id = ? ORDER BY sort_order, id`. `product.product`를 읽는 기존 쿼리에 `thumbnail_key`만 더한다 | `ProductImageControllerTest`의 등록·삭제·거부 케이스 |
+| `productSnapshotOf(UUID productId)`에 이미지 추가 | 1-7의 `ProductSnapshot`에 `String thumbnailKey`(`product.product.thumbnail_key`, 없으면 `null`)와 `List<String> imageKeys`를 더한다. 이미지는 JDBC `SELECT object_key FROM product.product_image WHERE product_id = ? ORDER BY sort_order, id`. `product.product`를 읽는 기존 쿼리에 `thumbnail_key`만 더한다 | `ProductImageControllerTest`의 등록·삭제·거부 케이스 |
 
 **공통 준비**: 판매자 `memberId = fixtures.signup("seller@test.com")`, `token = fixtures.login("seller@test.com")`, `shopId = fixtures.openShop(memberId, "1111111111")`, `productId = fixtures.registerProduct(memberId, shopId)`. 파일은 `byte[2000]` 임의 바이트. 경로는 `/api/shops/{shopId}/products/{productId}/images`(발급은 뒤에 `/presigned-url`, 삭제는 `/{imageId}`).
 

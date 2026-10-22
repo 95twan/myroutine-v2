@@ -1,6 +1,10 @@
 # Part 4. 인증 완성
 
-> 버전 0.19 · 2026-10-20 · **4.1 기준 점검에서 '하' 후보를 권장안대로 정리했다**(사용자 요청): 4-1 refresh 성공의 토큰 응답 필드(가입이 확인), 4-2 발송 1번의 `attempts` 초기값·미인증 허용 케이스의 `$.id`·주문 수, 4-3의 토큰 응답 필드·`signupToken`/`email` 부재·인증코드 저장·다른 회원의 소셜 계정, 4-4의 현재 기기 로그아웃 대조 `/me`·`status=BANNED` 필터 항목의 `status`. 규격 외 변경 없음
+> 버전 0.23 · 2026-10-23 · **헬퍼 시그니처를 마저 맞췄다**: 변경 행 2개와 `login`·`refresh`·`socialSignup`·`issueState`·`oauthLogin`의 인자·반환 타입. 규격·동작 변경 없음
+> 0.22 · 2026-10-23 · **테스트 준비 헬퍼 표의 시그니처를 타입까지 적었다**(사용자 지적: 어떤 메서드를 만드는지 안 보인다): 4-1~4-4 헬퍼 표의 첫 칸을 매개변수 타입과 반환 타입이 있는 자바 시그니처로 고쳤다. 규격·동작 변경 없음
+> 0.21 · 2026-10-23 · **테스트 준비가 아래 테스트 절을 가리키던 곳을 위로 옮겼다**(사용자 지적: 헬퍼를 만드는 방법이 테스트 절에 있다): 4-1 `login`·`refresh` 메서드 정의와 4-3 `socialSignup` 단계를 "테스트 준비"로 옮겼다. 규격·동작 변경 없음
+> 0.20 · 2026-10-23 · **완료 확인의 "테스트 준비"를 테스트 클래스 앞으로 옮겼다**(사용자 지적: 헬퍼 설명이 테스트보다 뒤에 있다): 4-1~4-4 "완료 확인"을 테스트 준비(헬퍼 표 → 이미 있는 헬퍼 → 헬퍼를 쓰는 방법) → 공통 준비 → 테스트 클래스 순으로 다시 놓았다. 도입부의 "읽는 방법" 불릿은 헬퍼 표 행과 겹치는 부분(`SessionSnapshot`의 `ttlSeconds()`, `EmailAuthSnapshot`의 키별 접근자, 소셜 계정·회원 ID 조회, tokenVersion 필드)을 표로 합치고 나머지를 "헬퍼를 쓰는 방법"에 남겼다. 4-2의 `FakeMailSender`·`login` 안내 중복을 한 번만 쓰고, 순서가 바뀐 "위/아래" 표현을 고쳤다. 규격·동작 변경 없음
+> 0.19 · 2026-10-20 · **4.1 기준 점검에서 '하' 후보를 권장안대로 정리했다**(사용자 요청): 4-1 refresh 성공의 토큰 응답 필드(가입이 확인), 4-2 발송 1번의 `attempts` 초기값·미인증 허용 케이스의 `$.id`·주문 수, 4-3의 토큰 응답 필드·`signupToken`/`email` 부재·인증코드 저장·다른 회원의 소셜 계정, 4-4의 현재 기기 로그아웃 대조 `/me`·`status=BANNED` 필터 항목의 `status`. 규격 외 변경 없음
 > 0.18 · 2026-10-20 · **4.1 기준 점검에서 '중' 후보를 뺐다**(사용자 요청): 4-1 3번의 `refreshHash` 교체, 4-2 발송 1번의 `codeHash`·쿨다운 값과 3번의 시간당 TTL, 비밀번호 변경·재설정의 `matches`·재설정 뒤 refresh 401·같은 코드 재사용 400, 4-3의 `role`·`status` 초기값·회원 수 중복·기존 회원 로그인, 4-4 `TokenRevocation` 1번의 사전 확인과 5번의 준비 재단언, `LoginLockTest` 4번의 중간 횟수·401, `AdminMemberTest` 4번의 로그인 403. 규격 외 변경 없음
 > 0.17 · 2026-10-20 · **4.1 기준 점검에서 확신 '상'을 뺐다**(사용자 요청): 4-2 발송 6번의 쿨다운·시간당 값 비교, 4-3 `OAuthLoginTest` 1번의 `/me` 응답 필드, 4-4 `TokenRevocation` 1·2·3·4번이 4-1·4-2·3-6·`AdminMemberTest`와 같은 경로로 이미 확인하는 세부(ban 상태, refresh 401, 세션 유지), 4-4 `RedisTokenVersionProvider` 1번의 준비 재단언, `AdminMemberTest` 3번의 `nextCursor`. 규격 외 변경 없음
 > 0.16 · 2026-10-20 · **4-2·4-3·4-4 완료 확인에서 '중' 후보를 뺐다**(사용자 요청): 확인 동작이 바꾸지 못하는 `accessUnverified`의 `emailVerified()`, 로그인·연결이 만들지 않는 회원 수, 가입 토큰 키, 해제가 내지 않는 outbox, 대기가 이미 확인한 잠금 키. 규격 외 변경 없음
@@ -242,11 +246,25 @@ return 0
 
 ### 완료 확인
 
-**확인 값을 읽는 방법**
+**테스트 준비**
+
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다. `TestFixtures`가 `StringRedisTemplate`을 주입받는다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `sessionSnapshotOf(UUID sessionId)` → `SessionSnapshot` | `redis.opsForHash().entries("auth:session:" + sessionId)`와 `redis.getExpire(key, TimeUnit.SECONDS)`를 한 번에 읽는다. 해시의 키·값은 `Object`로 오므로 `Map<String, String>`으로 바꿔 담는다. `SessionSnapshot`은 `support/`의 record(`Map<String, String> fields`, `long ttlSeconds`)이고 `exists()`(`fields`가 비어 있지 않다), `memberId()`(`UUID`, 없으면 `null`), `refreshHash()`, `device()`(필드가 없으면 `null`), `fieldNames()`, `values()`, `ttlSeconds()`(키가 없으면 -2)를 가진다 | 4-1 `TokenRefreshTest`·`RefreshConcurrencyTest`, 세션을 확인하는 4-2~4-4 테스트 |
+| `sessionIdsOf(UUID memberId)` → `Set<UUID>` | `redis.opsForSet().members("auth:member-sessions:" + memberId)`를 `UUID`로 바꾼다. 키가 없으면 빈 집합(Redis는 마지막 원소를 빼면 집합 키를 지우므로 세션이 없을 때도 빈 집합이다) | 위와 같음 |
+
+이미 있는 헬퍼와 설정은 다음과 같다.
+- `IntegrationTestSupport`: Redis 컨테이너와 `@AfterEach`의 `flushDb()`는 위 "할 일" 1)에 있다.
+- `TestFixtures`의 기존 `signup`·`login`(access 토큰만 돌려준다)은 그대로 쓴다. refresh가 필요한 테스트는 `TokenRefreshTest`의 private 메서드(이름은 권장안)로 얻는다. 4-2~4-4 웹 테스트도 같은 이름·동작의 메서드를 쓴다(여러 클래스가 쓰므로 `support`로 옮길지는 자유). `Tokens login(String email, String userAgent)` — `POST /api/auth/login`(`User-Agent` 헤더는 `userAgent`가 null이면 생략), 200을 확인하고 응답의 `accessToken`·`refreshToken`을 `Tokens` 값으로 돌려준다. `ResultActions refresh(String refreshToken)` — `POST /api/auth/refresh` 본문 `{"refreshToken":"..."}`의 `ResultActions`를 돌려준다.
+- `LoginService.login`·`SignupService.signUp`에 `device`를 넘기는 방식은 문서에 없다(위 "할 일" 4)의 확인 필요). `RefreshConcurrencyTest`가 서비스를 직접 부를 때는 그 결정에 맞춘다.
+
+헬퍼를 쓰는 방법은 다음과 같다.
 - 응답: `jsonPath`. 에러 응답의 코드는 `$.code`. 토큰 응답의 필드는 `$.accessToken`, `$.tokenType`(`Bearer`), `$.expiresIn`(초), `$.refreshToken`, `$.refreshExpiresIn`(초)이다. 값이 없어야 하는 필드는 `jsonPath("$.refreshToken").doesNotExist()`(필드가 없거나 null이면 통과)로 확인한다.
 - access 토큰 안의 값: `jwtProvider.parse(accessToken).orElseThrow()`가 돌려주는 `AuthClaims`의 `memberId()`·`role()`·`sessionId()`. 4-2부터 `emailVerified()`, 4-4부터 `tokenVersion()`이 더 생긴다.
 - refresh 문자열 안의 값: `RefreshToken.parse(refresh)`의 `sessionId()`·`secret()`·`secretHash()`.
-- Redis 세션: `SessionSnapshot s = testFixtures.sessionSnapshotOf(sessionId)` 한 번으로 읽는다. `s.exists()`, `s.memberId()`, `s.refreshHash()`, `s.device()`(필드가 없으면 `null`), `s.fieldNames()`, `s.values()`, `s.ttlSeconds()`(키가 없으면 -2). 회원의 세션 목록은 `testFixtures.sessionIdsOf(memberId)`(`Set<UUID>`. Redis는 마지막 원소를 빼면 집합 키를 지우므로 세션이 없으면 빈 집합이다). 전체 키 이름은 주입받은 `StringRedisTemplate redis`의 `redis.keys("*")`. 키를 읽는 호출·`Map` 변환·캐스팅을 테스트에 쓰지 않는다.
+- Redis 세션: `SessionSnapshot s = testFixtures.sessionSnapshotOf(sessionId)` 한 번으로 읽는다. 회원의 세션 목록은 `testFixtures.sessionIdsOf(memberId)`로 읽는다. 전체 키 이름은 주입받은 `StringRedisTemplate redis`의 `redis.keys("*")`. 키를 읽는 호출·`Map` 변환·캐스팅을 테스트에 쓰지 않는다.
 - 시간 의존 값(세션 7일, 인증코드 5분 등)은 `Clock`을 바꾸지 않고 Redis 키를 지우거나(`redis.delete(key)`) 남은 시간을 줄여(`redis.expire(key, Duration.ofSeconds(1))`) 흉내 낸다. Redis 키 만료는 Part 2 공통 규칙 M의 "DB 시각 컬럼을 과거로 UPDATE"에 해당하는 방법이다.
 
 **공통 준비**: 회원 1명 `member@test.com`(`testFixtures.signup`, 비밀번호 `pass1234`, 닉네임 `member`) → `memberId`. 이 단계부터 `signup`이 세션을 하나 만들지만(`SignupService`가 `issueNewSession` 호출) 아무도 그 refresh를 쓰지 않는다. 로그인 요청은 `POST /api/auth/login` 본문 `{"email":"member@test.com","password":"pass1234"}`이고, 기기는 `User-Agent` 헤더로 구분한다.
@@ -260,7 +278,7 @@ return 0
 
 #### `member/web/TokenRefreshTest` (공통 준비 사용)
 
-이 클래스의 private 메서드(이름은 권장안): `login(email, userAgent)` — `POST /api/auth/login`(`User-Agent` 헤더는 `userAgent`가 null이면 생략), 200을 확인하고 응답의 `accessToken`·`refreshToken`을 `Tokens` 값으로 돌려준다. `refresh(refreshToken)` — `POST /api/auth/refresh` 본문 `{"refreshToken":"..."}`의 `ResultActions`를 돌려준다.
+이 클래스의 private 메서드 `login(email, userAgent)`·`refresh(refreshToken)`은 위 "테스트 준비"에 있다.
 
 **1. 가입·로그인 응답에 refresh가 들어 있다** — 동작: `POST /api/auth/signup` 본문 `{"email":"new@test.com","password":"pass1234","nickname":"newbie","name":"테스터"}`.
 - 응답: 201, `$.memberId`가 UUID, `$.tokenType` = `Bearer`, `$.expiresIn` = 900, `$.refreshExpiresIn` = 604800, `$.accessToken`·`$.refreshToken`이 비어 있지 않다.
@@ -313,19 +331,6 @@ return 0
 - 나머지 하나는 `BusinessException`이고 `errorCode` = `REFRESH_REUSED`다.
 - `sessionSnapshotOf(sid).exists()` = false(진 쪽이 세션을 폐기했다).
 - 이긴 쪽이 받은 `refresh2`로 `tokenRefreshService.refresh(refresh2)` → `BusinessException`, `errorCode` = `UNAUTHORIZED`(이긴 쪽의 새 refresh도 함께 죽는다).
-
-**테스트 준비**
-
-**이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다. `TestFixtures`가 `StringRedisTemplate`을 주입받는다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `sessionSnapshotOf(sessionId)` → `SessionSnapshot` | `redis.opsForHash().entries("auth:session:" + sessionId)`와 `redis.getExpire(key, TimeUnit.SECONDS)`를 한 번에 읽는다. 해시의 키·값은 `Object`로 오므로 `Map<String, String>`으로 바꿔 담는다. `SessionSnapshot`은 `support/`의 record(`Map<String, String> fields`, `long ttlSeconds`)이고 `exists()`(`fields`가 비어 있지 않다), `memberId()`(`UUID`, 없으면 `null`), `refreshHash()`, `device()`(필드가 없으면 `null`), `fieldNames()`, `values()`를 가진다 | 4-1 `TokenRefreshTest`·`RefreshConcurrencyTest`, 세션을 확인하는 4-2~4-4 테스트 |
-| `sessionIdsOf(memberId)` → `Set<UUID>` | `redis.opsForSet().members("auth:member-sessions:" + memberId)`를 `UUID`로 바꾼다. 키가 없으면 빈 집합 | 위와 같음 |
-
-- `IntegrationTestSupport`: Redis 컨테이너와 `@AfterEach`의 `flushDb()`는 위 "할 일" 1)에 있다.
-- `TestFixtures`의 기존 `signup`·`login`(access 토큰만 돌려준다)은 그대로 쓴다. refresh가 필요한 테스트는 위 `TokenRefreshTest`의 private 메서드 `login(email, userAgent)`로 얻는다. 4-2~4-4 웹 테스트도 같은 이름·동작의 메서드를 쓴다(여러 클래스가 쓰므로 `support`로 옮길지는 자유).
-- `LoginService.login`·`SignupService.signUp`에 `device`를 넘기는 방식은 문서에 없다(위 "할 일" 4)의 확인 필요). `RefreshConcurrencyTest`가 서비스를 직접 부를 때는 그 결정에 맞춘다.
 
 **리뷰 때 물어볼 것**
 - refresh를 원문이 아니라 해시로 저장하는 이유는?
@@ -460,10 +465,25 @@ return 0
 
 ### 완료 확인
 
-읽는 방법과 토큰 로그인 메서드(`login(email, userAgent)`, `refresh(refreshToken)`)는 4-1과 같고, 아래를 더한다.
-- 메일: `FakeMailSender`(3-5)의 `sent()` — `SentMail(to, title, body)` 목록. 인증코드는 `body`에서 정규식 `\d{6}`의 첫 일치로 꺼낸다(`codeOf(mail)`, 테스트 클래스의 private 메서드). 인증 메일은 `to` = 정규화한 이메일, `title` = `[MyRoutine] 이메일 인증코드`, `body` = `인증코드: {코드}`다. 비밀번호 재설정 메일의 제목·본문은 문서에 없다(확인 필요). 코드만 `codeOf`로 꺼낸다.
-- 회원: `MemberSnapshot m = testFixtures.memberSnapshotOf(memberId)`(정의는 1-3, 3-1이 `TestFixtures`에 추가) 한 번으로 읽는다. 이 단계에서 `m.emailVerifiedAt()`(`Instant`, 미인증이면 `null`)·`m.passwordHash()`(소셜 가입이면 `null`)·`m.status()`·`m.role()`·`m.email()`을 쓴다. 비밀번호 확인은 `passwordEncoder.matches(평문, m.passwordHash())`. 행 수는 `testFixtures.countOf("orders.orders")`처럼 테이블 이름으로 읽는다(1-3).
-- 인증코드와 발송 제한: `EmailAuthSnapshot a = testFixtures.emailAuthSnapshotOf(EmailCodePurpose, email)` 한 번으로 읽는다(`email`은 정규화한 값). 코드 키(`auth:email-code:{purpose}:{email}`)는 `a.codeExists()`·`a.codeHash()`·`a.attempts()`(키가 없으면 `null`)·`a.fieldNames()`·`a.codeTtlSeconds()`, 쿨다운 키(`auth:email-cooldown:{email}`)는 `a.cooldown()`(값 문자열, 없으면 `null`)·`a.cooldownTtlSeconds()`, 시간당 키(`auth:email-hourly:{email}`)는 `a.hourly()`(`Integer`, 없으면 `null`)·`a.hourlyTtlSeconds()`다. 없는 키의 남은 시간은 -2다. 키 이름 검색은 `redis.keys("auth:email-*")`.
+**테스트 준비**
+
+아래 테스트를 쓰기 전에 만든다. 값을 읽는 방법과 토큰 로그인 메서드(`login(email, userAgent)`, `refresh(refreshToken)`. 4-1 `TokenRefreshTest`의 private 메서드)는 4-1과 같고, 이 단계에서 더하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `signupUnverified(String email)` → `UUID` | 기존 `signup`이 하던 가입 그대로(`email_verified_at` = null) | `EmailVerificationTest`, `RequireVerifiedEmailTest`, `PasswordTest` |
+| `signup(String email)` → `UUID`(변경) | 가입 후 JDBC `UPDATE member.member SET email_verified_at = now() WHERE id = ?` | 1-6 이후 모든 테스트(가게 개설 403 방지) |
+| `token(String email)` → `String`(변경) | `signup`과 같은 처리 후 `login(email)`로 토큰을 다시 받는다(가입 응답의 토큰은 `ev` = false) | 기존 테스트 |
+| `tokenUnverified(String email)` → `String` | `signupUnverified` 후 가입 응답의 access | 미인증 토큰이 필요한 곳 |
+| `memberSnapshotOf(UUID memberId)`에 컬럼 추가 | 3-1에서 넓힌 `MemberSnapshot`(`email`, `status`, `role`, `withdrawnAt`은 3-1이 이미 읽는다)에 `emailVerifiedAt`(`Instant`, 미인증이면 `null`)만 더한다. `email_verified_at` 컬럼은 이 단계의 마이그레이션이 만든다 | `EmailVerificationTest`, `RequireVerifiedEmailTest`, `PasswordTest`, 4-3·4-4 |
+| `emailAuthSnapshotOf(EmailCodePurpose purpose, String email)` → `EmailAuthSnapshot` | Redis 키 셋을 한 번에 읽는다: 코드 해시 `redis.opsForHash().entries("auth:email-code:{purpose}:{email}")`, 쿨다운 `redis.opsForValue().get("auth:email-cooldown:{email}")`, 시간당 `redis.opsForValue().get("auth:email-hourly:{email}")`와 각 키의 `redis.getExpire(key, TimeUnit.SECONDS)`. `support/`의 record. 코드 키는 `codeExists()`, `codeHash()`(`String`, 없으면 `null`), `attempts()`(`Integer`, 없으면 `null`), `fieldNames()`(`Set<String>`), `codeTtlSeconds()`, 쿨다운 키는 `cooldown()`(`String`, 없으면 `null`), `cooldownTtlSeconds()`, 시간당 키는 `hourly()`(`Integer`, 없으면 `null`), `hourlyTtlSeconds()`로 읽는다. 없는 키의 남은 시간은 -2 | `EmailVerificationTest`, `PasswordTest`, 4-3 `OAuthLoginTest` |
+
+이미 있는 헬퍼: `sessionSnapshotOf`·`sessionIdsOf`(4-1), `memberSnapshotOf`·`countOf`(3-1), `snapshotOf`(2-8a).
+
+헬퍼를 쓰는 방법은 다음과 같다.
+- 메일: `FakeMailSender`(3-5)의 `sent()` — `SentMail(to, title, body)` 목록. 인증코드는 `body`에서 정규식 `\d{6}`의 첫 일치로 꺼낸다(`codeOf(mail)`, 테스트 클래스의 private 메서드). 인증 메일은 `to` = 정규화한 이메일, `title` = `[MyRoutine] 이메일 인증코드`, `body` = `인증코드: {코드}`다. 비밀번호 재설정 메일의 제목·본문은 문서에 없다(확인 필요). 코드만 `codeOf`로 꺼낸다. `FakeMailSender`는 `@Primary` 빈이라 별도 등록이 없다.
+- 회원: `MemberSnapshot m = testFixtures.memberSnapshotOf(memberId)`(정의는 1-3, 3-1이 `TestFixtures`에 추가) 한 번으로 읽는다. 이 단계에서 `m.emailVerifiedAt()`·`m.passwordHash()`(소셜 가입이면 `null`)·`m.status()`·`m.role()`·`m.email()`을 쓴다. 비밀번호 확인은 `passwordEncoder.matches(평문, m.passwordHash())`. 행 수는 `testFixtures.countOf("orders.orders")`처럼 테이블 이름으로 읽는다(1-3).
+- 인증코드와 발송 제한: `EmailAuthSnapshot a = testFixtures.emailAuthSnapshotOf(EmailCodePurpose, email)` 한 번으로 읽는다(`email`은 정규화한 값). 키 이름 검색은 `redis.keys("auth:email-*")`.
 - 토큰의 `ev`: `jwtProvider.parse(accessToken).orElseThrow().emailVerified()`.
 - 시간 의존: 5분 경과는 `redis.delete(코드 키)`, 60초 경과는 `redis.delete(쿨다운 키)`로 흉내 낸다.
 
@@ -557,23 +577,6 @@ return 0
 - 동작 2: `code`로 재설정 확인.
 - 확인 2: 204, 본문 없음(토큰을 돌려주지 않는다).  `sessionSnapshotOf(sidA).exists()`·`sessionSnapshotOf(sidB).exists()` = false, `sessionIdsOf(memberId)`가 비어 있다(가입 때 만든 세션까지). `emailAuthSnapshotOf(RESET_PASSWORD, "pw@test.com").codeExists()` = false.
 - 확인 3: 로그인 `pass1234` → 401 `LOGIN_FAILED`, `resetpass99` → 200.
-
-**테스트 준비**
-
-**이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `signupUnverified(email)` → memberId | 기존 `signup`이 하던 가입 그대로(`email_verified_at` = null) | `EmailVerificationTest`, `RequireVerifiedEmailTest`, `PasswordTest` |
-| `signup(email)`(변경) | 가입 후 JDBC `UPDATE member.member SET email_verified_at = now() WHERE id = ?` | 1-6 이후 모든 테스트(가게 개설 403 방지) |
-| `token(email)`(변경) | `signup`과 같은 처리 후 `login(email)`로 토큰을 다시 받는다(가입 응답의 토큰은 `ev` = false) | 기존 테스트 |
-| `tokenUnverified(email)` → access | `signupUnverified` 후 가입 응답의 access | 미인증 토큰이 필요한 곳 |
-| `memberSnapshotOf(memberId)`에 컬럼 추가 | 3-1에서 넓힌 `MemberSnapshot`(`email`, `status`, `role`, `withdrawnAt`은 3-1이 이미 읽는다)에 `emailVerifiedAt`(`Instant`, 미인증이면 `null`)만 더한다. `email_verified_at` 컬럼은 이 단계의 마이그레이션이 만든다 | `EmailVerificationTest`, `RequireVerifiedEmailTest`, `PasswordTest`, 4-3·4-4 |
-| `emailAuthSnapshotOf(purpose, email)` → `EmailAuthSnapshot` | Redis 키 셋을 한 번에 읽는다: 코드 해시 `redis.opsForHash().entries("auth:email-code:{purpose}:{email}")`, 쿨다운 `redis.opsForValue().get("auth:email-cooldown:{email}")`, 시간당 `redis.opsForValue().get("auth:email-hourly:{email}")`와 각 키의 `redis.getExpire(key, TimeUnit.SECONDS)`. `support/`의 record: `codeExists()`, `codeHash()`(`String`, 없으면 `null`), `attempts()`(`Integer`, 없으면 `null`), `fieldNames()`(`Set<String>`), `codeTtlSeconds()`, `cooldown()`(`String`, 없으면 `null`), `cooldownTtlSeconds()`, `hourly()`(`Integer`, 없으면 `null`), `hourlyTtlSeconds()`. 없는 키의 남은 시간은 -2 | `EmailVerificationTest`, `PasswordTest`, 4-3 `OAuthLoginTest` |
-
-- 메일: `FakeMailSender`(3-5)를 쓴다. `@Primary` 빈이라 별도 등록이 없다.
-- 위 테스트의 `login(email, userAgent)`는 4-1 `TokenRefreshTest`와 같다.
-- 이미 있는 헬퍼: `sessionSnapshotOf`·`sessionIdsOf`(4-1), `memberSnapshotOf`·`countOf`(3-1), `snapshotOf`(2-8a).
 
 **리뷰 때 물어볼 것**
 - 인증코드를 비교할 때 타이밍 공격은?
@@ -744,14 +747,30 @@ return 0
 
 ### 완료 확인
 
-읽는 방법은 4-1·4-2와 같고, 아래를 더한다.
+**테스트 준비**
+
+아래 테스트를 쓰기 전에 만든다. 값을 읽는 방법은 4-1·4-2와 같고, 이 단계에서 더하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `memberIdOf(String email)` → `UUID` | JDBC `SELECT id FROM member.member WHERE email = ?`. 행이 없으면 `null`. `email`은 정규화한 값 | `OAuthLoginTest` |
+| `socialAccountsOf(UUID memberId)` → `List<SocialAccountRow>` | JDBC `SELECT provider, provider_user_id, provider_email FROM member.social_account WHERE member_id = ? ORDER BY created_at, id`. `SocialAccountRow`는 `support/`의 record(`provider`, `providerUserId`, `providerEmail`. 모두 `String`) | `OAuthLoginTest`, `SocialLinkTest` |
+| `redisStringOf(String key)` → `RedisString` | `redis.opsForValue().get(key)`와 `redis.getExpire(key, TimeUnit.SECONDS)`. `support/`의 record(`String value`, `long ttlSeconds`)이고 `exists()`(`value != null`)를 가진다. 키가 없으면 `value`는 `null`, 남은 시간은 -2 | `OAuthLoginTest`·`SocialLinkTest`의 `auth:oauth-state:*`, 4-4 `LoginLockTest` |
+| `redisHashOf(String key)` → `RedisHash` | `redis.opsForHash().entries(key)`를 `Map<String, String>`으로 바꾸고 `redis.getExpire(key, TimeUnit.SECONDS)`. `support/`의 record(`Map<String, String> fields`, `long ttlSeconds`)이고 `exists()`(`fields`가 비어 있지 않다)를 가진다 | `OAuthLoginTest`의 `auth:oauth-signup:*` |
+
+이미 있는 헬퍼: `memberSnapshotOf`·`countOf`(3-1, 4-2에서 `emailVerifiedAt` 추가), `emailAuthSnapshotOf`(4-2), `sessionSnapshotOf`·`sessionIdsOf`(4-1).
+
+헬퍼를 쓰는 방법은 다음과 같다.
 - 소셜 로그인 응답: `$.status`(`LOGGED_IN` 또는 `SIGNUP_REQUIRED`), `$.signupToken`, `$.email`, 로그인 성공 시의 토큰. `OAuthLoginResponse`의 모양이 문서에 없다(확인 필요: 4-3 5) API). 아래는 `OAuthLoginResult`의 이름(`status`, `token`, `signupToken`, `email`)을 그대로 옮겨 토큰을 `$.token.accessToken`·`$.token.refreshToken`으로 읽는다고 가정해 쓴다. 펼쳐 놓는다면 `$.accessToken`·`$.refreshToken`으로 바꿔 읽는다.
 - authorize-url 응답: `$.url`, `$.state`. `$.url`의 쿼리는 `UriComponentsBuilder.fromUriString(url).build().getQueryParams()`로 읽는다.
-- 회원: `memberSnapshotOf(memberId)`(`email`, `passwordHash`, `emailVerifiedAt`, `status`, `role`, `nickname`), 이메일로 회원 ID를 찾을 때는 `memberIdOf(email)`(없으면 `null`), 행 수는 `countOf("member.member")`·`countOf("member.social_account")`. 소셜 계정은 `socialAccountsOf(memberId)`가 `List<SocialAccountRow>`(`provider`, `providerUserId`, `providerEmail`. 생성 순서)로 돌려준다.
-- Redis: `redisStringOf("auth:oauth-state:" + state)`(`RedisString`: `value()`는 제공자 이름 `KAKAO` 등이고 키가 없으면 `null`, `ttlSeconds()`, `exists()`), `redisHashOf("auth:oauth-signup:" + signupToken)`(`RedisHash`: `fields()` 맵에 `provider`·`providerUserId`·`email`, `ttlSeconds()`, `exists()`). 인증코드는 4-2의 `emailAuthSnapshotOf`, 세션은 4-1의 `sessionSnapshotOf`로 읽는다.
+- 회원: `memberSnapshotOf(memberId)`(`email`, `passwordHash`, `emailVerifiedAt`, `status`, `role`, `nickname`), 이메일로 회원 ID를 찾을 때는 `memberIdOf(email)`, 행 수는 `countOf("member.member")`·`countOf("member.social_account")`, 소셜 계정은 `socialAccountsOf(memberId)`로 읽는다.
+- Redis: `redisStringOf("auth:oauth-state:" + state)`의 `value()`는 제공자 이름 `KAKAO` 등이다. `redisHashOf("auth:oauth-signup:" + signupToken)`의 `fields()` 맵에 `provider`·`providerUserId`·`email`이 있다. 인증코드는 4-2의 `emailAuthSnapshotOf`, 세션은 4-1의 `sessionSnapshotOf`로 읽는다.
 - 가짜 제공자 서버 `oauth`(`FakeOAuthServer`): 제공자별로 `oauth.givenUser(OAuthProvider.KAKAO, "kakao-1001", "social@test.com")`로 사용자를 정한다. 제공자가 받은 요청 수는 `oauth.requests("/kakao/token")`로 읽는다고 가정한다(`FakePgServer.requests`와 같은 방식. `FakeOAuthServer` 규격에 요청 기록이 없다, 확인 필요). `failWith`의 `Behavior`가 그 제공자의 token·userinfo 응답 모두에 적용되는지도 문서에 없다(확인 필요). 시간 의존: state·가입 토큰의 10분 경과는 `redis.delete(키)`로 흉내 낸다.
+- `support/FakeOAuthServer`, `application-test.yaml`의 더미 설정, `IntegrationTestSupport`의 `@DynamicPropertySource`는 위 "할 일" 6)에 있다.
+- `UUID socialSignup(OAuthProvider provider, String providerUserId, String email)`: `OAuthLoginTest`의 private 메서드. ① `oauth.givenUser(provider, providerUserId, email)` ② `issueState(provider)` → `oauthLogin(provider, state)`의 `$.signupToken`(`T`) ③ `POST /api/auth/oauth/signup/email-verifications` 본문 `{"signupToken":"{T}"}` → 메일에서 6자리 코드(`codeOf`) ④ `POST /api/auth/oauth/signup` 본문 `{"signupToken":"{T}","nickname":"socialnick","name":"소셜","verificationCode":"{code}"}`, `User-Agent: device-A`를 MockMvc로 수행하고 `memberIdOf(email)`(가입된 `memberId`)를 돌려준다. `issueState`·`oauthLogin`은 아래 "공통 준비"에 있다.
+- `TestFixtures.signup`·`login`은 4-2 이후 동작(미인증 → 인증된 상태로 가입) 그대로 쓴다.
 
-**공통 준비**: `application-test.yaml`의 더미 `client-id`·`client-secret`과 가짜 서버 주소(`token-uri`, `user-info-uri`)가 들어가 있고, 인증코드 메일은 `FakeMailSender`가 받는다(4-2). 테스트 클래스 private 메서드(이름은 권장안): `issueState(provider)` — `GET /api/auth/oauth/{provider 소문자}/authorize-url` 응답의 `$.state`. `oauthLogin(provider, state)` — `POST /api/auth/oauth/{provider 소문자}/login` 본문 `{"code":"any-code","state":"{state}"}`, `User-Agent: device-A`. 가짜 서버는 어떤 `code`도 받아 준다.
+**공통 준비**: `application-test.yaml`의 더미 `client-id`·`client-secret`과 가짜 서버 주소(`token-uri`, `user-info-uri`)가 들어가 있고, 인증코드 메일은 `FakeMailSender`가 받는다(4-2). 테스트 클래스 private 메서드(이름은 권장안): `String issueState(OAuthProvider provider)` — `GET /api/auth/oauth/{provider 소문자}/authorize-url` 응답의 `$.state`. `ResultActions oauthLogin(OAuthProvider provider, String state)` — `POST /api/auth/oauth/{provider 소문자}/login` 본문 `{"code":"any-code","state":"{state}"}`, `User-Agent: device-A`. 가짜 서버는 어떤 `code`도 받아 준다.
 
 #### `member/web/OAuthLoginTest`
 
@@ -819,23 +838,6 @@ return 0
 - 다른 회원이 같은 소셜 계정을 연결: `oauth.givenUser(KAKAO, "kakao-9", …)` 그대로 새 `state`로 `Bearer {token2}` 연결 → 409, `$.code` = `SOCIAL_ACCOUNT_ALREADY_LINKED`. `countOf("member.social_account")` = 1이고 그 1행이 `socialAccountsOf(memberId)`의 것이다.
 - 같은 회원이 같은 제공자를 다른 계정으로 연결: `oauth.givenUser(KAKAO, "kakao-10", …)`, 새 `state`로 `Bearer {token}` 연결 → 409, `SOCIAL_ACCOUNT_ALREADY_LINKED`. `socialAccountsOf(memberId)`는 1행 그대로.
 - 다른 제공자는 연결된다: `oauth.givenUser(GOOGLE, "google-9", …)`, `issueState(GOOGLE)`, `POST /api/members/me/social-accounts/google` → 204. `socialAccountsOf(memberId)`의 `provider`가 [`KAKAO`, `GOOGLE`] 2행이다.
-
-**테스트 준비**
-
-**이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `memberIdOf(email)` → `UUID` | JDBC `SELECT id FROM member.member WHERE email = ?`. 행이 없으면 `null`. `email`은 정규화한 값 | `OAuthLoginTest` |
-| `socialAccountsOf(memberId)` → `List<SocialAccountRow>` | JDBC `SELECT provider, provider_user_id, provider_email FROM member.social_account WHERE member_id = ? ORDER BY created_at, id`. `SocialAccountRow`는 `support/`의 record(`provider`, `providerUserId`, `providerEmail`. 모두 `String`) | `OAuthLoginTest`, `SocialLinkTest` |
-| `redisStringOf(key)` → `RedisString` | `redis.opsForValue().get(key)`와 `redis.getExpire(key, TimeUnit.SECONDS)`. `support/`의 record(`String value`, `long ttlSeconds`)이고 `exists()`(`value != null`)를 가진다. 키가 없으면 `value`는 `null`, 남은 시간은 -2 | `OAuthLoginTest`·`SocialLinkTest`의 `auth:oauth-state:*`, 4-4 `LoginLockTest` |
-| `redisHashOf(key)` → `RedisHash` | `redis.opsForHash().entries(key)`를 `Map<String, String>`으로 바꾸고 `redis.getExpire(key, TimeUnit.SECONDS)`. `support/`의 record(`Map<String, String> fields`, `long ttlSeconds`)이고 `exists()`(`fields`가 비어 있지 않다)를 가진다 | `OAuthLoginTest`의 `auth:oauth-signup:*` |
-
-이미 있는 헬퍼: `memberSnapshotOf`·`countOf`(3-1, 4-2에서 `emailVerifiedAt` 추가), `emailAuthSnapshotOf`(4-2), `sessionSnapshotOf`·`sessionIdsOf`(4-1).
-
-- `support/FakeOAuthServer`, `application-test.yaml`의 더미 설정, `IntegrationTestSupport`의 `@DynamicPropertySource`는 위 "할 일" 6)에 있다.
-- `socialSignup(provider, providerUserId, email)`: `OAuthLoginTest`의 private 메서드. 위 1번 동작 1~4를 MockMvc로 수행하고 가입된 `memberId`를 돌려준다.
-- `TestFixtures.signup`·`login`은 4-2 이후 동작(미인증 → 인증된 상태로 가입) 그대로 쓴다.
 
 **리뷰 때 물어볼 것**
 - OAuth `state` 파라미터는 무엇을 막나?
@@ -949,15 +951,27 @@ return 0
 
 ### 완료 확인
 
-읽는 방법은 4-1~4-3과 같고, 아래를 더한다.
-- tokenVersion: `TokenVersionSnapshot v = testFixtures.tokenVersionSnapshotOf(memberId)` 한 번으로 읽는다. `v.db()`(`member.member.token_version`), `v.redis()`(`auth:token-version:{memberId}`의 값, 키가 없으면 `null`), `v.redisTtlSeconds()`(키가 없으면 -2). 토큰 안의 값은 `parse(accessToken).orElseThrow().tokenVersion()`.
+**테스트 준비**
+
+아래 테스트를 쓰기 전에 만든다. 값을 읽는 방법은 4-1~4-3과 같고, 이 단계에서 더하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `adminToken(String email)` → `String` | `signup(email)` → 3-1의 `changeRole(memberId, "ADMIN")` → `login(email)`(role을 바꾼 뒤 다시 로그인해야 토큰에 `ADMIN`이 담긴다) | `TokenRevocationTest`, `AdminMemberTest` |
+| `memberSnapshotOf(UUID memberId)`에 `banReason` 추가 | 4-2까지 넓힌 `MemberSnapshot`의 SELECT에 `ban_reason`을 더하고 record에 `banReason`(`String`, 제재 사유가 없으면 `null`)을 더한다. 컬럼은 이 단계의 마이그레이션이 만든다 | `TokenRevocationTest` 1번, `AdminMemberTest` |
+| `tokenVersionSnapshotOf(UUID memberId)` → `TokenVersionSnapshot` | DB `SELECT token_version FROM member.member WHERE id = ?`와 Redis `redis.opsForValue().get("auth:token-version:" + memberId)`·`redis.getExpire(key, TimeUnit.SECONDS)`를 한 번에 읽는다. `support/`의 record(`int db`, `Integer redis`(키가 없으면 `null`), `long redisTtlSeconds`(키가 없으면 -2)) | `TokenRevocationTest`, `RedisTokenVersionProviderTest` |
+
+이미 있는 헬퍼: `signup`, `signupUnverified`, `login`, `changeStatus`, `sessionSnapshotOf`, `sessionIdsOf`(4-1), `memberSnapshotOf`(3-1·4-2), `changeRole`(3-1), `redisStringOf`(4-3), `FakeMailSender`, `OutboxAssert`, `Eventually`.
+
+헬퍼를 쓰는 방법은 다음과 같다.
+- tokenVersion: `TokenVersionSnapshot v = testFixtures.tokenVersionSnapshotOf(memberId)` 한 번으로 읽는다. 토큰 안의 값은 `parse(accessToken).orElseThrow().tokenVersion()`.
 - 회원 상태: `memberSnapshotOf(memberId)`의 `status()`·`banReason()`.
 - 제재 이벤트: `OutboxAssert.rows("member.member-banned.v1")`(3-1). 각 행은 `OutboxSnapshot`이고, `payload()`(`JsonNode`)의 `memberId`·`reason` 필드를 확인한다.
 - 로그인 잠금: `redisStringOf("auth:login-fail:" + email)`의 `value()`(문자열 횟수, 키가 없으면 `null`)·`ttlSeconds()`·`exists()`. 로그인 요청은 `POST /api/auth/login` 본문 `{"email":"…","password":"…"}`.
 - 시간 의존: 잠금 15분 경과는 `redis.expire(키, Duration.ofSeconds(1))` 후 `Eventually.await(Duration.ofSeconds(5), () -> assertThat(testFixtures.redisStringOf(키).exists()).isFalse())`(Part 3 `support/Eventually`)로 키가 사라질 때까지 기다린다. tokenVersion 키의 1일 경과는 `redis.delete(키)`로 흉내 낸다.
 - 요청에 쓰는 토큰은 4-1의 `login(email, userAgent)`로 얻는다. 로그인 시점의 `tv`가 그 토큰에 들어간다.
 
-**공통 준비**: 관리자 `admin@test.com`(`adminToken("admin@test.com")`, 아래 "테스트 준비"), 일반 회원 `target@test.com`(`signup`, 비밀번호 `pass1234`) → `targetId`. 관리자 API는 `Bearer {adminToken}`이다.
+**공통 준비**: 관리자 `admin@test.com`(`adminToken("admin@test.com")`, 위 "테스트 준비"), 일반 회원 `target@test.com`(`signup`, 비밀번호 `pass1234`) → `targetId`. 관리자 API는 `Bearer {adminToken}`이다.
 
 #### `member/web/TokenRevocationTest`
 
@@ -1050,18 +1064,6 @@ return 0
 **4. 성공하면 초기화** — 동작: 실패 4번 → 올바른 비밀번호 로그인 → 실패 4번.
 - 올바른 로그인: 200, `redisStringOf(K).exists()` = false.
 - 이어진 실패 4번 뒤 `redisStringOf(K).value()` = `"4"`(5가 아니다. 카운트가 0부터 다시 시작했다).
-
-**테스트 준비**
-
-**이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `adminToken(email)` → access | `signup(email)` → 3-1의 `changeRole(memberId, "ADMIN")` → `login(email)`(role을 바꾼 뒤 다시 로그인해야 토큰에 `ADMIN`이 담긴다) | `TokenRevocationTest`, `AdminMemberTest` |
-| `memberSnapshotOf(memberId)`에 `banReason` 추가 | 4-2까지 넓힌 `MemberSnapshot`의 SELECT에 `ban_reason`을 더하고 record에 `banReason`(`String`, 제재 사유가 없으면 `null`)을 더한다. 컬럼은 이 단계의 마이그레이션이 만든다 | `TokenRevocationTest` 1번, `AdminMemberTest` |
-| `tokenVersionSnapshotOf(memberId)` → `TokenVersionSnapshot` | DB `SELECT token_version FROM member.member WHERE id = ?`와 Redis `redis.opsForValue().get("auth:token-version:" + memberId)`·`redis.getExpire(key, TimeUnit.SECONDS)`를 한 번에 읽는다. `support/`의 record(`int db`, `Integer redis`(키가 없으면 `null`), `long redisTtlSeconds`(키가 없으면 -2)) | `TokenRevocationTest`, `RedisTokenVersionProviderTest` |
-
-이미 있는 헬퍼: `signup`, `signupUnverified`, `login`, `changeStatus`, `sessionSnapshotOf`, `sessionIdsOf`(4-1), `memberSnapshotOf`(3-1·4-2), `changeRole`(3-1), `redisStringOf`(4-3), `FakeMailSender`, `OutboxAssert`, `Eventually`.
 
 **추가 항목**
 - 토큰 버전을 서버 메모리에 몇 초 캐시해 매 요청 Redis 조회를 줄이기(대가: 다른 서버에서 올린 버전이 그만큼 늦게 반영) — Stage 2 성능 측정 대상
