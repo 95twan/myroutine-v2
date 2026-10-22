@@ -94,4 +94,9 @@ public class Shop extends BaseTimeEntity {
             this.address = address;
         }
     }
+
+    public void close(Instant now) {
+        this.status = this.status.transitTo(ShopStatus.CLOSED);
+        this.closedAt = now;
+    }
 }

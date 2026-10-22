@@ -1,6 +1,9 @@
 # Part 7. 관측 · 운영 · 마무리
 
-> 버전 0.21 · 2026-10-20 · **4.1 기준 점검에서 '하' 후보를 권장안대로 정리했다**(사용자 요청): 7-2 `StockCheckJobTest` 1번의 로그 부재, 7-3 `AdminOutboxTest`의 `nextAttemptAt`·거부 뒤 `attempts`/`sentAt`/행 수, 동작 뒤 목록 0건(`AdminReconcileTest`·`AdminRefundRetryTest`), `AdminNotificationTest`의 재시도 거부 뒤 메일 건수, 7-4 S6 3번의 두 번째 실행 뒤 알림 건수. 규격 외 변경 없음
+> 버전 0.24 · 2026-10-23 · **테스트 준비 헬퍼 표의 시그니처를 타입까지 적었다**(사용자 지적: 어떤 메서드를 만드는지 안 보인다): 7-3의 `paymentCancelOf`에 매개변수 타입(`String idempotencyKey`)을, 7-4의 `notificationCounts()`가 돌려주는 `NotificationCounts`의 메서드 시그니처(`int type(String type)`·`int status(String status)`)를 적었다. 규격·동작 변경 없음
+> 0.23 · 2026-10-23 · **완료 확인의 "테스트 준비"를 테스트 클래스 앞으로 옮겼다**(사용자 요청): 7-3의 "이 단계에서 추가하는 헬퍼" 표와 "이미 있는 헬퍼"를 `AdminOutboxTest` 앞으로, 7-4의 "이 단계에서 추가하는 헬퍼" 표와 "이미 있는 헬퍼"를 `InvariantCheckerTest` 앞으로 옮기고 7-4의 "이 단계 끝의 표" 참조를 고쳤다. 7-1·7-2·7-5는 헬퍼가 없어 그대로 뒀다. 규격·동작 변경 없음
+> 0.22 · 2026-10-22 · **7-1 MDC 표를 3-2 결정에 맞췄다**: `InboxGuard`가 `EventContext.run` 안에서 실행되므로 `traceId`를 빼는 곳을 `EventContext`로 적었다. 규격 외 변경 없음
+> 0.21 · 2026-10-20 · **4.1 기준 점검에서 '하' 후보를 권장안대로 정리했다**(사용자 요청): 7-2 `StockCheckJobTest` 1번의 로그 부재, 7-3 `AdminOutboxTest`의 `nextAttemptAt`·거부 뒤 `attempts`/`sentAt`/행 수, 동작 뒤 목록 0건(`AdminReconcileTest`·`AdminRefundRetryTest`), `AdminNotificationTest`의 재시도 거부 뒤 메일 건수, 7-4 S6 3번의 두 번째 실행 뒤 알림 건수. 규격 외 변경 없음
 > 0.20 · 2026-10-20 · **7-4 E2E 시나리오를 단계 사이의 연결만 남기고 줄였고, 4.1 기준 점검의 '중' 후보를 뺐다**(사용자 요청): 앞 단계 테스트가 같은 경로로 이미 확인하는 응답·결제 상태·재고·PG 요청·수수료/실수령액·같은 값의 재조회(S1~S6)와 `KafkaOutageE2ETest`의 `processedCountOf`·발송 메일 건수를 뺐다. 7-2 `MetricsTest`·`StockCheckJobTest`의 부정 문장, 7-3 `AdminOutboxTest`의 SENT 재확인·`AdminDltTest`의 `processedCountOf`·`AdminReconcileTest`의 재호출·`AdminRefundRetryTest`의 취소 행·`AdminNotificationTest`의 메일 건수·`AdminAuthorizationTest`의 PG 0건도 뺐다. 규격 외 변경 없음
 > 0.19 · 2026-10-20 · **7-3 완료 확인에서 확신 '상'을 뺐다**(사용자 요청): `AdminReconcileTest` 1·2·3번의 결제 상태·재고·장바구니(2-6 대사 1·2·6번이 같은 경로로 확인), `AdminRefundRetryTest` 1번의 품목 `CANCELLED`·결제·재고(2-8b 복구 2번이 확인). 7-4 시나리오의 같은 종류 후보는 따로 정한다. 규격 외 변경 없음
 > 0.18 · 2026-10-20 · **7-4 S1 7번의 `WELCOME` 3건 설명을 "구매자 1명·판매자 2명의 가입"으로 고쳤다**(가입자는 `sellerA`·`sellerB`·구매자로 3명이라 건수는 맞고 "구매자·판매자 2명"이 모호했다). 규격 외 변경 없음
@@ -72,11 +75,11 @@
 
 **2) MDC 보강**
 
-MDC는 SLF4J가 스레드마다 들고 있는 `Map<String, String>`이다. 인코더가 로그 한 줄을 쓸 때 현재 스레드의 MDC를 필드로 붙이므로, 값을 넣어 두면 그 사이에 찍힌 모든 로그에 따라붙는다. 값은 문자열만 되고(UUID는 `.toString()`), **스레드를 넘어가지 않으며**(Kafka listener·스케줄러 스레드는 따로 넣어야 한다), 안 지우면 스레드 풀의 다음 작업에 남는다. 그래서 넣는 곳마다 빼는 곳이 짝으로 있다. `traceId`는 1-3(`TraceIdFilter`)·2-5(`JobRunner`)·3-1·3-2(`EventContext`·`InboxGuard`)에서 이미 넣고 있고, 이 단계에서 새로 넣는 것은 `memberId`와 `orderId`다.
+MDC는 SLF4J가 스레드마다 들고 있는 `Map<String, String>`이다. 인코더가 로그 한 줄을 쓸 때 현재 스레드의 MDC를 필드로 붙이므로, 값을 넣어 두면 그 사이에 찍힌 모든 로그에 따라붙는다. 값은 문자열만 되고(UUID는 `.toString()`), **스레드를 넘어가지 않으며**(Kafka listener·스케줄러 스레드는 따로 넣어야 한다), 안 지우면 스레드 풀의 다음 작업에 남는다. 그래서 넣는 곳마다 빼는 곳이 짝으로 있다. `traceId`는 1-3(`TraceIdFilter`)·2-5(`JobRunner`)·3-1·3-2(`EventContext`, `InboxGuard`가 이를 부른다)에서 이미 넣고 있고, 이 단계에서 새로 넣는 것은 `memberId`와 `orderId`다.
 
 | 키 | 넣는 곳 | 빼는 곳 |
 |---|---|---|
-| `traceId` | `TraceIdFilter`, `JobRunner`, `EventContext`/`InboxGuard` (이미 있음) | 각자 finally |
+| `traceId` | `TraceIdFilter`, `JobRunner`, `EventContext` (`InboxGuard`가 안에서 부른다, 이미 있음) | `EventContext`의 finally |
 | `memberId` | `JwtAuthenticationFilter` 인증 성공 직후 | `TraceIdFilter`의 finally에서 함께 제거 |
 | `orderId` | 주문 흐름 서비스(`ConfirmPaymentService`, `OrderPaymentApplier`, `CancelOrderLineService`, 만료·대사 잡의 주문별 처리)가 `MDC.putCloseable`로 넣는다(아래 `orderId`) | try-with-resources가 제거 |
 | `job` | `JobRunner` (이미 있음) | |
@@ -417,6 +420,19 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 ### 완료 확인
 
+**테스트 준비**
+
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 더하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다. 반환 record는 `support/`에 둔다. 7-4도 이 헬퍼를 쓴다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `RefundRow`에 `int pgAttempts` 추가 | 2-9가 만든 `refundRowOf`의 쿼리에 `orders.refund.pg_attempts`(2-8 마이그레이션) 컬럼을 더한다 | `AdminRefundRetryTest` 1·2·3 |
+| `paymentCancelOf(String idempotencyKey)` → `PaymentCancelState` | 2-6 표에 정의된 헬퍼다. 처음 쓰는 미구현 단계인 이 단계에서 `TestFixtures`에 추가한다 | `AdminRefundRetryTest` |
+| `OrderSnapshot`에 결제 필드 추가 | 2-4 표에 정의된 결제 `id`·`method`·`approvedAt`과 2-6 표에 정의된 `reconcileAttempts`를 이 단계에서 `OrderSnapshot.PaymentState`에 더한다(주문 `status`는 3-5가 더했다) | `AdminReconcileTest` |
+| `NotificationRow`에 `long version` 추가 | 3-5가 만든 `notificationRowsOf`·`notificationRows`의 쿼리에 `notification.notification.version` 컬럼을 더한다 | `AdminNotificationTest` |
+
+이미 있는 헬퍼: `snapshotOf`(2-8a), `cartSnapshotOf`(3-6), `orderLineIdOf`(2-8a), `refundIdOf`(2-8b), `refundRowOf`(2-9), `stockOf`, `createPendingOrder`, `confirmPayment`, `createPaidOrder`, `signup`, `token`, `login`, `changeRole`(3-1), `outboxSnapshotOf`·`OutboxAssert.rows`(3-1), `processedCountOf`(3-2), `countOf`(3-1), `FakeMailSender`·`notificationRowsOf`(3-5).
+
 **확인 값을 읽는 방법**
 - 응답: MockMvc `jsonPath`. 목록은 `$.items[n].필드`와 `$.nextCursor`(`CursorPage`). 에러 응답의 코드는 `$.code`.
 - DB 상태는 쿼리를 테스트에 쓰지 않고 `TestFixtures`의 읽기 헬퍼 한 번으로 읽는다.
@@ -535,17 +551,6 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 - 부수효과 없음: 11개 호출을 마친 뒤 `outboxSnapshotOf(X)`가 호출 전에 읽은 값과 같고 `status()` = `DEAD`다. 출력에 `admin action=`이 없다(실행 로그는 컨트롤러에 들어간 요청만 남긴다).
 
-**이 단계에서 추가하는 헬퍼** (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다. 반환 record는 `support/`에 둔다. 7-4도 이 헬퍼를 쓴다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `RefundRow`에 `int pgAttempts` 추가 | 2-9가 만든 `refundRowOf`의 쿼리에 `orders.refund.pg_attempts`(2-8 마이그레이션) 컬럼을 더한다 | `AdminRefundRetryTest` 1·2·3 |
-| `paymentCancelOf(idempotencyKey)` → `PaymentCancelState` | 2-6 표에 정의된 헬퍼다. 처음 쓰는 미구현 단계인 이 단계에서 `TestFixtures`에 추가한다 | `AdminRefundRetryTest` |
-| `OrderSnapshot`에 결제 필드 추가 | 2-4 표에 정의된 결제 `id`·`method`·`approvedAt`과 2-6 표에 정의된 `reconcileAttempts`를 이 단계에서 `OrderSnapshot.PaymentState`에 더한다(주문 `status`는 3-5가 더했다) | `AdminReconcileTest` |
-| `NotificationRow`에 `long version` 추가 | 3-5가 만든 `notificationRowsOf`·`notificationRows`의 쿼리에 `notification.notification.version` 컬럼을 더한다 | `AdminNotificationTest` |
-
-이미 있는 헬퍼: `snapshotOf`(2-8a), `cartSnapshotOf`(3-6), `orderLineIdOf`(2-8a), `refundIdOf`(2-8b), `refundRowOf`(2-9), `stockOf`, `createPendingOrder`, `confirmPayment`, `createPaidOrder`, `signup`, `token`, `login`, `changeRole`(3-1), `outboxSnapshotOf`·`OutboxAssert.rows`(3-1), `processedCountOf`(3-2), `countOf`(3-1), `FakeMailSender`·`notificationRowsOf`(3-5).
-
 **리뷰 때 물어볼 것**: 운영 API가 실수로 두 번 호출되면 안전한가? 각각 무엇이 멱등을 보장하나?
 
 ---
@@ -618,9 +623,21 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 ### 완료 확인
 
+**테스트 준비**
+
+아래 시나리오를 쓰기 전에 만든다. 이 단계에서 더하는 헬퍼는 다음과 같다(`support/TestFixtures`에 더한다. 이름·인자는 권장안이라 쓰다 바꿔도 된다. 반환 record는 `support/`에 둔다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `unsentOutboxCount()` → `int` | JDBC `SELECT count(*) FROM common.outbox_event WHERE status <> 'SENT'` | S1 7번, `KafkaOutageE2ETest` 준비·6 |
+| `notificationCounts()` → `NotificationCounts` | 3-5의 `notificationRows()`를 `type`별·`status`별로 센 값(쿼리 없음). `NotificationCounts`의 메서드는 `int type(String type)`·`int status(String status)`이고, 건수를 돌려주며 행이 없으면 0이다 | S1·S2·S4·S6, `KafkaOutageE2ETest` |
+| `OrderSnapshot`에 `reservationStatuses` 추가 | 2-4 표에 정의된 예약 상태 목록(`product.stock_reservation.status`, `WHERE order_id = ?`)을 이 단계에서 `OrderSnapshot`에 더한다 | S2 2번 |
+
+이미 있는 헬퍼: `snapshotOf`·`orderLineIdOf`·`shopOrderIdOf`·`createPaidOrder`·`createDeliveredOrder`(Part 2), `cartSnapshotOf`(3-6), `stockOf`, `countOf`(3-1), `settlementSnapshotOf`·`settlementItemSnapshotOf`·`unsettledItemCount`(3-4a), `notificationRows`(3-5), `shopSnapshotOf`·`memberSnapshotOf`·`productSnapshotOf`(Part 1 표에 정의되고 3-1·3-2가 추가했다. 3-1이 `role`·`status`·`email`, 3-2가 `closedAt`을 더했다), `registerSubscribableProduct`·`registerBillingKey`·`createSubscription`(5-2), `subscriptionSnapshotOf`(5-2)·`cyclesOf`·`setSubscriptionNextRunDate`(5-3), `OutboxAssert.rows`·`Eventually`(3-1), `FakePayoutGateway`(3-4b), `FakeMailSender`(3-5).
+
 **확인 값을 읽는 방법**
 - 응답: MockMvc `jsonPath`. 에러 응답의 코드는 `$.code`, 부가 정보는 `$.details.필드`.
-- DB 상태는 쿼리를 시나리오에 쓰지 않고 `TestFixtures`의 읽기 헬퍼 한 번으로 읽는다. 이 단계가 새로 만드는 헬퍼는 이 단계 끝의 표에 있다.
+- DB 상태는 쿼리를 시나리오에 쓰지 않고 `TestFixtures`의 읽기 헬퍼 한 번으로 읽는다. 이 단계가 새로 만드는 헬퍼는 위 "테스트 준비"의 표에 있다.
   - 주문·결제: `OrderSnapshot s = testFixtures.snapshotOf(orderId)`(정의는 2-8a, 2-4·2-6·2-10 표가 필드를 더한다)로 주문 `s.status()`, 품목 `s.line(productId).status()`·`.refundedAmount()`·`.confirmedAt()`, 가게주문 `s.shopOrderStatuses()`(하나면 `s.shopOrderStatus()`), 예약 `s.reservationStatuses()`, 환불 `s.refundStatuses()`, 결제 `s.payment().amount()`·`.cancelledAmount()`·`.status()`를 읽는다.
   - 장바구니: `testFixtures.cartSnapshotOf(buyerId)`의 `.quantity(productId)`·`.itemCount()`(2-1).
   - 재고: `testFixtures.stockOf(productId)` → `available`, `reserved`, `sold`.
@@ -734,18 +751,6 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 4. **재개** — `unpauseContainerCmd(...)` → JDBC `UPDATE common.outbox_event SET next_attempt_at = now() - interval '1 second' WHERE status = 'READY'` → `outboxRelay.relayOnce()` 반환값 2.
 5. **consumer 처리 완료** — `Eventually.await(Duration.ofSeconds(30), ...)`(consumer 재접속 시간은 확인 필요): `notificationCounts().type("ORDER_PAID")` = 2, `.type("SHOP_ORDER_RECEIVED")` = 2. `dispatchBatch()` 반환값 4.
 6. `unsentOutboxCount()` = 0(이벤트 유실 0, NFR-REL-02. 4번의 두 행이 `SENT`가 된 것도 이것이 포함한다). `checkAll()`.
-
-#### 이 단계에서 추가하는 헬퍼
-
-`support/TestFixtures`에 더한다. 이름·인자는 권장안이라 쓰다 바꿔도 된다. 반환 record는 `support/`에 둔다.
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `unsentOutboxCount()` → `int` | JDBC `SELECT count(*) FROM common.outbox_event WHERE status <> 'SENT'` | S1 7번, `KafkaOutageE2ETest` 준비·6 |
-| `notificationCounts()` → `NotificationCounts` | 3-5의 `notificationRows()`를 `type`별·`status`별로 센 값(쿼리 없음). `type(String)`·`status(String)`가 건수를 돌려주고 행이 없으면 0이다 | S1·S2·S4·S6, `KafkaOutageE2ETest` |
-| `OrderSnapshot`에 `reservationStatuses` 추가 | 2-4 표에 정의된 예약 상태 목록(`product.stock_reservation.status`, `WHERE order_id = ?`)을 이 단계에서 `OrderSnapshot`에 더한다 | S2 2번 |
-
-이미 있는 헬퍼: `snapshotOf`·`orderLineIdOf`·`shopOrderIdOf`·`createPaidOrder`·`createDeliveredOrder`(Part 2), `cartSnapshotOf`(3-6), `stockOf`, `countOf`(3-1), `settlementSnapshotOf`·`settlementItemSnapshotOf`·`unsettledItemCount`(3-4a), `notificationRows`(3-5), `shopSnapshotOf`·`memberSnapshotOf`·`productSnapshotOf`(Part 1 표에 정의되고 3-1·3-2가 추가했다. 3-1이 `role`·`status`·`email`, 3-2가 `closedAt`을 더했다), `registerSubscribableProduct`·`registerBillingKey`·`createSubscription`(5-2), `subscriptionSnapshotOf`(5-2)·`cyclesOf`·`setSubscriptionNextRunDate`(5-3), `OutboxAssert.rows`·`Eventually`(3-1), `FakePayoutGateway`(3-4b), `FakeMailSender`(3-5).
 
 #### CI 실행 시간
 

@@ -350,4 +350,62 @@ public class TestFixtures {
     public void changeRole(UUID memberId, String role) {
         jdbcTemplate.update("UPDATE member.member SET role = ? WHERE id = ?", role, memberId);
     }
+
+    public int processedCountOf(String consumer, UUID eventId) {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM common.processed_message WHERE consumer = ? AND event_id = ?", Integer.class, consumer, eventId);
+    }
+
+    public ShopSnapshot shopSnapshotOf(UUID shopId) {
+        return jdbcTemplate.queryForObject("SELECT name, email, phone, address, status, business_number, closed_at FROM shop.shop WHERE id = ?",
+                (rs, rowNum) -> {
+                    Timestamp closedAt = rs.getTimestamp("closed_at");
+                    return new ShopSnapshot(
+                            rs.getString("name"),
+                            rs.getString("email"),
+                            rs.getString("phone"),
+                            rs.getString("address"),
+                            rs.getString("status"),
+                            rs.getString("business_number"),
+                            closedAt != null ? closedAt.toInstant() : null
+                    );
+                },
+                shopId);
+    }
+
+    public ProductSnapshot productSnapshotOf(UUID productId) {
+        List<MovementState> movements = jdbcTemplate.query("""
+                    SELECT type, quantity, ref_type, ref_id
+                    FROM product.stock_movement
+                    WHERE product_id = ?
+                    ORDER BY created_at, id
+                    """,
+                (rs, rowNum) -> new MovementState(
+                        rs.getString("type"),
+                        rs.getInt("quantity"),
+                        rs.getString("ref_type"),
+                        rs.getObject("ref_id", UUID.class)
+                ),
+                productId);
+
+        return jdbcTemplate.query("""
+                    SELECT p.name, p.status, p.price, p.subscribable, s.received
+                    FROM product.product p
+                    JOIN product.stock s ON s.product_id = p.id
+                    WHERE p.id = ?
+                    """,
+                rs -> {
+                    if (!rs.next()) {
+                        return null;
+                    }
+                    return new ProductSnapshot(
+                            rs.getString("name"),
+                            rs.getString("status"),
+                            rs.getLong("price"),
+                            rs.getBoolean("subscribable"),
+                            rs.getInt("received"),
+                            movements
+                    );
+                },
+                productId);
+    }
 }

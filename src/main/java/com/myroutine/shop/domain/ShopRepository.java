@@ -11,4 +11,5 @@ public interface ShopRepository {
     List<Shop> findAllByMemberIdOrderByCreatedAtDesc(UUID memberId);
     List<Shop> findAllByIdIn(Collection<UUID> ids);
     boolean existsByBusinessNumber(String businessNumber);
+    int countByMemberIdAndStatus(UUID memberId, ShopStatus status);
 }

@@ -12,4 +12,19 @@ public class ShopTopicConfig {
     public NewTopic shopOpenedTopic() {
         return TopicBuilder.name(ShopTopics.SHOP_OPENED).partitions(3).replicas(1).build();
     }
+
+    @Bean
+    public NewTopic shopOpenedDltTopic() {
+        return TopicBuilder.name(ShopTopics.SHOP_OPENED + ".dlt").partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    public NewTopic shopClosedTopic() {
+        return TopicBuilder.name(ShopTopics.SHOP_CLOSED).partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    public NewTopic shopClosedDltTopic() {
+        return TopicBuilder.name(ShopTopics.SHOP_CLOSED + ".dlt").partitions(3).replicas(1).build();
+    }
 }

@@ -1,6 +1,9 @@
 # Part 6. 리뷰 · 검색 · 추천
 
-> 버전 0.18 · 2026-10-20 · **4.1 기준 점검에서 '하' 후보를 권장안대로 정리했다**(사용자 요청): 6-1 동시성 3번의 `rating(2)` 0, 6-4 추천 4번의 캐시 재생성(3번이 확인), 6-5 건너뛰기의 빈 요약(호출 0건에서 따라온다), 6-6 2번 본인 조회의 `$.status`. 규격 외 변경 없음
+> 버전 0.21 · 2026-10-23 · **테스트 준비 헬퍼 표의 시그니처를 타입까지 적었다**(사용자 지적: 어떤 메서드를 만드는지 안 보인다): 6-1~6-6 헬퍼 표의 첫 칸을 `이름(타입 인자…)` → `반환타입` 형태의 완전한 자바 시그니처로 고쳤다(매개변수 타입, 반환 타입, 반환값 없음은 `void`). 규격·동작 변경 없음
+> 0.20 · 2026-10-23 · **테스트 준비가 아래 테스트 절을 가리키던 곳을 위로 옮겼다**(사용자 지적: 헬퍼를 만드는 방법이 테스트 절에 있다): 6-4 구매 이력 기다리는 방법을 "테스트 준비"에 직접 적었다. 규격·동작 변경 없음
+> 0.19 · 2026-10-23 · **6-1~6-6 완료 확인의 "테스트 준비"를 테스트 클래스 앞으로 옮겼다**(사용자 지적: 헬퍼 설명이 테스트보다 뒤에 있다): 헬퍼 표와 이미 있는 헬퍼, 헬퍼를 쓰는 방법을 각 단계 "완료 확인" 맨 앞에 두고, 흩어져 있던 "확인 값을 읽는 방법" 항목 중 헬퍼 표 행과 겹치는 것(스냅샷 필드, 건수 `.size()`, 가짜 서버 입력 목록 등)은 표 행으로 합쳤다. 공통 준비는 표 뒤, 첫 테스트 클래스 앞에 둔다. 규격·동작 변경 없음
+> 0.18 · 2026-10-20 · **4.1 기준 점검에서 '하' 후보를 권장안대로 정리했다**(사용자 요청): 6-1 동시성 3번의 `rating(2)` 0, 6-4 추천 4번의 캐시 재생성(3번이 확인), 6-5 건너뛰기의 빈 요약(호출 0건에서 따라온다), 6-6 2번 본인 조회의 `$.status`. 규격 외 변경 없음
 > 0.17 · 2026-10-20 · **4.1 기준 점검에서 '중' 후보를 뺐다**(사용자 요청): 6-1 3번의 `rating` 재확인, 6-2 4번의 `name`·`price`·`description`(`version()` = 3과 검색 `name`이 확인한다), 5번의 `name`·`price`. 규격 외 변경 없음
 > 0.16 · 2026-10-20 · **6-4 `ProductEmbeddingTest` 1번에서 `dims` = 1536 확인을 뺐다**(사용자 요청): 컬럼이 `vector(1536)`이라 행이 있으면 항상 1536이다. 규격 외 변경 없음
 > 0.15 · 2026-10-20 · **6-1·6-2·6-4 완료 확인에서 '하' 후보를 뺐다**(사용자 요청): 6-1 작성·별점 수정의 초기값, 6-2 1번의 없는 검색어, 6-4 2번의 `status` `ACTIVE`, 추천 1번의 `thumbnailUrl` null. 규격 외 변경 없음
@@ -212,13 +215,23 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 ### 완료 확인
 
-**확인 값을 읽는 방법**
+**테스트 준비** ([Part 2 공통 규칙 N-1](part2-order-money.md#n-1-단계별-testfixtures-추가)과 같은 방식)
+
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다. 쿼리와 `Map` 변환은 테스트에 쓰지 않고 헬퍼 한 번 호출로 읽는다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `createConfirmedLine(UUID buyerId, UUID sellerId, UUID shopId, UUID productId)` → `UUID` | `createDeliveredOrder(buyerId, sellerId, shopId, productId)`(2-9) → `orderLineIdOf(orderId, productId)`(2-8a) → `confirmPurchaseService.confirm(buyerId, orderId, lineId)`(2-10). `TestFixtures`가 `ConfirmPurchaseService`를 주입받는다 | `ReviewControllerTest`, `ReviewConcurrencyTest` |
+| `reviewSnapshotOf(UUID reviewId)` → `ReviewSnapshot` | JDBC 쿼리 2개로 한 번에 읽는다: `review.review`의 `order_line_id`·`product_id`·`rating`·`content`·`like_count`·`status`, `review.review_like`의 `member_id`(해당 `review_id`, 생성 순). `ReviewSnapshot`은 `support/`의 record `(UUID orderLineId, UUID productId, String status, int rating, String content, int likeCount, List<UUID> likerIds)`. 리뷰 행이 없으면 `null`. 한 번 호출로 읽고 `r.status()`, `r.rating()`, `r.content()`, `r.likeCount()`, `r.likerIds()`(행 수는 `.size()`), `r.orderLineId()`, `r.productId()`를 쓴다 | `ReviewControllerTest`, `ReviewConcurrencyTest` |
+| `reviewStatOf(UUID productId)` → `ReviewStatSnapshot` | JDBC `SELECT review_count, rating_sum, r1, r2, r3, r4, r5 FROM review.product_review_stat WHERE product_id = ?`. `ReviewStatSnapshot`은 `support/`의 record `(int reviewCount, long ratingSum, int r1, int r2, int r3, int r4, int r5)`이고 `rating(int n)`이 `r1`~`r5` 중 n번째를 돌려준다. 행이 없으면 `null`(0행 확인은 `isNull()`) | `ReviewControllerTest`, `ReviewConcurrencyTest` |
+| `reviewCountOf(UUID productId)` → `long` | JDBC `SELECT count(*) FROM review.review WHERE product_id = ?`(`ACTIVE`·`DELETED` 모두 센다) | `ReviewControllerTest`, `ReviewConcurrencyTest` |
+| `reviewCreatedEvents()` → `List<ReviewCreatedEvent>` | `OutboxAssert.rows("review.review-created.v1")`(3-1)의 각 행 `payload()`(`OutboxSnapshot`의 `JsonNode`)를 `objectMapper.treeToValue(…, ReviewCreatedEvent.class)`로 풀어 생성 순으로 돌려준다. 건수는 `.size()`(확인 필요: Jackson 3 `treeToValue`의 시그니처) | `ReviewControllerTest`, `ReviewConcurrencyTest` |
+| `setReviewCreatedAt(UUID reviewId, Instant instant)` → `void` | JDBC `UPDATE review.review SET created_at = ? WHERE id = ?`(`Timestamp.from(instant)`) | `ReviewControllerTest` 4·8번 |
+
+이미 있는 헬퍼: `signup`, `login`, `token`, `openShop`, `registerProduct`, `createDeliveredOrder`, `orderLineIdOf`, `ConcurrencyRunner`, `OutboxAssert`.
+
+헬퍼를 쓰는 방법은 다음과 같다.
 - 응답: `jsonPath`. 에러 응답의 코드는 `$.code`. 리뷰 목록은 `$.items[i].id`·`.rating`·`.content`·`.likeCount`·`.createdAt`과 `$.nextCursor`(마지막 페이지는 `null`). 통계는 `$.reviewCount`, `$.average`, `$.distribution['1']`~`['5']`, `$.latestSummary`.
-- 리뷰: `ReviewSnapshot r = testFixtures.reviewSnapshotOf(reviewId)` 한 번으로 읽는다. `r.status()`, `r.rating()`, `r.content()`, `r.likeCount()`(`review.review.like_count`), `r.likerIds()`(`review.review_like`의 `member_id` 목록. 행 수는 `.size()`), `r.orderLineId()`, `r.productId()`. 행이 없으면 `null`. 상품의 리뷰 행 수(상태 무관)는 `reviewCountOf(productId)`.
-- 통계: `ReviewStatSnapshot s = testFixtures.reviewStatOf(productId)` → `s.reviewCount()`, `s.ratingSum()`, `s.rating(n)`(별점 n의 개수. `r1`~`r5`). 행이 없으면 `null`(0행 확인은 `isNull()`).
-- 이벤트: `testFixtures.reviewCreatedEvents()` → `List<ReviewCreatedEvent>`(outbox `review.review-created.v1` 행을 생성 순으로 `reviewId`·`productId`·`content`로 푼 것). 건수는 `.size()`.
-- 시각 조작: `testFixtures.setReviewCreatedAt(reviewId, instant)`.
-쿼리와 `Map` 변환은 테스트에 쓰지 않는다.
 
 **공통 준비**: 판매자 1명(`seller@test.com`), 가게 1개, 상품 `productA`(`registerProduct(sellerId, shopId, 10000, 100)`, 재고 100). 구매자는 필요한 만큼 `buyer1@test.com`, `buyer2@test.com`, …로 `signup` + `login`해 토큰을 받고, 각자 `createConfirmedLine(buyerId, sellerId, shopId, productA)`로 구매확정된 품목 하나씩을 가진다(`lineOf(buyerN)`이라 부른다). 작성 요청은 `POST /api/reviews`에 `Authorization: Bearer {구매자 토큰}`, 본문 `{"orderLineId":"{lineId}","rating":5,"content":"효과가 좋아요 정말 만족합니다"}`(본문 16자)다. 응답 `$.reviewId`로 리뷰 ID를 받는다.
 
@@ -304,21 +317,6 @@ ON CONFLICT (product_id) DO UPDATE SET
 - `reviewCountOf(productA)` = 50, `reviewCreatedEvents()` 50건.
 - `reviewStatOf(productA)`: `reviewCount` 50, `ratingSum` 195(20×5 + 15×4 + 10×3 + 5×1), `rating(1)` 5, `rating(3)` 10, `rating(4)` 15, `rating(5)` 20.
 - review-stats: `$.average` = 3.9(195÷50).
-
-**테스트 준비** ([Part 2 공통 규칙 N-1](part2-order-money.md#n-1-단계별-testfixtures-추가)과 같은 방식)
-
-이 단계에서 추가하는 헬퍼 (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `createConfirmedLine(buyerId, sellerId, shopId, productId)` → orderLineId | `createDeliveredOrder(buyerId, sellerId, shopId, productId)`(2-9) → `orderLineIdOf(orderId, productId)`(2-8a) → `confirmPurchaseService.confirm(buyerId, orderId, lineId)`(2-10). `TestFixtures`가 `ConfirmPurchaseService`를 주입받는다 | `ReviewControllerTest`, `ReviewConcurrencyTest` |
-| `reviewSnapshotOf(reviewId)` → `ReviewSnapshot` | JDBC 쿼리 2개로 한 번에 읽는다: `review.review`의 `order_line_id`·`product_id`·`rating`·`content`·`like_count`·`status`, `review.review_like`의 `member_id`(해당 `review_id`, 생성 순). `ReviewSnapshot`은 `support/`의 record `(UUID orderLineId, UUID productId, String status, int rating, String content, int likeCount, List<UUID> likerIds)`. 리뷰 행이 없으면 `null` | `ReviewControllerTest`, `ReviewConcurrencyTest` |
-| `reviewStatOf(productId)` → `ReviewStatSnapshot` | JDBC `SELECT review_count, rating_sum, r1, r2, r3, r4, r5 FROM review.product_review_stat WHERE product_id = ?`. `ReviewStatSnapshot`은 `support/`의 record `(int reviewCount, long ratingSum, int r1, int r2, int r3, int r4, int r5)`이고 `rating(int n)`이 `r1`~`r5` 중 n번째를 돌려준다. 행이 없으면 `null` | `ReviewControllerTest`, `ReviewConcurrencyTest` |
-| `reviewCountOf(productId)` → `long` | JDBC `SELECT count(*) FROM review.review WHERE product_id = ?`(`ACTIVE`·`DELETED` 모두 센다) | `ReviewControllerTest`, `ReviewConcurrencyTest` |
-| `reviewCreatedEvents()` → `List<ReviewCreatedEvent>` | `OutboxAssert.rows("review.review-created.v1")`(3-1)의 각 행 `payload()`(`OutboxSnapshot`의 `JsonNode`)를 `objectMapper.treeToValue(…, ReviewCreatedEvent.class)`로 풀어 생성 순으로 돌려준다(확인 필요: Jackson 3 `treeToValue`의 시그니처) | `ReviewControllerTest`, `ReviewConcurrencyTest` |
-| `setReviewCreatedAt(reviewId, instant)` | JDBC `UPDATE review.review SET created_at = ? WHERE id = ?`(`Timestamp.from(instant)`) | `ReviewControllerTest` 4·8번 |
-
-이미 있는 헬퍼: `signup`, `login`, `token`, `openShop`, `registerProduct`, `createDeliveredOrder`, `orderLineIdOf`, `ConcurrencyRunner`, `OutboxAssert`.
 
 **리뷰 때 물어볼 것**
 - unique 위반을 트랜잭션 안에서 잡으면 왜 안 되나? (As-Is SUP-05)
@@ -414,9 +412,18 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 ### 완료 확인
 
-**확인 값을 읽는 방법**
+**테스트 준비**
+
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `productSearchDocOf(UUID productId)` → `ProductSearchDoc` | ES REST `GET {es 주소}/products/_doc/{productId}`(alias로 읽는다)를 JDK `HttpClient`로 보내 응답 JSON에서 한 번에 읽는다(요청 코드는 테스트에 쓰지 않는다): `found`, `_version`(external version이 그대로 저장된다), `_source.name`·`.description`·`.category`·`.price`·`.status`. `ProductSearchDoc`은 `support/`의 record `(boolean found, Long version, String name, String description, String category, Long price, String status)`이고, 404면 `found` = `false`에 나머지는 `null`이다. ES 주소는 `IntegrationTestSupport`의 `es.getHttpHostAddress()`(확인 필요: `TestFixtures`가 `es`에 접근하는 방법. `es`가 package-private이면 노출이 필요하다) | `ProductSearchTest` 2·4·5번, 6-3 `ReindexTest` 1·2번 |
+
+이미 있는 헬퍼와 주입: `RegisterProductService`·`UpdateProductService`(주입), `outboxRelay.relayOnce()`·`Eventually.await`(3-1), `ProductIndexer.upsert`(이 단계에서 만든다). `ProductUpsertedEvent` 필드 순서는 `(productId, shopId, name, description, category, price, status, subscribable, version)`(3-3)이다. ES를 비우는 방법은 쓰지 않고 케이스별 검색어로 격리한다.
+
+헬퍼를 쓰는 방법은 다음과 같다.
 - 응답: `jsonPath`. 검색은 `$.items[i].productId`·`.shopId`·`.name`·`.category`·`.price`와 `$.nextCursor`(마지막 페이지는 `null`). 자동완성은 응답이 배열이라 `$.length()`와 `$[i]`. 에러 코드는 `$.code`.
-- ES 문서: `ProductSearchDoc d = testFixtures.productSearchDocOf(productId)` 한 번으로 읽는다. `d.found()`, `d.version()`(external version이 그대로 저장된다), `d.name()`·`d.description()`·`d.category()`·`d.price()`·`d.status()`. 문서가 없으면 `found()`가 `false`이고 나머지는 `null`이다. 요청 코드(REST 호출·JSON 변환)는 테스트에 쓰지 않는다.
 - 색인 반영 대기: `Eventually.await(Duration.ofSeconds(10), …)`로 검색 결과를 기다린다(기본 refresh 주기 1초로 충분하다. 못 기다리면 `POST /products/_refresh`). "안 나온다"는 확인은 Eventually로 기다린 뒤 한 번 더 확인한다.
 
 **공통 준비**: 판매자 1명, 가게 1개. 상품은 이름·설명을 정해야 하므로 `TestFixtures.registerProduct`(이름이 `product`로 고정)가 아니라 테스트가 `RegisterProductService.register(sellerId, shopId, new RegisterProductCommand(이름, 설명, ProductCategory.X, 가격, 10, false))`로 만든다. 등록 뒤 `outboxRelay.relayOnce()`로 이벤트를 흘린다. ES 문서는 테스트가 끝나도 지워지지 않으므로(DB 초기화 대상이 아니다) 케이스마다 아래에 굵게 적은 **검색어**를 따로 쓰고, 다른 케이스의 상품 이름은 "루틴"으로 시작하지 않게 한다. 검색 요청은 `GET /api/search/products?q=…`(Authorization 없이)이다.
@@ -491,16 +498,6 @@ ES 호출 전에 막히는 요청 검증을 확인하려고 더했다. 모두 `G
 - `GET /api/products`(DB): 200, `$.items.length()` = 1, `$.items[0].id` = `P`.
 - 상품 등록 `POST /api/shops/{shopId}/products`(판매자 토큰, 새 `Idempotency-Key`, 본문은 `RegisterProductRequest`): 201.
 
-**테스트 준비**
-
-이 단계에서 추가하는 헬퍼 (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `productSearchDocOf(productId)` → `ProductSearchDoc` | ES REST `GET {es 주소}/products/_doc/{productId}`(alias로 읽는다)를 JDK `HttpClient`로 보내 응답 JSON에서 읽는다: `found`, `_version`, `_source.name`·`.description`·`.category`·`.price`·`.status`. `ProductSearchDoc`은 `support/`의 record `(boolean found, Long version, String name, String description, String category, Long price, String status)`이고, 404면 `found` = `false`에 나머지는 `null`이다. ES 주소는 `IntegrationTestSupport`의 `es.getHttpHostAddress()`(확인 필요: `TestFixtures`가 `es`에 접근하는 방법. `es`가 package-private이면 노출이 필요하다) | `ProductSearchTest` 2·4·5번, 6-3 `ReindexTest` 1·2번 |
-
-이미 있는 헬퍼와 주입: `RegisterProductService`·`UpdateProductService`(주입), `outboxRelay.relayOnce()`·`Eventually.await`(3-1), `ProductIndexer.upsert`(이 단계에서 만든다). `ProductUpsertedEvent` 필드 순서는 `(productId, shopId, name, description, category, price, status, subscribable, version)`(3-3)이다. ES를 비우는 방법은 쓰지 않고 케이스별 검색어로 격리한다.
-
 **리뷰 때 물어볼 것**
 - 검색 결과와 DB가 잠시 다를 수 있는데 괜찮은가?
 - external version이 없다면 이벤트 순서 역전을 어떻게 막았을까?
@@ -542,9 +539,17 @@ ES 호출 전에 막히는 요청 검증을 확인하려고 더했다. 모두 `G
 
 ### 완료 확인
 
-**확인 값을 읽는 방법**
-- ES 문서: 6-2의 `productSearchDocOf(productId)`.
-- 인덱스 상태: `SearchIndexState x = testFixtures.searchIndexStateOf()` 한 번으로 읽는다. `x.aliasTargets()`(alias `products`가 가리키는 인덱스 이름들. alias가 없으면 빈 목록), `x.indexNames()`(`products-*` 인덱스 전부), `x.docCount()`(alias로 센 문서 수), `x.reindexTarget()`(Redis `search:reindex-target`. `null` = 키 없음). 요청 코드는 테스트에 쓰지 않는다.
+**테스트 준비**
+
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `searchIndexStateOf()` → `SearchIndexState` | 한 번 호출로 읽는다(요청 코드는 테스트에 쓰지 않는다). 읽는 곳 4개: ES `GET /_alias/products`(응답 JSON의 **키**들 → `aliasTargets` = alias `products`가 가리키는 인덱스 이름들, alias가 없어 404면 빈 목록), ES `GET /_cat/indices/products-*?format=json`(각 항목의 `index` → `indexNames` = `products-*` 인덱스 전부), ES `GET /products/_count`(`count` → `docCount` = alias로 센 문서 수, alias가 없으면 0), Redis `StringRedisTemplate.opsForValue().get("search:reindex-target")`(`reindexTarget`, 키가 없으면 `null`). `SearchIndexState`는 `support/`의 record `(List<String> aliasTargets, List<String> indexNames, long docCount, String reindexTarget)`. ES 호출 방법은 6-2 `productSearchDocOf`와 같다 | `ReindexTest` 1·2·3·4번 |
+
+이미 있는 헬퍼: 6-2 `productSearchDocOf`, `adminToken`(4-4), `Eventually.await`(3-1).
+
+헬퍼를 쓰는 방법은 다음과 같다.
 - DB: `SELECT version FROM product.product WHERE id = ?`(이 한 곳뿐이라 헬퍼 없이 쓴다).
 - 검색: `GET /api/search/products?q=재색인상품&size=1`(Authorization 없이).
 
@@ -571,16 +576,6 @@ ES 호출 전에 막히는 요청 검증을 확인하려고 더했다. 모두 `G
 - ADMIN 토큰: 202. 이 케이스는 공통 준비의 1,000개 대신 상품 1개만 등록하고, 호출 전 `searchIndexStateOf().aliasTargets()`를 `before`로 적어 둔다. 응답 뒤 `Eventually.await(Duration.ofSeconds(30), …)`로 `aliasTargets()`가 `before`와 달라질 때까지 기다린 뒤 끝낸다(재색인이 다음 테스트로 넘어가지 않게).
 - 일반 회원 토큰: 403, `$.code` = `FORBIDDEN`.
 - 토큰 없음: 401, `$.code` = `UNAUTHORIZED`.
-
-**테스트 준비**
-
-이 단계에서 추가하는 헬퍼 (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `searchIndexStateOf()` → `SearchIndexState` | 읽는 곳 4개: ES `GET /_alias/products`(응답 JSON의 **키**들 → `aliasTargets`, alias가 없어 404면 빈 목록), ES `GET /_cat/indices/products-*?format=json`(각 항목의 `index` → `indexNames`), ES `GET /products/_count`(`count` → `docCount`, alias가 없으면 0), Redis `StringRedisTemplate.opsForValue().get("search:reindex-target")`(`reindexTarget`, 키가 없으면 `null`). `SearchIndexState`는 `support/`의 record `(List<String> aliasTargets, List<String> indexNames, long docCount, String reindexTarget)`. ES 호출 방법은 6-2 `productSearchDocOf`와 같다 | `ReindexTest` 1·2·3·4번 |
-
-이미 있는 헬퍼: 6-2 `productSearchDocOf`, `adminToken`(4-4), `Eventually.await`(3-1).
 
 **리뷰 때 물어볼 것**: alias 없이 같은 인덱스를 지우고 다시 만들면 무엇이 문제인가?
 
@@ -677,13 +672,25 @@ ES 호출 전에 막히는 요청 검증을 확인하려고 더했다. 모두 `G
 
 ### 완료 확인
 
-**확인 값을 읽는 방법**
+**테스트 준비**
+
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `embeddingOf(UUID productId)` → `EmbeddingRow` | JDBC `SELECT status, source_hash, model, vector_dims(embedding), updated_at FROM recommendation.product_embedding WHERE product_id = ?`. `EmbeddingRow`는 `support/`의 record `(String status, String sourceHash, String model, int dims, Instant updatedAt)`. 행이 없으면 `null`(PK가 `product_id`라 "1행"은 `null`이 아님으로 확인한다). 한 번 호출로 읽고 `e.status()`, `e.sourceHash()`, `e.model()`, `e.dims()`(`vector_dims(embedding)`), `e.updatedAt()`을 쓴다 | `ProductEmbeddingTest`, `RecommendationTest` 준비 |
+| `purchasedProductIdsOf(UUID memberId)` → `Set<UUID>` | JDBC `SELECT product_id FROM recommendation.member_purchase WHERE member_id = ?` | `RecommendationTest` 준비·4번 |
+| `processedCountOf(String consumer)` → `long` | 3-2의 `processedCountOf(consumer, eventId)`와 이름이 같고 인자가 다른 오버로드다. JDBC `SELECT count(*) FROM common.processed_message WHERE consumer = ?`(그 consumer의 행 수) | `ProductEmbeddingTest` 1·2·5번 |
+| `recommendationCacheOf(UUID memberId)` → `RecommendationCache` | `StringRedisTemplate`로 `get("rec:result:" + memberId)`를 읽고(없으면 `null`) JSON 배열을 `objectMapper.readTree`로 푼다. `getExpire(키, TimeUnit.SECONDS)`가 TTL. `RecommendationCache`는 `support/`의 record `(JsonNode items, long ttlSeconds)`이고 `productIds()`가 `items`의 `productId`를 저장된 JSON 배열의 순서대로 `List<UUID>`로 돌려준다. `items()`는 `JsonNode` 배열이고 항목에 `thumbnailKey`가 있다 | `RecommendationTest` 2·3·4번 |
+| `setEmbedding(UUID productId, float x, float y, float z, String status)` → `void` | JDBC `UPDATE recommendation.product_embedding SET embedding = CAST(? AS vector), status = ? WHERE product_id = ?`. 벡터 문자열은 앞 세 성분이 `x, y, z`이고 나머지 1,533개가 0인 1536개를 공백 없이 `,`로 이어 `[`·`]`로 감싼 것(`'[x,y,z,0,0,…]'`) | `RecommendationTest` 준비 |
+| `setEmbeddingStatus(UUID productId, String status)` → `void` | JDBC `UPDATE recommendation.product_embedding SET status = ? WHERE product_id = ?` | `RecommendationTest` 3번 |
+| `FakeOpenAiServer.embeddingInputs()` → `List<String>` | 받은 `/v1/embeddings` 요청 본문을 받은 순서대로 `readTree`로 읽어 `input` 문자열을 모은다. 건수는 `.size()`. `input`이 문자열인지 배열인지는 서버를 만들 때 실제 요청을 보고 정한다(확인 필요) | `ProductEmbeddingTest` 전부 |
+
+이미 있는 헬퍼: `signup`, `login`, `createPaidOrder`(2-6), `hideProduct`, `outboxRelay.relayOnce()`·`Eventually.await`(3-1), `TestKafka.readAll`(3-1). 구매 이력은 `createPaidOrder`로 만든 뒤 `relayOnce()`를 부르고 `Eventually.await`로 `purchasedProductIdsOf(buyerId)`가 기대한 집합이 될 때까지 기다린다. 탈퇴(`member-withdrawn`)가 구매 이력과 캐시를 지우는지는 이 단계의 완료 확인에 없다(Part 3의 탈퇴 흐름이 필요해 추가하지 않았다. 확인 필요).
+
+헬퍼를 쓰는 방법은 다음과 같다.
 - 응답: `jsonPath`. 추천은 배열이라 `$.length()`와 `$[i].productId`·`.name`·`.price`·`.thumbnailUrl`.
-- 임베딩: `EmbeddingRow e = testFixtures.embeddingOf(productId)` 한 번으로 읽는다. `e.status()`, `e.sourceHash()`, `e.model()`, `e.dims()`(`vector_dims(embedding)`), `e.updatedAt()`. 행이 없으면 `null`(PK가 `product_id`라 "1행"은 `null`이 아님으로 확인한다).
-- 구매 이력: `testFixtures.purchasedProductIdsOf(memberId)` → `Set<UUID>`.
-- 처리 기록: `testFixtures.processedCountOf("recommendation.product-upserted")` → 그 consumer의 `common.processed_message` 행 수.
-- Redis 캐시: `RecommendationCache c = testFixtures.recommendationCacheOf(memberId)`. `c.productIds()`(저장된 JSON 배열의 순서대로), `c.items()`(`JsonNode` 배열. 항목에 `thumbnailKey`가 있다), `c.ttlSeconds()`. 키가 없으면 `null`.
-- 가짜 OpenAI 서버(`FakeOpenAiServer`): `openAi.embeddingInputs()` → 받은 `/v1/embeddings` 요청의 `input` 문자열 목록(받은 순서). 건수는 `.size()`. 메서드 이름은 `FakePgServer`와 같은 모양을 권장안으로 한다: `on(경로, Behavior)`(예: `Behavior.serverError()`), `reset()`. `IntegrationTestSupport`의 `@AfterEach`에서 `reset()`을 부른다. `input`이 문자열인지 배열인지는 서버를 만들 때 실제 요청을 보고 정한다(확인 필요).
+- 가짜 OpenAI 서버(`FakeOpenAiServer`): 메서드 이름은 `FakePgServer`와 같은 모양을 권장안으로 한다: `on(경로, Behavior)`(예: `Behavior.serverError()`), `reset()`. `IntegrationTestSupport`의 `@AfterEach`에서 `reset()`을 부른다.
 - DLT: `TestKafka.readAll("product.product-upserted.v1.dlt")`(3-1). 레코드의 봉투 `eventId`는 `common.outbox_event`의 행 ID와 같다.
 
 **공통 준비**: 판매자 1명, 가게 1개. 상품은 `RegisterProductService.register(sellerId, shopId, new RegisterProductCommand(이름, "설명", 카테고리, 가격, 10, false))`로 만든다. 이벤트는 `outboxRelay.relayOnce()`로 흘리고 `Eventually.await(Duration.ofSeconds(10), …)`로 기다린다.
@@ -749,22 +756,6 @@ ES 호출 전에 막히는 요청 검증을 확인하려고 더했다. 모두 `G
 - `recommendationCacheOf(buyer)` = `null`.
 - 다시 호출: 200, `$.length()` = 2, `[B, D]`. 취향이 A·C의 평균 (0.8, 0.4, 0)으로 바뀌어 거리가 작은 순서가 F(≈0.016) → B(≈0.062) → D(1.0)가 되고, F는 숨김이라 빠지고 C는 산 상품이라 빠진다.
 
-**테스트 준비**
-
-이 단계에서 추가하는 헬퍼 (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `embeddingOf(productId)` → `EmbeddingRow` | JDBC `SELECT status, source_hash, model, vector_dims(embedding), updated_at FROM recommendation.product_embedding WHERE product_id = ?`. `EmbeddingRow`는 `support/`의 record `(String status, String sourceHash, String model, int dims, Instant updatedAt)`. 행이 없으면 `null` | `ProductEmbeddingTest`, `RecommendationTest` 준비 |
-| `purchasedProductIdsOf(memberId)` → `Set<UUID>` | JDBC `SELECT product_id FROM recommendation.member_purchase WHERE member_id = ?` | `RecommendationTest` 준비·4번 |
-| `processedCountOf(consumer)` → `long` | 3-2의 `processedCountOf(consumer, eventId)`와 이름이 같고 인자가 다른 오버로드다. JDBC `SELECT count(*) FROM common.processed_message WHERE consumer = ?` | `ProductEmbeddingTest` 1·2·5번 |
-| `recommendationCacheOf(memberId)` → `RecommendationCache` | `StringRedisTemplate`로 `get("rec:result:" + memberId)`를 읽고(없으면 `null`) JSON 배열을 `objectMapper.readTree`로 푼다. `getExpire(키, TimeUnit.SECONDS)`가 TTL. `RecommendationCache`는 `support/`의 record `(JsonNode items, long ttlSeconds)`이고 `productIds()`가 `items`의 `productId`를 순서대로 `List<UUID>`로 돌려준다 | `RecommendationTest` 2·3·4번 |
-| `setEmbedding(productId, x, y, z, status)` | JDBC `UPDATE recommendation.product_embedding SET embedding = CAST(? AS vector), status = ? WHERE product_id = ?`. 벡터 문자열은 앞 세 성분이 `x, y, z`이고 나머지 1,533개가 0인 1536개를 공백 없이 `,`로 이어 `[`·`]`로 감싼 것(`'[x,y,z,0,0,…]'`) | `RecommendationTest` 준비 |
-| `setEmbeddingStatus(productId, status)` | JDBC `UPDATE recommendation.product_embedding SET status = ? WHERE product_id = ?` | `RecommendationTest` 3번 |
-| `FakeOpenAiServer.embeddingInputs()` → `List<String>` | 받은 `/v1/embeddings` 요청 본문을 받은 순서대로 `readTree`로 읽어 `input`을 모은다 | `ProductEmbeddingTest` 전부 |
-
-이미 있는 헬퍼: `signup`, `login`, `createPaidOrder`(2-6), `hideProduct`, `outboxRelay.relayOnce()`·`Eventually.await`(3-1), `TestKafka.readAll`(3-1). 구매 이력은 `createPaidOrder`로 만들고 위 순서대로 `relayOnce()` + `Eventually`로 기다린다. 탈퇴(`member-withdrawn`)가 구매 이력과 캐시를 지우는지는 이 단계의 완료 확인에 없다(Part 3의 탈퇴 흐름이 필요해 추가하지 않았다. 확인 필요).
-
 **리뷰 때 물어볼 것**
 - OpenAI 비용을 어떻게 관리했나?
 - consumer에서 외부 호출을 `runOnce` 밖에서 하는 이유는? 그 대가는(중복 호출 가능성)?
@@ -805,23 +796,24 @@ ES 호출 전에 막히는 요청 검증을 확인하려고 더했다. 모두 `G
 
 ### 완료 확인
 
-**확인 값을 읽는 방법**
-- 반환값: `summarizeMonth(YearMonth)`가 돌려준 저장 건수(`int`).
-- 요약 행: `testFixtures.reviewSummariesOf(productId)` → `List<ReviewSummaryRow>`(`period_end` 오름차순). 행마다 `periodEnd()`(`LocalDate`), `summary()`, `sourceReviewCount()`, `model()`. 행 수는 `.size()`, 없으면 빈 목록.
-- 가짜 OpenAI 서버: `openAi.chatUserPrompts()` → 받은 `/v1/chat/completions` 요청마다 `messages` 중 `role`이 `user`인 것의 `content` 텍스트를 받은 순서대로 모은 `List<String>`. 호출 건수는 `.size()`, 프롬프트는 `.get(0)`처럼 읽는다(`content`가 문자열인지 배열인지는 서버를 만들 때 실제 요청을 보고 정한다. 확인 필요). 방금 호출 하나만 실패시키는 `openAi.failNext("/v1/chat/completions", 1)`이 필요하다(이름은 권장안. 3-5 가짜 발송기의 `failNext`와 같은 모양).
-- 가짜 서버의 고정 요약 문장: 서버를 만들 때 정하는 상수(예: `FakeOpenAiServer.SUMMARY`)와 `review_summary.summary`를 비교한다.
+**테스트 준비**
 
-**공통 준비**: 요약 월은 오늘 날짜에 기대지 않도록 `YearMonth.of(2026, 9)`로 고정하고 `service.summarizeMonth(...)`를 직접 부른다(스케줄러는 테스트에서 꺼져 있다). 리뷰는 6-1 흐름을 거치지 않고 JDBC로 직접 넣는다. `review`는 상품을 호출하지 않고 6-1 마이그레이션에 외래 키도 없으므로 `productId`·`order_line_id`·`member_id`는 `Ids.newId()`면 된다.
-
-이 단계에서 추가하는 헬퍼 (`support/TestFixtures`. 이름·인자는 권장안)
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안).
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `insertReview(productId, rating, likeCount, status, content, createdAt)` → reviewId | JDBC `INSERT INTO review.review (id, order_line_id, product_id, member_id, rating, content, like_count, status, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`. `id`·`order_line_id`·`member_id`는 `Ids.newId()`, `updated_at` = `created_at` | `ReviewSummaryTest` |
-| `reviewSummariesOf(productId)` → `List<ReviewSummaryRow>` | JDBC `SELECT period_end, summary, source_review_count, model FROM review.review_summary WHERE product_id = ? ORDER BY period_end`. `ReviewSummaryRow`는 `support/`의 record `(LocalDate periodEnd, String summary, int sourceReviewCount, String model)` | `ReviewSummaryTest` 1·2·5번 |
-| `insertReviewStat(productId, reviewCount, ratingSum, r1, r2, r3, r4, r5)` | JDBC `INSERT INTO review.product_review_stat (product_id, review_count, rating_sum, r1, r2, r3, r4, r5, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, now())` | `ReviewSummaryTest` 6번 |
-| `insertReviewSummary(productId, periodEnd, summary)` | JDBC `INSERT INTO review.review_summary (id, product_id, period_end, summary, source_review_count, model, created_at) VALUES (?, ?, ?, ?, 1, 'test', now())`. `id`는 `Ids.newId()` | `ReviewSummaryTest` 6번 |
-| `FakeOpenAiServer.chatUserPrompts()` → `List<String>` | 위 "확인 값을 읽는 방법"대로 받은 `/v1/chat/completions` 요청마다 user 메시지 텍스트를 모은다 | `ReviewSummaryTest` 1~5번 |
+| `insertReview(UUID productId, int rating, int likeCount, String status, String content, Instant createdAt)` → `UUID` | JDBC `INSERT INTO review.review (id, order_line_id, product_id, member_id, rating, content, like_count, status, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`. `id`·`order_line_id`·`member_id`는 `Ids.newId()`, `updated_at` = `created_at` | `ReviewSummaryTest` |
+| `reviewSummariesOf(UUID productId)` → `List<ReviewSummaryRow>` | JDBC `SELECT period_end, summary, source_review_count, model FROM review.review_summary WHERE product_id = ? ORDER BY period_end`. `ReviewSummaryRow`는 `support/`의 record `(LocalDate periodEnd, String summary, int sourceReviewCount, String model)`이고 행 수는 `.size()`, 없으면 빈 목록 | `ReviewSummaryTest` 1·2·5번 |
+| `insertReviewStat(UUID productId, int reviewCount, long ratingSum, int r1, int r2, int r3, int r4, int r5)` → `void` | JDBC `INSERT INTO review.product_review_stat (product_id, review_count, rating_sum, r1, r2, r3, r4, r5, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, now())` | `ReviewSummaryTest` 6번 |
+| `insertReviewSummary(UUID productId, LocalDate periodEnd, String summary)` → `void` | JDBC `INSERT INTO review.review_summary (id, product_id, period_end, summary, source_review_count, model, created_at) VALUES (?, ?, ?, ?, 1, 'test', now())`. `id`는 `Ids.newId()` | `ReviewSummaryTest` 6번 |
+| `FakeOpenAiServer.chatUserPrompts()` → `List<String>` | 받은 `/v1/chat/completions` 요청마다 `messages` 중 `role`이 `user`인 것의 `content` 텍스트를 받은 순서대로 모은다. 호출 건수는 `.size()`, 프롬프트는 `.get(0)`처럼 읽는다(`content`가 문자열인지 배열인지는 서버를 만들 때 실제 요청을 보고 정한다. 확인 필요) | `ReviewSummaryTest` 1~5번 |
+
+헬퍼를 쓰는 방법은 다음과 같다.
+- 반환값: `summarizeMonth(YearMonth)`가 돌려준 저장 건수(`int`).
+- 방금 호출 하나만 실패시키는 `openAi.failNext("/v1/chat/completions", 1)`이 필요하다(이름은 권장안. 3-5 가짜 발송기의 `failNext`와 같은 모양).
+- 가짜 서버의 고정 요약 문장: 서버를 만들 때 정하는 상수(예: `FakeOpenAiServer.SUMMARY`)와 `review_summary.summary`를 비교한다.
+
+**공통 준비**: 요약 월은 오늘 날짜에 기대지 않도록 `YearMonth.of(2026, 9)`로 고정하고 `service.summarizeMonth(...)`를 직접 부른다(스케줄러는 테스트에서 꺼져 있다). 리뷰는 6-1 흐름을 거치지 않고 JDBC로 직접 넣는다. `review`는 상품을 호출하지 않고 6-1 마이그레이션에 외래 키도 없으므로 `productId`·`order_line_id`·`member_id`는 `Ids.newId()`면 된다.
 
 시각은 업무 시간대(Asia/Seoul) 기준이다: `ZonedDateTime.of(2026, 9, 15, 12, 0, 0, 0, ZoneId.of("Asia/Seoul")).toInstant()` 같은 식으로 만든다. 기간은 `2026-09-01T00:00+09:00` 이상, `2026-10-01T00:00+09:00` 미만이다.
 
@@ -903,9 +895,19 @@ ES 호출 전에 막히는 요청 검증을 확인하려고 더했다. 모두 `G
 
 ### 완료 확인
 
-**확인 값을 읽는 방법**
+**테스트 준비**
+
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `inquiryOf(UUID inquiryId)` → `InquirySnapshot` | JDBC 쿼리 2개로 한 번에 읽는다: `member.inquiry`의 `member_id`·`title`·`content`·`status`, `member.inquiry_answer`의 `admin_id`·`content`(해당 `inquiry_id`, 생성 순). `InquirySnapshot`은 `support/`의 record `(UUID memberId, String title, String content, String status, List<Answer> answers)`이고 `Answer`는 `(UUID adminId, String content)`. 문의 행이 없으면 `null`. 한 번 호출로 읽고 `q.memberId()`, `q.title()`, `q.content()`, `q.status()`, `q.answers()`(각 `adminId()`·`content()`)를 쓴다 | `InquiryTest` 3번 |
+| `inquiriesOf(UUID memberId)` → `List<InquirySnapshot>` | `member.inquiry`에서 `member_id = ?`인 행을 `created_at` 순으로 읽어 각각 `inquiryOf`와 같은 모양으로 만든다. 회원의 문의 전체(생성 순)이고 문의 행 수는 `.size()` | `InquiryTest` 1번 |
+
+이미 있는 헬퍼: `signup`, `login`, `changeRole`(3-1).
+
+헬퍼를 쓰는 방법은 다음과 같다.
 - 응답: `jsonPath`. 에러 코드는 `$.code`, 목록은 `$.items.length()`·`$.items[i].…`·`$.nextCursor`. 목록·상세의 항목 필드 이름은 문서에 없다(확인 필요: 6-6 구현물 6번이 정한다. 아래는 `Inquiry` 컬럼에 맞춘 `id`·`title`·`status`·`createdAt`을 쓴다).
-- 문의: `InquirySnapshot q = testFixtures.inquiryOf(inquiryId)` 한 번으로 읽는다. `q.memberId()`, `q.title()`, `q.content()`, `q.status()`, `q.answers()`(답변 목록. 각 `adminId()`·`content()`). 행이 없으면 `null`. 회원의 문의 전체(생성 순)는 `testFixtures.inquiriesOf(memberId)` → `List<InquirySnapshot>`이고 문의 행 수는 `.size()`.
 
 **공통 준비**: 회원 `user1@test.com`, `user2@test.com`(`signup` + `login`으로 ID와 토큰). 관리자 `admin@test.com`: `adminId = signup("admin@test.com")` → `changeRole(adminId, "ADMIN")` → `login`으로 토큰을 다시 받는다(`adminToken`은 ID를 돌려주지 않아 `admin_id` 확인에 쓸 수 없다. 둘 다 4-4 헬퍼). 문의 작성 요청은 `POST /api/inquiries`에 `Authorization: Bearer {user1 토큰}`, 본문 `{"title":"배송이 늦어요","content":"주문한 상품이 아직 도착하지 않았습니다."}`다. 응답 `$.inquiryId`로 문의 ID(`Q1`)를 받는다. 답변 요청은 `POST /admin/api/inquiries/{id}/answer`에 `Authorization: Bearer {admin 토큰}`, 본문 `{"content":"확인 후 오늘 중 안내드리겠습니다."}`다.
 
@@ -932,17 +934,6 @@ ES 호출 전에 막히는 요청 검증을 확인하려고 더했다. 모두 `G
 **4. 관리자 목록은 상태로 거른다** (추가) — 관리자 목록 API 규격을 확인하려고 더했다. 준비: `user1`이 문의 3개(`Q1`, `Q2`, `Q3`)를 작성하고 `admin`이 `Q2`에 답변한다. 동작: `admin` 토큰으로 `GET /admin/api/inquiries?status=OPEN`.
 - 응답: 200, `$.items.length()` = 2, id 집합 `{Q1, Q3}`(`Q2`는 `ANSWERED`라 없다), `$.nextCursor` = null. 정렬 순서는 문서에 없어 확인하지 않는다(확인 필요: 오래된 문의가 먼저가 권장).
 - `?status=ANSWERED` → `$.items.length()` = 1, `$.items[0].id` = `Q2`.
-
-**테스트 준비**
-
-이 단계에서 추가하는 헬퍼 (`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `inquiryOf(inquiryId)` → `InquirySnapshot` | JDBC 쿼리 2개로 한 번에 읽는다: `member.inquiry`의 `member_id`·`title`·`content`·`status`, `member.inquiry_answer`의 `admin_id`·`content`(해당 `inquiry_id`, 생성 순). `InquirySnapshot`은 `support/`의 record `(UUID memberId, String title, String content, String status, List<Answer> answers)`이고 `Answer`는 `(UUID adminId, String content)`. 문의 행이 없으면 `null` | `InquiryTest` 3번 |
-| `inquiriesOf(memberId)` → `List<InquirySnapshot>` | `member.inquiry`에서 `member_id = ?`인 행을 `created_at` 순으로 읽어 각각 `inquiryOf`와 같은 모양으로 만든다 | `InquiryTest` 1번 |
-
-이미 있는 헬퍼: `signup`, `login`, `changeRole`(3-1).
 
 **추가 항목**
 - 제재 회원도 문의 쓰기: 로그인은 허용하고 토큰에 `st: "BANNED"`를 넣어, 필터가 허용 목록(`/api/inquiries/**`, `GET /api/members/me`, 로그아웃·갱신) 외 요청을 403 `MEMBER_BANNED`로 막는다. 1-4·4-4의 "제재 → 로그인 403" 테스트가 "로그인 200 + 체크아웃 403"으로 바뀐다

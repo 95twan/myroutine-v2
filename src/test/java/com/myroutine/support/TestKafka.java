@@ -9,20 +9,27 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 @Component
 @RequiredArgsConstructor
 public class TestKafka {
     private final ObjectMapper objectMapper;
+    private final KafkaTemplate<String, String> kafkaTemplate;
     @Value("${spring.kafka.bootstrap-servers}")
     private String bootstrapServers;
 
@@ -69,5 +76,17 @@ public class TestKafka {
         } catch (JacksonException e) {
             return null;   // 봉투가 아닌 문자열
         }
+    }
+
+    public int send(String topic, String key, UUID eventId, Object event) throws ExecutionException, InterruptedException, TimeoutException {
+        EventEnvelope envelope = new EventEnvelope(eventId, event.getClass().getSimpleName(), Instant.now(), UUID.fromString(key), null, objectMapper.valueToTree(event));
+        String json = objectMapper.writeValueAsString(envelope);
+        SendResult<String, String> result = kafkaTemplate.send(topic, key, json).get(5, TimeUnit.SECONDS);
+        return result.getRecordMetadata().partition();
+    }
+
+    public int sendRaw(String topic, String key, String value) throws ExecutionException, InterruptedException, TimeoutException {
+        SendResult<String, String> result = kafkaTemplate.send(topic, key, value).get(5, TimeUnit.SECONDS);
+        return result.getRecordMetadata().partition();
     }
 }

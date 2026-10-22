@@ -131,4 +131,11 @@ public interface JpaOrderRepository extends JpaRepository<Order, UUID>, OrderRep
             order by so.deliveredAt , so.id
             """)
     List<AutoConfirmTarget> findAutoConfirmTargets(ShopOrderStatus status, Instant before, Instant cursorAt, UUID cursorId, Limit limit);
+
+    @Query("""
+            select count(so) > 0
+            from ShopOrder so
+            where so.shopId = :shopId and so.status in :statuses
+            """)
+    boolean existsByShopIdAndStatusIn(UUID shopId, Collection<ShopOrderStatus> statuses);
 }

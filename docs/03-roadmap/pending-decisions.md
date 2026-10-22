@@ -1,6 +1,9 @@
 # 구현 때 정할 것
 
-> 버전 0.5 · 2026-10-20 · 3-1 착수로 4절의 3-1 행(릴레이 중단 A, 외부 동작 B, `occurredAt` D)을 지웠다
+> 버전 0.8 · 2026-10-23 · 2절의 `TestFixtures` 헬퍼 위치 행("테스트 준비"가 완료 확인 뒤에 있는 구조)을 지웠다: Part 2~7의 완료 확인에서 "테스트 준비"를 테스트 클래스 앞으로 옮겼다(Part 1은 이미 앞에 있었다)
+> 0.7 · 2026-10-23 · 2절의 `TestFixtures` 헬퍼 위치 행에 3-2는 앞으로 옮겼음을 적었다
+> 0.6 · 2026-10-22 · 3-2 착수로 2절의 3-2 행(`InboxGuard`의 MDC 중복, D)을 지웠다
+> 0.5 · 2026-10-20 · 3-1 착수로 4절의 3-1 행(릴레이 중단 A, 외부 동작 B, `occurredAt` D)을 지웠다
 > 0.4 · 2026-10-20 · Part 2 마무리로 4절의 2-5 `JobLock` 예외(E), 2-8a 잠금 범위(B, 테스트 SQL 로그로 확인), 2-8a `RefundResponse`(E) 행을 지웠다
 > 0.3 · 2026-10-20 · 2-10 착수로 2절의 "전체 상수 위치"(서비스 안 상수로 확정)와 "2-7~2-10 권장 이름"(구현된 이름으로 확정), 4절의 2-10 행(150건 테스트)과 상태 조합 4번(구매확정의 가게주문 재계산)을 지웠다
 > 0.2 · 2026-10-19 · 4절을 더했다: 로드맵·설계 문서의 열린 "확인 필요"를 단계별로 모았다(서브에이전트 4개가 파일 그룹별로 추출, 줄 번호는 이 날짜 기준). 2-9 `approve`의 `findByIdForUpdate` 행은 락 없이 가기로 정해(로드맵 0.90) 지웠다
@@ -30,11 +33,9 @@
 
 | 단계 | 항목 | 선택지와 영향 |
 |---|---|---|
-| 전체 | `TestFixtures` 헬퍼("테스트 준비")가 "완료 확인" 표 뒤에 있는 구조 | 만드는 순서는 헬퍼 → 테스트다. 구조를 바꾸려면 2-1~2-5를 포함해 고친다 |
 | 2-6 | `cancel` A-2·A-3의 재조회 | `insertIfAbsent`가 1행이면 방금 만든 `REQUESTED` 행이고 `id`도 알아서 재조회가 필요 없다. 0행일 때만 읽으면 취소마다 SELECT가 하나 준다. 분기가 늘어난다 |
 | 3 공통 규칙 P | `SettlementPaidEvent`의 `LocalDate periodStart`·`periodEnd` | 규칙 P는 필드 타입을 원시 타입·UUID·String·long·Instant·List로 제한한다. `LocalDate`를 허용하거나 필드를 `String`·`Instant`로 바꾼다 |
 | 3 공통 규칙 S | `notification`의 `payment::api` 의존 | 3-3에서 payment는 이벤트를 발행하지 않고 3-5 consumer도 payment를 쓰지 않는다. 불필요하면 지운다. `order` 행의 "Part 2 + 없음" 표기도 모호하다 |
-| 3-2 | `InboxGuard.runOnce`가 `EventContext`와 같은 MDC put/remove를 따로 구현한다 | `EventContext.run` 안에서 실행하게 하면 중복이 없다. 7-1의 "각자 finally" 설명도 고친다 |
 | 3-4a | `Settlement.calculate(gross, bp, itemCount)`의 `bp` | `insertIfAbsent`가 `fee_rate_bp`를 이미 넣었다. 엔티티 값을 쓰면 중복이 없지만 엔티티를 native INSERT로만 만들어서 `SettlementPeriodTest`의 "12,345원·500bp → 수수료 617"을 어디서 검증할지 정해야 한다 |
 | 3-4a | `payoutAll`의 정산 이중 조회 | `findIdsToPay`가 ID만 주고 루프가 `findById`로 읽은 뒤 쓰기 트랜잭션에서 또 읽는다. `(id, shopId, netAmount)` record를 돌려주면 첫 조회가 사라진다 |
 | 3-4a | `settlement/package-info`의 허용 의존 | 공통 규칙 S가 "Part 3 끝 기준"이라 모호하다. 3-4a는 `{common, order::api}`, 3-4b가 `shop::api`를 더하는 것으로 풀었다 |
