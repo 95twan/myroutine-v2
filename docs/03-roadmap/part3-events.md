@@ -1,6 +1,11 @@
 # Part 3. 이벤트
 
-> 버전 0.24 · 2026-10-21 · **3-0을 서명 주소 하나로 줄였다**: 프록시 뒤 POST 403을 `server.forward-headers-strategy: native`로 풀던 것을 `CORS_ALLOWED_ORIGINS`에 공개 주소를 넣는 방식으로 바꿨다. CORS 설정이 없는 경로는 Spring이 검사 없이 통과시키고(`DefaultCorsProcessor`), `src/main`에 요청 scheme에 기대는 코드(리다이렉트·`Secure` 쿠키·절대 URL 생성)가 없어 `native`가 풀어 줄 것이 없었다. 코드 할 일에서 `application-prod.yaml` 설정이, 완료 확인에서 `ForwardedHeadersTest`가 빠졌다
+> 버전 0.29 · 2026-10-22 · **테스트 헬퍼 두 가지를 코드에 맞췄다**: `TestKafka`가 읽는 `spring.kafka.bootstrap-servers`가 컨테이너가 아닌 `localhost:9092`라서 `IntegrationTestSupport`의 `@DynamicPropertySource`에 주소를 더하게 했고, `outboxSnapshotOf`는 `OutboxAssert`에 두는 것으로 정리했다. 그 밖의 규격·동작은 0.28과 같다
+> 0.28 · 2026-10-22 · **3-1의 `memberSnapshotOf`에서 `withdrawnAt`을 3-6으로 옮겼다**: `member.member.withdrawn_at` 컬럼은 3-6 마이그레이션이 만들어 3-1에서 읽으면 SQL이 실패한다. 3-1은 `role`·`status`·`email`만 더한다. 그 밖의 규격·동작은 0.27과 같다
+> 0.27 · 2026-10-21 · **outbox 시각을 앱 `Clock`으로 통일했다**: 릴레이 SQL의 `now()`를 `Clock`에서 얻은 파라미터로 바꿔 `OutboxPublisher`와 다른 job과 같은 시계를 쓴다(릴레이도 `JobRunner`로 한 서버만 돌아 DB 시각이 필요 없다). `OutboxRelay` 의존성에 `Clock` 추가. 그 밖의 규격·동작은 0.26과 같다
+> 0.26 · 2026-10-21 · **릴레이에서 `TransactionTemplate`을 뺐다**: `OutboxRelay`의 회수·선점·결과 기록이 모두 `UPDATE` 한 문장이라 트랜잭션 없이 한 문장씩 커밋한다. 그 밖의 규격·동작은 0.25와 같다
+> 0.25 · 2026-10-21 · **3-1 착수 전 확인 필요를 풀었다**: 릴레이는 한 행이 발행에 실패하면 그 호출의 남은 행을 시도하지 않고 되돌린다(사용자 결정, `OutboxRelayTest` 5번 추가), Kafka 환경변수 이름·Jackson 3 `treeToValue`·`@NamedInterface`의 하위 패키지 처리(`api/event`에도 `package-info.java` 필요)·봉투 `occurredAt`을 확인해 확정했다
+> 0.24 · 2026-10-21 · **3-0을 서명 주소 하나로 줄였다**: 프록시 뒤 POST 403을 `server.forward-headers-strategy: native`로 풀던 것을 `CORS_ALLOWED_ORIGINS`에 공개 주소를 넣는 방식으로 바꿨다. CORS 설정이 없는 경로는 Spring이 검사 없이 통과시키고(`DefaultCorsProcessor`), `src/main`에 요청 scheme에 기대는 코드(리다이렉트·`Secure` 쿠키·절대 URL 생성)가 없어 `native`가 풀어 줄 것이 없었다. 코드 할 일에서 `application-prod.yaml` 설정이, 완료 확인에서 `ForwardedHeadersTest`가 빠졌다
 > 0.23 · 2026-10-21 · **Part 3 앞에 3-0(외부 공개용 설정)을 더했다**: 도메인(`myroutine.dev`)을 구입해 Cloudflare Tunnel로 외부에 공개하기로 해(ADR-011 "외부 접속" 갱신), HTTPS 프록시 뒤에서 POST가 403 `Invalid CORS request`가 되는 문제와 업로드 URL의 서명 호스트 문제를 푸는 설정 두 가지를 단계로 올렸다. 값을 넣기 전에는 동작이 같은 설정 추가라 Part 3 본문(3-1~3-6)은 바꾸지 않았다
 > 0.22 · 2026-10-20 · **Part 2 구현에 맞춰 다듬었다**: Part 3이 가리키는 Part 1·2 클래스·메서드·`TestFixtures` 헬퍼를 코드와 대조해 모두 있음을 확인했다(없는 이름은 모두 Part 3이 새로 만드는 것). 공통 규칙 Q에 테스트 중 스케줄러를 끄려면 두 설정이 모두 필요하다는 근거(Part 2 규칙 M)를 이었고, 3-1의 `memberSnapshotOf`가 코드에 아직 없어 이 단계에서 추가한다는 점을 본문에도 맞췄다. 규격 외 변경 없음
 > 0.21 · 2026-10-20 · **4.1 기준 점검에서 '하' 후보를 권장안대로 정리했다**(사용자 요청): 3-4a의 `netAmount` 공식 재서술, 3-4b의 정산 건수 재확인·`payoutFailed`, 3-4b 컨트롤러 5번의 정산 건수 0, 3-6 재가입의 `$.memberId` 비교·`reasons` 개수·성공 케이스의 `WITHDRAWN` 재확인. 규격 외 변경 없음
@@ -183,7 +188,7 @@
 
 **정책 (이 단계에서 정함)**
 - 토픽은 파티션 3, 복제 1. 앱이 시작할 때 `NewTopic` 빈으로 만든다(브로커 자동 생성에 기대지 않음).
-- 릴레이: 1초마다, 한 번에 100건, 리스 30초. 발행에 실패하면 **10초 뒤** 다시. **10번 실패하면 DEAD**.
+- 릴레이: 1초마다, 한 번에 100건, 리스 30초. 발행에 실패하면 **10초 뒤** 다시. **10번 실패하면 DEAD**. 한 행이 실패하면 그 호출에서 아직 시도하지 않은 행은 시도하지 않는다(브로커가 멈췄을 때 행마다 기다리다 리스를 넘기지 않으려는 것).
 - SENT 행 정리는 Part 7(운영)에서 한다.
 
 **흐름 한눈에** (가게 개설 기준. 아래 클래스가 어느 줄을 맡는지 보면서 읽는다)
@@ -194,10 +199,10 @@
 
 ### 할 일
 
-**구현 순서**: ① 인프라(compose·의존성·`application.yaml`·`IntegrationTestSupport`) → ② outbox 마이그레이션 → ③ `EventEnvelope` → `OutboxPublisher` → `OutboxRelay` → `OutboxRelayJob` → `EventEnvelopes` → `EventContext` → ④ shop: `ShopTopics`·`ShopOpenedEvent` → `ShopTopicConfig` → `OpenShopService` 수정 → ⑤ member: `Member.promoteToSeller`·`demoteToUser` → `MemberRoleService` → `member/package-info.java` → `ShopEventConsumer` → ⑥ 테스트 헬퍼(`Eventually`, `OutboxSnapshot`, `OutboxAssert`) → 테스트.
+**구현 순서**: ① 인프라(compose·의존성·`application.yaml`·`IntegrationTestSupport`) → ② outbox 마이그레이션 → ③ `EventEnvelope` → `OutboxPublisher` → `OutboxRelay` → `OutboxRelayJob` → `EventEnvelopes` → `EventContext` → ④ shop: `api/event/package-info`·`ShopTopics`·`ShopOpenedEvent` → `ShopTopicConfig` → `OpenShopService` 수정 → ⑤ member: `Member.promoteToSeller`·`demoteToUser` → `MemberRoleService` → `member/package-info.java` → `ShopEventConsumer` → ⑥ 테스트 헬퍼(`Eventually`, `OutboxSnapshot`, `OutboxAssert`) → 테스트.
 
 **1) 인프라**
-- `docker/docker-compose.yml`에 Kafka 추가: 이미지 `apache/kafka:4.2.2`(KRaft 단일 브로커. 2026-10-09 Docker Hub의 4.2 줄 최신 패치 — Boot 4.1.1이 관리하는 kafka-clients가 4.2.1이라 같은 줄로 맞췄다. 4.3.x도 있다), 포트 `127.0.0.1:9092:9092`. 1-11 운영 compose에도 같은 태그로 추가한다. 운영에서는 앱이 컨테이너라 브로커가 광고하는 주소(advertised listeners)가 `localhost`면 붙지 못한다 — 서비스 이름(`kafka:9092`)으로 광고하게 설정한다(환경변수 이름은 이미지 문서에서 확인 필요)
+- `docker/docker-compose.yml`에 Kafka 추가: 이미지 `apache/kafka:4.2.2`(KRaft 단일 브로커. 2026-10-09 Docker Hub의 4.2 줄 최신 패치 — Boot 4.1.1이 관리하는 kafka-clients가 4.2.1이라 같은 줄로 맞췄다. 4.3.x도 있다), 포트 `127.0.0.1:9092:9092`. 1-11 운영 compose에도 같은 태그로 추가한다. 운영에서는 앱이 컨테이너라 브로커가 광고하는 주소(advertised listeners)가 `localhost`면 붙지 못한다 — 서비스 이름(`kafka:9092`)으로 광고하게 설정한다(브로커 설정은 `KAFKA_` 접두사에 대문자로, 점은 밑줄로 바꾼 환경변수로 준다: `advertised.listeners` → `KAFKA_ADVERTISED_LISTENERS`. 이미지 문서의 예제는 `KAFKA_LISTENERS`·`KAFKA_ADVERTISED_LISTENERS`·`KAFKA_LISTENER_SECURITY_PROTOCOL_MAP`·`KAFKA_INTER_BROKER_LISTENER_NAME`을 함께 준다. 운영 compose의 단일 브로커 환경변수 조합은 같은 값으로 컨테이너를 띄워 기동·`kafka-broker-api-versions.sh`·토픽 생성까지 확인했다)
 - 의존성: `implementation 'org.springframework.boot:spring-boot-starter-kafka'`(Boot 4.1.1에 있다, 2026-10-09 Maven Central 확인. 3.x처럼 `spring-kafka`를 직접 넣지 않는다), 테스트 `testImplementation 'org.testcontainers:testcontainers-kafka'`(버전은 Boot가 import하는 Testcontainers BOM 2.0.5가 관리)
 - `application.yaml`
 ```yaml
@@ -262,7 +267,7 @@ spring:
 
 **`EventEnvelope`** — `public record EventEnvelope(UUID eventId, String eventType, Instant occurredAt, UUID aggregateId, String traceId, JsonNode payload)` (`tools.jackson.databind.JsonNode`)
 - 어떤 이벤트든 같은 모양으로 감싸 보내서, 받는 쪽이 이벤트 종류를 모르고도 `eventId`(멱등 키)·`traceId`(로그 추적)를 먼저 꺼낼 수 있게 한다. 그래서 `payload`는 이벤트 record가 아니라 JSON 트리(`JsonNode`)이고, 이벤트 record로의 변환은 consumer가 `EventEnvelopes.parse`로 한다.
-- outbox 행 → 봉투: `id` → `eventId`, `event_type` → `eventType`, `aggregate_id` → `aggregateId`, `trace_id` → `traceId`, `payload`(jsonb) → `payload`. `occurredAt`은 선점 쿼리가 돌려주는 `created_at`을 쓰는 것으로 보인다(확인 필요: 문서에 명시 없음).
+- outbox 행 → 봉투: `id` → `eventId`, `event_type` → `eventType`, `aggregate_id` → `aggregateId`, `trace_id` → `traceId`, `payload`(jsonb) → `payload`. `occurredAt`은 선점 쿼리가 돌려주는 `created_at`(outbox 행을 만든 시각)이다.
 
 **`OutboxPublisher`** (`@Component`, 의존성 `JdbcTemplate`, `ObjectMapper`, `Clock`) — 비즈니스 코드가 이벤트를 내보내는 **유일한 입구**다. Kafka로 직접 보내지 않고, 상태 변경과 **같은 DB 트랜잭션에서 `common.outbox_event` 행 하나를 INSERT**만 한다. 트랜잭션이 롤백되면 이 행도 같이 사라진다 — 이것이 Outbox의 핵심이다.
 
@@ -281,36 +286,37 @@ spring:
 3. `jdbcTemplate.update("INSERT INTO common.outbox_event (...) VALUES (..., ?::jsonb, ...)", ...)` — `status = 'READY'`, `trace_id = MDC.get(TraceIds.MDC_KEY)`(HTTP 요청이면 `TraceIdFilter`가 넣어 둔 값. 없으면 `null`), `attempts`는 DEFAULT 0. NOT NULL인 `next_attempt_at`·`created_at`·`updated_at`은 INSERT에서 `now`로 직접 채운다. JDBC로 시각을 넘길 때는 `Instant`를 `OffsetDateTime.ofInstant(instant, ZoneOffset.UTC)`로 바꿔 넘긴다(`IdempotencyRepository`와 같다).
 - `MANDATORY`: 트랜잭션 밖에서 부르면 `IllegalTransactionStateException`("상태는 롤백됐는데 이벤트만 나가는" 사고를 코드로 막는다). 상태를 바꾸는 서비스의 `@Transactional` 안에서 부르면 JPA와 같은 트랜잭션에 참여한다.
 
-**`OutboxRelay`** (`@Component`, 의존성 `JdbcTemplate`, `KafkaTemplate<String, String>`(Boot가 `spring.kafka.*`로 만든 빈), `ObjectMapper`, `TransactionTemplate`) — **outbox에 쌓인 READY 행을 Kafka로 발행하는 곳**이다. 클래스에 `@Transactional`을 붙이지 않는다: 선점·결과 기록은 짧은 트랜잭션이고 Kafka 호출은 그 밖에서 해야 해서 `TransactionTemplate`으로 구간을 직접 나눈다([Part 2 공통 규칙 K](part2-order-money.md#k-외부-호출과-트랜잭션)).
+**`OutboxRelay`** (`@Component`, 의존성 `JdbcTemplate`, `KafkaTemplate<String, String>`(Boot가 `spring.kafka.*`로 만든 빈), `ObjectMapper`, `Clock`) — **outbox에 쌓인 READY 행을 Kafka로 발행하는 곳**이다. `@Transactional`도 `TransactionTemplate`도 쓰지 않는다: 회수·선점·결과 기록은 모두 `UPDATE` 한 문장이라 `jdbcTemplate`이 한 문장씩 바로 커밋하고, Kafka 호출은 어떤 트랜잭션에도 들어가지 않는다. 그래서 `relayOnce()`를 다른 트랜잭션 안에서 부르면 안 된다([Part 2 공통 규칙 K](part2-order-money.md#k-외부-호출과-트랜잭션)).
 - `public int relayOnce()` → 이번 호출에서 SENT로 바꾼 건수
 
 `relayOnce()` 순서
-1. 회수(2와 같은 짧은 트랜잭션 안의 `jdbcTemplate.update`): 앞서 릴레이가 죽어 `PROCESSING`으로 남은 행을 다시 `READY`로 돌린다. 회수만 하려고 트랜잭션을 한 번 더 열지 않고, 같은 `tx.execute(s -> { 회수 update; return 선점 query; })` 안에서 바로 이어 2의 선점이 방금 돌린 행까지 집는다.
+1. 회수(`jdbcTemplate.update` 한 문장): 앞서 릴레이가 죽어 `PROCESSING`으로 남은 행을 다시 `READY`로 돌린다. 바로 이어 2의 선점이 방금 돌린 행까지 집는다. `relayOnce()` 시작에서 `now`를 한 번 얻어 1·2에 쓴다(아래 시각 설명).
 ```sql
-UPDATE common.outbox_event SET status = 'READY', locked_until = NULL, updated_at = now() WHERE status = 'PROCESSING' AND locked_until < now()
+UPDATE common.outbox_event SET status = 'READY', locked_until = NULL, updated_at = ? WHERE status = 'PROCESSING' AND locked_until < ?   -- ? = now, now
 ```
-2. 선점(1과 같은 트랜잭션): "내가 이 행들을 맡았다"고 표시하고 그 행을 바로 읽는다. `jdbcTemplate.query(sql, rowMapper)`로 `RETURNING` 결과를 `List<OutboxRow>`로 받는다(`OutboxRow`는 릴레이 안에서만 쓰는 private record: `id, aggregateId, eventType, topic, payload(String), traceId, attempts, createdAt`). `FOR UPDATE SKIP LOCKED`는 다른 트랜잭션이 잠근 행을 기다리지 않고 건너뛰고, `PROCESSING + locked_until`은 커밋 뒤에도 다른 인스턴스가 못 가져가게 하는 표시다.
+2. 선점(`UPDATE ... RETURNING` 한 문장): "내가 이 행들을 맡았다"고 표시하고 그 행을 바로 읽는다. `jdbcTemplate.query(sql, rowMapper)`로 `RETURNING` 결과를 `List<OutboxRow>`로 받는다(`OutboxRow`는 릴레이 안에서만 쓰는 private record: `id, aggregateId, eventType, topic, payload(String), traceId, attempts, createdAt`). `FOR UPDATE SKIP LOCKED`는 다른 트랜잭션이 잠근 행을 기다리지 않고 건너뛰고, `PROCESSING + locked_until`은 커밋 뒤에도 다른 인스턴스가 못 가져가게 하는 표시다.
 ```sql
-UPDATE common.outbox_event SET status = 'PROCESSING', locked_until = now() + interval '30 seconds', updated_at = now()
+UPDATE common.outbox_event SET status = 'PROCESSING', locked_until = ?, updated_at = ?   -- ? = now + 30초, now
  WHERE id IN (SELECT id FROM common.outbox_event
-               WHERE status = 'READY' AND next_attempt_at <= now()
+               WHERE status = 'READY' AND next_attempt_at <= ?   -- ? = now
                ORDER BY created_at LIMIT 100 FOR UPDATE SKIP LOCKED)
 RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, created_at
 ```
-3. **트랜잭션 밖에서** 행마다(행 하나의 실패가 나머지를 막지 않도록 행 단위 `try/catch`)
+3. **트랜잭션 밖에서** 선점한 행을 `created_at` 순으로 하나씩(행마다 `try/catch`). 한 행이 실패하면 4에서 그 행의 실패를 기록하고 **반복을 멈춘다**. 아직 시도하지 않은 행은 "건너뜀"으로 4에서 되돌린다
    1. 봉투를 만든다: `new EventEnvelope(row.id(), row.eventType(), row.createdAt(), row.aggregateId(), row.traceId(), objectMapper.readTree(row.payload()))` → `objectMapper.writeValueAsString(envelope)`가 Kafka 메시지 값(JSON 문자열)이다.
    2. `kafkaTemplate.send(row.topic(), row.aggregateId().toString(), json)` — 키는 집계 ID 문자열. `send`는 `CompletableFuture<SendResult<String, String>>`을 **즉시** 돌려주고 실제 전송은 뒤에서 일어난다. 그래서 `.get(5, TimeUnit.SECONDS)`로 브로커의 응답을 기다려야 "보냈다"를 알 수 있다. `get`은 `InterruptedException`·`ExecutionException`·`TimeoutException`을 던질 수 있고, 전부 "발행 실패"로 취급한다(`catch (Exception e)`).
-4. 행마다 결과 기록(짧은 트랜잭션, `WHERE id = ?`의 `UPDATE`)
-   - 성공 → `SET status = 'SENT', sent_at = now(), locked_until = NULL, updated_at = now()`
-   - 실패 → `attempts + 1`이 10 이상이면 `status = 'DEAD'`, 아니면 `status = 'READY'` + `next_attempt_at = now() + 10초`. 둘 다 `attempts = attempts + 1`, `locked_until = NULL`, `last_error`(예외 메시지를 **500자로 잘라** 넣는다. `last_error`가 `varchar(500)`이라 넘치면 이 UPDATE가 실패해서 행이 `PROCESSING`으로 남는다)
+4. 결과 기록(행마다 `WHERE id = ?`의 `UPDATE` 한 문장)
+   - 성공 → `SET status = 'SENT', sent_at = ?, locked_until = NULL, updated_at = ?`(둘 다 지금 시각)
+   - 실패 → `attempts + 1`이 10 이상이면 `status = 'DEAD'`, 아니면 `status = 'READY'` + `next_attempt_at` = 지금 시각 + 10초. 둘 다 `attempts = attempts + 1`, `locked_until = NULL`, `last_error`(예외 메시지를 **500자로 잘라** 넣는다. `last_error`가 `varchar(500)`이라 넘치면 이 UPDATE가 실패해서 행이 `PROCESSING`으로 남는다. `.get(5, SECONDS)`의 `TimeoutException`은 `getMessage()`가 `null`이라 `e.toString()`처럼 **예외 종류가 보이는 문자열**을 대신 넣는다(빈 문자열이면 원인을 알 수 없다). `null`에 `length()`를 부르면 `NullPointerException`이 나서 이 기록 자체가 실패한다)
+   - 건너뜀(3에서 멈춰 시도하지 않은 행) → 한 번의 `UPDATE common.outbox_event SET status = 'READY', locked_until = NULL, updated_at = ? WHERE id = ANY(?)`. `attempts`·`next_attempt_at`·`last_error`는 바꾸지 않는다(시도하지 않았다)
 5. 3~4가 성공한 건수를 반환
-- 선점 쿼리의 `now()`는 DB 시각이다(릴레이는 앱 `Clock` 대신 DB 시각으로 일관되게 동작).
+- 시각은 다른 job과 같이 앱 `Clock`에서 얻는다: `OffsetDateTime.ofInstant(Instant.now(clock), ZoneOffset.UTC)`를 파라미터로 넘긴다. 1·2는 `relayOnce()` 시작에서 얻은 값 하나를 쓰고, 4는 Kafka 응답을 기다린 뒤라서 기록하기 직전에 다시 얻는다. `OutboxPublisher`의 INSERT도 같은 `Clock`이라 한 컬럼을 두 시계로 쓰지 않는다. 릴레이는 `JobRunner`의 advisory lock으로 한 번에 한 서버만 돌아 서버 간 시계 차이로 리스를 겨루는 일이 없다.
 - 3의 발행이 성공했는데 4의 기록 전에 서버가 죽으면 행이 `PROCESSING`으로 남았다가 리스(30초)가 지나 1번에서 회수되어 **다시 발행된다**. 같은 `eventId`로 두 번 가므로 consumer가 `eventId`로 중복을 걸러야 한다(3-2). 이것이 "리뷰 때 물어볼 것"의 첫 질문이다.
-- 확인 필요: Kafka가 멈춰 있으면 행마다 최대 5초씩 기다려 100건이면 리스 30초를 넘길 수 있다. 문서는 이 경우를 따로 정하지 않았다(릴레이가 한 개이고 `fixedDelay`라 다음 실행과 겹치지는 않는다).
+- Kafka가 멈춰 있으면 한 호출이 붙잡히는 시간은 실패한 한 행의 대기뿐이라 리스 30초 안에 끝난다(보통 `get`의 5초. 프로듀서가 토픽 메타데이터를 한 번도 못 받은 상태면 `send`가 `max.block.ms` 5초까지 먼저 막혀 최대 약 10초). 실패한 행은 10초 뒤로 미뤄지므로 다음 호출은 그 행을 건너뛰고 그 뒤의 행부터 시도한다. 장애가 길면 오래된 행부터 실패가 쌓여 `DEAD`가 될 수 있다(10번 실패 규칙은 그대로다). 릴레이가 한 개이고 `fixedDelay`라 호출이 겹치지 않는다.
 
 **`EventEnvelopes`** (`@Component`, 의존성 `ObjectMapper`) — consumer의 첫 줄. Kafka에서 받은 JSON 문자열을 봉투와 이벤트 record로 푼다.
 - `<T> TypedEnvelope<T> parse(String json, Class<T> payloadType)` → `record TypedEnvelope<T>(EventEnvelope envelope, T payload)`. 사용: `TypedEnvelope<ShopOpenedEvent> typed = envelopes.parse(message, ShopOpenedEvent.class);` 뒤에 `typed.envelope()`(봉투), `typed.payload()`(이벤트 record)를 쓴다.
-- 순서: ① `objectMapper.readValue(json, EventEnvelope.class)` ② `objectMapper.treeToValue(envelope.payload(), payloadType)` ③ 둘을 `TypedEnvelope`로 묶어 반환. `treeToValue`는 `JsonNode`를 지정한 타입으로 바꾸는 메서드다(Jackson 3 `tools.jackson` 기준 정확한 이름·시그니처는 확인 필요).
+- 순서: ① `objectMapper.readValue(json, EventEnvelope.class)` ② `objectMapper.treeToValue(envelope.payload(), payloadType)` ③ 둘을 `TypedEnvelope`로 묶어 반환. `treeToValue(JsonNode, Class<T>)`는 `JsonNode`를 지정한 타입으로 바꾸는 메서드다(`tools.jackson.databind.ObjectMapper`, Jackson 3.1.5 소스로 확인. 실패하면 unchecked `JacksonException`).
 - 깨진 JSON이거나 필드가 맞지 않으면 `tools.jackson.core.JacksonException`(unchecked)을 **그대로 던진다**. 다시 시도해도 같은 결과라서 3-2에서 "재시도하지 않을 예외"로 분류해 바로 DLT로 보낸다.
 
 **`EventContext`** (`public final class`) — 이벤트를 처리하는 동안 로그에 `traceId`·`eventId`가 찍히게 하는 헬퍼. `static void run(EventEnvelope envelope, Runnable action)`
@@ -319,7 +325,7 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
 - 왜: HTTP 요청의 `traceId`가 outbox → 봉투 → consumer 로그까지 이어져, Kibana에서 `traceId` 하나로 가게 개설부터 역할 부여까지 한 번에 검색된다(ADR-010).
 
 **3) 가게 개설 이벤트**
-- `shop.api.event`: `ShopTopics.SHOP_OPENED = "shop.shop-opened.v1"`, `public record ShopOpenedEvent(UUID shopId, UUID memberId)` — 다른 모듈(member)이 import하므로 `shop.api` 쪽에 둔다. `shop.api.event`는 `shop.api`의 하위 패키지라 `@NamedInterface("api")`가 이 패키지에도 필요한지 `ModularityTest`로 확인한다(확인 필요: Modulith가 하위 패키지를 같은 `api` 이름 있는 인터페이스로 보는지. 문서·코드에 아직 정해진 것이 없다. 다른 모듈의 `api.event`도 같다).
+- `shop.api.event`: `ShopTopics.SHOP_OPENED = "shop.shop-opened.v1"`, `public record ShopOpenedEvent(UUID shopId, UUID memberId)` — 다른 모듈(member)이 import하므로 `shop.api` 쪽에 둔다. `@NamedInterface`는 붙인 패키지 하나만 공개하고 하위 패키지는 포함하지 않는다. 같은 이름의 인터페이스는 합쳐지므로(Spring Modulith 2.1.1 `NamedInterfaces`·`NamedInterface` 소스로 확인), `shop/api/event/package-info.java`에도 `@NamedInterface("api")`를 붙이면 `shop.api`와 `shop.api.event`가 모두 `shop::api`로 보인다. 다른 모듈의 `api.event`도 같다. `ModularityTest`가 마지막으로 확인한다.
 - `shop.infrastructure.ShopTopicConfig`: `@Bean NewTopic shopOpenedTopic()` → `TopicBuilder.name(SHOP_OPENED).partitions(3).replicas(1).build()` (`org.springframework.kafka.config.TopicBuilder`. 이후 토픽도 각 발행 모듈의 infrastructure에 같은 방식으로). 앱이 시작할 때 Boot가 만든 `KafkaAdmin`이 `NewTopic` 빈을 보고 브로커에 토픽이 없으면 만든다 — 그래서 브로커가 떠 있어야 앱이 시작된다.
 - `OpenShopService.open`: 의존성에 `OutboxPublisher`를 더하고, 기존 `Shop savedShop = shopRepository.save(shop)` 바로 다음 같은 트랜잭션에서 `outboxPublisher.publish(SHOP_OPENED, "SHOP", savedShop.getId(), new ShopOpenedEvent(savedShop.getId(), memberId))`. 사업자번호 중복 예외는 `save` 앞에서 나므로 그때는 outbox 행도 생기지 않는다.
 
@@ -351,12 +357,12 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
 
 **확인 값을 읽는 방법** (3-2 이후도 같다)
 - 응답: `jsonPath`. 에러 응답의 코드는 `$.code`. 응답 헤더는 `result.getResponse().getHeader("X-Request-Id")`.
-- outbox: 토픽의 행은 `OutboxAssert.rows(topic)`(위 5)) → `List<OutboxSnapshot>`(생성 순). id를 아는 행 하나는 `testFixtures.outboxSnapshotOf(outboxId)`. 한 행의 필드는 `id()`, `aggregateType()`, `aggregateId()`, `eventType()`, `topic()`, `status()`, `attempts()`, `traceId()`, `lastError()`, `nextAttemptAt()`, `lockedUntil()`, `sentAt()`, `payload()`(`JsonNode`: `payload().get("shopId").asText()`)다. 전체 행 수는 `testFixtures.countOf("common.outbox_event")`.
+- outbox: 토픽의 행은 `OutboxAssert.rows(topic)`(위 5)) → `List<OutboxSnapshot>`(생성 순). id를 아는 행 하나는 `OutboxAssert.outboxSnapshotOf(outboxId)`. 한 행의 필드는 `id()`, `aggregateType()`, `aggregateId()`, `eventType()`, `topic()`, `status()`, `attempts()`, `traceId()`, `lastError()`, `nextAttemptAt()`, `lockedUntil()`, `sentAt()`, `payload()`(`JsonNode`: `payload().get("shopId").asText()`)다. 전체 행 수는 `testFixtures.countOf("common.outbox_event")`.
 - 회원: `testFixtures.memberSnapshotOf(memberId)`의 `role()`. 헬퍼는 1-3 표에 정의돼 있고 코드에는 아직 없어, 이 단계에서 `TestFixtures`에 추가하며 `role()`을 더한다(아래 "테스트 준비" 표).
 - Kafka 메시지: `TestKafka.messages(topic, key)` → `List<ReceivedMessage>`. 토픽에서 `key`(집계 ID 문자열)가 같은 레코드만 모은 것이다. 브로커는 테스트 JVM 전체에서 하나라 이전 테스트가 남긴 메시지가 섞여 있어서 키로 거른다. 한 건은 `key()`, `partition()`, `value()`(원문 문자열), `envelope()`(`EventEnvelope`. `value()`가 봉투 JSON이 아니면 `null`)이고, 봉투는 `envelope().eventId()`, `aggregateId()`, `eventType()`, `traceId()`, `payload().get("shopId").asText()`로 읽는다.
 - consumer가 처리한 결과: `Eventually.await(Duration.ofSeconds(5), () -> assertThat(...))` 안에서 읽는다.
 
-**공통 준비**: 판매자 `seller@test.com`을 `signup`(역할 `USER`), 가게는 `openShop(sellerId, "1111111111")`. `signup`·`openShop` 같은 준비 호출도 outbox 행을 만든다(`openShop`은 이 단계부터 `shop.shop-opened.v1` 1건). `relayOnce()`는 READY인 행을 전부 발행하므로 준비가 만든 행이 섞이면 반환값과 consumer 결과가 달라진다. 개수를 세거나 `relayOnce()`를 부르는 케이스는 준비를 마친 직후 `OutboxAssert.clear()`로 비우고 시작한다.
+**공통 준비**: 판매자 `seller@test.com`을 `signup`(역할 `USER`), 가게는 `openShop(sellerId, "1111111111")`. 준비 호출도 outbox 행을 만든다(이 단계에서는 `openShop`이 `shop.shop-opened.v1` 1건. `signup`은 3-5부터 `member.member-registered.v1`을 만든다). `relayOnce()`는 READY인 행을 전부 발행하므로 준비가 만든 행이 섞이면 반환값과 consumer 결과가 달라진다. 개수를 세거나 `relayOnce()`를 부르는 케이스는 준비를 마친 직후 `OutboxAssert.clear()`로 비우고 시작한다.
 
 #### `common/outbox/OutboxPublisherTest`
 
@@ -379,7 +385,7 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
 
 #### `common/outbox/OutboxRelayTest`
 
-공통 준비: 테스트 전용 토픽 `test.outbox-relay.v1`(`TestKafkaTopics`가 만든다)에 READY 행을 `UUID id = OutboxAssert.publishReady("test.outbox-relay.v1", aggregateId)`로 만든다(행의 `id`를 돌려준다). 행은 `testFixtures.outboxSnapshotOf(id)`로 읽고, Kafka 메시지는 `TestKafka.messages("test.outbox-relay.v1", aggregateId.toString())`로 읽는다. 각 케이스는 `OutboxAssert.clear()`로 시작한다.
+공통 준비: 테스트 전용 토픽 `test.outbox-relay.v1`(`TestKafkaTopics`가 만든다)에 READY 행을 `UUID id = OutboxAssert.publishReady("test.outbox-relay.v1", aggregateId)`로 만든다(행의 `id`를 돌려준다). 행은 `OutboxAssert.outboxSnapshotOf(id)`로 읽고, Kafka 메시지는 `TestKafka.messages("test.outbox-relay.v1", aggregateId.toString())`로 읽는다. 각 케이스는 `OutboxAssert.clear()`로 시작한다.
 
 **1. READY 3건 발행** — 준비: `a1`, `a2`, `a3`(임의 UUID)로 3행. 동작: `int sent = outboxRelay.relayOnce()`.
 - `sent` = 3.
@@ -406,6 +412,11 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
 - 그 행: `status()` = `DEAD`, `attempts()` = 10, `lastError()` not null, `lockedUntil()` null.
 - unpause 뒤 `relayOnce()` = 0이고 그 행은 `DEAD` 그대로(다시 집지 않는다).
 
+**5. 첫 실패에서 중단** — 준비: READY 2행(`a1`, `a2`. `a1`을 먼저 만든다). 동작: Kafka를 멈추고(2번과 같은 방법) `relayOnce()` → `finally`에서 unpause.
+- 반환값 0.
+- `a1` 행: `status()` = `READY`, `attempts()` = 1, `lastError()` not null, `lockedUntil()` null, `nextAttemptAt()`이 `Instant.now()`보다 뒤.
+- `a2` 행: `status()` = `READY`, `attempts()` = 0, `lastError()` null, `lockedUntil()` null, `nextAttemptAt()`이 `Instant.now()` 이전(시도하지 않았으니 미뤄지지 않았다).
+
 #### `member/application/MemberRoleServiceTest`
 
 회원 역할 변환을 consumer 없이 서비스로 직접 확인한다. 준비: 회원 `signup`, 역할은 `changeRole(memberId, role)`로 맞춘다. 동작은 `memberRoleService.grantSeller(memberId)`. 역할은 `memberSnapshotOf(memberId).role()`로 읽는다.
@@ -427,8 +438,8 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
 - `TestKafka.messages("shop.shop-opened.v1", shopId.toString())` 1개, `envelope().eventId()` = `row.id()`.
 - `Eventually`(5초) 안에서 `memberSnapshotOf(sellerId).role()` = `SELLER`.
 
-**2. 사업자번호 중복이면 이벤트도 없다** — 준비: 판매자 A가 `openShop(sellerId, "1111111111")` 성공 → 판매자 B를 `token("seller2@test.com")`으로 가입 → `OutboxAssert.clear()`. 동작: B의 토큰으로 `POST /api/shops`(`Authorization: Bearer {B 토큰}`, `Idempotency-Key`: 새 UUID, 본문 `{"name":"shop2","businessNumber":"1111111111","email":"shop2@test.com","phone":"010-1234-5678","address":"address"}`).
-- 응답 409, `$.code` = `SHOP_BUSINESS_NUMBER_DUPLICATED`.
+**2. 사업자번호 중복이면 이벤트도 없다** — 준비: 판매자 `seller@test.com`이 `openShop(sellerId, "1111111111")` 성공 → `OutboxAssert.clear()`. 동작: 같은 `sellerId`로 `openShop(sellerId, "1111111111")`을 다시 부른다(서비스 직접 호출. 사업자번호는 판매자와 무관하게 유일해서 같은 판매자여도 같은 위치에서 실패한다. 예외를 409로 바꾸는 것은 1-6이 확인한다).
+- `BusinessException`이 던져지고 `getErrorCode()` = `ShopErrorCode.SHOP_BUSINESS_NUMBER_DUPLICATED`.
 - `countOf("common.outbox_event")` = 0.
 - `countOf("shop.shop")` = 1.
 
@@ -444,17 +455,17 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
 |---|---|---|
 | `OutboxSnapshot` | `support/`의 record. 필드: `id`·`aggregateId`(UUID), `aggregateType`·`eventType`·`topic`·`status`·`traceId`·`lastError`(String, `traceId`·`lastError`는 없으면 null), `attempts`(int), `nextAttemptAt`·`lockedUntil`·`sentAt`(`Instant`, `lockedUntil`·`sentAt`은 없으면 null), `payload`(`JsonNode`) | 아래 세 행과 모든 outbox 확인 |
 | `OutboxAssert.rows(String topic)` → `List<OutboxSnapshot>` | JDBC `SELECT id, aggregate_type, aggregate_id, event_type, topic, status, trace_id, last_error, attempts, next_attempt_at, locked_until, sent_at, payload FROM common.outbox_event WHERE topic = ? ORDER BY created_at, id`. `payload`는 `PGobject`의 `toString()`을 `objectMapper.readTree`로 푼다. 시각 컬럼은 `OffsetDateTime`으로 읽어 `toInstant()` | 3-1 이후 모든 outbox 확인 |
-| `outboxSnapshotOf(UUID outboxId)` → `OutboxSnapshot` | 위와 같은 컬럼·변환으로 `WHERE id = ?` 한 행. 행이 없으면 `null` | `OutboxRelayTest`, 행 id를 아는 확인 |
+| `OutboxAssert.outboxSnapshotOf(UUID outboxId)` → `OutboxSnapshot` | 위와 같은 컬럼·변환으로 `WHERE id = ?` 한 행(`queryForObject`). 행이 없으면 `EmptyResultDataAccessException`(없는 행을 읽는 케이스가 없다) | `OutboxRelayTest`, 행 id를 아는 확인 |
 | `OutboxAssert.clear()` | JDBC `DELETE FROM common.outbox_event` | 개수를 세거나 `relayOnce()`를 부르는 모든 케이스의 준비 끝 |
 | `OutboxAssert.publishReady(String topic, UUID aggregateId)` → `UUID` | `tx.executeWithoutResult(s -> outboxPublisher.publish(topic, "TEST", aggregateId, new TestEvent("x")))` 뒤 `SELECT id FROM common.outbox_event WHERE aggregate_id = ?`로 읽은 행 id를 돌려준다 | `OutboxRelayTest` |
 | `TestEvent` | `public record TestEvent(String value)` | 위 |
-| `TestKafka` (`@Component`) | 의존성 `ObjectMapper`, `@Value("${spring.kafka.bootstrap-servers}") String bootstrapServers`. `List<ConsumerRecord<String, String>> readAll(String topic)`: 새 `group.id`(`UUID`), `auto.offset.reset=earliest`, `StringDeserializer`로 `KafkaConsumer`를 만들어 토픽의 모든 파티션을 구독하고, 새 레코드가 없는 `poll(Duration.ofSeconds(1))`이 연속 2번 나올 때까지 모아 반환한 뒤 닫는다. `List<ReceivedMessage> messages(String topic, String key)`: `readAll(topic)`에서 `record.key()`가 `key`인 레코드만 골라 `ReceivedMessage`로 바꾼다 | 3-1 이후 모든 Kafka 메시지 확인 |
+| `TestKafka` (`@Component`) | 의존성 `ObjectMapper`, `@Value("${spring.kafka.bootstrap-servers}") String bootstrapServers`. `List<ConsumerRecord<String, String>> readAll(String topic)`: 새 `group.id`(`UUID`), `auto.offset.reset=earliest`, `StringDeserializer`로 `KafkaConsumer`를 만들어 `partitionsFor(topic)`으로 얻은 모든 파티션을 `assign`하고 `seekToBeginning`한 뒤(`subscribe`는 그룹 배정을 기다리는 동안 빈 `poll`이 나와 일찍 끝날 수 있다), 새 레코드가 없는 `poll(Duration.ofSeconds(1))`이 연속 2번 나올 때까지 모아 반환한 뒤 닫는다. `List<ReceivedMessage> messages(String topic, String key)`: `readAll(topic)`에서 `record.key()`가 `key`인 레코드만 골라 `ReceivedMessage`로 바꾼다 | 3-1 이후 모든 Kafka 메시지 확인 |
 | `ReceivedMessage` | `support/`의 record `(String key, int partition, String value, EventEnvelope envelope)`. `envelope`은 `objectMapper.readValue(value, EventEnvelope.class)`의 결과이고, 읽기에 실패하면(봉투가 아닌 문자열) `null` | `TestKafka.messages` |
-| `memberSnapshotOf(memberId)` → `MemberSnapshot` | 1-3 표에 정의된 헬퍼다(읽는 컬럼·필드는 그 표). 처음 쓰는 미구현 단계인 이 단계에서 `TestFixtures`에 추가하고 `role`(String), `status`(String), `email`(String), `withdrawnAt`(`Instant`, 없으면 null)을 더한다. 읽는 컬럼 `member.member.role`, `status`, `email`, `withdrawn_at`. 배송지(`addresses`)는 3-6이 더한다 | 3-1 `MemberRoleServiceTest`·`ShopOpenedFlowTest`, 3-2 `CloseShopTest`, 3-6 `WithdrawTest`, Part 4 |
+| `memberSnapshotOf(memberId)` → `MemberSnapshot` | 코드에 아직 없어 이 단계에서 `TestFixtures`와 `support/MemberSnapshot`을 새로 만든다(처음 쓰는 미구현 단계). 필드는 1-3 표의 6개(`nickname`, `name`, `phone`, `passwordHash`, `createdAt`, `updatedAt`)와 `role`·`status`·`email`(String)을 합친 9개이고, 읽는 컬럼도 같다(`member.member`). 탈퇴 시각(`withdrawnAt`)과 배송지(`addresses`)는 3-6이 더한다(`withdrawn_at` 컬럼이 3-6 마이그레이션에서 생기기 전이라 지금 읽으면 SQL이 실패한다) | 3-1 `MemberRoleServiceTest`·`ShopOpenedFlowTest`, 3-2 `CloseShopTest`, 3-6 `WithdrawTest`, Part 4 |
 | `countOf(table)` → `long` | 1-3 표에 정의된 헬퍼다. 이 단계에서 `TestFixtures`에 추가한다 | 3-1 이후 행 수 확인 |
 | `changeRole(UUID memberId, String role)` | JDBC `UPDATE member.member SET role = ? WHERE id = ?` | 3-1 `MemberRoleServiceTest`, 3-2 `CloseShopTest` 준비, 3-6 |
 | `TestKafkaTopics` (`@Configuration`) | `NewTopic` 빈 3개: `test.outbox-relay.v1`, `test.always-fail.v1`, `test.always-fail.v1.dlt`(파티션 3·복제 1) | `OutboxRelayTest`, 3-2 `KafkaDltTest` |
-| `IntegrationTestSupport.kafka` | `static final`을 `protected static final`로 바꾼다(다른 패키지의 `OutboxRelayTest`가 `kafka.getDockerClient()`를 쓴다) | `OutboxRelayTest` |
+| `IntegrationTestSupport.kafka`와 브로커 주소 | `static final`을 `protected static final`로 바꾼다(다른 패키지의 `OutboxRelayTest`가 `kafka.getDockerClient()`를 쓴다). 이어서 `@DynamicPropertySource`에 `registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers)`를 더한다. `@ServiceConnection`은 접속 정보 빈만 바꾸고 이 프로퍼티는 그대로 두어서, 더하지 않으면 `@Value`로 읽는 `TestKafka`가 `application.yaml`의 `localhost:9092`(개발용 Kafka 또는 없는 브로커)를 읽는다(프로퍼티 `localhost:9092`, 컨테이너 `localhost:60385`로 확인) | `OutboxRelayTest` |
 
 이미 있는 헬퍼(Part 1·2에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `openShop`. 이 단계에서 만드는 `Eventually`·`OutboxSnapshot`·`OutboxAssert.rows`는 위 5)에 있다.
 
@@ -720,7 +731,7 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
 
 | # | 대상 | 규격 | 쓰이는 곳 |
 |---|---|---|---|
-| 1 | `order/api/package-info.java` | `@NamedInterface("api")`. `member/api`·`product/api`·`payment/api`·`shop/api`에는 이미 있고 `order/api`만 현재 코드에 없어 이 단계에서 `order::api`가 처음 공개된다. 하위 패키지 `api.event`가 같은 인터페이스로 보이는지는 `ModularityTest`로 확인한다(3-1의 확인 필요와 같다) | `OrderTopics`·이벤트 record를 import하는 다른 모듈(3-4~3-6) |
+| 1 | `order/api/package-info.java` | `@NamedInterface("api")`. `member/api`·`product/api`·`payment/api`·`shop/api`에는 이미 있고 `order/api`만 현재 코드에 없어 이 단계에서 `order::api`가 처음 공개된다. 하위 패키지 `order/api/event/package-info.java`에도 같은 어노테이션을 붙인다(3-1). `member/api/event`·`product/api/event`도 같다 | `OrderTopics`·이벤트 record를 import하는 다른 모듈(3-4~3-6) |
 | 2 | `MemberTopicConfig`, `ProductTopicConfig`, `OrderTopicConfig` (각 모듈 `infrastructure`) | 1)의 토픽마다 `NewTopic`(파티션 3·복제 1)과 `{topic}.dlt`(공통 규칙·3-2). member 1개, product 3개, order 6개. `ShopTopicConfig`와 같은 방식 | 앱 시작 시 `KafkaAdmin` |
 | 3 | `ProductRepository.flush()` | `void flush()` — 현재 `ProductRepository` 인터페이스에는 없다(`MemberAddressRepository.flush()`와 같은 방식으로 JPA `flush`를 위임). 엔티티를 수정한 직후에는 `@Version`이 아직 오르지 않았으므로(flush 때 오른다) 이벤트를 만들기 **전에** 부르고 `product.getVersion()`을 읽는다. 등록(`save` 직후)은 초기값이다 | 상품 이벤트 4곳(아래 "상품 이벤트 공통") |
 | 4 | `Order.autoConfirm` 반환 타입 변경 | 확정한 품목 수(int, 2-10) 대신 확정한 품목 목록 `List<OrderLine>`을 돌려준다(품목마다 이벤트를 내기 위해). `AutoConfirmService`는 트랜잭션 안에서 받은 목록을 순회하며 품목마다 `lineConfirmed`를 부르고, 건수는 `list.size()`로 센다 | `AutoConfirmService` |
@@ -1055,7 +1066,7 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 | 1 | `PayoutGateway` (settlement.application 인터페이스) | **판매자에게 정산금을 송금하는 외부 시스템(은행)의 자리**. 실제 은행 대신 Mock을 꽂을 수 있게 인터페이스로 둔다. `String payout(UUID settlementId, UUID shopId, long amount)` → 이체 참조 ID. 실패 시 예외. **같은 settlementId로 다시 부르면 같은 참조 ID를 돌려준다**(멱등. 두 번 호출돼도 돈이 한 번만 나가게). `SettlementService.payoutAll`이 부른다 |
 | 2 | `MockPayoutGateway` (settlement.infrastructure) | `@Component @Profile("!prod")`. 은행 대신 메모리에서 흉내 낸다: `ConcurrentHashMap<UUID, String>`에 `computeIfAbsent(settlementId, id -> "PAYOUT-" + Ids.newId())`로 참조 ID를 만들고(같은 키면 기존 값을 돌려줘 멱등) 로그를 남긴다. 실제 은행 연동은 범위 밖(POL-12) |
 | 3 | `settlement/package-info.java` 수정 | `allowedDependencies`에 `shop::api` 추가 — 아래 6)의 `shopApi.verifyOwner`가 쓴다 |
-| 4 | `settlement/api/package-info.java` + `settlement.api.event` | `@NamedInterface("api")`(다른 모듈의 `api/package-info.java`와 같다. notification이 `settlement::api`로 import한다). `SettlementTopics.SETTLEMENT_PAID = "settlement.settlement-paid.v1"`, `SettlementPaidEvent(UUID settlementId, UUID shopId, long netAmount, LocalDate periodStart, LocalDate periodEnd)`(3-5 알림용) |
+| 4 | `settlement/api/package-info.java` + `settlement.api.event` | `@NamedInterface("api")`(다른 모듈의 `api/package-info.java`와 같다. `settlement/api/event/package-info.java`에도 붙인다(3-1). notification이 `settlement::api`로 import한다). `SettlementTopics.SETTLEMENT_PAID = "settlement.settlement-paid.v1"`, `SettlementPaidEvent(UUID settlementId, UUID shopId, long netAmount, LocalDate periodStart, LocalDate periodEnd)`(3-5 알림용) |
 | 5 | `SettlementTopicConfig` (settlement.infrastructure) | `NewTopic` `SETTLEMENT_PAID`와 `.dlt`(파티션 3·복제 1. `ShopTopicConfig`와 같은 방식) |
 
 `SettlementService.payoutAll()` — **지급 대기 정산을 모두 송금**한다. `run`의 3번에서 불린다. 정산을 `PAID`로 바꾸는 같은 트랜잭션에서 `outboxPublisher.publish(SETTLEMENT_PAID, aggregateType, settlementId, event)`로 발행한다(`aggregateType`은 문서에 없다. 다른 이벤트 관례대로 `"SETTLEMENT"`이면 된다 — 확인 필요). `findIdsToPay({CALCULATED, PAYOUT_FAILED}, after, Limit.of(500))` keyset 루프(`after`는 첫 페이지에 영(0) UUID, 이후 마지막 ID), 정산마다 try/catch(한 건의 실패가 나머지를 막지 않는다. `after`는 실패해도 전진)
@@ -1594,7 +1605,7 @@ DB 없이 `new NotificationComposer()`로 만든다. 인자는 권장안(`compos
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `memberSnapshotOf(memberId)`에 배송지 추가 | 3-1에서 추가한 `MemberSnapshot`에 1-5 표에 정의된 `addresses`(`List<AddressState(id, recipient, address2, isDefault)>`)를 더한다(읽는 쿼리는 1-5 표). 처음 쓰는 미구현 단계가 이 단계다 | `WithdrawTest` 배송지 수·삭제 확인 |
+| `memberSnapshotOf(memberId)`에 탈퇴 시각·배송지 추가 | 3-1에서 추가한 `MemberSnapshot`에 `withdrawnAt`(`Instant`, 없으면 null. 읽는 컬럼 `member.member.withdrawn_at`은 이 단계 1번 마이그레이션이 만든다)과 1-5 표에 정의된 `addresses`(`List<AddressState(id, recipient, address2, isDefault)>`)를 더한다(읽는 쿼리는 1-5 표). 처음 쓰는 미구현 단계가 이 단계다 | `WithdrawTest` 배송지 수·삭제 확인 |
 | `cartSnapshotOf(memberId)` → `CartSnapshot` | 2-1 표에 정의된 헬퍼다(읽는 쿼리·필드는 그 표). 처음 쓰는 미구현 단계인 이 단계에서 `TestFixtures`에 추가한다 | `WithdrawTest` 장바구니 삭제 확인 |
 
 이미 있는 헬퍼: 3-4의 `insertSettlementItem`·`FakePayoutGateway`, `signup`, `login`, `openShop`, `closeShop`, `registerProduct`, `address`, `addToCart`, `createPendingOrder`, `confirmPayment`, `createPaidOrder`, `shopOrderIdOf`, `shipShopOrder`, `deliverShopOrder`, `orderLineIdOf`, `ConcurrencyRunner`, 3-1의 `memberSnapshotOf`(`role`·`status`·`email`·`withdrawnAt`)·`countOf`·`OutboxAssert`·`Eventually`, 3-2의 `processedCountOf`.
