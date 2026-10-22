@@ -320,4 +320,34 @@ public class TestFixtures {
     public void setShopOrderDeliveredAt(UUID shopOrderId, Instant deliveredAt) {
         jdbcTemplate.update("UPDATE orders.shop_order SET delivered_at = ? WHERE id = ?", Timestamp.from(deliveredAt), shopOrderId);
     }
+
+    public MemberSnapshot memberSnapshotOf(UUID memberId) {
+        return jdbcTemplate.queryForObject("""
+                        SELECT nickname, name, phone, password_hash, role, status, email, created_at, updated_at
+                        FROM member.member
+                        WHERE id = ?
+                        """,
+                (rs, rowNum) -> {
+                    return new MemberSnapshot(
+                            rs.getString("nickname"),
+                            rs.getString("name"),
+                            rs.getString("phone"),
+                            rs.getString("password_hash"),
+                            rs.getString("role"),
+                            rs.getString("status"),
+                            rs.getString("email"),
+                            rs.getTimestamp("created_at").toInstant(),
+                            rs.getTimestamp("updated_at").toInstant()
+                    );
+                },
+                memberId);
+    }
+
+    public long countOf(String table) {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table, Long.class);
+    }
+
+    public void changeRole(UUID memberId, String role) {
+        jdbcTemplate.update("UPDATE member.member SET role = ? WHERE id = ?", role, memberId);
+    }
 }

@@ -1,5 +1,7 @@
 # 05. 이벤트 카탈로그
 
+> 2026-10-21 · 릴레이 SQL의 시각을 앱 `Clock` 파라미터로 정했다(로드맵 3-1)
+> 2026-10-20 · 릴레이가 한 행의 발행 실패에서 그 호출을 멈추고 남은 행을 되돌린다(로드맵 3-1)
 > 2026-10-16 · 대사 호출 이름을 `queryOutcome`에서 `queryPgOutcome`으로 바꿨다(로드맵 2-6)
 > 2026-10-15 · `product-upserted`의 payload에 `subscribable`을 더했다(로드맵 3-3의 `ProductUpsertedEvent`와 맞춤)
 > 2026-10-12 · 로드맵 용어 정리에 맞춰 "6-5 제안"을 "6-5 추가 항목"으로 바꿨다
@@ -26,10 +28,11 @@
                 WHERE status='READY' AND next_attempt_at <= now()
                 ORDER BY created_at LIMIT 100 FOR UPDATE SKIP LOCKED)
    RETURNING *;
-2. 발행 (tx 밖): KafkaTemplate.send(...).get(timeout)  — 동기 확인
-3. 결과 기록: 성공 SENT / 실패 READY + attempts++ + next_attempt_at(10초 뒤) / 초과 DEAD
+2. 발행 (tx 밖): KafkaTemplate.send(...).get(timeout)  — 동기 확인. 한 행이 실패하면 남은 행은 시도하지 않는다
+3. 결과 기록: 성공 SENT / 실패 READY + attempts++ + next_attempt_at(10초 뒤) / 초과 DEAD / 시도하지 않은 행은 READY로 되돌림(attempts 그대로)
 4. 회수: status='PROCESSING' AND locked_until < now() → READY
 ```
+- 위 SQL의 `now()`는 앱 `Clock`에서 얻어 파라미터로 넘기는 값이다(INSERT의 시각도 같은 `Clock`). 릴레이는 advisory lock으로 한 번에 한 서버만 돈다.
 - As-Is PAY-03(락이 발행 전에 풀림)과 달리, 상태값(PROCESSING + 리스)으로 선점하므로 다른 인스턴스가 같은 행을 가져가지 않는다.
 - 리스 만료 후 회수되면 중복 발행이 생길 수 있다 → consumer 멱등이 전제다.
 - 같은 키의 순서: 다중 릴레이 인스턴스에서는 순서가 바뀔 수 있다. Stage 1은 릴레이 1개(advisory lock을 잡은 인스턴스만 실행)로 시작하고, Stage 2에서 처리량이 부족하면 키 해시 기반으로 나눈다.

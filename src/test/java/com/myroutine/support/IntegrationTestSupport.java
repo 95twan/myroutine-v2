@@ -9,6 +9,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MinIOContainer;
+import org.testcontainers.kafka.KafkaContainer;
+import org.testcontainers.lifecycle.Startables;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
@@ -26,11 +28,13 @@ public abstract class IntegrationTestSupport {
     @ServiceConnection
     static final PostgreSQLContainer postgres = new PostgreSQLContainer("pgvector/pgvector:pg17");
 
+    @ServiceConnection
+    protected static final KafkaContainer kafka = new KafkaContainer("apache/kafka:4.2.2");
+
     static final MinIOContainer minio = new MinIOContainer(DockerImageName.parse("chainguard/minio:latest").asCompatibleSubstituteFor("minio/minio"));
 
-    static {   // 싱글턴: JVM 전체에서 한 번만 띄워 모든 테스트 클래스가 공유
-        postgres.start();
-        minio.start();
+    static { // 싱글턴: JVM 전체에서 한 번만 띄워 모든 테스트 클래스가 공유
+        Startables.deepStart(postgres, minio, kafka).join();
     }
 
     @DynamicPropertySource
@@ -40,6 +44,7 @@ public abstract class IntegrationTestSupport {
         registry.add("myroutine.storage.secret-key", minio::getPassword);
         registry.add("myroutine.storage.public-base-url", () -> minio.getS3URL() + "/myroutine");
         registry.add("myroutine.toss.base-url", pg::baseUrl);
+        registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
     }
 
     @AfterEach

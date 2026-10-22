@@ -83,4 +83,16 @@ public class Member extends BaseTimeEntity {
             this.phone = phone;
         }
     }
+
+    public void promoteToSeller() {
+        if (this.role == MemberRole.USER) {
+            this.role = MemberRole.SELLER;
+        }
+    }
+
+    public void demoteToUser() {
+        if (this.role == MemberRole.SELLER) {
+            this.role = MemberRole.USER;
+        }
+    }
 }

@@ -14,7 +14,7 @@ public class OrderReconcileJob {
     private final OrderReconcileService orderReconcileService;
 
     @Scheduled(fixedDelay = 60_000)
-    void run() {
+    public void run() {
         jobRunner.run("reconcile-orders", orderReconcileService::reconcileBatch);
     }
 }

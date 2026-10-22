@@ -41,6 +41,9 @@ dependencies {
 	implementation 'software.amazon.awssdk:s3'
 	testImplementation 'org.testcontainers:testcontainers-minio'
 
+	implementation 'org.springframework.boot:spring-boot-starter-kafka'
+	testImplementation 'org.testcontainers:testcontainers-kafka'
+
 	implementation 'org.springframework.boot:spring-boot-starter-aspectj'
 
 	implementation 'org.flywaydb:flyway-database-postgresql'
