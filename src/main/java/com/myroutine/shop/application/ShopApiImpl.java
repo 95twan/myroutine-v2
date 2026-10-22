@@ -6,6 +6,7 @@ import com.myroutine.shop.api.ShopInfo;
 import com.myroutine.shop.domain.Shop;
 import com.myroutine.shop.domain.ShopErrorCode;
 import com.myroutine.shop.domain.ShopRepository;
+import com.myroutine.shop.domain.ShopStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -63,6 +64,27 @@ class ShopApiImpl implements ShopApi {
 
         return shops.stream()
                 .map(ShopInfo::from)
+                .toList();
+    }
+
+    @Override
+    public int countActiveShops(UUID memberId) {
+        return shopRepository.countByMemberIdAndStatus(memberId, ShopStatus.ACTIVE);
+    }
+
+    @Override
+    public UUID getOwnerId(UUID shopId) {
+        Shop shop = shopRepository.findById(shopId).orElseThrow(
+                () -> new BusinessException(ShopErrorCode.SHOP_NOT_FOUND)
+        );
+        return shop.getMemberId();
+    }
+
+    @Override
+    public List<UUID> getShopIdsByOwner(UUID memberId) {
+        List<Shop> shops = shopRepository.findAllByMemberIdOrderByCreatedAtDesc(memberId);
+        return shops.stream()
+                .map(Shop::getId)
                 .toList();
     }
 }

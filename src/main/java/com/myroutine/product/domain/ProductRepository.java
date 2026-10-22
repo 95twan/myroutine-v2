@@ -26,4 +26,6 @@ public interface ProductRepository {
     int insertPriceHistory(UUID id, UUID productId, long oldPrice, long newPrice, Instant now);
 
     List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
+
+    List<Product> findAllByShopIdAndStatusIn(UUID shopId, Collection<ProductStatus> statuses);
 }

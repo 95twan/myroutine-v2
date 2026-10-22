@@ -2,10 +2,7 @@ package com.myroutine.shop.web;
 
 import com.myroutine.common.idempotency.Idempotent;
 import com.myroutine.common.security.CurrentMember;
-import com.myroutine.shop.application.OpenShopService;
-import com.myroutine.shop.application.ShopQueryService;
-import com.myroutine.shop.application.ShopResult;
-import com.myroutine.shop.application.UpdateShopService;
+import com.myroutine.shop.application.*;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -22,6 +19,7 @@ public class ShopController {
     private final OpenShopService openShopService;
     private final UpdateShopService updateShopService;
     private final ShopQueryService shopQueryService;
+    private final CloseShopService closeShopService;
 
     @PostMapping
     @Idempotent
@@ -46,5 +44,11 @@ public class ShopController {
     public ResponseEntity<MyShopResponse> update(@CurrentMember UUID memberId, @PathVariable UUID id, @Valid @RequestBody UpdateShopRequest request) {
         ShopResult result = updateShopService.update(memberId, id, request.toCommand());
         return ResponseEntity.ok(MyShopResponse.from(result));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@CurrentMember UUID memberId, @PathVariable UUID id) {
+        closeShopService.close(memberId, id);
+        return ResponseEntity.noContent().build();
     }
 }

@@ -14,7 +14,8 @@ public enum OrderErrorCode implements ErrorCode {
     ORDER_LINE_NOT_FOUND(HttpStatus.NOT_FOUND, "주문 품목을 찾을 수 없습니다."),
     REFUND_IN_PROGRESS(HttpStatus.CONFLICT, "진행 중인 환불이 있습니다."),
     REFUND_NOT_FOUND(HttpStatus.NOT_FOUND, "환불 요청을 찾을 수 없습니다."),
-    RETURN_NOT_ALLOWED(HttpStatus.CONFLICT, "반품을 요청할 수 없는 품목입니다.");
+    RETURN_NOT_ALLOWED(HttpStatus.CONFLICT, "반품을 요청할 수 없는 품목입니다."),
+    SHOP_HAS_ACTIVE_ORDERS(HttpStatus.UNPROCESSABLE_CONTENT, "진행 중인 주문이 있어 폐업할 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;
