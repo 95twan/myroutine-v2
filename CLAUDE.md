@@ -20,7 +20,6 @@
 - **예외 — 검증 메시지(2-1, 2026-10-12 사용자 승인)**: 요청 DTO(`web` 패키지의 Request record)의 Bean Validation 어노테이션에 한국어 `message`를 붙이는 일은 기계적이고 문구가 이미 정해져 있어([Part 1 공통 규칙 E](docs/03-roadmap/part1-foundation.md), [Part 2 공통 규칙 P-1](docs/03-roadmap/part2-order-money.md)), 사용자가 요청하지 않아도 Claude가 직접 넣는다(리뷰에서 누락을 찾았을 때 포함). `message` 속성만 고치며, 제약 값(`@Min`·`@Max`·`@Size`의 숫자)·로직·테스트 본문은 바꾸지 않는다. 고쳤으면 어느 파일을 바꿨는지 알려준다.
 - **예외 — CI 경로 필터(2026-10-20 사용자 요청)**: 문서만 바뀐 develop push에서 CI와 자동 배포를 건너뛰도록 `.github/workflows/ci.yml`의 `push` 트리거에 `paths-ignore`(`docs/**`, `**.md`)를 Claude가 넣었다. 이 변경에 한정하며, `ci.yml`의 빌드 단계는 그대로 사용자가 관리한다.
 - **예외 — 가짜 PG 서버(2-3, 2026-10-14 사용자 요청)**: `src/test/java/com/myroutine/support/FakePgServer.java`는 JDK `HttpServer` 사용법과 상태 관리가 많아 문서만 보고 짜기엔 부담이 커서, 사용자가 직접 요청해 Claude가 작성했다. 이 파일에 한정한다. `IntegrationTestSupport` 등록과 `TossClientTest` 본문은 그대로 사용자가 쓴다.
-- **예외 — 3-0 테스트(2026-10-21 사용자 요청)**: 서명 주소 테스트 `common/storage/StorageConfigTest`·`PresignEndpointIntegrationTest`는 사용자가 "대신 직접 작성해"라고 요청해 Claude가 본문까지 썼다. 이 두 파일에 한정한다.
 - **문서는 Claude가 직접 고친다**: `docs/`, `README.md`, `CLAUDE.md`, `.github/pull_request_template.md`. 리뷰 중 문서 반영이 필요하면 사용자의 feature 브랜치 작업 트리에 수정해 두고, 무엇을 바꿨는지 알려준다. **커밋·푸시·PR 생성은 기본적으로 사용자가 하고, 사용자가 명시적으로 요청하면 Claude가 한다**(2026-10-14 사용자 승인). 요청하지 않으면 하지 않는다. 요청받으면 [git-policy](docs/git-policy.md) 형식(커밋 메시지 3절, PR 제목·템플릿 4절)을 따르고, 관련 없는 변경은 커밋을 나누며, 요청한 범위(커밋만 / 푸시까지 / PR까지) 밖의 일은 하지 않는다. `main`·`develop`에는 직접 푸시하지 않고 force push는 하지 않는다.
 - 사용자가 직접 개발해서 면접에서 모든 코드를 설명할 수 있게 하는 것이 목적이다. "대신 짜주는" 방향으로 흐르지 않게 한다.
 
