@@ -1,6 +1,9 @@
 package com.myroutine.shop.application;
 
 import com.myroutine.common.error.BusinessException;
+import com.myroutine.common.outbox.OutboxPublisher;
+import com.myroutine.shop.api.event.ShopOpenedEvent;
+import com.myroutine.shop.api.event.ShopTopics;
 import com.myroutine.shop.domain.Shop;
 import com.myroutine.shop.domain.ShopErrorCode;
 import com.myroutine.shop.domain.ShopRepository;
@@ -15,6 +18,7 @@ import java.util.UUID;
 public class OpenShopService {
 
     private final ShopRepository shopRepository;
+    private final OutboxPublisher outboxPublisher;
 
     @Transactional
     public UUID open(UUID memberId, OpenShopCommand command) {
@@ -30,6 +34,7 @@ public class OpenShopService {
                 command.address()
         );
         Shop savedShop = shopRepository.save(shop);
+        outboxPublisher.publish(ShopTopics.SHOP_OPENED, "SHOP", savedShop.getId(), new ShopOpenedEvent(savedShop.getId(), memberId));
         return savedShop.getId();
     }
 }
