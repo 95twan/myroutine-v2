@@ -1,6 +1,7 @@
 # Part 3. 이벤트
 
-> 버전 0.29 · 2026-10-22 · **테스트 헬퍼 두 가지를 코드에 맞췄다**: `TestKafka`가 읽는 `spring.kafka.bootstrap-servers`가 컨테이너가 아닌 `localhost:9092`라서 `IntegrationTestSupport`의 `@DynamicPropertySource`에 주소를 더하게 했고, `outboxSnapshotOf`는 `OutboxAssert`에 두는 것으로 정리했다. 그 밖의 규격·동작은 0.28과 같다
+> 버전 0.30 · 2026-10-22 · **3-1 리뷰를 반영했다**: 3-2 전까지 consumer 예외는 기본 핸들러가 10번 즉시 재시도한 뒤 건너뛴다는 실제 동작(깨진 JSON으로 확인)을 3-1 consumer 설명에 적었다. 그 밖의 규격·동작은 0.29와 같다
+> 0.29 · 2026-10-22 · **테스트 헬퍼 두 가지를 코드에 맞췄다**: `TestKafka`가 읽는 `spring.kafka.bootstrap-servers`가 컨테이너가 아닌 `localhost:9092`라서 `IntegrationTestSupport`의 `@DynamicPropertySource`에 주소를 더하게 했고, `outboxSnapshotOf`는 `OutboxAssert`에 두는 것으로 정리했다. 그 밖의 규격·동작은 0.28과 같다
 > 0.28 · 2026-10-22 · **3-1의 `memberSnapshotOf`에서 `withdrawnAt`을 3-6으로 옮겼다**: `member.member.withdrawn_at` 컬럼은 3-6 마이그레이션이 만들어 3-1에서 읽으면 SQL이 실패한다. 3-1은 `role`·`status`·`email`만 더한다. 그 밖의 규격·동작은 0.27과 같다
 > 0.27 · 2026-10-21 · **outbox 시각을 앱 `Clock`으로 통일했다**: 릴레이 SQL의 `now()`를 `Clock`에서 얻은 파라미터로 바꿔 `OutboxPublisher`와 다른 job과 같은 시계를 쓴다(릴레이도 `JobRunner`로 한 서버만 돌아 DB 시각이 필요 없다). `OutboxRelay` 의존성에 `Clock` 추가. 그 밖의 규격·동작은 0.26과 같다
 > 0.26 · 2026-10-21 · **릴레이에서 `TransactionTemplate`을 뺐다**: `OutboxRelay`의 회수·선점·결과 기록이 모두 `UPDATE` 한 문장이라 트랜잭션 없이 한 문장씩 커밋한다. 그 밖의 규격·동작은 0.25와 같다
@@ -345,7 +346,7 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
   ```
   - `@KafkaListener`: Spring이 이 메서드를 컨테이너 스레드에서 호출한다. `message`는 레코드의 **값**(JSON 문자열, `StringDeserializer`)이다. 키·offset이 필요하면 `ConsumerRecord<String, String>`을 받을 수도 있지만 지금은 값만 쓴다.
   - `groupId = "member"`: consumer 그룹 이름. **그룹마다 메시지를 한 번씩 받는다**(member 그룹, 나중의 notification 그룹이 같은 토픽을 각자 받는다). 같은 그룹 안에서는 파티션을 나눠 가진다. 그룹 이름은 모듈 이름으로 통일한다.
-  - 메서드가 정상 반환하면 offset이 저장되고(`ack-mode: record`), 예외가 나면 저장되지 않아 에러 핸들러(3-2)가 처리한다.
+  - 메서드가 정상 반환하면 offset이 저장된다(`ack-mode: record`). 예외가 나면 에러 핸들러가 처리하는데, 3-2에서 만들기 전인 3-1에는 없어서 Spring Kafka의 기본 핸들러가 간격 없이 10번 시도한 뒤 ERROR 로그(`Backoff ... exhausted`)를 남기고 그 메시지를 **건너뛴다**(다음 메시지로 넘어가 그 메시지는 사라진다. 깨진 JSON을 보내 확인했다). 재시도 간격·DLT는 3-2가 만든다.
 - 역할 반영 전에도 판매자 기능은 소유권으로 동작한다(1-6). 토큰의 role은 다음 로그인 때 갱신된다.
 
 **5) 테스트 헬퍼**
