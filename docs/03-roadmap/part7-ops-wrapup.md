@@ -1,6 +1,8 @@
 # Part 7. 관측 · 운영 · 마무리
 
-> 버전 0.24 · 2026-10-23 · **테스트 준비 헬퍼 표의 시그니처를 타입까지 적었다**(사용자 지적: 어떤 메서드를 만드는지 안 보인다): 7-3의 `paymentCancelOf`에 매개변수 타입(`String idempotencyKey`)을, 7-4의 `notificationCounts()`가 돌려주는 `NotificationCounts`의 메서드 시그니처(`int type(String type)`·`int status(String status)`)를 적었다. 규격·동작 변경 없음
+> 버전 0.26 · 2026-10-23 · **7-3 구현물 2번 `reconcileOne`을 현재 코드에 맞췄다**: 이미 `private boolean reconcileOne`이 있으므로 "뽑아낸다" 대신 `public OrderStatus`로 열고 반환을 바꾼다고 적었다. 규격·동작 변경 없음
+> 0.25 · 2026-10-23 · **다른 단계를 열어야 이해되던 참조를 그 자리에서 읽히게 풀어 썼다**(사용자 지적): 7-2 `MetricsTest` 4번의 "2-5와 같은 방식"(`breakReservedStock`), 7-3 settlements run 행과 헬퍼 표(`RefundRow`·`paymentCancelOf`·`PaymentState`·`NotificationRow`), 7-4 보조 호출 표의 반환 타입과 `stockBalance`·`reservationStatuses`·가짜 지급 호출 기록 접근자, 공통 준비. 규격·동작 변경 없음
+> 0.24 · 2026-10-23 · **테스트 준비 헬퍼 표의 시그니처를 타입까지 적었다**(사용자 지적: 어떤 메서드를 만드는지 안 보인다): 7-3의 `paymentCancelOf`에 매개변수 타입(`String idempotencyKey`)을, 7-4의 `notificationCounts()`가 돌려주는 `NotificationCounts`의 메서드 시그니처(`int type(String type)`·`int status(String status)`)를 적었다. 규격·동작 변경 없음
 > 0.23 · 2026-10-23 · **완료 확인의 "테스트 준비"를 테스트 클래스 앞으로 옮겼다**(사용자 요청): 7-3의 "이 단계에서 추가하는 헬퍼" 표와 "이미 있는 헬퍼"를 `AdminOutboxTest` 앞으로, 7-4의 "이 단계에서 추가하는 헬퍼" 표와 "이미 있는 헬퍼"를 `InvariantCheckerTest` 앞으로 옮기고 7-4의 "이 단계 끝의 표" 참조를 고쳤다. 7-1·7-2·7-5는 헬퍼가 없어 그대로 뒀다. 규격·동작 변경 없음
 > 0.22 · 2026-10-22 · **7-1 MDC 표를 3-2 결정에 맞췄다**: `InboxGuard`가 `EventContext.run` 안에서 실행되므로 `traceId`를 빼는 곳을 `EventContext`로 적었다. 규격 외 변경 없음
 > 0.21 · 2026-10-20 · **4.1 기준 점검에서 '하' 후보를 권장안대로 정리했다**(사용자 요청): 7-2 `StockCheckJobTest` 1번의 로그 부재, 7-3 `AdminOutboxTest`의 `nextAttemptAt`·거부 뒤 `attempts`/`sentAt`/행 수, 동작 뒤 목록 0건(`AdminReconcileTest`·`AdminRefundRetryTest`), `AdminNotificationTest`의 재시도 거부 뒤 메일 건수, 7-4 S6 3번의 두 번째 실행 뒤 알림 건수. 규격 외 변경 없음
@@ -62,7 +64,7 @@
 
 **1) 의존성·설정**
 - `implementation 'net.logstash.logback:logstash-logback-encoder:9.0'` — 2026-10-09 Maven Central 최신. 9.0의 pom은 `tools.jackson.core:jackson-databind`(Jackson 3)와 `logback-core` 1.5.x에 의존해 Boot 4.1.1(Jackson 3.1.5, Logback 1.5.38)과 맞는다. Boot BOM이 관리하지 않아 버전을 적는다
-- `src/main/resources/logback-spring.xml`: `<springProfile name="elk">`에 `LogstashTcpSocketAppender`(destination `${LOGSTASH_HOST:-localhost}:5000`, `LogstashEncoder`), 그 외에는 Boot 기본 콘솔. 콘솔 패턴은 1-3의 `logging.pattern.level` 유지
+- `src/main/resources/logback-spring.xml`: `<springProfile name="elk">`에 `LogstashTcpSocketAppender`(destination `${LOGSTASH_HOST:-localhost}:5000`, `LogstashEncoder`), 그 외에는 Boot 기본 콘솔. 콘솔 패턴은 `application.yaml`의 `logging.pattern.level: "%5p [%X{traceId:-}]"`를 그대로 둔다
   - **왜 이 파일인가**: logback 설정은 `logback.xml`로도 쓸 수 있지만 `<springProfile>`(프로필에 따라 설정을 나누는 태그)은 Boot가 읽는 `logback-spring.xml`에서만 된다. 이 파일을 두면 Boot의 로깅 자동 설정을 대신하므로, 기본 콘솔 설정을 직접 불러와야 한다.
   - **구성(위에서 아래로)**
     1. `<include resource="org/springframework/boot/logging/logback/defaults.xml"/>` — Boot의 기본 콘솔 패턴 변수(`CONSOLE_LOG_PATTERN`)를 정의한다. 이 패턴이 `logging.pattern.level`(1-3의 `%5p [%X{traceId:-}]`)을 쓴다
@@ -292,7 +294,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 - 주문: `setOrderUpdatedAt(orderId, 지금 - 4분)` → `orderMetrics.refresh()` → `saga_stuck_count{type="order_payment"}` = 0.0 / `setOrderUpdatedAt(orderId, 지금 - 6분)` → `refresh()` → 1.0.
 - 환불: `setRefundUpdatedAt(refundId, 지금 - 9분)` → `refresh()` → `saga_stuck_count{type="refund"}` = 0.0 / `setRefundUpdatedAt(refundId, 지금 - 11분)` → `refresh()` → 1.0.
 
-**4. `stock_reservation_expired_total`** — 준비: 서로 다른 상품 `p1`·`p2`·`p3`로 `createPendingOrder` 주문 3개를 만들고 셋 모두 `setOrderExpired(orderId, 지금 - 1분)`. `p3`에는 `breakReservedStock(p3)`를 걸어 그 주문의 해제를 실패시킨다(2-5 `OrderExpirationServiceTest`와 같은 방식). 동작: `before`를 읽은 뒤 `orderExpirationService.expireBatch()`.
+**4. `stock_reservation_expired_total`** — 준비: 서로 다른 상품 `p1`·`p2`·`p3`로 `createPendingOrder` 주문 3개를 만들고 셋 모두 `setOrderExpired(orderId, 지금 - 1분)`. `p3`에는 `breakReservedStock(p3)`(`UPDATE product.stock SET available = available + reserved, reserved = 0`. `ck_stock_balance`는 합이 같아 통과하고, 만료 때의 예약 해제가 "예약된 재고 부족"으로 실패한다)를 걸어 그 주문의 만료를 롤백시킨다. 동작: `before`를 읽은 뒤 `orderExpirationService.expireBatch()`.
 - 확인: 반환값 2, `stock_reservation_expired_total`의 `count()` - `before` = 2.0(롤백된 `p3` 주문은 세지 않는다).
 
 #### `product/application/StockCheckJobTest` (`OutputCaptureExtension` + `IntegrationTestSupport`)
@@ -362,14 +364,14 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 | `POST /admin/api/payments/{orderId}/reconcile` | 그 주문만 바로 대사(2-6 로직) → 200 `{orderId, status}`(처리 뒤 주문 상태) | order |
 | `GET /admin/api/refunds?status=FAILED&cursor=` · `POST /admin/api/refunds/{id}/retry` | FAILED → APPROVED → `refundProcessor.process` | order |
 | `GET /admin/api/notifications?status=FAILED&cursor=` · `POST /admin/api/notifications/{id}/retry` | FAILED → PENDING, `attempts = 0` | notification |
-| `POST /admin/api/settlements/run?period=` | (3-4에서 만듦) | settlement |
+| `POST /admin/api/settlements/run?period=yyyy-MM` | `SettlementService.run(YearMonth)`을 실행 → 200 `SettlementRunResult(int settledShops, int paid, int payoutFailed)`. 컨트롤러는 3-4가 만들고 이 단계는 인가(`AdminAuthorizationTest` 11번)만 확인한다 | settlement |
 
 구현물 (위에서 아래로 만든다. 이름·시그니처는 권장안이다. API별 처리 순서는 아래 각 절)
 
 | # | 대상 | 규격 | 쓰이는 곳 |
 |---|---|---|---|
 | 1 | `RefundStatus` 전이 + `Refund.retryPgCancel()` (2-8, 기존 수정) | 전이표에 `FAILED → APPROVED`(관리자 재시도)를 더하고([상태머신 §4](../02-design/04-state-machines.md)도 갱신), `Refund`에 "FAILED가 아니면 거부하고, FAILED → APPROVED로 바꾸면서 `pgAttempts`를 1 올리는" 메서드 `retryPgCancel()`을 더한다. `pg_attempts` 칸과 `Refund.pgIdempotencyKey()`(`pgAttempts`가 1 이상이면 `refundId-r{pgAttempts}`)는 2-8에서 만든다 | `refunds` `retry` |
-| 2 | `OrderReconcileService.reconcileOne(UUID orderId)` → `OrderStatus` (2-6 `OrderReconcileService`에서 뽑아낸다) | 2-6 `reconcileBatch`의 "각 주문마다" 처리(`paymentApi.find` → `APPROVED`·`FAILED`는 `applyPaymentState`, `CANCELLED`는 `failOrder`, `IN_PROGRESS`·`UNKNOWN`은 `queryPgOutcome` → `applyOutcome` → `applyPaymentState`, 완료 실패 시 보상)를 그대로 옮긴 메서드. `reconcileBatch`는 `findStuckIds` 루프에서 이것을 부르는 형태로 바뀐다. 아래 `payments reconcile` | `payments reconcile`, `reconcileBatch` |
+| 2 | `OrderReconcileService.reconcileOne(UUID orderId)` → `OrderStatus` | 지금 `OrderReconcileService`에 `private boolean reconcileOne(UUID)`로 이미 있고 `reconcileBatch`의 `findStuckIds` 루프가 부른다. 이것을 `public`으로 열고 반환을 `boolean`에서 처리 뒤 주문 상태(`OrderStatus`)로 바꾼다. 처리 내용(`paymentApi.find` → `APPROVED`·`FAILED`는 `closeConfirmed`, `IN_PROGRESS`·`UNKNOWN`은 `closeByQuery`(`queryPgOutcome` → `applyOutcome`), `CANCELLED`는 `failOrder`, 완료 실패 시 보상)는 그대로다. `reconcileBatch`는 반환된 `OrderStatus`가 `PAID`·`PAYMENT_FAILED`일 때 처리 건수에 센다. 아래 `payments reconcile` | `payments reconcile`, `reconcileBatch` |
 | 3 | 목록 조회 쿼리 | outbox는 `JdbcTemplate`, payments는 `PaymentRepository`, refunds는 `RefundRepository`, notifications는 notification repository에 `status`별 커서 조회를 더한다(domain 순수 인터페이스 + Jpa 구현). 이름·인자는 문서에 없다(확인 필요). 커서·`size + 1`은 아래 "모든 API에 공통"의 목록 규칙 | 목록 API 4개 |
 | 4 | 관리자 컨트롤러와 응답 record | outbox·DLT는 common, payments 목록은 payment, reconcile·refunds는 order, notifications는 notification 모듈에 둔다. 클래스 이름은 문서에 없다(권장: `AdminOutboxController`, `AdminDltController`, `AdminPaymentController`, `AdminReconcileController`, `AdminRefundController`, `AdminNotificationController`). `payment` → `order` 호출은 허용 방향이 아니므로 대사 API는 order 모듈에 둔다 | API 표 |
 | 5 | DLT 조회·재처리 코드 | 요청마다 `KafkaConsumer`를 만들어 쓰는 코드를 컨트롤러가 직접 할지 별도 서비스(권장 `AdminDltService`)로 둘지는 문서에 없다(확인 필요). 순서는 아래 `DLT` | DLT API 2개 |
@@ -409,7 +411,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 **refunds** (order 모듈)
 - 목록: `RefundRepository`에 상태별 커서 조회를 더한다. 응답 항목의 필드는 이 문서에 정해져 있지 않다(확인 필요, `Refund` 컬럼 기준으로 id·orderId·orderLineId·amount·상태·실패 사유 등)
 - `retry`: ① 트랜잭션(`tx.execute`)에서 환불을 읽어 `retryPgCancel()`(구현물 1)을 부른다. FAILED가 아니면 거부된다. 같은 환불에 재시도를 두 번 눌러도 두 번째는 이미 `APPROVED`라 거부된다 ② 트랜잭션 밖에서 `refundProcessor.process(refundId)`(2-8, `RefundStatus` 반환) — APPROVED이므로 `needsPgCancel()`이 참이라 PG 취소부터 다시 한다
-- **PG 멱등 키**: 재시도는 새 키로 Toss까지 간다. 2-6 `PaymentApi.cancel`은 같은 키의 `payment_cancel` 행이 이미 `FAILED`면 PG를 부르지 않고 `FAILED`를 재생하므로(1단계 3번), `process`가 쓰는 `refund.pgIdempotencyKey()`(2-8)가 `pgAttempts`가 1 이상이면 `refundId-r{pgAttempts}`로 달라진다. 그래서 `AdminRefundRetryTest`("가짜 PG를 정상으로 → retry → COMPLETED")가 통과한다. Toss가 같은 키의 실패 응답을 어떻게 다루는지는 확인하지 못해(확인 필요) 같은 키를 재사용하지 않는 쪽으로 정했다. `pg_attempts` 칸은 2-8 마이그레이션에서 만든다
+- **PG 멱등 키**: 재시도는 새 키로 Toss까지 간다. 2-6 `PaymentApi.cancel`은 같은 키의 `payment_cancel` 행이 이미 `FAILED`면 PG를 부르지 않고 `FAILED`를 재생하므로, `process`가 쓰는 `refund.pgIdempotencyKey()`(2-8)가 `pgAttempts`가 1 이상이면 `refundId-r{pgAttempts}`로 달라진다. 그래서 `AdminRefundRetryTest`("가짜 PG를 정상으로 → retry → COMPLETED")가 통과한다. Toss가 같은 키의 실패 응답을 어떻게 다루는지는 확인하지 못해(확인 필요) 같은 키를 재사용하지 않는 쪽으로 정했다. `pg_attempts` 칸은 2-8 마이그레이션에서 만든다
 
 **notifications** (notification 모듈)
 - 목록: 상태별 커서 조회. 응답 항목의 필드는 정해져 있지 않다(확인 필요, `notification` 컬럼 기준 id·type·recipient·attempts·lastError·updatedAt 등)
@@ -426,17 +428,17 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `RefundRow`에 `int pgAttempts` 추가 | 2-9가 만든 `refundRowOf`의 쿼리에 `orders.refund.pg_attempts`(2-8 마이그레이션) 컬럼을 더한다 | `AdminRefundRetryTest` 1·2·3 |
-| `paymentCancelOf(String idempotencyKey)` → `PaymentCancelState` | 2-6 표에 정의된 헬퍼다. 처음 쓰는 미구현 단계인 이 단계에서 `TestFixtures`에 추가한다 | `AdminRefundRetryTest` |
-| `OrderSnapshot`에 결제 필드 추가 | 2-4 표에 정의된 결제 `id`·`method`·`approvedAt`과 2-6 표에 정의된 `reconcileAttempts`를 이 단계에서 `OrderSnapshot.PaymentState`에 더한다(주문 `status`는 3-5가 더했다) | `AdminReconcileTest` |
-| `NotificationRow`에 `long version` 추가 | 3-5가 만든 `notificationRowsOf`·`notificationRows`의 쿼리에 `notification.notification.version` 컬럼을 더한다 | `AdminNotificationTest` |
+| `RefundRow`에 `int pgAttempts` 추가 | `RefundRow`(`status`·`reasonType`·`amount`·`reason`·`rejectReason`·`completedAt`)에 필드를 더하고, `refundRowOf`의 SELECT에 `orders.refund.pg_attempts` 컬럼을 더한다 | `AdminRefundRetryTest` 1·2·3 |
+| `paymentCancelOf(String idempotencyKey)` → `PaymentCancelState` | JDBC `SELECT status, failure_code FROM payment.payment_cancel WHERE idempotency_key = ?`. `PaymentCancelState`는 `support/`의 record `(String status, String failureCode)`. 행이 없으면 `null`(`idempotency_key`가 unique라 키마다 행이 하나다) | `AdminRefundRetryTest` |
+| `OrderSnapshot`에 결제 필드 추가 | `OrderSnapshot.PaymentState`(`amount`·`cancelledAmount`·`status`·`paymentKey`)에 `UUID id`, `String method`, `Instant approvedAt`(승인 전이면 `null`), `int reconcileAttempts`를 더하고, `snapshotOf`의 결제 쿼리에 `payment.payment`의 `id`·`method`·`approved_at`·`reconcile_attempts`를 더한다(주문 `status`는 3-5가 더했다) | `AdminReconcileTest` |
+| `NotificationRow`에 `long version` 추가 | `NotificationRow`(`memberId`·`type`·`channel`·`recipient`·`title`·`status`·`lastError`·`dedupKey`·`attempts`·`sentAt`·`nextAttemptAt`)에 필드를 더하고, `notificationRowsOf`·`notificationRows`의 SELECT에 `notification.notification.version` 컬럼을 더한다 | `AdminNotificationTest` |
 
 이미 있는 헬퍼: `snapshotOf`(2-8a), `cartSnapshotOf`(3-6), `orderLineIdOf`(2-8a), `refundIdOf`(2-8b), `refundRowOf`(2-9), `stockOf`, `createPendingOrder`, `confirmPayment`, `createPaidOrder`, `signup`, `token`, `login`, `changeRole`(3-1), `outboxSnapshotOf`·`OutboxAssert.rows`(3-1), `processedCountOf`(3-2), `countOf`(3-1), `FakeMailSender`·`notificationRowsOf`(3-5).
 
 **확인 값을 읽는 방법**
 - 응답: MockMvc `jsonPath`. 목록은 `$.items[n].필드`와 `$.nextCursor`(`CursorPage`). 에러 응답의 코드는 `$.code`.
 - DB 상태는 쿼리를 테스트에 쓰지 않고 `TestFixtures`의 읽기 헬퍼 한 번으로 읽는다.
-  - 주문·결제: `OrderSnapshot s = testFixtures.snapshotOf(orderId)`(정의는 2-8a, 2-4·2-6·2-10 표가 필드를 더한다). 주문은 `s.status()`, 품목은 `s.line(productId).status()`·`.refundedAmount()`, 가게주문은 `s.shopOrderStatus()`, 환불 상태 목록은 `s.refundStatuses()`, 결제는 `s.payment()`의 `.id()`·`.status()`·`.amount()`·`.cancelledAmount()`·`.paymentKey()`·`.method()`·`.approvedAt()`·`.reconcileAttempts()`.
+  - 주문·결제: `OrderSnapshot s = testFixtures.snapshotOf(orderId)`(`support/`의 record). 주문은 `s.status()`, 품목은 `s.line(productId).status()`·`.refundedAmount()`, 가게주문은 `s.shopOrderStatus()`, 환불 상태 목록은 `s.refundStatuses()`, 결제는 `s.payment()`의 `.id()`·`.status()`·`.amount()`·`.cancelledAmount()`·`.paymentKey()`·`.method()`·`.approvedAt()`·`.reconcileAttempts()`.
   - 장바구니: `testFixtures.cartSnapshotOf(buyerId)`의 `.quantity(productId)`(항목이 없으면 0)·`.itemCount()`(2-1).
   - 재고: `testFixtures.stockOf(productId)` → `available`, `reserved`, `sold`.
   - outbox 행: 행 id를 아는 것은 `testFixtures.outboxSnapshotOf(outboxId)`(3-1) → `status()`, `attempts()`, `nextAttemptAt()`, `sentAt()`, `lastError()`. 토픽별 건수·payload는 `OutboxAssert.rows(topic)`, 전체 행 수는 `countOf("common.outbox_event")`.
@@ -576,7 +578,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 |---|---|---|
 | `orderAmounts()` | 주문마다 `total_amount = Σ line_amount`, PAID 주문은 `payment.amount = total_amount` | INV-01 |
 | `paymentsReflected()` | `APPROVED`·`PARTIAL_CANCELLED`·`CANCELLED`인 결제의 주문이 PAID이거나, 결제가 CANCELLED(보상)이고 주문이 PAYMENT_FAILED | INV-02 |
-| `stockBalance()` | `available + reserved + sold = received`, 모두 ≥ 0, 7-2 재고 대조 쿼리 결과 0건 | INV-03·04 |
+| `stockBalance()` | `available + reserved + sold = received`, 모두 ≥ 0, `received` = `stock_movement`의 `RECEIVE`·`ADJUST` 수량 합, `reserved` = `stock_reservation`의 `HELD` 수량 합(7-2 `StockCheckJob`의 SQL이 0건) | INV-03·04 |
 | `refundLimits()` | `refunded_amount ≤ line_amount`, `cancelled_amount ≤ amount`, 주문별 COMPLETED 환불 합 ≤ 주문 총액 | INV-06 |
 | `settlementOnce()` | CONFIRMED 품목마다 `settlement_item` 정확히 1행(consumer가 따라잡은 뒤), 정산된 item은 정산 1건에만 | INV-07 |
 | `subscriptionCycles()` | `subscription_cycle`에서 `(subscription_id, cycle_date)`마다 행이 1개이고, `status = 'PAID'`인 회차의 `order_id` 주문이 `PAID`이며 한 주문이 두 회차에 연결되지 않는다 | INV-08 |
@@ -597,16 +599,16 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 | 단계 | 호출 | 정의 |
 |---|---|---|
-| Outbox 릴레이 | `outboxRelay.relayOnce()` — 이벤트를 Kafka로 보낸다. consumer는 비동기라 반영은 `Eventually`로 기다린다 | 3-1 |
-| 주문 만료 | `orderExpirationService.expireBatch()` (대상은 JDBC로 `expires_at`을 과거로) | 2-5 |
-| 결제 대사 | `orderReconcileService.reconcileBatch()` (대상은 JDBC로 `updated_at`을 30초 전보다 과거로) | 2-6 |
-| 자동 구매확정 | `autoConfirmService.confirmBatch()` (수동 확정 API를 써도 된다) | 2-10 |
-| 정산 | `settlementService.run(YearMonth)` (지급까지 포함) | 3-4 |
-| 알림 발송 | `notificationDispatcher.dispatchBatch()` | 3-5 |
-| 구독 회차 | `subscriptionCycleService.runDue()` | Part 5 |
+| Outbox 릴레이 | `outboxRelay.relayOnce()` → `int` — 이벤트를 Kafka로 보낸다. consumer는 비동기라 반영은 `Eventually`로 기다린다 | 3-1 |
+| 주문 만료 | `orderExpirationService.expireBatch()` → `int`(만료시킨 주문 수) (대상은 JDBC로 `expires_at`을 과거로) | 2-5 |
+| 결제 대사 | `orderReconcileService.reconcileBatch()` → `int`(`PAID`·`PAYMENT_FAILED`로 끝낸 주문 수) (대상은 JDBC로 `updated_at`을 30초 전보다 과거로) | 2-6 |
+| 자동 구매확정 | `autoConfirmService.confirmBatch()` → `int` (수동 확정 API를 써도 된다) | 2-10 |
+| 정산 | `settlementService.run(YearMonth month)` → `SettlementRunResult(int settledShops, int paid, int payoutFailed)` (지급까지 포함) | 3-4 |
+| 알림 발송 | `notificationDispatcher.dispatchBatch()` → `int`(`SENT`로 바꾼 알림 수) | 3-5 |
+| 구독 회차 | `subscriptionCycleService.runDue()` → `int`(회차를 만든 구독 수) | Part 5 |
 | Kafka 중단·재개 | `kafka.getDockerClient().pauseContainerCmd(kafka.getContainerId()).exec()` / `unpauseContainerCmd` | 3-1 `OutboxRelayTest`. `kafka` 필드가 `IntegrationTestSupport`의 package-private이면 `e2e` 패키지에서 못 쓴다 — 접근을 열지 헬퍼를 둘지는 확인 필요 |
 
-**클래스와 메서드 이름은 각 단계(2-5·2-6·2-10·3-1·3-4·3-5·Part 5)의 문서를 따른다.** 정확한 이름·시그니처는 그 문서가 기준이고, 위 표는 이 문서 안에서 한눈에 보기 위한 요약이다
+`run`만 인자(정산 대상 월)를 받고 나머지는 인자가 없다. `reconcileBatch`의 대상은 `PAYMENT_IN_PROGRESS`이면서 `updated_at`이 30초 전보다 과거인 주문이고, `expireBatch`의 대상은 `PENDING_PAYMENT`이면서 `expires_at`이 지금보다 과거인 주문이다
 
 | ID | 클래스 | 흐름 |
 |---|---|---|
@@ -631,27 +633,27 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 |---|---|---|
 | `unsentOutboxCount()` → `int` | JDBC `SELECT count(*) FROM common.outbox_event WHERE status <> 'SENT'` | S1 7번, `KafkaOutageE2ETest` 준비·6 |
 | `notificationCounts()` → `NotificationCounts` | 3-5의 `notificationRows()`를 `type`별·`status`별로 센 값(쿼리 없음). `NotificationCounts`의 메서드는 `int type(String type)`·`int status(String status)`이고, 건수를 돌려주며 행이 없으면 0이다 | S1·S2·S4·S6, `KafkaOutageE2ETest` |
-| `OrderSnapshot`에 `reservationStatuses` 추가 | 2-4 표에 정의된 예약 상태 목록(`product.stock_reservation.status`, `WHERE order_id = ?`)을 이 단계에서 `OrderSnapshot`에 더한다 | S2 2번 |
+| `OrderSnapshot`에 `reservationStatuses` 추가 | `snapshotOf`에 쿼리 `SELECT status FROM product.stock_reservation WHERE order_id = ?`를 더해 `OrderSnapshot`에 `List<String> reservationStatuses`로 담는다 | S2 2번 |
 
-이미 있는 헬퍼: `snapshotOf`·`orderLineIdOf`·`shopOrderIdOf`·`createPaidOrder`·`createDeliveredOrder`(Part 2), `cartSnapshotOf`(3-6), `stockOf`, `countOf`(3-1), `settlementSnapshotOf`·`settlementItemSnapshotOf`·`unsettledItemCount`(3-4a), `notificationRows`(3-5), `shopSnapshotOf`·`memberSnapshotOf`·`productSnapshotOf`(Part 1 표에 정의되고 3-1·3-2가 추가했다. 3-1이 `role`·`status`·`email`, 3-2가 `closedAt`을 더했다), `registerSubscribableProduct`·`registerBillingKey`·`createSubscription`(5-2), `subscriptionSnapshotOf`(5-2)·`cyclesOf`·`setSubscriptionNextRunDate`(5-3), `OutboxAssert.rows`·`Eventually`(3-1), `FakePayoutGateway`(3-4b), `FakeMailSender`(3-5).
+이미 있는 헬퍼: `snapshotOf`·`orderLineIdOf`·`shopOrderIdOf`·`createPaidOrder`·`createDeliveredOrder`(Part 2), `cartSnapshotOf`(3-6), `stockOf`, `countOf`(3-1), `settlementSnapshotOf`·`settlementItemSnapshotOf`·`unsettledItemCount`(3-4a), `notificationRows`(3-5), `shopSnapshotOf`·`memberSnapshotOf`·`productSnapshotOf`(`ShopSnapshot`·`MemberSnapshot`·`ProductSnapshot`을 돌려준다. 이 단계는 `ShopSnapshot.status()`·`closedAt()`, `MemberSnapshot.role()`, `ProductSnapshot.status()`를 읽는다), `registerSubscribableProduct`·`registerBillingKey`·`createSubscription`(5-2), `subscriptionSnapshotOf`(5-2)·`cyclesOf`·`setSubscriptionNextRunDate`(5-3), `OutboxAssert.rows`·`Eventually`(3-1), `FakePayoutGateway`(3-4b), `FakeMailSender`(3-5).
 
 **확인 값을 읽는 방법**
 - 응답: MockMvc `jsonPath`. 에러 응답의 코드는 `$.code`, 부가 정보는 `$.details.필드`.
 - DB 상태는 쿼리를 시나리오에 쓰지 않고 `TestFixtures`의 읽기 헬퍼 한 번으로 읽는다. 이 단계가 새로 만드는 헬퍼는 위 "테스트 준비"의 표에 있다.
-  - 주문·결제: `OrderSnapshot s = testFixtures.snapshotOf(orderId)`(정의는 2-8a, 2-4·2-6·2-10 표가 필드를 더한다)로 주문 `s.status()`, 품목 `s.line(productId).status()`·`.refundedAmount()`·`.confirmedAt()`, 가게주문 `s.shopOrderStatuses()`(하나면 `s.shopOrderStatus()`), 예약 `s.reservationStatuses()`, 환불 `s.refundStatuses()`, 결제 `s.payment().amount()`·`.cancelledAmount()`·`.status()`를 읽는다.
+  - 주문·결제: `OrderSnapshot s = testFixtures.snapshotOf(orderId)`(`support/`의 record)로 주문 `s.status()`, 품목 `s.line(productId).status()`·`.refundedAmount()`·`.confirmedAt()`, 가게주문 `s.shopOrderStatuses()`(하나면 `s.shopOrderStatus()`), 예약 `s.reservationStatuses()`, 환불 `s.refundStatuses()`, 결제 `s.payment().amount()`·`.cancelledAmount()`·`.status()`를 읽는다.
   - 장바구니: `testFixtures.cartSnapshotOf(buyerId)`의 `.quantity(productId)`·`.itemCount()`(2-1).
   - 재고: `testFixtures.stockOf(productId)` → `available`, `reserved`, `sold`.
   - outbox: 토픽별 건수·`payload` 필드·`status`·`attempts`는 `OutboxAssert.rows(topic)`(3-1), 미발행 행 수는 `unsentOutboxCount()`.
   - 정산: `settlementSnapshotOf(shopId, month)`(3-4a)의 `status()`·`grossAmount()`·`feeAmount()`·`netAmount()`·`itemCount()`·`feeRateBp()`·`payoutReference()`·`paidAt()`, 정산 전 품목은 `settlementItemSnapshotOf(orderLineId)`(3-4a)의 `amount()`·`settlementId()`와 `unsettledItemCount()`(3-4a), 정산 행 수는 `countOf("settlement.settlement")`(3-1).
   - 구독: `subscriptionSnapshotOf(subscriptionId)`(5-2)의 `status()`·`consecutiveFailures()`·`nextRunDate()`·`endReason()`, 회차 목록은 `cyclesOf(subscriptionId)`(5-3) → `CycleRow`의 `cycleDate()`·`status()`·`orderId()`·`appliedUnitPrice()`.
   - 알림: `notificationCounts()`(`type(...)`·`status(...)`로 건수. 3-5의 `notificationRows()`를 센 것).
-  - 가게·회원·상품: `shopSnapshotOf(shopId)`의 `status()`·`closedAt()`, `memberSnapshotOf(memberId).role()`, `productSnapshotOf(productId).status()`(Part 1 표에 정의되고 3-1·3-2가 `TestFixtures`에 추가했다. `role`은 3-1이 `closedAt`은 3-2가 더했다).
+  - 가게·회원·상품: `shopSnapshotOf(shopId)`의 `status()`·`closedAt()`, `memberSnapshotOf(memberId).role()`, `productSnapshotOf(productId).status()`(각각 `support/`의 `ShopSnapshot`·`MemberSnapshot`·`ProductSnapshot` record).
   - 한 곳에서만 쓰는 값(S5 1번의 구독 주문 `orders.orders.type`·`total_amount`)은 JDBC 한 줄로 읽는다.
-- 가짜 서비스: PG는 `pg.requests(경로 접두어)`(헤더 키 소문자, 본문 `cancelAmount`는 `readTree`로 읽어 `asLong()`), 메일은 `fakeMailSender.sent()`, 지급은 `FakePayoutGateway`의 호출 기록(접근자 이름은 3-4b 구현 때 정한다).
+- 가짜 서비스: PG는 `pg.requests(경로 접두어)`(헤더 키 소문자, 본문 `cancelAmount`는 `readTree`로 읽어 `asLong()`), 메일은 `fakeMailSender.sent()`, 지급은 `fakePayoutGateway.calls()` → `List<PayoutCall>`(`record PayoutCall(UUID settlementId, UUID shopId, long amount)`, 호출 순서).
 - 비동기 반영: "릴레이+대기(조건)"은 `outboxRelay.relayOnce()` 뒤 `Eventually.await(Duration.ofSeconds(10), 조건)`이다. 조건은 아래 각 단계가 적은 DB 값이다.
 - 시나리오 클래스의 주입: `MockMvc`, `TestFixtures`, `InvariantChecker`, `JdbcTemplate`, `OutboxRelay`, `OrderExpirationService`, `OrderReconcileService`, `SettlementService`, `NotificationDispatcher`, `SubscriptionCycleService`, `Clock`, `BusinessProperties`.
 
-**공통 준비**: 아래 시나리오마다 새 데이터를 만든다(`IntegrationTestSupport`가 테스트마다 테이블을 비운다). 판매자·구매자는 `signup`, 가게는 `openShop`, 상품은 `registerProduct(sellerId, shopId, 가격, 10)`(재고 10)이다. 토큰은 `login(이메일)`로 받는다(`signup`이 이미 가입시켰다, Part 2 공통 규칙 P-4). 배송지는 `address(구매자 ID)`. 모든 요청의 `Authorization: Bearer {토큰}`, 쓰기 요청의 `Idempotency-Key`는 새 UUID(`/payment/confirm`은 `orderId`)다. 날짜 `today`는 `LocalDate.now(clock.withZone(businessProperties.businessZone()))`다. 각 시나리오의 **마지막 줄은 `invariantChecker.checkAll()`이 예외 없이 끝나는 것**이다.
+**공통 준비**: 아래 시나리오마다 새 데이터를 만든다(`IntegrationTestSupport`가 테스트마다 테이블을 비운다). 판매자·구매자는 `signup`, 가게는 `openShop`, 상품은 `registerProduct(sellerId, shopId, 가격, 10)`(재고 10)이다. 토큰은 `login(이메일)`로 받는다(`token(이메일)`은 가입까지 해서 `signup`한 이메일로 부르면 중복 가입 예외가 난다). 배송지는 `address(구매자 ID)`. 모든 요청의 `Authorization: Bearer {토큰}`, 쓰기 요청의 `Idempotency-Key`는 새 UUID(`/payment/confirm`은 `orderId`)다. 날짜 `today`는 `LocalDate.now(clock.withZone(businessProperties.businessZone()))`다. 각 시나리오의 **마지막 줄은 `invariantChecker.checkAll()`이 예외 없이 끝나는 것**이다.
 
 #### `e2e/InvariantCheckerTest` (`InvariantChecker` 자체 테스트)
 

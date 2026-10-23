@@ -198,16 +198,16 @@ public class Order extends BaseTimeEntity {
         recalculateShopOrder(shopOrderOf(lineId), now);
     }
 
-    public int autoConfirm(UUID shopOrderId, Instant now) {
+    public List<OrderLine> autoConfirm(UUID shopOrderId, Instant now) {
         ShopOrder shopOrder = findShopOrder(shopOrderId);
-        int confirmedCount = 0;
+        List<OrderLine> confirmed = new ArrayList<>();
         for (OrderLine line : shopOrder.getLines()) {
             if (line.getStatus() == OrderLineStatus.DELIVERED) {
                 line.markConfirmed(now);
-                confirmedCount++;
+                confirmed.add(line);
             }
         }
         recalculateShopOrder(shopOrder, now);
-        return confirmedCount;
+        return confirmed;
     }
 }

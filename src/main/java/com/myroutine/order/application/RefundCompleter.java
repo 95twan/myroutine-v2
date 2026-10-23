@@ -17,6 +17,7 @@ public class RefundCompleter {
     private final OrderRepository orderRepository;
     private final ProductApi productApi;
     private final Clock clock;
+    private final OrderEventPublisher publisher;
 
     @Transactional
     public RefundStatus complete(UUID refundId) {
@@ -37,6 +38,8 @@ public class RefundCompleter {
         order.applyRefund(line.getId(), refund.getAmount(), refund.getReasonType(), now);
 
         refund.complete(now);
+
+        publisher.lineRefunded(refund, order, line);
 
         return refund.getStatus();
     }

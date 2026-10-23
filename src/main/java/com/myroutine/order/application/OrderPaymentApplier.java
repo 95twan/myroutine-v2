@@ -25,6 +25,7 @@ public class OrderPaymentApplier {
     private final PaymentApi paymentApi;
     private final CartService cartService;
     private final Clock clock;
+    private final OrderEventPublisher publisher;
 
     @Transactional
     public OrderStatus apply(UUID orderId, UUID paymentId, PgOutcome outcome) {
@@ -62,11 +63,13 @@ public class OrderPaymentApplier {
     private void complete(Order order) {
         productApi.commitReservation(order.getId());
         order.markPaid(clock.instant());
+        publisher.paid(order);
         cartService.deductOrdered(order.getMemberId(), order.quantitiesByProduct());
     }
 
     private void fail(Order order, String reason) {
         productApi.releaseReservation(order.getId(), ReleaseReason.PAYMENT_FAILED);
         order.markPaymentFailed(reason);
+        publisher.closed(order, "PAYMENT_FAILED");
     }
 }

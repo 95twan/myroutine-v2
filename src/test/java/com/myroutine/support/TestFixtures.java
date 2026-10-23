@@ -4,6 +4,7 @@ import com.myroutine.member.application.*;
 import com.myroutine.order.application.*;
 import com.myroutine.product.application.*;
 import com.myroutine.product.domain.ProductCategory;
+import com.myroutine.product.domain.ProductStatus;
 import com.myroutine.shop.application.OpenShopCommand;
 import com.myroutine.shop.application.OpenShopService;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,7 @@ public class TestFixtures {
     private final CheckoutService checkoutService;
     private final ConfirmPaymentService confirmPaymentService;
     private final ShipmentService shipmentService;
+    private final UpdateProductService updateProductService;
     private final JdbcTemplate jdbcTemplate;
 
     public UUID signup(String email) {
@@ -279,6 +281,10 @@ public class TestFixtures {
         jdbcTemplate.update("UPDATE orders.refund SET updated_at = ? WHERE id = ?", Timestamp.from(updateAt), refundId);
     }
 
+    public void setRefundedAmount(UUID orderLineId, long refundedAmount) {
+        jdbcTemplate.update("UPDATE orders.order_line SET refunded_amount = ? WHERE id = ?", refundedAmount, orderLineId);
+    }
+
     public UUID createDeliveredOrder(UUID buyerId, UUID sellerId, UUID shopId, UUID... productIds) {
         UUID orderId = createPaidOrder(buyerId, productIds);
         UUID shopOrderId = shopOrderIdOf(orderId, shopId);
@@ -374,11 +380,11 @@ public class TestFixtures {
 
     public ProductSnapshot productSnapshotOf(UUID productId) {
         List<MovementState> movements = jdbcTemplate.query("""
-                    SELECT type, quantity, ref_type, ref_id
-                    FROM product.stock_movement
-                    WHERE product_id = ?
-                    ORDER BY created_at, id
-                    """,
+                        SELECT type, quantity, ref_type, ref_id
+                        FROM product.stock_movement
+                        WHERE product_id = ?
+                        ORDER BY created_at, id
+                        """,
                 (rs, rowNum) -> new MovementState(
                         rs.getString("type"),
                         rs.getInt("quantity"),
@@ -387,12 +393,25 @@ public class TestFixtures {
                 ),
                 productId);
 
+        List<PriceChangeState> priceChangeStates = jdbcTemplate.query("""
+                        SELECT old_price, new_price, changed_at
+                        FROM product.price_history
+                        WHERE product_id = ?
+                        ORDER BY changed_at, id
+                        """,
+                (rs, rowNum) -> new PriceChangeState(
+                        rs.getLong("old_price"),
+                        rs.getLong("new_price"),
+                        rs.getTimestamp("changed_at").toInstant()
+                ),
+                productId);
+
         return jdbcTemplate.query("""
-                    SELECT p.name, p.status, p.price, p.subscribable, s.received
-                    FROM product.product p
-                    JOIN product.stock s ON s.product_id = p.id
-                    WHERE p.id = ?
-                    """,
+                        SELECT p.name, p.status, p.price, p.subscribable, s.received, p.version
+                        FROM product.product p
+                        JOIN product.stock s ON s.product_id = p.id
+                        WHERE p.id = ?
+                        """,
                 rs -> {
                     if (!rs.next()) {
                         return null;
@@ -403,9 +422,19 @@ public class TestFixtures {
                             rs.getLong("price"),
                             rs.getBoolean("subscribable"),
                             rs.getInt("received"),
+                            rs.getLong("version"),
+                            priceChangeStates,
                             movements
                     );
                 },
                 productId);
+    }
+
+    public void updateProduct(UUID memberId, UUID shopId, UUID productId, String name, Long price) {
+        updateProductService.update(memberId, shopId, productId, new UpdateProductCommand(name, null, null, price, null));
+    }
+
+    public void changeProductStatus(UUID memberId, UUID shopId, UUID productId, ProductStatus to) {
+        updateProductService.changeStatus(memberId, shopId, productId, to);
     }
 }

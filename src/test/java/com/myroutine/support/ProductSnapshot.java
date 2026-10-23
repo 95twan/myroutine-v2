@@ -8,6 +8,8 @@ public record ProductSnapshot(
         long price,
         boolean subscribable,
         int received,
+        long version,
+        List<PriceChangeState> priceChanges,
         List<MovementState> movements
 ) {
     public List<MovementState> movements(String type) {
