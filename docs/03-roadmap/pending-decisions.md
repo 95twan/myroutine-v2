@@ -1,6 +1,7 @@
 # 구현 때 정할 것
 
-> 버전 0.8 · 2026-10-23 · 2절의 `TestFixtures` 헬퍼 위치 행("테스트 준비"가 완료 확인 뒤에 있는 구조)을 지웠다: Part 2~7의 완료 확인에서 "테스트 준비"를 테스트 클래스 앞으로 옮겼다(Part 1은 이미 앞에 있었다)
+> 버전 0.9 · 2026-10-23 · 3-3 착수로 4절의 3-3 행(`existsByShopIdAndStatusIn` 위치, E: 코드가 `JpaOrderRepository`에 이미 둠)을 지웠다
+> 0.8 · 2026-10-23 · 2절의 `TestFixtures` 헬퍼 위치 행("테스트 준비"가 완료 확인 뒤에 있는 구조)을 지웠다: Part 2~7의 완료 확인에서 "테스트 준비"를 테스트 클래스 앞으로 옮겼다(Part 1은 이미 앞에 있었다)
 > 0.7 · 2026-10-23 · 2절의 `TestFixtures` 헬퍼 위치 행에 3-2는 앞으로 옮겼음을 적었다
 > 0.6 · 2026-10-22 · 3-2 착수로 2절의 3-2 행(`InboxGuard`의 MDC 중복, D)을 지웠다
 > 0.5 · 2026-10-20 · 3-1 착수로 4절의 3-1 행(릴레이 중단 A, 외부 동작 B, `occurredAt` D)을 지웠다
@@ -134,7 +135,6 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 
 | 단계 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
-| 3-3 | D | `existsByShopIdAndStatusIn`을 `JpaOrderRepository`에 둠 | p3:437 | 확정 |
 | 3-4a | A | `payoutAll()` 반환 타입. `SettlementRunResult.paid`·`payoutFailed`를 둘지(위 API 표와 같은 건) | p3:947(1155) | 사용자 결정 |
 | 3-4a | C | `payoutAttempts` +1을 `markPayoutFailed` 안에서 할지 `payoutAll`에서 할지. 901행과 979행이 다르게 읽힘 | p3:901 | 한 곳으로 정해 문서 수정 |
 | 3-4a | B | Spring Data 저장소 프록시에 `@MockitoSpyBean` 스파이가 붙는지 | p3:1079 | 구현 후 실험 |
