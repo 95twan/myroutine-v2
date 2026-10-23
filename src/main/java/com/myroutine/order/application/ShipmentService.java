@@ -19,6 +19,7 @@ public class ShipmentService {
     private final OrderRepository orderRepository;
     private final ShopApi shopApi;
     private final Clock clock;
+    private final OrderEventPublisher publisher;
 
     @Transactional
     public SellerShopOrderResult ship(UUID memberId, UUID shopId, UUID shopOrderId, String carrier, String trackingNumber) {
@@ -38,6 +39,8 @@ public class ShipmentService {
 
         order.ship(shopOrderId, carrier, trackingNumber, clock.instant());
 
+        publisher.shipped(order, shopOrder);
+
         List<Refund> refunds = refundRepository.findAllByShopOrderIdInOrderByCreatedAtAsc(List.of(shopOrderId));
 
         return SellerShopOrderResult.from(order, shopOrder, refunds);
@@ -53,7 +56,10 @@ public class ShipmentService {
         if (!shopOrder.getShopId().equals(shopId)) {
             throw new BusinessException(OrderErrorCode.SHOP_ORDER_NOT_FOUND);
         }
+
         order.deliver(shopOrderId, clock.instant());
+
+        publisher.delivered(order, shopOrder);
 
         List<Refund> refunds = refundRepository.findAllByShopOrderIdInOrderByCreatedAtAsc(List.of(shopOrderId));
 

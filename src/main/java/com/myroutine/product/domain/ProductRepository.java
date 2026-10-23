@@ -28,4 +28,6 @@ public interface ProductRepository {
     List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 
     List<Product> findAllByShopIdAndStatusIn(UUID shopId, Collection<ProductStatus> statuses);
+
+    void flush();
 }

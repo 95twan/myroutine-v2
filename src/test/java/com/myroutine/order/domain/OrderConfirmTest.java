@@ -225,7 +225,7 @@ class OrderConfirmTest {
         line1.markReturnRequested();
 
         // When & Then
-        int count = order.autoConfirm(shopOrder.getId(), now);
+        int count = order.autoConfirm(shopOrder.getId(), now).size();
 
         assertThat(count).isEqualTo(1);
         assertThat(line1.getStatus()).isEqualTo(OrderLineStatus.RETURN_REQUESTED);
