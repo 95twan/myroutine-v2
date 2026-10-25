@@ -1,6 +1,7 @@
 # 구현 때 정할 것
 
-> 버전 0.9 · 2026-10-23 · 3-3 착수로 4절의 3-3 행(`existsByShopIdAndStatusIn` 위치, E: 코드가 `JpaOrderRepository`에 이미 둠)을 지웠다
+> 버전 0.10 · 2026-10-24 · 3-4 착수로 2절의 3-4a·3-4b 행 4개와 공통 규칙 P(`LocalDate` 허용) 행, 4절의 3-4a·3-4b 행을 지웠다(3-4b `SettlementItemRow`의 `Instant` 매핑 B 행은 새로 남겼다)
+> 0.9 · 2026-10-23 · 3-3 착수로 4절의 3-3 행(`existsByShopIdAndStatusIn` 위치, E: 코드가 `JpaOrderRepository`에 이미 둠)을 지웠다
 > 0.8 · 2026-10-23 · 2절의 `TestFixtures` 헬퍼 위치 행("테스트 준비"가 완료 확인 뒤에 있는 구조)을 지웠다: Part 2~7의 완료 확인에서 "테스트 준비"를 테스트 클래스 앞으로 옮겼다(Part 1은 이미 앞에 있었다)
 > 0.7 · 2026-10-23 · 2절의 `TestFixtures` 헬퍼 위치 행에 3-2는 앞으로 옮겼음을 적었다
 > 0.6 · 2026-10-22 · 3-2 착수로 2절의 3-2 행(`InboxGuard`의 MDC 중복, D)을 지웠다
@@ -35,12 +36,7 @@
 | 단계 | 항목 | 선택지와 영향 |
 |---|---|---|
 | 2-6 | `cancel` A-2·A-3의 재조회 | `insertIfAbsent`가 1행이면 방금 만든 `REQUESTED` 행이고 `id`도 알아서 재조회가 필요 없다. 0행일 때만 읽으면 취소마다 SELECT가 하나 준다. 분기가 늘어난다 |
-| 3 공통 규칙 P | `SettlementPaidEvent`의 `LocalDate periodStart`·`periodEnd` | 규칙 P는 필드 타입을 원시 타입·UUID·String·long·Instant·List로 제한한다. `LocalDate`를 허용하거나 필드를 `String`·`Instant`로 바꾼다 |
 | 3 공통 규칙 S | `notification`의 `payment::api` 의존 | 3-3에서 payment는 이벤트를 발행하지 않고 3-5 consumer도 payment를 쓰지 않는다. 불필요하면 지운다. `order` 행의 "Part 2 + 없음" 표기도 모호하다 |
-| 3-4a | `Settlement.calculate(gross, bp, itemCount)`의 `bp` | `insertIfAbsent`가 `fee_rate_bp`를 이미 넣었다. 엔티티 값을 쓰면 중복이 없지만 엔티티를 native INSERT로만 만들어서 `SettlementPeriodTest`의 "12,345원·500bp → 수수료 617"을 어디서 검증할지 정해야 한다 |
-| 3-4a | `payoutAll`의 정산 이중 조회 | `findIdsToPay`가 ID만 주고 루프가 `findById`로 읽은 뒤 쓰기 트랜잭션에서 또 읽는다. `(id, shopId, netAmount)` record를 돌려주면 첫 조회가 사라진다 |
-| 3-4a | `settlement/package-info`의 허용 의존 | 공통 규칙 S가 "Part 3 끝 기준"이라 모호하다. 3-4a는 `{common, order::api}`, 3-4b가 `shop::api`를 더하는 것으로 풀었다 |
-| 3-4a·3-4b | 3-4a만 따로 PR로 낼 때 컴파일 | `run`이 3-4b의 `payoutAll()`을 부른다. 선언만 두거나 두 단계를 합친다 |
 | 3-6 | 배송지 삭제가 `findAllByMemberId` 뒤 건별 `delete`(N번 쿼리) | 벌크 삭제 메서드를 `MemberAddressRepository`에 더할지 정한다 |
 | 4-1·4-3 | `device` 전달 사슬(`User-Agent` → `signUp`/`login` → `TokenIssuer` → `SessionStore.create` → Redis) | 어디서도 읽지 않는다. 지우면 인자와 4-1의 "확인 필요" 문단 두 개가 줄지만 ERD의 "기기"와 FR-MEM-03(기기별 세션)에 걸린다. 기기 목록 기능을 쓸 계획이면 남긴다 |
 | 4-1 | `rotate`와 `findMemberId`가 Redis를 두 번 부른다 | 합치려면 Lua가 memberId와 재사용 여부를 함께 돌려줘야 한다. "세션 없음"과 "재사용" 구분이 3상태 반환으로 복잡해진다 |
@@ -135,12 +131,7 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 
 | 단계 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
-| 3-4a | A | `payoutAll()` 반환 타입. `SettlementRunResult.paid`·`payoutFailed`를 둘지(위 API 표와 같은 건) | p3:947(1155) | 사용자 결정 |
-| 3-4a | C | `payoutAttempts` +1을 `markPayoutFailed` 안에서 할지 `payoutAll`에서 할지. 901행과 979행이 다르게 읽힘 | p3:901 | 한 곳으로 정해 문서 수정 |
-| 3-4a | B | Spring Data 저장소 프록시에 `@MockitoSpyBean` 스파이가 붙는지 | p3:1079 | 구현 후 실험 |
-| 3-4a | D | `sumBySettlementId` native 결과를 record로 받는 방법(`::bigint` 캐스팅), `insertIfAbsent`의 초깃값(`CALCULATED`, 금액 0), `calculate` 첫 인자 `Money`, 테스트용 `Settlement` 생성 방법 | p3:918, 928, 956, 1021 | 권장안으로 확정 |
-| 3-4b | A | `prod` 프로필에서 `PayoutGateway`·`MailSender` 빈이 없어 기동 실패 가능. 실제 구현 범위 또는 prod 대체 빈 | p3:980 | 사용자 결정 |
-| 3-4b | D | `SETTLEMENT_PAID`의 `aggregateType` `"SETTLEMENT"`, 정산 목록·품목 목록 keyset 시그니처와 읽기 모델, 남의 가게 정산 조회는 404 `SETTLEMENT_NOT_FOUND` | p3:974(1113), 987, 988(1148) | 확정 |
+| 3-4b | B | 목록 조회 `SettlementItemRow`(native 인터페이스 프로젝션)의 `getConfirmedAt()`·`getCreatedAt()`이 `Instant`로 매핑되는지(`timestamptz`) | p3:1122 | 3-4b 착수 때 확인 |
 | 3-5 | A | `getContact`에서 `BANNED` 회원의 `active` 값. 회원 없음은 `MEMBER_NOT_FOUND` | p3:1226 | 사용자 결정 |
 | 3-5 | D | `Notification`을 native 쿼리로 구현(3-4 정산과 같은 방식), 알림 제목 숫자에 천 단위 구분 기호 없음 | p3:1238, 1292 | 확정 |
 | 3-6 | A | "진행 중 환불" 상태 집합(`REQUESTED, APPROVED, PG_CANCELLED`)이 정책에 없음. 탈퇴 차단 정책 | p3:1404 | 사용자 결정 |

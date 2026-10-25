@@ -56,5 +56,7 @@ myroutine:
     client-key: ${TOSS_CLIENT_KEY:}
     connect-timeout: 3s
     read-timeout: 10s
+  settlement:
+    fee-rate-bp: 500
 
 logging.pattern.level: "%5p [%X{traceId:-}]"

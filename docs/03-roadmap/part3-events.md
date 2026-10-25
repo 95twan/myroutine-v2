@@ -1,6 +1,7 @@
 # Part 3. 이벤트
 
-> 버전 0.54 · 2026-10-23 · **3-3 완료 확인의 order 테스트를 흐름별 세 클래스로 나눴다**(사용자 지적: 한 클래스가 서비스 11개를 주입받는다): `PaymentEventPublishingTest`(결제 완료·만료·실패, 1~5번), `FulfillmentEventPublishingTest`(발송·배송완료·환불, 6~8번), `ConfirmEventPublishingTest`(구매확정, 9~12번). 케이스 번호와 규격은 그대로다
+> 버전 0.61 · 2026-10-25 · **3-4a 리뷰에서 `BusinessProperties`·`SettlementProperties` 규격에 `@Validated`를 명시했다**(개발 가이드 설정 규칙: `@ConfigurationProperties` + `@Validated` record). 0.60: **3-4a 테스트를 실행해 `@MockitoSpyBean`이 저장소(JDK 프록시)에 붙는 것을 확인하고 완료 확인 5번의 "실행해 본 것은 아니다" 문구를 뺐다**(`SettlementServiceTest`·`SettlementItemConsumerTest`·`SettlementPeriodTest` 11건 통과). 0.59: **공통 규칙 표의 "키" 행에 같은 파티션의 의미(순서·동시 처리 방지)와 하위 엔티티 이벤트가 집계 ID를 키로 쓰는 이유를 더했다**(사용자 질문: 품목 단위 확정 이벤트의 키가 왜 `orderId`인가). 0.58: **3-4a 할 일 끝의 "테스트 헬퍼" 안내 줄을 지웠다**(완료 확인이 바로 뒤에 있고 같은 내용이 "공통 준비"·"테스트 준비"에 있다). 0.57: **3-4a 완료 확인을 3-4b 할 일 앞으로 옮겼다**(사용자 지적: 3-4a 테스트가 3-4b 구현 뒤에 있다. 순서는 3-4a 할 일 → 3-4a 완료 확인 → 3-4b 할 일 → 3-4b 완료 확인). 0.56: **3-4a `settleShop`이 새로 만들었는지(`boolean`)를 돌려주도록 `run` 4)를 구체화했다**(`settledShops`가 `insertIfAbsent` 0행으로 건너뛴 가게를 세지 않게). 0.55: **3-4 착수로 미결 행을 확정했다**(사용자 결정 3건): ① `payoutAll()`은 `PayoutSummary(paid, payoutFailed)`를 돌려주고 `run`이 `SettlementRunResult`로 합친다(3-4a의 `run`은 `(n, 0, 0)`) ② `MockPayoutGateway`·`LogMailSender`에서 `@Profile("!prod")`를 뺀다(ops 실습 환경이 `prod` 프로필로 떠서 빈이 없으면 기동 실패) ③ `@MockitoSpyBean`은 JDK 프록시(Spring Data 저장소)에 붙는다(Spring Framework 소스로 확인, 실행은 하지 않음). 문서에서 확정한 것: `payoutAttempts` +1은 `markPayoutFailed` 안, `SettlementSum`은 인터페이스 프로젝션, `insertIfAbsent` 초깃값, `aggregateType = "SETTLEMENT"`, 목록 keyset 시그니처, 남의 가게 정산은 404, 공통 규칙 P에 `LocalDate` 허용. 3-4의 모든 클래스에 패키지를 적었다. 3-4b 내용(의존성·`run` 3번)은 3-4a 절에서 빼고 3-4b 절 5) 표 7번으로 옮겼다(사용자 지적: 일부만 적혀 있었다. 기존 모듈 규칙: 엔티티·enum·값 객체·저장소 인터페이스·에러 코드는 `domain`, 서비스·설정은 `application`, Jpa 저장소·잡·consumer·토픽 설정은 `infrastructure`, 컨트롤러·응답은 `web`). 조회 서비스 `SettlementQueryService`를 더했다(사용자 요청: 기존 모듈처럼 컨트롤러가 저장소를 직접 부르지 않는다). 엔티티 없는 `JpaSettlementItemRepository`는 `@RepositoryDefinition`으로 등록한다(사용자 결정, 리뷰에서 빈이 만들어지지 않는 것을 지적)
+> 0.54 · 2026-10-23 · **3-3 완료 확인의 order 테스트를 흐름별 세 클래스로 나눴다**(사용자 지적: 한 클래스가 서비스 11개를 주입받는다): `PaymentEventPublishingTest`(결제 완료·만료·실패, 1~5번), `FulfillmentEventPublishingTest`(발송·배송완료·환불, 6~8번), `ConfirmEventPublishingTest`(구매확정, 9~12번). 케이스 번호와 규격은 그대로다
 > 0.53 · 2026-10-23 · **3-3 완료 확인에서 겹치는 롤백 케이스 셋을 뺐다**(사용자 요청, README 4.1 기준): member 2번(중복 이메일 가입), product 6번(단종 상품 수정), order 12번의 재고 부족 항목. 예외가 나면 트랜잭션이 롤백되는 것은 Spring 동작이고 이 단계가 확인할 것은 order 12번의 "발행 실패 → 상태 변경 취소" 하나다. 상품 수정·상태 변경에서 `PATCH`를 쓰는 케이스가 없어졌다
 > 0.52 · 2026-10-23 · **3-3 완료 확인 order 12번의 발행 실패 주입 대상을 `OutboxPublisher`에서 `OrderEventPublisher.lineConfirmed`로 바꿨다**(구현 중 확인): `OutboxPublisher.publish`는 `@Transactional(MANDATORY)` 프록시라 테스트에서 `doThrow(...).when(outboxPublisher).publish(...)`를 쓰는 순간 트랜잭션 없음 예외(`IllegalTransactionStateException`)가 난다. 롤백 검증 의도는 같다
 > 0.51 · 2026-10-23 · **3-3 완료 확인에서 상품 수정·상태 변경 케이스(상품 2~4번)를 `PATCH` 대신 `TestFixtures` 헬퍼(`UpdateProductService` 호출)로 바꿨다**(사용자 요청: 응답을 확인하지 않는 케이스는 서비스 호출로 충분하고, 서비스 주입은 테스트가 아니라 `TestFixtures`가 한다). 응답 코드를 확인하는 롤백(6번)만 `PATCH`로 남기고, 2번의 "응답 200"을 뺐다. 규격·동작 변경 없음
@@ -79,8 +80,8 @@
 |---|---|
 | 위치 | 이벤트 record와 토픽 상수는 **발행하는 모듈**의 `{module}.api.event` 패키지. 구독하는 모듈은 이것을 import한다(그래서 구독자는 발행자의 `api`에 의존한다) |
 | 토픽 상수 | `public final class OrderTopics { public static final String ORDER_PAID = "order.order-paid.v1"; ... }` — 이름 규칙 `{module}.{event}.v{n}` |
-| 이벤트 record | 이름은 과거형 `XxxEvent`. 필드는 원시 타입·`UUID`·`String`·`long`·`Instant`·`List`만(엔티티·`Money` 금지, 금액은 `long`) |
-| 키 | 집계 ID(aggregateId). 같은 집계의 이벤트는 같은 파티션으로 가서 순서가 지켜진다 |
+| 이벤트 record | 이름은 과거형 `XxxEvent`. 필드는 원시 타입·`UUID`·`String`·`long`·`Instant`·`LocalDate`·`List`만(엔티티·`Money` 금지, 금액은 `long`). `LocalDate`는 정산 기간처럼 시각 없는 날짜에만 쓰고 JSON에서는 `2026-09-01` 문자열이 된다(3-4b 완료 확인 6번이 확인) |
+| 키 | 집계 ID(aggregateId). 같은 집계의 이벤트는 같은 파티션으로 가서 순서가 지켜진다. 같은 consumer 그룹에서 한 파티션은 consumer 하나가 맡으므로 같은 집계의 이벤트가 동시에 처리되지도 않는다. 집계 안의 하위 엔티티 이벤트(주문 품목의 `ORDER_LINE_CONFIRMED`)도 하위 엔티티 ID가 아니라 집계 ID(`orderId`)를 키로 쓴다. 품목 ID를 키로 쓰면 한 주문의 이벤트가 여러 파티션으로 흩어져 순서와 동시 처리 방지가 사라진다. 순서가 필요 없는 consumer(정산 적재: 품목마다 독립이고 중복은 `InboxGuard`와 유니크 제약이 막는다)도 발행하는 쪽이 정한 키를 그대로 받는다 |
 | 발행 | **상태 변경과 같은 트랜잭션** 안에서 `OutboxPublisher.publish(...)`. `KafkaTemplate`을 비즈니스 코드에서 직접 부르지 않는다 |
 | 소비 | 모든 consumer는 `InboxGuard.runOnce(...)` 안에서 처리한다(3-2부터). 같은 이벤트를 두 번 받아도 결과가 한 번 |
 | 직렬화 | Kafka 메시지 값은 **JSON 문자열**(`StringSerializer`). 봉투 → JSON 변환은 주입받은 `ObjectMapper`(`tools.jackson.databind.ObjectMapper`)로 직접 한다(Kafka용 Jackson 직렬화 설정을 따로 다루지 않기 위해) |
@@ -1010,19 +1011,19 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
 
 | # | 클래스 | 규격 |
 |---|---|---|
-| 1 | `common.config.BusinessProperties` | 업무 시간대 설정을 처음 읽는 곳이라 여기서 만든다: `@ConfigurationProperties("myroutine") record (@NotNull ZoneId businessZone)`. `application.yaml`의 `myroutine.business-zone: Asia/Seoul`은 이미 있고 읽는 클래스만 없다. `ClockConfig`에 `@EnableConfigurationProperties(BusinessProperties.class)`. "정산 월의 경계"처럼 날짜가 필요한 곳에서 `businessProperties.businessZone()`을 쓴다 |
-| 2 | `SettlementProperties`, `SettlementConfig` | `@ConfigurationProperties("myroutine.settlement") record (@Min(0) @Max(10000) int feeRateBp)` — `application.yaml`에 `myroutine.settlement.fee-rate-bp: 500`(500 = 5%)을 추가한다. `SettlementConfig`(`@Configuration`)에 `@EnableConfigurationProperties(SettlementProperties.class)`(`OrderConfig`와 같은 방식) |
+| 1 | `common.config.BusinessProperties` | 업무 시간대 설정을 처음 읽는 곳이라 여기서 만든다: `@ConfigurationProperties("myroutine") @Validated record (@NotNull ZoneId businessZone)`. `application.yaml`의 `myroutine.business-zone: Asia/Seoul`은 이미 있고 읽는 클래스만 없다. `ClockConfig`에 `@EnableConfigurationProperties(BusinessProperties.class)`. "정산 월의 경계"처럼 날짜가 필요한 곳에서 `businessProperties.businessZone()`을 쓴다 |
+| 2 | `SettlementProperties`, `SettlementConfig` (settlement.application, `OrderProperties`·`OrderConfig`와 같은 위치) | `@ConfigurationProperties("myroutine.settlement") @Validated record (@Min(0) @Max(10000) int feeRateBp)`(`@Validated`가 없으면 제약이 시작 시점에 검증되지 않는다. `OrderProperties`와 같다) — `application.yaml`에 `myroutine.settlement.fee-rate-bp: 500`(500 = 5%)을 추가한다. `SettlementConfig`(`@Configuration`)에 `@EnableConfigurationProperties(SettlementProperties.class)`(`OrderConfig`와 같은 방식) |
 | 3 | `settlement/package-info.java` | `@ApplicationModule(allowedDependencies = {"common", "order::api"})`. 현재 settlement 모듈에는 코드가 없어 파일이 없다. `shop::api`는 3-4b 조회 API(`verifyOwner`)가, `member::api`는 3-6(`WithdrawalPrecondition`)이 쓸 때 더한다(공통 규칙 S는 Part 3 끝 기준 값이다) |
-| 4 | `SettlementStatus` | 상태 enum. 허용 전이: `CALCULATED → {PAID, PAYOUT_FAILED}`, `PAYOUT_FAILED → {PAID, PAYOUT_FAILED}`(실패한 정산을 다시 시도). `ShopStatus.transitTo`처럼 `transitTo(to)`가 허용 밖이면 `INVALID_STATE_TRANSITION`을 던진다 |
-| 5 | `Settlement` (`@Entity`) | 정산 한 건. 필드는 컬럼과 1:1. 메서드는 아래 `Settlement` 메서드 표 |
-| 6 | `SettlementPeriod` | 정산 기간 값 객체 `record (LocalDate start, LocalDate end)`. 메서드는 아래 `SettlementPeriod` 절 |
-| 7 | `SettlementSum` | `record SettlementSum(long grossAmount, int itemCount)` — `SettlementItemRepository.sumBySettlementId`의 반환 |
-| 8 | `SettlementItemRepository` | 정산 대상 품목 저장소(domain 인터페이스 + infrastructure의 native `@Query`, Part 2와 같은 방식). 메서드는 아래 표. 이 단계에서 쓰는 4개만 만든다 |
-| 9 | `SettlementRepository` | 정산 저장소. 메서드는 아래 표. `findIdsToPay`는 3-4b의 `payoutAll`이 쓴다 |
+| 4 | `SettlementStatus` (settlement.domain) | 상태 enum. 허용 전이: `CALCULATED → {PAID, PAYOUT_FAILED}`, `PAYOUT_FAILED → {PAID, PAYOUT_FAILED}`(실패한 정산을 다시 시도). `ShopStatus.transitTo`처럼 `transitTo(to)`가 허용 밖이면 `INVALID_STATE_TRANSITION`을 던진다 |
+| 5 | `Settlement` (settlement.domain, `@Entity`) | 정산 한 건. 필드는 컬럼과 1:1. 메서드는 아래 `Settlement` 메서드 표 |
+| 6 | `SettlementPeriod` (settlement.domain) | 정산 기간 값 객체 `record (LocalDate start, LocalDate end)`. 메서드는 아래 `SettlementPeriod` 절 |
+| 7 | `SettlementSum` (settlement.domain) | `interface SettlementSum { long getGrossAmount(); int getItemCount(); }` — `SettlementItemRepository.sumBySettlementId`의 반환. native 쿼리 결과는 인터페이스 프로젝션으로 받는다(아래 `sumBySettlementId`) |
+| 8 | `SettlementItemRepository` (settlement.domain 인터페이스) | 정산 대상 품목 저장소. 구현은 settlement.infrastructure의 `JpaSettlementItemRepository`(Spring Data 인터페이스가 domain 인터페이스를 상속, native `@Query`, Part 2와 같은 방식). `settlement_item`에는 엔티티가 없어 `JpaRepository<엔티티, UUID>`를 상속할 수 없으므로 `@RepositoryDefinition(domainClass = Settlement.class, idClass = UUID.class)`를 붙여 저장소로 등록한다(`Repository`를 상속하거나 이 어노테이션이 없으면 Spring Data가 스캔하지 않아 빈이 없다. 메서드가 모두 `@Query`라서 `domainClass`는 형식상 값이다). 메서드는 아래 표. 이 단계에서 쓰는 4개만 만든다 |
+| 9 | `SettlementRepository` (settlement.domain 인터페이스) | 정산 저장소. 구현은 settlement.infrastructure의 `JpaSettlementRepository`. 메서드는 아래 표. `findIdsToPay`는 3-4b의 `payoutAll`이 쓴다 |
 | 10 | `SettlementItemService` (settlement.application, `@Service`) | `@Transactional void register(OrderLineConfirmedEvent event)` — 품목 한 건을 적재한다. consumer(11)가 부른다 |
 | 11 | `OrderEventConsumer` (settlement.infrastructure) | `order-line-confirmed`를 받아 `InboxGuard` 안에서 `register`를 부르는 `@KafkaListener` 어댑터. 의존성 `EventEnvelopes`, `InboxGuard`, `SettlementItemService` |
-| 12 | `SettlementRunResult` | `record SettlementRunResult(int settledShops, int paid, int payoutFailed)` — `SettlementService.run`의 반환이고 `POST /admin/api/settlements/run`(3-4b)의 응답이다 |
-| 13 | `SettlementService` (settlement.application, `@Service`) | `public SettlementRunResult run(YearMonth month)`와 가게 한 곳을 정산하는 `settleShop`. 가게 단위 트랜잭션과 지급의 외부 호출을 직접 나누려고 `@Transactional` 없이 `TransactionTemplate`을 쓴다(공통 규칙 K). 의존성 `SettlementRepository`, `SettlementItemRepository`, `SettlementProperties`, `BusinessProperties`, `Clock`, `TransactionTemplate tx`, `PayoutGateway`·`OutboxPublisher`(3-4b). 순서는 아래 4) |
+| 12 | `SettlementRunResult` (settlement.application) | `record SettlementRunResult(int settledShops, int paid, int payoutFailed)` — `SettlementService.run`의 반환이고 `POST /admin/api/settlements/run`(3-4b)의 응답이다 |
+| 13 | `SettlementService` (settlement.application, `@Service`) | `public SettlementRunResult run(YearMonth month)`와 가게 한 곳을 정산하는 `settleShop`. 가게 단위 트랜잭션과 지급의 외부 호출을 직접 나누려고 `@Transactional` 없이 `TransactionTemplate`을 쓴다(공통 규칙 K). 의존성 `SettlementRepository`, `SettlementItemRepository`, `SettlementProperties`, `BusinessProperties`, `Clock`, `TransactionTemplate tx`. 순서는 아래 4). `run`은 정산만 하고 `new SettlementRunResult(settledShops, 0, 0)`을 돌려준다(지급이 없어 `paid`·`payoutFailed`는 0) |
 | 14 | `SettlementJob` (settlement.infrastructure) | `@Scheduled(cron = "0 0 3 5 * *", zone = "Asia/Seoul")` → `jobRunner.run("settlement", () -> service.run(전월).settledShops())`. `전월`은 `YearMonth.now(clock.withZone(businessZone)).minusMonths(1)`처럼 업무 시간대 기준 현재 월에서 한 달을 뺀 값이다(`JobRunner.run`은 `Supplier<Integer>`를 받아 `settledShops()`를 처리 건수로 로그에 남긴다) |
 
 **`Settlement` 메서드** (`Money`는 `common.model.Money`, `Money.of(long)`·`.amount()`)
@@ -1032,7 +1033,7 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
 | (생성) | 엔티티를 `save`하지 않고 `SettlementRepository.insertIfAbsent`(native INSERT)로 만든다 — 같은 가게·기간이 이미 있으면 예외가 아니라 0행으로 알려 주기 위해서다. 그 뒤 `findById`로 읽어 아래 메서드를 쓴다 |
 | `calculate(Money gross, int bp, int itemCount)` | `grossAmount = gross`, `feeRateBp = bp`, `itemCount`를 기록하고 `feeAmount = gross * bp / 10000`(`long` 정수 나눗셈 = 원 미만 내림. 12,345원·500bp면 617), `netAmount = gross - feeAmount` |
 | `markPaid(String payoutReference, Instant now)` | `status.transitTo(PAID)`, `payoutReference`, `paidAt = now`. 0원 정산은 `payoutReference`에 `null` |
-| `markPayoutFailed(String error)` | `status.transitTo(PAYOUT_FAILED)`, `lastError = error`. `payoutAttempts`를 1 올리는 곳도 여기로 읽힌다(확인 필요: 문서가 "`payout_attempts + 1`"을 따로 적었다) |
+| `markPayoutFailed(String error)` | `status.transitTo(PAYOUT_FAILED)`, `lastError = error`. `payoutAttempts`를 1 올린다(실패 전이와 시도 횟수가 한 메서드에서 같이 바뀐다. `markPaid`는 올리지 않는다) |
 
 **`SettlementPeriod`** — "2026년 9월 정산"이 어느 날짜·시각 구간인지를 한곳에서 계산한다. 시간대를 잘못 쓰면 경계(8/31 23:59 대 9/1 00:00)의 품목이 다른 달로 간다.
 - `static SettlementPeriod of(YearMonth month)`: `start = month.atDay(1)`, `end = month.atEndOfMonth()`(말일, **포함**. `period_end` 컬럼도 포함이다)
@@ -1047,9 +1048,9 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
 | native `void insertIgnoringConflict(...)` | 구매확정 품목 한 건을 적재한다. `order_line_id` unique(`uk_settlement_item_order_line`, INV-07)와 충돌하면 `ON CONFLICT ON CONSTRAINT ... DO NOTHING`으로 조용히 건너뛴다 | `id`(`Ids.newId()`), `orderLineId`, `shopId`, `orderId`, `productId`, `amount`, `confirmedAt`, 시각 → 없음 |
 | `List<UUID> findShopIdsToSettle(Instant from, Instant to, UUID afterShopId, int limit)` | 기간 내 **미정산** 품목이 있는 가게 ID를 `afterShopId` 다음부터 오름차순으로 `limit`개 | → 가게 ID 목록(비면 끝) |
 | `void assign(UUID settlementId, UUID shopId, Instant from, Instant to, Instant now)` | 그 가게의 기간 내 미정산 품목에 이번 정산 ID를 붙인다. 품목 수는 `sumBySettlementId`가 센다 | → 없음 |
-| `SettlementSum sumBySettlementId(UUID settlementId)` | 이 정산 ID가 붙은 품목의 합계와 건수 | → `record SettlementSum(long grossAmount, int itemCount)` |
+| `SettlementSum sumBySettlementId(UUID settlementId)` | 이 정산 ID가 붙은 품목의 합계와 건수 | → `SettlementSum`(`getGrossAmount()`, `getItemCount()`) |
 
-- `sumBySettlementId`의 SQL은 `SELECT COALESCE(SUM(amount), 0), COUNT(*)`다. PostgreSQL에서 `SUM(bigint)`은 `numeric`, `COUNT(*)`는 `bigint`이므로 record(`long`, `int`)에 바로 매핑되지 않는다. SQL에서 `::bigint`·`::int`로 캐스팅하거나 읽을 때 `longValue()`·`intValue()`로 바꾼다. native 쿼리를 record로 받는 방법(인터페이스 프로젝션 등)은 문서에 정해져 있지 않다(확인 필요).
+- `sumBySettlementId`는 인터페이스 프로젝션으로 받는다(`SettlementSum`이 인터페이스인 이유다. native 쿼리는 `select new`를 쓸 수 없고, record 매핑은 확인되지 않아 별칭으로 매핑되는 인터페이스 프로젝션을 쓴다). SQL은 `SELECT COALESCE(SUM(amount), 0)::bigint AS "grossAmount", COUNT(*)::int AS "itemCount" FROM settlement.settlement_item WHERE settlement_id = :settlementId`다. PostgreSQL에서 `SUM(bigint)`은 `numeric`, `COUNT(*)`는 `bigint`라서 `::bigint`·`::int`로 캐스팅하고, 별칭은 따옴표로 감싸야 대소문자가 유지돼 getter 이름(`getGrossAmount` ↔ `grossAmount`)과 맞는다. 매핑이 틀리면 `SettlementServiceTest` 1번(합계 15000·건수 2)이 실패한다.
 
 **`SettlementRepository`**
 
@@ -1059,7 +1060,7 @@ RETURNING id, aggregate_id, event_type, topic, payload, trace_id, attempts, crea
 | `Optional<Settlement> findById(UUID id)` | 정산 읽기 | |
 | `List<UUID> findIdsToPay(Collection<SettlementStatus> statuses, UUID afterId, Limit limit)` | 지급할 정산 ID를 `afterId` 다음부터 `limit`개 (`org.springframework.data.domain.Limit`) | → ID 목록 |
 
-- native INSERT는 JPA를 거치지 않아 `@Version`·`@CreatedDate`가 동작하지 않는다. `NOT NULL`인 `version`(0)·`created_at`·`updated_at`·`status`를 INSERT에서 직접 채운다(`insertIfAbsent`의 `status`와 금액 초깃값은 문서에 정해져 있지 않다. 금액은 DEFAULT 0, `status`는 `CALCULATED`로 읽힌다 — 확인 필요).
+- native INSERT는 JPA를 거치지 않아 `@Version`·`@CreatedDate`가 동작하지 않는다. `NOT NULL`인 `version`(0)·`created_at`·`updated_at`·`status`를 INSERT에서 직접 채운다. `status`는 `'CALCULATED'`이고, 금액·`item_count`·`payout_attempts`는 컬럼 DEFAULT 0에 맡긴다(`calculate`가 곧바로 채운다).
 
 ```sql
 -- findShopIdsToSettle: 미정산 품목이 있는 가게 ID를 keyset으로
@@ -1078,61 +1079,17 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 
 **4) 정산 실행** — 표 13번 `SettlementService`의 동작.
 
-`public SettlementRunResult run(YearMonth month)` — `month`는 **정산 대상 월**이다(9월 구매확정분이면 `2026-09`). `SettlementJob`과 관리자 API가 부른다. `settledShops`는 이번 실행에서 정산을 새로 만든 가게 수이고, `paid`·`payoutFailed`는 `payoutAll`이 센 건수로 읽힌다(확인 필요: `payoutAll()`의 반환 타입은 문서에 없다)
+`public SettlementRunResult run(YearMonth month)` — `month`는 **정산 대상 월**이다(9월 구매확정분이면 `2026-09`). `SettlementJob`과 관리자 API가 부른다. `settledShops`는 이번 실행에서 정산을 새로 만든 가게 수이고, `paid`·`payoutFailed`는 지급이 없어 0이다
 1. `period = SettlementPeriod.of(month)`, `from = period.fromInclusive(zone)`, `to = period.toExclusive(zone)` (`zone = businessProperties.businessZone()`)
-2. keyset 루프: `after`는 `00000000-0000-0000-0000-000000000000`에서 시작 → `shopIds = findShopIdsToSettle(from, to, after, 500)` → 비면 종료 → 각 가게 `try { tx.execute(s -> settleShop(shopId, period)) } catch (Exception e) { log }` → `after = 마지막 shopId`. 한 가게가 실패해도 `after`는 계속 전진시켜야 한다(안 그러면 같은 가게를 영원히 반복한다). 실패한 가게는 커밋된 것이 없어서 다음 실행(수동 실행 포함)이 다시 처리한다.
-3. `payoutAll()` (3-4b)
+2. keyset 루프: `after`는 `00000000-0000-0000-0000-000000000000`에서 시작 → `shopIds = findShopIdsToSettle(from, to, after, 500)` → 비면 종료 → 각 가게 `try { created = tx.execute(s -> settleShop(shopId, period)) } catch (Exception e) { log }` → `created`가 `true`일 때만 `settledShops`를 올린다 → `after = 마지막 shopId`. 한 가게가 실패해도 `after`는 계속 전진시켜야 한다(안 그러면 같은 가게를 영원히 반복한다). 실패한 가게는 커밋된 것이 없어서 다음 실행(수동 실행 포함)이 다시 처리한다.
+3. `new SettlementRunResult(settledShops, 0, 0)`을 돌려준다
 
-`settleShop(shopId, period)` — 가게 하나의 정산을 만든다. **한 트랜잭션**(`tx.execute` 안에서 호출. 같은 클래스 안에서 부르므로 `@Transactional`이 아니라 `TransactionTemplate`이 경계다)
-1. `id = Ids.newId()`, `insertIfAbsent(id, shopId, period.start(), period.end(), properties.feeRateBp(), now)` → 0이면 return(이미 이 기간 정산이 있음. 그 경우 `assign`을 하지 않으므로 이미 끝난 정산에 품목이 더 붙지 않는다)
+`boolean settleShop(shopId, period)` — 가게 하나의 정산을 만들고, 새로 만들었으면 `true`, 이미 있어 건너뛰었으면 `false`를 돌려준다. **한 트랜잭션**(`tx.execute` 안에서 호출. 같은 클래스 안에서 부르므로 `@Transactional`이 아니라 `TransactionTemplate`이 경계다)
+1. `id = Ids.newId()`, `insertIfAbsent(id, shopId, period.start(), period.end(), properties.feeRateBp(), now)` → 0이면 `return false`(이미 이 기간 정산이 있음. 그 경우 `assign`을 하지 않으므로 이미 끝난 정산에 품목이 더 붙지 않는다)
 2. `assign(id, shopId, from, to, now)` — 기간 내 미정산 품목에 `id`를 붙인다. 이 UPDATE가 끝나면 이 품목들은 다른 정산에 못 들어간다.
 3. `sum = sumBySettlementId(id)` — 이번 정산 ID가 **붙은** 품목으로 합계를 낸다(조건으로 다시 찾지 않으므로 2와 3 사이에 새 품목이 들어와도 숫자가 어긋나지 않는다)
-4. `settlement = findById(id)` → `settlement.calculate(Money.of(sum.grossAmount()), properties.feeRateBp(), sum.itemCount())` → fee·net 계산, CALCULATED. 저장은 커밋 때 더티 체킹이다. `calculate`의 첫 인자가 `Money`이고 `grossAmount`는 `long`이라 `Money.of(...)`로 감싼다(확인 필요: 규격이 `long`이었다면 감쌀 필요가 없다)
-
-**테스트 헬퍼**: `SettlementServiceTest`는 정산 대상을 이벤트가 아니라 JDBC로 직접 적재한다(가게 1,200개 × 품목 2개). `settlement.settlement_item`에 `settlement_id = NULL`인 행을 넣는 헬퍼(`TestFixtures.insertSettlementItem(s)`)는 완료 확인 (3-4a)의 "테스트 준비"에 있다.
-
-### 할 일 (3-4b)
-
-**구현 순서**: ① `PayoutGateway` → `MockPayoutGateway` → ② `settlement.api` 이벤트·`SettlementTopicConfig` → ③ `SettlementService.payoutAll` → ④ `SettlementErrorCode` → 목록 조회 메서드 → `SettlementController` → `SecurityConfig` → ⑤ `FakePayoutGateway` → 테스트.
-
-**5) 지급**
-
-| # | 클래스 | 규격 |
-|---|---|---|
-| 1 | `PayoutGateway` (settlement.application 인터페이스) | **판매자에게 정산금을 송금하는 외부 시스템(은행)의 자리**. 실제 은행 대신 Mock을 꽂을 수 있게 인터페이스로 둔다. `String payout(UUID settlementId, UUID shopId, long amount)` → 이체 참조 ID. 실패 시 예외. **같은 settlementId로 다시 부르면 같은 참조 ID를 돌려준다**(멱등. 두 번 호출돼도 돈이 한 번만 나가게). `SettlementService.payoutAll`이 부른다 |
-| 2 | `MockPayoutGateway` (settlement.infrastructure) | `@Component @Profile("!prod")`. 은행 대신 메모리에서 흉내 낸다: `ConcurrentHashMap<UUID, String>`에 `computeIfAbsent(settlementId, id -> "PAYOUT-" + Ids.newId())`로 참조 ID를 만들고(같은 키면 기존 값을 돌려줘 멱등) 로그를 남긴다. 실제 은행 연동은 범위 밖(POL-12) |
-| 3 | `settlement/package-info.java` 수정 | `allowedDependencies`에 `shop::api` 추가 — 아래 6)의 `shopApi.verifyOwner`가 쓴다 |
-| 4 | `settlement/api/package-info.java` + `settlement.api.event` | `@NamedInterface("api")`(다른 모듈의 `api/package-info.java`와 같다. `settlement/api/event/package-info.java`에도 붙인다(3-1). notification이 `settlement::api`로 import한다). `SettlementTopics.SETTLEMENT_PAID = "settlement.settlement-paid.v1"`, `SettlementPaidEvent(UUID settlementId, UUID shopId, long netAmount, LocalDate periodStart, LocalDate periodEnd)`(3-5 알림용) |
-| 5 | `SettlementTopicConfig` (settlement.infrastructure) | `NewTopic` `SETTLEMENT_PAID`와 `.dlt`(파티션 3·복제 1. `ShopTopicConfig`와 같은 방식) |
-
-`SettlementService.payoutAll()` — **지급 대기 정산을 모두 송금**한다. `run`의 3번에서 불린다. 정산을 `PAID`로 바꾸는 같은 트랜잭션에서 `outboxPublisher.publish(SETTLEMENT_PAID, aggregateType, settlementId, event)`로 발행한다(`aggregateType`은 문서에 없다. 다른 이벤트 관례대로 `"SETTLEMENT"`이면 된다 — 확인 필요). `findIdsToPay({CALCULATED, PAYOUT_FAILED}, after, Limit.of(500))` keyset 루프(`after`는 첫 페이지에 영(0) UUID, 이후 마지막 ID), 정산마다 try/catch(한 건의 실패가 나머지를 막지 않는다. `after`는 실패해도 전진)
-1. 정산 조회(짧은 읽기): `settlementRepository.findById(id)`. `net == 0`이면 송금 없이 트랜잭션에서 `markPaid(null, now)` + `publish(SETTLEMENT_PAID)` 후 다음으로
-2. **트랜잭션 밖**: `reference = payoutGateway.payout(settlementId, shopId, net)` — `net`은 `long`(`netAmount`의 `amount()`). 외부 호출을 트랜잭션 안에서 하지 않는 이유는 공통 규칙 K와 같다(송금이 느리면 DB 커넥션을 붙잡는다).
-3. 성공 → 트랜잭션(`tx.executeWithoutResult`): **정산을 다시 `findById`로 읽어** `settlement.markPaid(reference, now)` + `publish(SETTLEMENT_PAID)`. 1번에서 읽은 엔티티는 트랜잭션 밖에서 읽은 것이라 여기서 수정해도 저장되지 않는다.
-4. 실패(`payout`이 던진 예외) → 트랜잭션: 다시 읽어 `markPayoutFailed(e.getMessage())`(메시지는 `last_error` `varchar(500)`에 맞게 자른다), `payout_attempts + 1`
-- 2와 3 사이에 죽으면 정산은 CALCULATED로 남는다 → 다음 실행에서 같은 settlementId로 다시 부르고, 게이트웨이가 같은 참조 ID를 돌려주므로 두 번 지급되지 않는다.
-- 설정 확인 필요: `MockPayoutGateway`·`LogMailSender`(3-5)가 `@Profile("!prod")`라서 `prod` 프로필에서는 `PayoutGateway`·`MailSender` 빈이 없다. 문서는 실제 구현을 범위 밖으로 두었으므로 `prod`로 앱을 띄우면 이 빈들 때문에 시작이 실패할 수 있다.
-
-**6) 조회 API**
-
-| # | 대상 | 규격 |
-|---|---|---|
-| 1 | `SettlementErrorCode` | `SETTLEMENT_NOT_FOUND`(404, 공통 규칙 R). 정산 모듈의 `ErrorCode` enum이며 `MemberErrorCode`와 같은 모양이다(`code()`, `status()`, `message()`) |
-| 2 | 목록 조회 메서드 | `SettlementRepository`: 가게의 정산 목록을 최신 기간 먼저 keyset 조회. `SettlementItemRepository`: 정산 ID가 붙은 품목 목록을 keyset 조회. `cursor`·`size`는 기존 커서 페이징을 따른다: 조회는 `Limit.of(size + 1)`로 한 건 더 읽고, 초과분이 있으면 `size`번째 행의 `new Cursor(createdAt, id).encode()`를 `nextCursor`로 하며(`Cursor`는 `common.web`의 `record Cursor(Instant createdAt, UUID id)`, 다음 쪽 요청은 `Cursor.decode(cursor)`로 푼다), 응답은 `common.web.CursorPage<T>(List<T> items, String nextCursor)`다(예: `SellerOrderQueryService.getShopOrders`). 시그니처와 품목 읽기 모델(`SettlementItem`)은 이 문서에 정의가 없다(확인 필요) |
-| 3 | `SettlementController` | 아래 API 표. 앞단은 조회 두 개 모두 `@CurrentMember UUID memberId`로 로그인 회원 ID를 받아 `shopApi.verifyOwner(shopId, memberId)` — 남의 가게면 403 `FORBIDDEN`. 상세는 이어서 `settlementRepository.findById(id)`(없으면 404 `SETTLEMENT_NOT_FOUND`)로 읽는다. 그 정산이 요청한 `shopId`의 것이 아닐 때의 응답은 문서에 없다(확인 필요: 남의 가게 정산이 id로 보이면 안 되므로 같은 404가 자연스럽다) |
-| 4 | `SecurityConfig` | `.requestMatchers("/admin/**").hasRole("ADMIN")`를 `anyRequest().authenticated()` 앞에 더한다. 토큰의 역할이 `ROLE_ADMIN` 권한으로 바뀌는 코드는 이미 있다(`JwtAuthenticationFilter`). DB에서 role을 바꾼 뒤에는 **다시 로그인**해야 토큰에 `ADMIN`이 담긴다 |
-
-| API | 권한 | 응답 |
-|---|---|---|
-| `GET /api/shops/{shopId}/settlements?cursor=&size=` | 가게 주인(`shopApi.verifyOwner`) | 200 `CursorPage<SettlementResponse(id, periodStart, periodEnd, grossAmount, feeAmount, netAmount, itemCount, status, paidAt)>` (최신 기간 먼저) |
-| `GET /api/shops/{shopId}/settlements/{id}?cursor=&size=` | 가게 주인 | 200 `SettlementDetailResponse(settlement, items: CursorPage<SettlementItemResponse(orderLineId, orderId, productId, amount, confirmedAt)>)` |
-| `POST /admin/api/settlements/run?period=yyyy-MM` | ADMIN | 200 `SettlementRunResult` |
-
-**7) 테스트 헬퍼** — `support/FakePayoutGateway` (`FakeMailSender`(3-5)와 같은 방식)
-
-| 대상 | 규격 |
-|---|---|
-| `FakePayoutGateway` | `@Component @Primary`(테스트에서 `MockPayoutGateway` 대신 주입되게). 호출 기록(`List`), `failNext(int times)`(다음 n번 호출이 예외), 멱등 동작은 Mock과 같게. `reset()`은 `IntegrationTestSupport`의 `@AfterEach`에서 부른다 |
+4. `settlement = findById(id)` → `settlement.calculate(Money.of(sum.getGrossAmount()), properties.feeRateBp(), sum.getItemCount())` → fee·net 계산, CALCULATED. 저장은 커밋 때 더티 체킹이다. `Settlement`의 금액 필드(`grossAmount`·`feeAmount`·`netAmount`)는 `Order.totalAmount`처럼 `Money`(컬럼은 bigint, `MoneyConverter`)이고 프로젝션의 합계는 `long`이라 `Money.of(...)`로 감싼다
+5. `return true`
 
 ### 완료 확인 (3-4a)
 
@@ -1166,7 +1123,7 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 - `period.fromInclusive(zone)` = `Instant.parse("2026-08-31T15:00:00Z")`.
 - `period.toExclusive(zone)` = `Instant.parse("2026-09-30T15:00:00Z")`.
 
-**2. 수수료는 원 미만 내림** — 준비: `Settlement settlement = BeanUtils.instantiateClass(Settlement.class)`(`org.springframework.beans.BeanUtils`. 엔티티에 테스트용 생성 방법이 규격에 없어 기본 생성자를 리플렉션으로 부른다. 확인 필요). 동작: `settlement.calculate(Money.of(gross), bp, itemCount)`. 값은 필드 이름대로 `getGrossAmount()`·`getFeeAmount()`·`getNetAmount()`(`Money`면 `.amount()`), `getFeeRateBp()`, `getItemCount()`로 읽는다.
+**2. 수수료는 원 미만 내림** — 준비: `Settlement settlement = BeanUtils.instantiateClass(Settlement.class)`(`org.springframework.beans.BeanUtils`. 엔티티는 native INSERT로만 만들어 테스트용 생성 메서드가 없으므로 기본 생성자를 리플렉션으로 부른다). 동작: `settlement.calculate(Money.of(gross), bp, itemCount)`. 값은 `getGrossAmount().amount()`·`getFeeAmount().amount()`·`getNetAmount().amount()`(`Money`), `getFeeRateBp()`, `getItemCount()`로 읽는다.
 
 | gross | bp | itemCount | `feeAmount` | `netAmount` |
 |---|---|---|---|---|
@@ -1222,11 +1179,67 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 - `run(YearMonth.of(2026, 9))` → `settledShops` = 1. `settlementSnapshotOf(shopId, YearMonth.of(2026, 9))`: `grossAmount()` = 6000, `itemCount()` = 2. `settlementItemSnapshotOf(lineD).settlementId()`는 null(10월 몫).
 - `run(YearMonth.of(2026, 10))` → `settlementSnapshotOf(shopId, YearMonth.of(2026, 10))`: `grossAmount()` = 8000, `itemCount()` = 1.
 
-**5. 한 가게의 실패가 다른 가게를 막지 않는다** — 준비: `@MockitoSpyBean SettlementRepository`. 가게 3곳 × 품목 2개. DB 순서로 첫 가게를 `badShopId`로 한다(`SELECT shop_id FROM settlement.settlement_item ORDER BY shop_id LIMIT 1`). `doThrow(new RuntimeException("test")).when(settlementRepository).insertIfAbsent(any(), eq(badShopId), any(), any(), anyInt(), any())`. 확인 필요: Spring Data 저장소 프록시에 스파이가 붙는지는 구현 뒤 확인한다(안 붙으면 이 케이스는 다른 방법으로 한 가게만 실패시켜야 한다). 동작 1: `run(YearMonth.of(2026, 9))`.
+**5. 한 가게의 실패가 다른 가게를 막지 않는다** — 준비: `@MockitoSpyBean SettlementRepository`. 가게 3곳 × 품목 2개. DB 순서로 첫 가게를 `badShopId`로 한다(`SELECT shop_id FROM settlement.settlement_item ORDER BY shop_id LIMIT 1`). `doThrow(new RuntimeException("test")).when(settlementRepository).insertIfAbsent(any(), eq(badShopId), any(), any(), anyInt(), any())`. 저장소는 Spring Data가 만든 JDK 프록시인데, `@MockitoSpyBean`은 JDK 프록시를 인터페이스 mock에 원본 프록시로 위임(`delegatesTo`)하는 방식으로 감싸므로 스텁하지 않은 메서드는 그대로 실행된다(스파이가 붙지 않으면 이 케이스의 첫 단언이 먼저 실패한다). 동작 1: `run(YearMonth.of(2026, 9))`.
 - 예외가 밖으로 나오지 않는다.
 - `result.settledShops()` = 2, `countOf("settlement.settlement")` = 2, `settlementSnapshotOf(badShopId)`가 `null`(정산 0건).
 - `unsettledItemCount()` = 2(`badShopId`의 품목 2개만 미정산으로 남는다).
 - 동작 2: `Mockito.reset(settlementRepository)` → `run` 다시. `result.settledShops()` = 1, `countOf("settlement.settlement")` = 3, `settlementSnapshotOf(badShopId).grossAmount()` = 15000.
+
+### 할 일 (3-4b)
+
+**구현 순서**: ① `PayoutGateway` → `MockPayoutGateway` → ② `settlement.api` 이벤트·`SettlementTopicConfig` → ③ `SettlementService`(의존성 추가, `run` 3번)·`payoutAll` → ④ `SettlementErrorCode` → 목록 조회 저장소 메서드 → `SettlementQueryService`(Result 포함) → `SettlementController` → `SecurityConfig` → ⑤ `FakePayoutGateway` → 테스트.
+
+**5) 지급**
+
+| # | 클래스 | 규격 |
+|---|---|---|
+| 1 | `PayoutGateway` (settlement.application 인터페이스) | **판매자에게 정산금을 송금하는 외부 시스템(은행)의 자리**. 실제 은행 대신 Mock을 꽂을 수 있게 인터페이스로 둔다. `String payout(UUID settlementId, UUID shopId, long amount)` → 이체 참조 ID. 실패 시 예외. **같은 settlementId로 다시 부르면 같은 참조 ID를 돌려준다**(멱등. 두 번 호출돼도 돈이 한 번만 나가게). `SettlementService.payoutAll`이 부른다 |
+| 2 | `MockPayoutGateway` (settlement.infrastructure) | `@Component`(프로필 제한 없음: ops 실습 환경이 `prod` 프로필로 떠서 빈이 없으면 기동에 실패하고, 실제 은행은 범위 밖이라 돈이 나가지 않는다). 은행 대신 메모리에서 흉내 낸다: `ConcurrentHashMap<UUID, String>`에 `computeIfAbsent(settlementId, id -> "PAYOUT-" + Ids.newId())`로 참조 ID를 만들고(같은 키면 기존 값을 돌려줘 멱등) 로그를 남긴다. 실제 은행 연동은 범위 밖(POL-12) |
+| 3 | `settlement/package-info.java` 수정 | `allowedDependencies`에 `shop::api` 추가 — 아래 6)의 `SettlementQueryService`가 `ShopApi.verifyOwner`를 쓴다 |
+| 4 | `settlement/api/package-info.java` + `settlement.api.event` | `@NamedInterface("api")`(다른 모듈의 `api/package-info.java`와 같다. `settlement/api/event/package-info.java`에도 붙인다(3-1). notification이 `settlement::api`로 import한다). `SettlementTopics.SETTLEMENT_PAID = "settlement.settlement-paid.v1"`, `SettlementPaidEvent(UUID settlementId, UUID shopId, long netAmount, LocalDate periodStart, LocalDate periodEnd)`(3-5 알림용) |
+| 5 | `SettlementTopicConfig` (settlement.infrastructure) | `NewTopic` `SETTLEMENT_PAID`와 `.dlt`(파티션 3·복제 1. `ShopTopicConfig`와 같은 방식) |
+| 6 | `PayoutSummary` (settlement.application) | `record PayoutSummary(int paid, int payoutFailed)` — `payoutAll()`의 반환. `run`이 `SettlementRunResult`로 합친다 |
+| 7 | `SettlementService` 수정 | 의존성에 `PayoutGateway`와 `OutboxPublisher`를 더한다. `run`의 끝(3번)을 `PayoutSummary payout = payoutAll()` → `new SettlementRunResult(settledShops, payout.paid(), payout.payoutFailed())`로 바꾼다(3-4a는 `(settledShops, 0, 0)`). `payoutAll`은 아래 |
+
+`PayoutSummary payoutAll()` — **지급 대기 정산을 모두 송금**하고 `PAID`가 된 건수(0원 정산 포함)와 `PAYOUT_FAILED`가 된 건수를 돌려준다. `run`의 3번에서 불린다. 정산을 `PAID`로 바꾸는 같은 트랜잭션에서 `outboxPublisher.publish(SETTLEMENT_PAID, "SETTLEMENT", settlementId, event)`로 발행한다. `findIdsToPay({CALCULATED, PAYOUT_FAILED}, after, Limit.of(500))` keyset 루프(`after`는 첫 페이지에 영(0) UUID, 이후 마지막 ID), 정산마다 try/catch(한 건의 실패가 나머지를 막지 않는다. `after`는 실패해도 전진)
+1. 정산 조회(짧은 읽기): `settlementRepository.findById(id)`. `net == 0`이면 송금 없이 트랜잭션에서 `markPaid(null, now)` + `publish(SETTLEMENT_PAID)` 후 다음으로
+2. **트랜잭션 밖**: `reference = payoutGateway.payout(settlementId, shopId, net)` — `net`은 `long`(`netAmount`의 `amount()`). 외부 호출을 트랜잭션 안에서 하지 않는 이유는 공통 규칙 K와 같다(송금이 느리면 DB 커넥션을 붙잡는다).
+3. 성공 → 트랜잭션(`tx.executeWithoutResult`): **정산을 다시 `findById`로 읽어** `settlement.markPaid(reference, now)` + `publish(SETTLEMENT_PAID)`. 1번에서 읽은 엔티티는 트랜잭션 밖에서 읽은 것이라 여기서 수정해도 저장되지 않는다.
+4. 실패(`payout`이 던진 예외) → 트랜잭션: 다시 읽어 `markPayoutFailed(e.getMessage())`(메시지는 `last_error` `varchar(500)`에 맞게 자른다. `payoutAttempts` +1은 `markPayoutFailed` 안에서 한다)
+- 2와 3 사이에 죽으면 정산은 CALCULATED로 남는다 → 다음 실행에서 같은 settlementId로 다시 부르고, 게이트웨이가 같은 참조 ID를 돌려주므로 두 번 지급되지 않는다.
+- `MockPayoutGateway`와 `LogMailSender`(3-5)에는 `@Profile`을 붙이지 않는다. ops 실습 환경(`docker-compose.ops.yml`)이 `SPRING_PROFILES_ACTIVE: prod`로 앱을 띄우므로, 프로필을 제한하면 `PayoutGateway`·`MailSender` 빈이 없어 기동이 실패하고 develop 자동 배포가 깨진다. 실제 은행·메일 연동은 범위 밖이다.
+
+**6) 조회 API**
+
+| # | 대상 | 규격 |
+|---|---|---|
+| 1 | `SettlementErrorCode` (settlement.domain, `ShopErrorCode`와 같은 위치) | `SETTLEMENT_NOT_FOUND`(404, 공통 규칙 R). 정산 모듈의 `ErrorCode` enum이며 `MemberErrorCode`와 같은 모양이다(`code()`, `status()`, `message()`) |
+| 2 | 목록 조회 저장소 메서드 | `SettlementRepository`: 가게의 정산 목록을 최신 기간 먼저 keyset 조회. `SettlementItemRepository`: 정산 ID가 붙은 품목 목록을 keyset 조회. 페이징 규칙은 3번 `SettlementQueryService`가 적용한다. 시그니처: `SettlementRepository`(JPQL, `Settlement` 엔티티)는 `List<Settlement> findByShopIdFirstPage(UUID shopId, Limit limit)`와 `findByShopIdAfter(UUID shopId, Instant cursorAt, UUID cursorId, Limit limit)`. 정렬은 `createdAt desc, id desc`이고(월 단위로 만들어져 최신 기간 먼저와 같다. 지난 달을 뒤늦게 수동 실행하면 그 정산이 맨 앞에 온다) 다음 쪽 조건은 `createdAt < :cursorAt or (createdAt = :cursorAt and id < :cursorId)`. `SettlementItemRepository`(native)는 `List<SettlementItemRow> findBySettlementIdFirstPage(UUID settlementId, Limit limit)`와 `findBySettlementIdAfter(UUID settlementId, Instant cursorAt, UUID cursorId, Limit limit)`. 정렬은 `created_at, id` 오름차순이고 다음 쪽 조건은 `created_at > :cursorAt or (created_at = :cursorAt and id > :cursorId)`. 읽기 모델 `SettlementItemRow`(settlement.domain)는 `SettlementSum`처럼 인터페이스 프로젝션이다: `getId()`·`getOrderLineId()`·`getOrderId()`·`getProductId()`(UUID), `getAmount()`(long), `getConfirmedAt()`·`getCreatedAt()`(Instant). 별칭은 따옴표로 감싼다 |
+| 3 | `SettlementQueryService`, `SettlementResult`·`SettlementItemResult`·`SettlementDetailResult` (settlement.application) | 조회 두 개를 맡는 서비스(`SellerOrderQueryService`와 같은 방식). `@Service`, 의존성 `ShopApi`, `SettlementRepository`, `SettlementItemRepository`. 두 메서드 모두 `@Transactional(readOnly = true)`이고 첫 줄에서 `shopApi.verifyOwner(shopId, memberId)`를 부른다 — 남의 가게면 403 `FORBIDDEN`. 메서드는 아래 `SettlementQueryService` 절 |
+| 4 | `SettlementController`, `SettlementResponse`·`SettlementDetailResponse`·`SettlementItemResponse` (settlement.web) | 아래 API 표. 조회 두 개는 `@CurrentMember UUID memberId`를 받아 `SettlementQueryService`를 부르고 `Result`를 `Response`로 바꿔 돌려준다(`SellerOrderController`와 같은 방식이다. 컨트롤러가 저장소를 직접 부르지 않는다). 수동 실행은 `period`(`yyyy-MM`)를 `YearMonth`로 바꿔 `SettlementService.run`을 부른다. 응답 record의 필드는 API 표와 같다 |
+| 5 | `SecurityConfig` | `.requestMatchers("/admin/**").hasRole("ADMIN")`를 `anyRequest().authenticated()` 앞에 더한다. 토큰의 역할이 `ROLE_ADMIN` 권한으로 바뀌는 코드는 이미 있다(`JwtAuthenticationFilter`). DB에서 role을 바꾼 뒤에는 **다시 로그인**해야 토큰에 `ADMIN`이 담긴다 |
+
+**`SettlementQueryService`** (settlement.application)
+
+| 메서드 | 하는 일 |
+|---|---|
+| `CursorPage<SettlementResult> getSettlements(UUID memberId, UUID shopId, String cursor, int size)` | `verifyOwner` 뒤 커서가 없으면 `findByShopIdFirstPage`, 있으면 `Cursor.decode(cursor)`로 풀어 `findByShopIdAfter`로 읽는다. 각 `Settlement`을 `SettlementResult.from`으로 바꾼다 |
+| `SettlementDetailResult getSettlement(UUID memberId, UUID shopId, UUID settlementId, String cursor, int size)` | `verifyOwner` 뒤 `settlementRepository.findById(settlementId)`(없으면 404 `SETTLEMENT_NOT_FOUND`). 그 정산의 `shopId`가 인자 `shopId`와 다르면 같은 404다(남의 가게 정산이 id로 보이면 안 된다). 이어서 품목을 `findBySettlementIdFirstPage`·`findBySettlementIdAfter`로 같은 방식으로 읽는다 |
+
+- 페이징: `cursor`·`size`는 기존 커서 페이징을 따른다. 조회는 `Limit.of(size + 1)`로 한 건 더 읽고, 초과분이 있으면 `size`번째 행의 `new Cursor(createdAt, id).encode()`를 `nextCursor`로 하며(`Cursor`는 `common.web`의 `record Cursor(Instant createdAt, UUID id)`, 다음 쪽 요청은 `Cursor.decode(cursor)`로 푼다), 응답은 `common.web.CursorPage<T>(List<T> items, String nextCursor)`다(예: `SellerOrderQueryService.getShopOrders`).
+- `SettlementResult(UUID id, LocalDate periodStart, LocalDate periodEnd, long grossAmount, long feeAmount, long netAmount, int itemCount, SettlementStatus status, Instant paidAt)` — `static from(Settlement)`, 금액은 `Money.amount()`. `SettlementItemResult(UUID orderLineId, UUID orderId, UUID productId, long amount, Instant confirmedAt)` — `static from(SettlementItemRow)`. `SettlementDetailResult(SettlementResult settlement, CursorPage<SettlementItemResult> items)`
+
+| API | 권한 | 응답 |
+|---|---|---|
+| `GET /api/shops/{shopId}/settlements?cursor=&size=` | 가게 주인(`shopApi.verifyOwner`) | 200 `CursorPage<SettlementResponse(id, periodStart, periodEnd, grossAmount, feeAmount, netAmount, itemCount, status, paidAt)>` (최신 기간 먼저) |
+| `GET /api/shops/{shopId}/settlements/{id}?cursor=&size=` | 가게 주인 | 200 `SettlementDetailResponse(settlement, items: CursorPage<SettlementItemResponse(orderLineId, orderId, productId, amount, confirmedAt)>)` |
+| `POST /admin/api/settlements/run?period=yyyy-MM` | ADMIN | 200 `SettlementRunResult` |
+
+**7) 테스트 헬퍼** — `support/FakePayoutGateway` (`FakeMailSender`(3-5)와 같은 방식)
+
+| 대상 | 규격 |
+|---|---|
+| `FakePayoutGateway` | `@Component @Primary`(테스트에서 `MockPayoutGateway` 대신 주입되게). 호출 기록(`List`), `failNext(int times)`(다음 n번 호출이 예외), 멱등 동작은 Mock과 같게. `reset()`은 `IntegrationTestSupport`의 `@AfterEach`에서 부른다 |
 
 ### 완료 확인 (3-4b)
 
@@ -1253,7 +1266,7 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 **6. 지급 성공** — 동작: `run(YearMonth.of(2026, 9))`.
 - `s = settlementSnapshotOf(shopId)`: `status()` = `PAID`, `payoutReference()` not null, `paidAt()` not null.
 - `fakePayoutGateway.calls()` 정확히 1건: `settlementId` = `s.id()`, `shopId`, `amount` = 14250.
-- `rows("settlement.settlement-paid.v1")` 정확히 1건: `aggregateId()` = `s.id()`(`aggregateType()`은 `SETTLEMENT`. 규격에 없어 확인 필요), payload `settlementId`, `shopId`, `netAmount` = 14250, `periodStart` = `2026-09-01`, `periodEnd` = `2026-09-30`.
+- `rows("settlement.settlement-paid.v1")` 정확히 1건: `aggregateId()` = `s.id()`(`aggregateType()`은 `SETTLEMENT`), payload `settlementId`, `shopId`, `netAmount` = 14250, `periodStart` = `2026-09-01`, `periodEnd` = `2026-09-30`.
 - `run`을 한 번 더 → `calls()` 1건 그대로, `settlement-paid` 1건 그대로(PAID 정산은 다시 지급하지 않는다).
 
 **7. 0원 정산은 송금 없이 PAID** — 준비: 가게 1곳에 `insertSettlementItem(shopId, 0, 확정 시각)` 한 개. 동작: `run`.
@@ -1288,14 +1301,14 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 - 둘 다 응답 403, `$.code` = `FORBIDDEN`.
 
 **4. 내 가게 경로에 남의 정산 ID** — 동작: A의 토큰으로 `GET /api/shops/{shopA}/settlements/{settlementB}`.
-- 응답 404, `$.code` = `SETTLEMENT_NOT_FOUND`(규격에 없는 응답이라 확인 필요. 남의 정산이 ID로 보이면 안 된다).
+- 응답 404, `$.code` = `SETTLEMENT_NOT_FOUND`(남의 정산이 ID로 보이면 안 된다).
 
 **5. 일반 회원의 수동 실행 거부** — 준비: 이 케이스만 정산을 만들지 않고 가게 A에 미정산 품목 2개만 적재한다. 동작: A의 토큰(역할 `USER`/`SELLER`)으로 `POST /admin/api/settlements/run?period=2026-09`.
 - 응답 403, `$.code` = `FORBIDDEN`.
 - `unsettledItemCount()` = 2(실행되지 않았다).
 
 **6. 관리자의 수동 실행** — 준비: 5번과 같은 미정산 품목. 회원 `admin@test.com`을 `signup`으로 가입해 `adminId`를 받고 `login`으로 `oldToken`을 받고 → `changeRole(adminId, "ADMIN")` → `login`(다시 로그인해야 토큰에 `ADMIN`이 담긴다). 동작: 관리자 토큰으로 `POST /admin/api/settlements/run?period=2026-09`.
-- 응답 200, `$.settledShops` = 1. `$.paid` = 1(`payoutAll`이 센 건수로 읽힌다. 확인 필요).
+- 응답 200, `$.settledShops` = 1. `$.paid` = 1(`PayoutSummary.paid`).
 - `countOf("settlement.settlement")` = 1, `settlementSnapshotOf(shopA).status()` = `PAID`.
 - `oldToken`(역할을 바꾸기 전에 받은 토큰)으로 같은 요청을 하면 403, `$.code` = `FORBIDDEN`.
 
@@ -1366,7 +1379,7 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 | 2 | `NotificationType` | 알림 종류 enum(`type` 컬럼 값): `WELCOME, ORDER_PAID, SHOP_ORDER_RECEIVED, ORDER_CLOSED, SHIPPED, DELIVERED, REFUNDED, SETTLEMENT_PAID` (Part 5에서 구독 관련, 4-4에서 `BANNED` 추가) |
 | 3 | `NotificationDraft` | "보낼 알림 초안" `record (UUID memberId, NotificationType type, String title, String body)`. 수신 주소는 아직 없다(저장할 때 조회) |
 | 4 | `common.mail.MailSender` (인터페이스) | **메일을 보내는 자리**(포트). `void send(String to, String title, String body)` — 보내지 못하면 예외. 구현을 갈아 끼울 수 있다(로컬 로그, 테스트 가짜, 선택으로 SMTP). `NotificationDispatcher`(9)와 4-2의 인증 메일이 쓴다 |
-| 5 | `common.mail.LogMailSender` | `@Component @Profile("!prod")`, 실제 발송 대신 `log.info`로 출력(본문은 앞 100자만) |
+| 5 | `common.mail.LogMailSender` | `@Component`(프로필 제한 없음, 3-4b `MockPayoutGateway`와 같은 이유), 실제 발송 대신 `log.info`로 출력(본문은 앞 100자만) |
 | 6 | `Notification` 엔티티·저장소 | 문서에 정해져 있지 않다(확인 필요). 필요한 연산은 3개다: `enqueue`의 `INSERT ... ON CONFLICT ON CONSTRAINT uk_notification_dedup_key DO NOTHING`, `dispatchBatch`의 PENDING 조회, 결과 기록 `UPDATE ... WHERE id = ?`. 구현 방식(native 쿼리, 엔티티)은 3-4의 `SettlementRepository.insertIfAbsent`처럼 domain에 인터페이스, infrastructure의 Spring Data 인터페이스에 native `@Query`를 두는 모양으로 정하면 된다 |
 | 7 | `NotificationComposer` (`@Component`) | 이벤트 record → `List<NotificationDraft>`로 바꾸는 **순수 변환**(DB·다른 모듈 조회를 하지 않는다). 이벤트마다 오버로드 하나씩(예: `compose(MemberRegisteredEvent e)`, `compose(OrderPaidEvent e, Map<UUID, UUID> ownerByShopId)` — 인자는 권장안). 매핑은 아래 표. 단위 테스트 대상(`NotificationComposerTest`) |
 | 8 | `NotificationService` (`@Service`) | **초안을 `notification` 행으로 저장**한다. `@Transactional void enqueue(UUID eventId, List<NotificationDraft> drafts)`. 동작은 아래 |
