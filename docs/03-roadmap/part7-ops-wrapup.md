@@ -1,6 +1,7 @@
 # Part 7. 관측 · 운영 · 마무리
 
-> 버전 0.26 · 2026-10-23 · **7-3 구현물 2번 `reconcileOne`을 현재 코드에 맞췄다**: 이미 `private boolean reconcileOne`이 있으므로 "뽑아낸다" 대신 `public OrderStatus`로 열고 반환을 바꾼다고 적었다. 규격·동작 변경 없음
+> 버전 0.27 · 2026-10-26 · **남은 다른 단계 참조를 그 자리에서 읽히게 하고 같은 규격이 두 곳에 있던 것을 한 곳으로 모았다**: 7-2 `MetricsTest` 3번의 "2-8a 6번 방식", 7-3 목록 규칙의 "1-7과 같다"·`AdminDltTest` 준비의 "3-2 리스너와 같은 모양"·`paymentCancelOf`의 "(2-6)" 라벨, 7-4 장애 시나리오의 "3-1과 같은 방식" 참조를 뺐거나 바로잡았고, `StockCheckJob` 일정·로그 설명, `reconcileOne` 반환 설명과 모듈 위치, `pg_attempts` 칸, `notificationCounts` 설명이 두 곳에 있던 것을 한 곳만 남겼다. 규격·동작 변경 없음
+> 0.26 · 2026-10-23 · **7-3 구현물 2번 `reconcileOne`을 현재 코드에 맞췄다**: 이미 `private boolean reconcileOne`이 있으므로 "뽑아낸다" 대신 `public OrderStatus`로 열고 반환을 바꾼다고 적었다. 규격·동작 변경 없음
 > 0.25 · 2026-10-23 · **다른 단계를 열어야 이해되던 참조를 그 자리에서 읽히게 풀어 썼다**(사용자 지적): 7-2 `MetricsTest` 4번의 "2-5와 같은 방식"(`breakReservedStock`), 7-3 settlements run 행과 헬퍼 표(`RefundRow`·`paymentCancelOf`·`PaymentState`·`NotificationRow`), 7-4 보조 호출 표의 반환 타입과 `stockBalance`·`reservationStatuses`·가짜 지급 호출 기록 접근자, 공통 준비. 규격·동작 변경 없음
 > 0.24 · 2026-10-23 · **테스트 준비 헬퍼 표의 시그니처를 타입까지 적었다**(사용자 지적: 어떤 메서드를 만드는지 안 보인다): 7-3의 `paymentCancelOf`에 매개변수 타입(`String idempotencyKey`)을, 7-4의 `notificationCounts()`가 돌려주는 `NotificationCounts`의 메서드 시그니처(`int type(String type)`·`int status(String status)`)를 적었다. 규격·동작 변경 없음
 > 0.23 · 2026-10-23 · **완료 확인의 "테스트 준비"를 테스트 클래스 앞으로 옮겼다**(사용자 요청): 7-3의 "이 단계에서 추가하는 헬퍼" 표와 "이미 있는 헬퍼"를 `AdminOutboxTest` 앞으로, 7-4의 "이 단계에서 추가하는 헬퍼" 표와 "이미 있는 헬퍼"를 `InvariantCheckerTest` 앞으로 옮기고 7-4의 "이 단계 끝의 표" 참조를 고쳤다. 7-1·7-2·7-5는 헬퍼가 없어 그대로 뒀다. 규격·동작 변경 없음
@@ -219,14 +220,13 @@ Micrometer 종류 세 가지 — 모두 주입받은 `MeterRegistry registry`로
 - `pg_call_seconds{operation,result}`: `TossClient`의 `confirm`·`cancel`·`queryByOrderId`가 이미 `start`를 재고 마지막에 `logResult(pgMethod, paymentId, result, start)`를 부른다. 같은 자리에서 `registry.timer("pg_call_seconds", "operation", pgMethod, "result", ...).record(System.nanoTime() - start, TimeUnit.NANOSECONDS)`를 하면 된다. `TossClient`에 `MeterRegistry` 필드를 더한다. 라벨 값은 문서에 정해져 있지 않다(확인 필요). 로그와 대시보드가 같은 말을 쓰도록 `operation`은 `pgMethod`(`confirm`·`cancel`·`query`), `result`는 `PgResult` 종류(`Approved`·`Rejected`·`Unknown`)를 소문자로 쓰는 것을 권장한다 Part 5가 더한 `issueBillingKey`·`billingCharge`(로그의 작업 이름 `BILLING_ISSUE`·`BILLING`)에도 같은 Timer를 걸지, `operation` 값을 무엇으로 할지는 문서에 없다(확인 필요).
 - `mail_send_seconds{result}`·`openai_call_seconds{operation,result}`: "각 클라이언트"는 메일 발송기(3-5 `MailSender` 구현체. 호출하는 `NotificationDispatcher`에서 잴지는 확인 필요)와 OpenAI를 부르는 곳(Part 6의 `EmbeddingModel.embed`·`ChatClient` 호출부)이다. 방식은 `Timer.start` → 호출 → `stop`(예외가 나도 `finally`에서 `stop`)이며 `result` 값(`success`·`failure` 등)과 `operation` 값은 정해져 있지 않다(확인 필요)
 
-**3) 재고 정합성 점검 잡** — product `StockCheckJob`: 매일 05:00(Asia/Seoul), 잡 이름 `stock-check`. 재고 등식 자체는 CHECK가 막으므로, **재고 행과 기록(이력·예약)의 대조**를 본다
+**3) 재고 정합성 점검 잡** — product `StockCheckJob`. 재고 등식 자체는 CHECK가 막으므로, **재고 행과 기록(이력·예약)의 대조**를 본다
 ```sql
 SELECT s.product_id FROM product.stock s
 LEFT JOIN (SELECT product_id, SUM(quantity) q FROM product.stock_movement WHERE type IN ('RECEIVE','ADJUST') GROUP BY product_id) m ON m.product_id = s.product_id
 LEFT JOIN (SELECT product_id, SUM(quantity) q FROM product.stock_reservation WHERE status = 'HELD' GROUP BY product_id) r ON r.product_id = s.product_id
 WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 ```
-- 불일치 상품마다 `log.error`, 개수를 Gauge에. (INV-03·04)
 
 `StockCheckJob` (product.infrastructure, `@Component`) — **재고 행의 숫자가 기록(이력·예약)과 맞는지 하루에 한 번 대조하는 잡**. 다른 잡(`OrderExpirationJob` 등)과 같은 모양이다
 - **왜 필요한가**: `ck_stock_balance`(`available + reserved + sold = received`)는 한 행 안의 등식만 지킨다. 코드 버그로 `received`와 `available`을 같이 틀리게 바꾸면 CHECK는 통과하지만 이력과는 어긋난다. 이 잡이 그 어긋남을 잡는다(INV-03·04)
@@ -290,7 +290,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 **2. DLT Counter** — 동작: 3-2 `KafkaDltTest`의 항상 실패하는 테스트 리스너 토픽 `test.always-fail.v1`에 메시지 1건을 보낸다. 보내기 전 `registry.get("kafka_dlt_records_total").tag("topic", "test.always-fail.v1").counter().count()`를 `before`로 읽는다(Counter가 아직 없으면 `registry.find(...)`가 null이라 `before` = 0).
 - 확인: `Eventually.await(Duration.ofSeconds(20), ...)` 안에서 같은 Counter의 `count()` - `before` = 1.0(재시도 1·2·4초를 거쳐 DLT에 도착한다).
 
-**3. `saga_stuck_count` 기준 시간** (기준 시각은 `updated_at`) — 준비: `pg.on("/v1/payments/confirm", Behavior.delay(1000))` + `createPendingOrder` + `confirmPayment`로 `PAYMENT_IN_PROGRESS` 주문 1개, `createPaidOrder` 주문의 품목 1개를 2-8a 6번 방식(`pg.on("/v1/payments/" + paymentKey, Behavior.delay(1000))` 후 취소 요청, 응답 202)으로 `APPROVED`에 멈춘 환불 1건. 환불 ID는 응답의 `$.refundId`.
+**3. `saga_stuck_count` 기준 시간** (기준 시각은 `updated_at`) — 준비: `pg.on("/v1/payments/confirm", Behavior.delay(1000))` + `createPendingOrder` + `confirmPayment`로 `PAYMENT_IN_PROGRESS` 주문 1개, `createPaidOrder` 주문의 품목 1개를 `pg.on("/v1/payments/" + paymentKey, Behavior.delay(1000))` 후 취소 요청(응답 202)으로 `APPROVED`에 멈춘 환불 1건. 환불 ID는 응답의 `$.refundId`.
 - 주문: `setOrderUpdatedAt(orderId, 지금 - 4분)` → `orderMetrics.refresh()` → `saga_stuck_count{type="order_payment"}` = 0.0 / `setOrderUpdatedAt(orderId, 지금 - 6분)` → `refresh()` → 1.0.
 - 환불: `setRefundUpdatedAt(refundId, 지금 - 9분)` → `refresh()` → `saga_stuck_count{type="refund"}` = 0.0 / `setRefundUpdatedAt(refundId, 지금 - 11분)` → `refresh()` → 1.0.
 
@@ -381,7 +381,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 **모든 API에 공통**
 - **인가**: 컨트롤러에서 따로 검사하지 않는다. 3-4가 `SecurityConfig`에 넣은 `.requestMatchers("/admin/**").hasRole("ADMIN")` 한 줄이 맡는다. 일반 회원은 403(`FORBIDDEN`)
 - **실행 로그**: 쓰기 API(retry·replay·reconcile·run)는 메서드 첫 부분에서 `log.info("admin action={} target={} by={}", action, target, memberId)`를 남긴다. `memberId`는 컨트롤러 파라미터 `@CurrentMember UUID memberId`, `target`은 대상 식별자(outbox id, `topic/partition/offset`, paymentId 등)다. `action`에 쓸 문자열은 정해져 있지 않다(확인 필요, 권장: API별 `outbox-retry`·`dlt-replay` 같은 고정 문자열)
-- **목록 API**(outbox·payments·refunds·notifications): `cursor`가 없으면(`null`·빈 값은 `decode`에 넘기지 않는다) 첫 페이지, 있으면 `Cursor.decode(cursor)`로 `Cursor(Instant createdAt, UUID id)`를 얻어 그 뒤부터 읽는다. `size + 1`건을 읽어 `size`건만 `CursorPage<T>(items, nextCursor)`로 돌려주고, 다음 커서는 `size`번째 항목의 `new Cursor(createdAt, id).encode()`다(마지막 페이지면 `nextCursor = null`. 규칙은 1-7 상품 목록과 같다). `size`의 기본값·최대값은 이 표에 없다(확인 필요)
+- **목록 API**(outbox·payments·refunds·notifications): `cursor`가 없으면(`null`·빈 값은 `decode`에 넘기지 않는다) 첫 페이지, 있으면 `Cursor.decode(cursor)`로 `Cursor(Instant createdAt, UUID id)`를 얻어 그 뒤부터 읽는다. `size + 1`건을 읽어 `size`건만 `CursorPage<T>(items, nextCursor)`로 돌려주고, 다음 커서는 `size`번째 항목의 `new Cursor(createdAt, id).encode()`다(마지막 페이지면 `nextCursor = null`). `size`의 기본값·최대값은 이 표에 없다(확인 필요)
 - **없는 대상**이거나 **상태가 맞지 않을 때**의 응답은 아래 각 API에서 확인 필요로 모았다. 존재하는 코드는 `NOT_FOUND`(404), `INVALID_STATE_TRANSITION`(409)이다
 
 **outbox** (common)
@@ -402,16 +402,16 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 **payments 목록** (payment 모듈 컨트롤러) — `PaymentRepository`(domain 순수 인터페이스)에 상태별 커서 조회를 더하고 `JpaPaymentRepository`에 구현한다. 응답 항목은 `(UUID id, UUID orderId, long amount, int reconcileAttempts, Instant updatedAt)`. 같은 경로 `/admin/api/payments`의 `reconcile`은 order 모듈에 있으므로 두 컨트롤러가 서로 다른 모듈에 있다
 
-**payments reconcile** (order 모듈 관리자 컨트롤러) — `payment` → `order` 호출은 허용 방향이 아니므로 order 모듈에 둔다. 대사 잡이 30초 이상 멈춘 주문을 1분마다 처리하는 일을, 운영자가 **주문 하나에 대해 바로** 하는 API다
+**payments reconcile** (order 모듈 관리자 컨트롤러) — 대사 잡이 30초 이상 멈춘 주문을 1분마다 처리하는 일을, 운영자가 **주문 하나에 대해 바로** 하는 API다
 1. `reconcileOne(UUID orderId)`(구현물 2): `OrderReconcileService`는 클래스에 `@Transactional`이 없고 `TransactionTemplate`을 쓴다. `queryPgOutcome`·`cancel`이 트랜잭션 밖 전용이므로 컨트롤러나 `reconcileOne` 자체에 `@Transactional`을 붙이면 안 된다
 2. 두 번 눌러도 안전한 이유: 이미 PAID가 된 주문은 2-4 `applyPaymentState`의 가드(`PAYMENT_IN_PROGRESS`가 아니면 현재 상태를 그대로 반환)가 막는다
 3. **경로의 값은 `orderId`다.** `PaymentApi.find(UUID orderId)`와 `reconcileOne(UUID orderId)`가 모두 `orderId`를 받으므로 payment ID로 찾는 메서드를 새로 만들지 않는다. 목록 응답 항목에 `orderId`가 있어 운영자는 그 값을 쓴다
-4. `reconcileOne`의 반환은 `OrderStatus`(처리 뒤 주문 상태)다. 조회도 불확실했거나 다른 흐름이 이미 처리했으면 그 시점의 상태(예: `PAYMENT_IN_PROGRESS`)가 나온다. `reconcileBatch`는 이 값이 `PAID`·`PAYMENT_FAILED`일 때 처리 건수에 센다. 컨트롤러 응답은 `{orderId, status}`다
+4. 조회도 불확실했거나 다른 흐름이 이미 처리했으면 `reconcileOne`은 그 시점의 상태(예: `PAYMENT_IN_PROGRESS`)를 돌려준다. 컨트롤러 응답은 `{orderId, status}`다
 
 **refunds** (order 모듈)
 - 목록: `RefundRepository`에 상태별 커서 조회를 더한다. 응답 항목의 필드는 이 문서에 정해져 있지 않다(확인 필요, `Refund` 컬럼 기준으로 id·orderId·orderLineId·amount·상태·실패 사유 등)
 - `retry`: ① 트랜잭션(`tx.execute`)에서 환불을 읽어 `retryPgCancel()`(구현물 1)을 부른다. FAILED가 아니면 거부된다. 같은 환불에 재시도를 두 번 눌러도 두 번째는 이미 `APPROVED`라 거부된다 ② 트랜잭션 밖에서 `refundProcessor.process(refundId)`(2-8, `RefundStatus` 반환) — APPROVED이므로 `needsPgCancel()`이 참이라 PG 취소부터 다시 한다
-- **PG 멱등 키**: 재시도는 새 키로 Toss까지 간다. 2-6 `PaymentApi.cancel`은 같은 키의 `payment_cancel` 행이 이미 `FAILED`면 PG를 부르지 않고 `FAILED`를 재생하므로, `process`가 쓰는 `refund.pgIdempotencyKey()`(2-8)가 `pgAttempts`가 1 이상이면 `refundId-r{pgAttempts}`로 달라진다. 그래서 `AdminRefundRetryTest`("가짜 PG를 정상으로 → retry → COMPLETED")가 통과한다. Toss가 같은 키의 실패 응답을 어떻게 다루는지는 확인하지 못해(확인 필요) 같은 키를 재사용하지 않는 쪽으로 정했다. `pg_attempts` 칸은 2-8 마이그레이션에서 만든다
+- **PG 멱등 키**: 재시도는 새 키로 Toss까지 간다. 2-6 `PaymentApi.cancel`은 같은 키의 `payment_cancel` 행이 이미 `FAILED`면 PG를 부르지 않고 `FAILED`를 재생하므로, `process`가 쓰는 `refund.pgIdempotencyKey()`(2-8)가 `pgAttempts`가 1 이상이면 `refundId-r{pgAttempts}`로 달라진다. 그래서 `AdminRefundRetryTest`("가짜 PG를 정상으로 → retry → COMPLETED")가 통과한다. Toss가 같은 키의 실패 응답을 어떻게 다루는지는 확인하지 못해(확인 필요) 같은 키를 재사용하지 않는 쪽으로 정했다.
 
 **notifications** (notification 모듈)
 - 목록: 상태별 커서 조회. 응답 항목의 필드는 정해져 있지 않다(확인 필요, `notification` 컬럼 기준 id·type·recipient·attempts·lastError·updatedAt 등)
@@ -442,7 +442,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
   - 장바구니: `testFixtures.cartSnapshotOf(buyerId)`의 `.quantity(productId)`(항목이 없으면 0)·`.itemCount()`(2-1).
   - 재고: `testFixtures.stockOf(productId)` → `available`, `reserved`, `sold`.
   - outbox 행: 행 id를 아는 것은 `testFixtures.outboxSnapshotOf(outboxId)`(3-1) → `status()`, `attempts()`, `nextAttemptAt()`, `sentAt()`, `lastError()`. 토픽별 건수·payload는 `OutboxAssert.rows(topic)`, 전체 행 수는 `countOf("common.outbox_event")`.
-  - 환불: `testFixtures.refundRowOf(refundId)`(2-9) → `status()`, `pgAttempts()`(이 단계가 더한다). 환불의 PG 취소 기록은 `paymentCancelOf(멱등 키)`(2-6) → `status()`, `failureCode()`(없으면 `null`).
+  - 환불: `testFixtures.refundRowOf(refundId)`(2-9) → `status()`, `pgAttempts()`(이 단계가 더한다). 환불의 PG 취소 기록은 `paymentCancelOf(멱등 키)`(이 단계가 더한다) → `status()`, `failureCode()`(없으면 `null`).
   - 알림: `notificationRowsOf(memberId)`(3-5) → `NotificationRow`의 `status()`, `attempts()`, `version()`(이 단계가 더한다).
   - 중복 소비 기록: `processedCountOf(consumer, eventId)`(3-2).
 - 가짜 PG가 받은 요청: `pg.requests(경로 접두어)`. 헤더 키는 소문자(`idempotency-key`), 본문의 `cancelAmount`는 `readTree`로 읽어 `asLong()`으로 비교한다.
@@ -474,13 +474,13 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 #### `common/web/AdminDltTest` (`IntegrationTestSupport`)
 
-**준비**: 3-2 `KafkaDltTest`의 항상 실패하는 리스너와 같은 모양의 테스트 리스너를 **새 토픽** `test.admin-dlt.v1`(+ `.dlt`, 파티션 3·복제 1)에 단다. `KafkaDltTest`가 `test.always-fail.v1.dlt`에 남긴 메시지가 섞이지 않게 토픽을 분리한다(Kafka 토픽은 테이블 초기화로 비워지지 않는다). 리스너는 `static volatile boolean fail = true`, `AtomicInteger received`(메시지 수신마다 증가), `AtomicInteger processed`(액션 실행마다 증가)를 가지고 `received++` 뒤 `inboxGuard.runOnce("test.admin-dlt", envelope, () -> { if (fail) throw new IllegalStateException("always-fail"); processed++; })`를 부른다. 메시지는 `kafkaTemplate.send("test.admin-dlt.v1", K, 봉투 JSON)`, K는 임의 UUID, 봉투 JSON은 `{"eventId":"E","eventType":"TestEvent","occurredAt":"2026-10-18T00:00:00Z","aggregateId":"K","traceId":"t","payload":{}}`(E는 임의 UUID)이다. 테스트마다 `fail = true`, 두 카운터 0으로 되돌린다.
+**준비**: 항상 실패하는 테스트 리스너를 **새 토픽** `test.admin-dlt.v1`(+ `.dlt`, 파티션 3·복제 1)에 단다. `KafkaDltTest`가 `test.always-fail.v1.dlt`에 남긴 메시지가 섞이지 않게 토픽을 분리한다(Kafka 토픽은 테이블 초기화로 비워지지 않는다). 리스너는 `static volatile boolean fail = true`, `AtomicInteger received`(메시지 수신마다 증가), `AtomicInteger processed`(액션 실행마다 증가)를 가지고 `received++` 뒤 `inboxGuard.runOnce("test.admin-dlt", envelope, () -> { if (fail) throw new IllegalStateException("always-fail"); processed++; })`를 부른다. 메시지는 `kafkaTemplate.send("test.admin-dlt.v1", K, 봉투 JSON)`, K는 임의 UUID, 봉투 JSON은 `{"eventId":"E","eventType":"TestEvent","occurredAt":"2026-10-18T00:00:00Z","aggregateId":"K","traceId":"t","payload":{}}`(E는 임의 UUID)이다. 테스트마다 `fail = true`, 두 카운터 0으로 되돌린다.
 
 **1. DLT 목록 조회** — 동작: 메시지를 보낸다 → `Eventually.await(Duration.ofSeconds(20), ...)` 안에서 `GET /admin/api/dlt/test.admin-dlt.v1?limit=50`(재시도 1·2·4초를 거쳐 DLT에 도착한다).
 - 응답 200. 항목 중 `key` = K인 것이 정확히 1개다(응답 모양과 필드 이름은 확인 필요. 권장: `partition`, `offset`, `key`, `value`, `exception`). 그 항목의 `value`는 보낸 봉투 JSON과 같은 문자열(500자 미만이라 잘리지 않는다), 예외 헤더 값에 `always-fail`이 들어 있다(`DLT_EXCEPTION_MESSAGE`). 항목의 `partition`·`offset`을 `P`·`O`로 적어 둔다.
 
 **2. replay로 처리 성공** — 준비: 1번 상태. 동작: `fail = false` → `POST /admin/api/dlt/test.admin-dlt.v1/{P}/{O}/replay`.
-- 응답 2xx(상태·본문은 확인 필요). 출력에 `"target=" + "test.admin-dlt.v1/" + P + "/" + O + " by=" + adminId`(`target` 표기는 `topic/partition/offset`, 7-3 "모든 API에 공통").
+- 응답 2xx(상태·본문은 확인 필요). 출력에 `"target=" + "test.admin-dlt.v1/" + P + "/" + O + " by=" + adminId`(`target` 표기는 `topic/partition/offset`).
 - `Eventually.await(Duration.ofSeconds(10), ...)` 안에서 `received` = 1, `processed` = 1.
 
 **3. 같은 메시지 두 번 replay → 처리 한 번** — 준비: 2번 상태. 동작: 같은 `P`·`O`로 replay를 한 번 더.
@@ -646,7 +646,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
   - outbox: 토픽별 건수·`payload` 필드·`status`·`attempts`는 `OutboxAssert.rows(topic)`(3-1), 미발행 행 수는 `unsentOutboxCount()`.
   - 정산: `settlementSnapshotOf(shopId, month)`(3-4a)의 `status()`·`grossAmount()`·`feeAmount()`·`netAmount()`·`itemCount()`·`feeRateBp()`·`payoutReference()`·`paidAt()`, 정산 전 품목은 `settlementItemSnapshotOf(orderLineId)`(3-4a)의 `amount()`·`settlementId()`와 `unsettledItemCount()`(3-4a), 정산 행 수는 `countOf("settlement.settlement")`(3-1).
   - 구독: `subscriptionSnapshotOf(subscriptionId)`(5-2)의 `status()`·`consecutiveFailures()`·`nextRunDate()`·`endReason()`, 회차 목록은 `cyclesOf(subscriptionId)`(5-3) → `CycleRow`의 `cycleDate()`·`status()`·`orderId()`·`appliedUnitPrice()`.
-  - 알림: `notificationCounts()`(`type(...)`·`status(...)`로 건수. 3-5의 `notificationRows()`를 센 것).
+  - 알림: `notificationCounts()`(`type(...)`·`status(...)`로 건수).
   - 가게·회원·상품: `shopSnapshotOf(shopId)`의 `status()`·`closedAt()`, `memberSnapshotOf(memberId).role()`, `productSnapshotOf(productId).status()`(각각 `support/`의 `ShopSnapshot`·`MemberSnapshot`·`ProductSnapshot` record).
   - 한 곳에서만 쓰는 값(S5 1번의 구독 주문 `orders.orders.type`·`total_amount`)은 JDBC 한 줄로 읽는다.
 - 가짜 서비스: PG는 `pg.requests(경로 접두어)`(헤더 키 소문자, 본문 `cancelAmount`는 `readTree`로 읽어 `asLong()`), 메일은 `fakeMailSender.sent()`, 지급은 `fakePayoutGateway.calls()` → `List<PayoutCall>`(`record PayoutCall(UUID settlementId, UUID shopId, long amount)`, 호출 순서).
@@ -746,7 +746,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 #### 장애 시나리오: `e2e/KafkaOutageE2ETest`
 
-**준비**: 판매자, 가게, 상품 2개(`productX` 10,000원·`productY` 20,000원), 구매자. 먼저 준비 단계의 이벤트(가입·가게 개설·상품 등록)를 비운다: 릴레이+대기(`unsentOutboxCount()` = 0, `notificationCounts().type("WELCOME")` = 2) → `notificationDispatcher.dispatchBatch()`로 WELCOME 알림 2건을 미리 보낸다. `kafka`는 `IntegrationTestSupport`의 컨테이너(3-1 `OutboxRelayTest`와 같은 방식, 접근 방법은 7-4 "시나리오 보조 호출" 표의 확인 필요).
+**준비**: 판매자, 가게, 상품 2개(`productX` 10,000원·`productY` 20,000원), 구매자. 먼저 준비 단계의 이벤트(가입·가게 개설·상품 등록)를 비운다: 릴레이+대기(`unsentOutboxCount()` = 0, `notificationCounts().type("WELCOME")` = 2) → `notificationDispatcher.dispatchBatch()`로 WELCOME 알림 2건을 미리 보낸다. `kafka`는 `IntegrationTestSupport`의 컨테이너다.
 1. **중단** — `kafka.getDockerClient().pauseContainerCmd(kafka.getContainerId()).exec()`.
 2. **중단 중 결제** — 주문 2건(`productX`, `productY` 각 1건)을 `POST /api/orders/checkout` → `POST /api/orders/{id}/payment/confirm`으로 승인한다. 두 응답 모두 200 `$.status` = `PAID`(Kafka와 무관하다). `OutboxAssert.rows("order.order-paid.v1")` 2건이 모두 `status` = `READY`.
 3. **중단 중 릴레이** — `outboxRelay.relayOnce()` → 반환값 0. `OutboxAssert.rows("order.order-paid.v1")`의 두 행은 `READY` 그대로이고 `attempts` = 1. `notificationCounts().type("ORDER_PAID")`·`.type("SHOP_ORDER_RECEIVED")` = 0.

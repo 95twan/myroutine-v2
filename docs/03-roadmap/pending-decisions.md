@@ -1,6 +1,7 @@
 # 구현 때 정할 것
 
-> 버전 0.10 · 2026-10-24 · 3-4 착수로 2절의 3-4a·3-4b 행 4개와 공통 규칙 P(`LocalDate` 허용) 행, 4절의 3-4a·3-4b 행을 지웠다(3-4b `SettlementItemRow`의 `Instant` 매핑 B 행은 새로 남겼다)
+> 버전 0.11 · 2026-10-25 · 3-4b 착수로 2절의 3-4b 행(`SettlementItemRow`의 `Instant` 매핑, B)을 지웠다(임시 통합 테스트로 매핑을 확인했다)
+> 0.10 · 2026-10-24 · 3-4 착수로 2절의 3-4a·3-4b 행 4개와 공통 규칙 P(`LocalDate` 허용) 행, 4절의 3-4a·3-4b 행을 지웠다(3-4b `SettlementItemRow`의 `Instant` 매핑 B 행은 새로 남겼다)
 > 0.9 · 2026-10-23 · 3-3 착수로 4절의 3-3 행(`existsByShopIdAndStatusIn` 위치, E: 코드가 `JpaOrderRepository`에 이미 둠)을 지웠다
 > 0.8 · 2026-10-23 · 2절의 `TestFixtures` 헬퍼 위치 행("테스트 준비"가 완료 확인 뒤에 있는 구조)을 지웠다: Part 2~7의 완료 확인에서 "테스트 준비"를 테스트 클래스 앞으로 옮겼다(Part 1은 이미 앞에 있었다)
 > 0.7 · 2026-10-23 · 2절의 `TestFixtures` 헬퍼 위치 행에 3-2는 앞으로 옮겼음을 적었다
@@ -131,7 +132,6 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 
 | 단계 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
-| 3-4b | B | 목록 조회 `SettlementItemRow`(native 인터페이스 프로젝션)의 `getConfirmedAt()`·`getCreatedAt()`이 `Instant`로 매핑되는지(`timestamptz`) | p3:1122 | 3-4b 착수 때 확인 |
 | 3-5 | A | `getContact`에서 `BANNED` 회원의 `active` 값. 회원 없음은 `MEMBER_NOT_FOUND` | p3:1226 | 사용자 결정 |
 | 3-5 | D | `Notification`을 native 쿼리로 구현(3-4 정산과 같은 방식), 알림 제목 숫자에 천 단위 구분 기호 없음 | p3:1238, 1292 | 확정 |
 | 3-6 | A | "진행 중 환불" 상태 집합(`REQUESTED, APPROVED, PG_CANCELLED`)이 정책에 없음. 탈퇴 차단 정책 | p3:1404 | 사용자 결정 |
