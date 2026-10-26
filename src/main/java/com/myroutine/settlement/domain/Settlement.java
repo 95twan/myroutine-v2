@@ -81,7 +81,7 @@ public class Settlement extends BaseTimeEntity {
 
     public void markPayoutFailed(String error) {
         this.status = this.status.transitTo(SettlementStatus.PAYOUT_FAILED);
-        this.lastError = error;
+        this.lastError = error.substring(0, Math.min(error.length(), 500));
         this.payoutAttempts++;
     }
 }

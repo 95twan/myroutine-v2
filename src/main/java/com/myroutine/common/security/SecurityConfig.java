@@ -39,6 +39,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/shops/me").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/shops/*").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/products", "/api/products/*").permitAll()
+                        .requestMatchers("/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(e -> e
