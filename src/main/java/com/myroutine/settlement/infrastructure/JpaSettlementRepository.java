@@ -33,4 +33,20 @@ public interface JpaSettlementRepository extends JpaRepository<Settlement, UUID>
             ORDER BY s.id ASC
             """)
     List<UUID> findIdsToPay(Collection<SettlementStatus> statuses, UUID afterId, Limit limit);
+
+    @Query("""
+            select s
+            from Settlement s
+            where s.shopId = :shopId
+            order by s.createdAt desc, s.id desc
+            """)
+    List<Settlement> findByShopIdFirstPage(UUID shopId, Limit limit);
+
+    @Query("""
+            select s
+            from Settlement s
+            where s.shopId = :shopId and (s.createdAt < :cursorAt or (s.createdAt = :cursorAt and s.id < :cursorId))
+            order by s.createdAt desc, s.id desc
+            """)
+    List<Settlement> findByShopIdAfter(UUID shopId, Instant cursorAt, UUID cursorId, Limit limit);
 }

@@ -2,7 +2,9 @@ package com.myroutine.settlement.infrastructure;
 
 import com.myroutine.settlement.domain.Settlement;
 import com.myroutine.settlement.domain.SettlementItemRepository;
+import com.myroutine.settlement.domain.SettlementItemRow;
 import com.myroutine.settlement.domain.SettlementSum;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.RepositoryDefinition;
@@ -56,4 +58,26 @@ public interface JpaSettlementItemRepository extends SettlementItemRepository {
                     """
     )
     SettlementSum sumBySettlementId(UUID settlementId);
+
+    @Query(
+            nativeQuery = true,
+            value = """
+                    SELECT id, order_line_id as "orderLineId", order_id as "orderId", product_id as "productId", amount, confirmed_at as "confirmedAt", created_at as "createdAt"
+                    FROM settlement.settlement_item
+                    WHERE settlement_id = :settlementId
+                    ORDER BY created_at, id
+                    """
+    )
+    List<SettlementItemRow> findBySettlementIdFirstPage(UUID settlementId, Limit limit);
+
+    @Query(
+            nativeQuery = true,
+            value = """
+                    SELECT id, order_line_id as "orderLineId", order_id as "orderId", product_id as "productId", amount, confirmed_at as "confirmedAt", created_at as "createdAt"
+                    FROM settlement.settlement_item
+                    WHERE settlement_id = :settlementId AND (created_at > :cursorAt OR (created_at = :cursorAt AND id > :cursorId))
+                    ORDER BY created_at, id
+                    """
+    )
+    List<SettlementItemRow> findBySettlementIdAfter(UUID settlementId, Instant cursorAt, UUID cursorId, Limit limit);
 }

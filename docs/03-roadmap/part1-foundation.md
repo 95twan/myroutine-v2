@@ -1,6 +1,7 @@
 # Part 1. 뼈대와 첫 기능
 
-> 버전 0.41 · 2026-10-23 · **`memberSnapshotOf`·`shopSnapshotOf`의 행이 없을 때 동작을 코드에 맞췄다**: `queryForObject`라 `null`이 아니라 `EmptyResultDataAccessException`을 던진다(`productSnapshotOf`는 `null`이라 그대로). 규격·동작 변경 없음
+> 버전 0.42 · 2026-10-26 · **다른 단계·다른 케이스를 열어야 이해되던 참조와 같은 규격의 중복을 정리했다**: 1-3 읽기 헬퍼 표의 뒤 단계 언급 제거, 1-4 `TestFixtures` 규격(8)과 완료 확인의 `signup`·`token`·`changeStatus` 중복을 규격 한 곳으로 합치고 뒤 단계 헬퍼 목록은 각 단계(`discontinueProduct`는 1-8)로 옮김, 1-7 읽기 헬퍼 표·1-8 `findByIdAndShopId`의 뒤 단계 언급 제거, 완료 확인의 "N번과 같음" 준비·동작(1-3 7번, 1-6 5·8번, 1-7 7번, 1-9 4·8·10·13번, 1-10 3번)을 그 자리에 풀어 씀. 규격·동작 변경 없음
+> 0.41 · 2026-10-23 · **`memberSnapshotOf`·`shopSnapshotOf`의 행이 없을 때 동작을 코드에 맞췄다**: `queryForObject`라 `null`이 아니라 `EmptyResultDataAccessException`을 던진다(`productSnapshotOf`는 `null`이라 그대로). 규격·동작 변경 없음
 > 0.40 · 2026-10-23 · **다른 단계를 열어야 이해되던 참조를 그 자리에서 읽히게 풀어 썼다**(사용자 지적): 공통 규칙 F의 변환 요지, 1-4~1-9 완료 확인의 "값을 읽는 방법은 1-3/1-7과 같다"와 `MemberSnapshot`·`ProductSnapshot`·`StockSnapshot`·`countOf`·`stockOf`·`login` 정의, 1-8 `UpdateProductRequest` 검증, 1-10 §4 출처(공통 규칙 B), Release 한계 표의 "1-11 문서 참고", "수정 사항" 두 절의 읽는 방법. 규격·동작 변경 없음
 > 0.39 · 2026-10-23 · **테스트 준비 헬퍼 표의 시그니처를 타입까지 적었다**(사용자 지적: 어떤 메서드를 만드는지 안 보인다): 1-3·1-5~1-9·1-10의 읽기 헬퍼 표에서 매개변수에 타입을 붙이고, snapshot record의 필드와 `address`·`defaultAddressIds`·`movements`·`of`·`size` 메서드를 타입이 있는 시그니처로 적었다. 규격·동작 변경 없음
 > 0.38 · 2026-10-20 · **4.1 기준 점검에서 '하' 후보를 권장안대로 정리했다**(사용자 요청): 1-4 토큰 없음의 `$.message`, 1-5 기본 배송지의 "A는 기본이 아니다"·응답 `$.isDefault`, 검증 실패(400)의 행 0건(1-3·1-5·1-6), 1-6 `requireActiveShops` 빈 입력의 "예외 없음"·개설 직후 `$[0].status`, 1-10 목록의 `$.items` 개수·동시 등록의 "실패 1건". 응답 필드 매핑을 보는 유일한 확인과 서로 다른 코드 경로(1-4 토큰 형식·만료, 1-7 상세 필드, 1-10 `thumbnailKey`)는 남겼다. 규격 외 변경 없음
@@ -513,8 +514,8 @@ git status --short
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `memberSnapshotOf(UUID memberId)` → `MemberSnapshot` | JDBC `SELECT nickname, name, phone, password_hash, created_at, updated_at FROM member.member WHERE id = ?`. `support/`의 `record MemberSnapshot(String nickname, String name, String phone, String passwordHash, Instant createdAt, Instant updatedAt)`로 돌려준다. 행이 없으면 `queryForObject`가 `EmptyResultDataAccessException`을 던진다. 1-5에서 `addresses`를 더한다 | 1-3 가입 성공, 1-5 프로필 수정과 수정 사항 |
-| `countOf(String table)` → `long` | JDBC `SELECT count(*) FROM {table}`. `table`은 테스트 코드의 상수(`"member.member"`)만 넘긴다 | 거부·실패 케이스의 "행이 만들어지지 않았다"(1-3, 1-6, 1-7), `TableCleanupTest` |
+| `memberSnapshotOf(UUID memberId)` → `MemberSnapshot` | JDBC `SELECT nickname, name, phone, password_hash, created_at, updated_at FROM member.member WHERE id = ?`. `support/`의 `record MemberSnapshot(String nickname, String name, String phone, String passwordHash, Instant createdAt, Instant updatedAt)`로 돌려준다. 행이 없으면 `queryForObject`가 `EmptyResultDataAccessException`을 던진다 | 1-3 가입 성공 |
+| `countOf(String table)` → `long` | JDBC `SELECT count(*) FROM {table}`. `table`은 테스트 코드의 상수(`"member.member"`)만 넘긴다 | 거부·실패 케이스의 "행이 만들어지지 않았다", `TableCleanupTest` |
 
 **공통 준비**: 가입 요청 본문은 `{"email":"test@test.com","password":"password123","nickname":"nick","name":"name"}`를 기본으로 하고, 케이스에서 바꾸는 필드만 적는다.
 
@@ -557,7 +558,7 @@ git status --short
 **6. 깨진 JSON** — 동작: 본문 `{"email":`(닫히지 않음)로 `POST /api/auth/signup`.
 - 응답: 400, `$.code` = `INVALID_REQUEST`, `$.details`가 빈 객체(`{}`)다.
 
-**7. traceId** — 동작: 6번과 같은 요청.
+**7. traceId** — 동작: 본문 `{"email":`(닫히지 않음)로 `POST /api/auth/signup`.
 - 헤더 `X-Request-Id`가 비어 있지 않다.
 - `$.traceId` = 헤더 `X-Request-Id`(같은 문자열).
 
@@ -710,13 +711,14 @@ public @interface CurrentMember {}
 **8) 테스트 헬퍼** — `src/test/java/com/myroutine/support/TestFixtures.java`
 - `@Component`. 의존성 `SignupService`, `JdbcTemplate`
 - `UUID signup(String email)`: 닉네임은 이메일 앞부분, 비밀번호 `"pass1234"`, 이름 `"테스터"`로 가입하고 memberId 반환
-- `String token(String email)`: 가입 후 accessToken 반환
+- `String token(String email)`: `signup`과 같은 방식으로 **가입**한 뒤 accessToken 반환. 같은 이메일에 `signup`과 `token`을 둘 다 부르면 중복 가입이다
+- `String login(String email)`: 이미 가입한 회원을 비밀번호 `pass1234`로 로그인시켜 accessToken을 돌려준다
 - `void changeStatus(UUID memberId, String status)`: `UPDATE member.member SET status = ? WHERE id = ?` (제재 기능이 아직 없으므로 테스트에서 직접 바꾼다)
-- 통합 테스트에서 `@Autowired TestFixtures fixtures;`로 쓴다. 이후 단계에서 헬퍼가 늘어난다: `String login(String email)`(1-4 이후. 이미 가입한 회원을 비밀번호 `pass1234`로 로그인시켜 accessToken을 돌려준다), `openShop(memberId, businessNumber)`·`closeShop(shopId)`(1-6), `registerProduct(memberId, shopId[, category, initialStock])`·`hideProduct(productId)`·`discontinueProduct(productId)`(1-7·1-8).
+- 통합 테스트에서 `@Autowired TestFixtures fixtures;`로 쓴다.
 
 ### 완료 확인
 
-값을 읽는 방법: 요청은 `mockMvc.perform(...)`, 상태 코드는 `status()`, 본문은 `jsonPath("$.필드")`, 에러 응답의 코드는 `$.code`, 헤더는 `result.getResponse().getHeader("X-Request-Id")`로 읽는다. 이 단계에서 만드는 `fixtures`(`TestFixtures`, 1-4 §8)의 `signup` 등을 쓴다: `fixtures.signup("test@test.com")`은 비밀번호 `pass1234`, 닉네임 `test`(이메일 앞부분), 이름 `테스터`로 가입하고 memberId를 돌려준다. `fixtures.token(email)`은 같은 방식으로 **가입**하고 accessToken을 돌려주므로 같은 이메일에 `signup`과 `token`을 둘 다 부르면 중복 가입이다. `fixtures.changeStatus(memberId, "BANNED")`는 `member.member.status`를 직접 바꾼다.
+값을 읽는 방법: 요청은 `mockMvc.perform(...)`, 상태 코드는 `status()`, 본문은 `jsonPath("$.필드")`, 에러 응답의 코드는 `$.code`, 헤더는 `result.getResponse().getHeader("X-Request-Id")`로 읽는다. 회원 준비와 상태 변경은 `fixtures`(`TestFixtures`)의 `signup`·`token`·`changeStatus`를 쓴다.
 
 #### `common/security/JwtProviderTest` (순수 JUnit)
 
@@ -1121,7 +1123,7 @@ CLOSED 상태 가게는 도메인 테스트에서 만들 수 없으므로(폐업
 - 응답: 200, `$.id` = shopId, `$.name` = `"updated shop"`, `$.address` = `"updated shop address"`, `$.email` = `"shop@test.com"`, `$.phone` = `"010-1111-1111"`(보내지 않은 필드는 그대로).
 - `s = fixtures.shopSnapshotOf(shopId)`의 `s.name()`·`s.email()`·`s.phone()`·`s.address()`가 응답과 같은 값이다.
 
-**5. 빈 문자열로 수정** — 준비: 4번과 같음. 동작: 본문 `{"name":"","address":"updated shop address"}`.
+**5. 빈 문자열로 수정** — 준비: `memberId = fixtures.signup("test@test.com")`, `token = fixtures.login("test@test.com")`, `shopId = fixtures.openShop(memberId, "1111111111")`. 동작: 본문 `{"name":"","address":"updated shop address"}`.
 - 응답: 400, `$.code` = `INVALID_REQUEST`, `$.details.name` = `"공백만 입력할 수 없습니다."`.
 - `s = fixtures.shopSnapshotOf(shopId)`: `s.name()` = `"shop"`, `s.address()` = `"shop address"`(요청이 일부만 유효해도 아무것도 바뀌지 않았다).
 
@@ -1133,7 +1135,7 @@ CLOSED 상태 가게는 도메인 테스트에서 만들 수 없으므로(폐업
 - 응답: 409, `$.code` = `SHOP_BUSINESS_NUMBER_DUPLICATED`.
 - `fixtures.countOf("shop.shop")` = 1.
 
-**8. 폐업한 가게 수정** — 준비: 4번의 준비 + `fixtures.closeShop(shopId)`. 동작: 소유자 토큰으로 `PATCH` 본문 `{"name":"updated shop"}`.
+**8. 폐업한 가게 수정** — 준비: `memberId = fixtures.signup("test@test.com")`, `token = fixtures.login("test@test.com")`, `shopId = fixtures.openShop(memberId, "1111111111")` 후 `fixtures.closeShop(shopId)`. 동작: 소유자 토큰으로 `PATCH` 본문 `{"name":"updated shop"}`.
 - 응답: 422, `$.code` = `SHOP_NOT_ACTIVE`.
 - `s = fixtures.shopSnapshotOf(shopId)`: `s.name()` = `"shop"`.
 
@@ -1365,7 +1367,7 @@ public record Money(long amount) implements Comparable<Money> { ... }
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `productSnapshotOf(UUID productId)` → `ProductSnapshot` | 쿼리 2개로 한 번에 읽는다: 상품·총입고(`product.product`의 `name`, `status`, `price`, `subscribable`과 `product.stock`의 `received`), 재고 이력(`product.stock_movement`의 `type`, `quantity`, `ref_type`, `ref_id`, `WHERE product_id = ? ORDER BY created_at, id`). `support/`의 `record ProductSnapshot(String name, String status, long price, boolean subscribable, int received, List<MovementState> movements)`로 돌려주고(`record MovementState(String type, int quantity, String refType, UUID refId)`), 메서드 `movements(String type)` → `List<MovementState>`는 그 `type`인 것만 돌려준다. 상품 행이 없으면 `null`. 1-8·1-10이 필드를 더한다 | 1-7 등록, 1-8·1-9·1-10의 상품 상태·이력 확인, 수정 사항(`subscribable`) |
+| `productSnapshotOf(UUID productId)` → `ProductSnapshot` | 쿼리 2개로 한 번에 읽는다: 상품·총입고(`product.product`의 `name`, `status`, `price`, `subscribable`과 `product.stock`의 `received`), 재고 이력(`product.stock_movement`의 `type`, `quantity`, `ref_type`, `ref_id`, `WHERE product_id = ? ORDER BY created_at, id`). `support/`의 `record ProductSnapshot(String name, String status, long price, boolean subscribable, int received, List<MovementState> movements)`로 돌려주고(`record MovementState(String type, int quantity, String refType, UUID refId)`), 메서드 `movements(String type)` → `List<MovementState>`는 그 `type`인 것만 돌려준다. 상품 행이 없으면 `null` | 1-7 등록, 수정 사항(`subscribable`) |
 
 **공통 준비**: 판매자 `memberId = fixtures.signup("seller@test.com")`, `token = fixtures.login("seller@test.com")`, `shopId = fixtures.openShop(memberId, "1111111111")`. 등록 요청 본문은 `{"name":"product","description":"description","category":"ETC","price":10000,"initialStock":100,"subscribable":false}`를 기본으로 한다.
 
@@ -1421,7 +1423,7 @@ public record Money(long amount) implements Comparable<Money> { ... }
 **6. 판매자 목록** — 준비: 상품 3개 등록. 동작: 소유자 토큰으로 `GET /api/shops/{shopId}/products`.
 - 응답: 200, `$.items` 3개, `$.items[0]`의 `available` 10, `received` 10(재고 수량이 내려온다).
 
-**7. 남의 가게의 판매자 목록** — 동작: 다른 회원의 토큰으로 위와 같이 호출.
+**7. 남의 가게의 판매자 목록** — 동작: 다른 회원의 토큰으로 `GET /api/shops/{shopId}/products`.
 - 응답: 403, `$.code` = `FORBIDDEN`.
 
 **8. 폐업한 가게의 소유자는 목록 조회 가능** — 준비: 상품 3개 등록 후 `fixtures.closeShop(shopId)`. 동작: 소유자 토큰으로 목록 조회.
@@ -1512,7 +1514,7 @@ public record Money(long amount) implements Comparable<Money> { ... }
 | `PriceChange` | `record (Money oldPrice, Money newPrice)` |
 | `Product.update(String name, String description, ProductCategory category, Money price, Boolean subscribable)` | 1) **맨 앞에서** DISCONTINUED면 `BusinessException(PRODUCT_DISCONTINUED)` — 던지기 전에 어떤 필드도 바꾸지 않는다. 2) 인자가 null인 필드는 기존 값 유지. 3) 가격은 `price != null`이고 현재 가격과 값이 다를 때만 `new PriceChange(현재 가격, 새 가격)`을 만들고 반영한다. 4) 반환 `Optional<PriceChange>` — 가격이 실제로 바뀐 경우에만 값이 있다(같은 가격·가격 null·이름만 변경은 `Optional.empty()`). 가격 이력 저장은 엔티티가 아니라 `UpdateProductService`가 한다 |
 | `Product.changeStatus(ProductStatus to)` | `status = status.transitTo(to)` |
-| `ProductRepository` (**순수 인터페이스**, Spring Data 어노테이션 없음) | `Optional<Product> findByIdAndShopId(UUID id, UUID shopId)`(1-7에서 이미 선언했다면 건너뛴다. 아래 공통 앞단과 1-10 이미지 등록·삭제가 쓴다), `int insertPriceHistory(UUID id, UUID productId, long oldPrice, long newPrice, Instant now)` — `changed_at`, `created_at` 모두 `now` |
+| `ProductRepository` (**순수 인터페이스**, Spring Data 어노테이션 없음) | `Optional<Product> findByIdAndShopId(UUID id, UUID shopId)`(1-7에서 이미 선언했다면 건너뛴다. 아래 공통 앞단이 쓴다), `int insertPriceHistory(UUID id, UUID productId, long oldPrice, long newPrice, Instant now)` — `changed_at`, `created_at` 모두 `now` |
 | `StockRepository` (**순수 인터페이스**) | `int adjust(UUID productId, int delta, Instant now)`, `List<UUID> findProductIdsWithBrokenBalance()` 추가 |
 
 **구현 위치 (infrastructure)** — 1-7의 `insertStock`·`insertMovement`와 같은 방식이다. 시그니처는 `domain` 인터페이스에, `@Modifying @Query(nativeQuery = true, ...)`는 `JpaProductRepository`·`JpaStockRepository`에만 둔다. `PriceHistory` 엔티티는 만들지 않는다(쓰기 전용이고 조회 API가 없다).
@@ -1570,7 +1572,7 @@ SELECT product_id FROM product.stock WHERE available + reserved + sold <> receiv
 
 ### 완료 확인
 
-값을 읽는 방법: 요청은 `mockMvc.perform(...)`, 상태 코드는 `status()`, 본문은 `jsonPath("$.필드")`, 에러 응답의 코드는 `$.code`·필드별 오류는 `$.details.{키}`로 읽는다. DB는 `s = fixtures.productSnapshotOf(productId)`의 `s.name()`·`s.status()`·`s.price()`·`s.received()`·`s.movements()`로, 가용·예약·판매 수량은 `fixtures.stockOf(productId)`(`StockSnapshot(int available, int reserved, int sold)`)로, 가격 변경 이력은 `s.priceChanges()`로 읽는다. 2-2부터 `POST .../stock-adjustments`는 `Idempotency-Key` 헤더(요청마다 새 UUID)가 필요하다.
+값을 읽는 방법: 요청은 `mockMvc.perform(...)`, 상태 코드는 `status()`, 본문은 `jsonPath("$.필드")`, 에러 응답의 코드는 `$.code`·필드별 오류는 `$.details.{키}`로 읽는다. DB는 `s = fixtures.productSnapshotOf(productId)`의 `s.name()`·`s.status()`·`s.price()`·`s.received()`·`s.movements()`로, 가용·예약·판매 수량은 `fixtures.stockOf(productId)`(`StockSnapshot(int available, int reserved, int sold)`)로, 가격 변경 이력은 `s.priceChanges()`로 읽는다. `fixtures.discontinueProduct(productId)`는 상품을 `DISCONTINUED` 상태로 만든다. 2-2부터 `POST .../stock-adjustments`는 `Idempotency-Key` 헤더(요청마다 새 UUID)가 필요하다.
 
 **이 단계에서 추가하는 읽기 헬퍼** (`support/TestFixtures`. 구현된 단계라 이 단계 테스트는 기존 코드를 쓴다. 처음 쓰는 미구현 단계에서 `TestFixtures`에 추가한다: 가격 이력 추가는 3-3. 이름·인자는 권장안이라 쓰다 바꿔도 된다)
 
@@ -1804,7 +1806,7 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 - 예약: `rs.size()` = 1, `rs.of(p)`가 `status` = `HELD`, `quantity` = 3.
 - 이력: `movements("RESERVE")`가 정확히 1건이고 `MovementState("RESERVE", 3, "ORDER", orderId)`. 재고 확인.
 
-**4. 같은 `orderId`로 `reserve` 두 번** — 준비: 3번과 같음. 동작: 같은 `orderId`·같은 항목으로 `reserve`를 두 번 호출(두 번째는 예외 없이 끝난다).
+**4. 같은 `orderId`로 `reserve` 두 번** — 준비: 재고 10인 상품 `p`. 동작: 같은 `orderId`·같은 항목으로 `reserve`를 두 번 호출(두 번째는 예외 없이 끝난다).
 - 재고: `available` 7, `reserved` 3(한 번만 반영).
 - `rs.size()` = 1, `movements("RESERVE")` 1건. 재고 확인.
 
@@ -1821,7 +1823,7 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 - 재고: `available` 7, `reserved` 0, `sold` 3(한 번만 반영).
 - `rs.of(p).status()` = `COMMITTED`. `movements("COMMIT")` 1건. 재고 확인.
 
-**8. 확정된 예약을 해제** — 준비: 7번의 준비 후 `commitReservation` 1번. 동작: `releaseReservation(orderId, ReleaseReason.EXPIRED)`.
+**8. 확정된 예약을 해제** — 준비: 재고 10인 `p`를 3개 `reserve`한 뒤 `commitReservation` 1번. 동작: `releaseReservation(orderId, ReleaseReason.EXPIRED)`.
 - 재고: `available` 7, `reserved` 0, `sold` 3(변화 없음).
 - `rs.of(p).status()` = `COMMITTED`(그대로). `movements("RELEASE")`가 비어 있다. 재고 확인.
 
@@ -1829,7 +1831,7 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 - 재고: `available` 10, `reserved` 0.
 - `rs.of(p).status()` = `RELEASED`. `movements("RELEASE")` 1건(두 번 불러도 한 번만). 재고 확인.
 
-**10. 만료로 해제** — 준비·동작: 9번과 같고 `ReleaseReason.EXPIRED`.
+**10. 만료로 해제** — 준비: 재고 10인 `p`를 3개 `reserve`(확정하지 않음). 동작: `releaseReservation(orderId, ReleaseReason.EXPIRED)`를 두 번 호출.
 - `rs.of(p).status()` = `EXPIRED`(재고와 이력은 9번과 같아 다시 확인하지 않는다). 재고 확인.
 
 **11. 같은 `refundId`로 `restore` 두 번** — 준비: 재고 10인 `p`를 3개 `reserve` → `commitReservation`. `refundId = Ids.newId()`. 동작: `restore(orderId, p, 1, refundId)`를 두 번 호출.
@@ -1840,7 +1842,7 @@ List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
 - `BusinessException`, `CommonErrorCode.INVALID_STATE_TRANSITION`.
 - 재고: `available` 7, `reserved` 3, `sold` 0(변화 없음). `movements("RESTORE")`가 비어 있다. 재고 확인.
 
-**13. `restore` 실패: 예약 수량보다 큰 수량** — 준비: 11번의 준비(예약 3개, 확정). 동작: `restore(orderId, p, 5, refundId)`.
+**13. `restore` 실패: 예약 수량보다 큰 수량** — 준비: 재고 10인 `p`를 3개 `reserve` → `commitReservation`. `refundId = Ids.newId()`. 동작: `restore(orderId, p, 5, refundId)`.
 - `IllegalArgumentException`.
 - 재고: `available` 7, `reserved` 0, `sold` 3(변화 없음). `movements("RESTORE")`가 비어 있다. 재고 확인.
 
@@ -2128,7 +2130,7 @@ static void storageProperties(DynamicPropertyRegistry registry) {
 **2. 상품 상세에 images** — 준비: `imageResult = fixtures.registerProductImage(...)` 1장. 동작: `GET /api/products/{productId}`(토큰 없음).
 - 200, `$.images`가 1개, `$.images[0].imageId` = `imageResult.imageId()`, `$.images[0].url` = `imageUrls.toUrl(imageResult.objectKey())`, `$.images[0].sortOrder` = 0, `$.thumbnailUrl` = 같은 URL.
 
-**3. 목록에 thumbnailUrl** — 준비: 2번과 같음. 동작: `GET /api/products`.
+**3. 목록에 thumbnailUrl** — 준비: `imageResult = fixtures.registerProductImage(...)` 1장. 동작: `GET /api/products`.
 - 200, `$.items[0].thumbnailUrl` = `imageUrls.toUrl(imageResult.objectKey())`.
 
 **4. 서명과 다른 Content-Type으로 PUT** — 준비: `contentType` `image/png`로 발급받은 `uploadUrl`·`headers`. 동작: `headers`를 복사해 `content-type`만 `image/jpeg`로 바꿔 `putToStorage`.

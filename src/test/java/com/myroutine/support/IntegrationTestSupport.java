@@ -23,6 +23,9 @@ public abstract class IntegrationTestSupport {
     @Autowired
     JdbcTemplate jdbc;
 
+    @Autowired
+    FakePayoutGateway payoutGateway;
+
     protected static final FakePgServer pg = FakePgServer.start();
 
     @ServiceConnection
@@ -63,5 +66,10 @@ public abstract class IntegrationTestSupport {
     @AfterEach
     void resetPg() {
         pg.reset();
+    }
+
+    @AfterEach
+    void resetFakePayoutGateway() {
+        payoutGateway.reset();
     }
 }

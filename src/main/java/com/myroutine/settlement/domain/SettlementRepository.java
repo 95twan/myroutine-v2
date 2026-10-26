@@ -15,4 +15,8 @@ public interface SettlementRepository {
     Optional<Settlement> findById(UUID id);
 
     List<UUID> findIdsToPay(Collection<SettlementStatus> statuses, UUID afterId, Limit limit);
+
+    List<Settlement> findByShopIdFirstPage(UUID shopId, Limit limit);
+
+    List<Settlement> findByShopIdAfter(UUID shopId, Instant cursorAt, UUID cursorId, Limit limit);
 }

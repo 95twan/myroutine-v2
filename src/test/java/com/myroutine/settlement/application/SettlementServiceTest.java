@@ -1,10 +1,9 @@
 package com.myroutine.settlement.application;
 
 import com.myroutine.common.model.Ids;
+import com.myroutine.settlement.api.event.SettlementTopics;
 import com.myroutine.settlement.domain.SettlementRepository;
-import com.myroutine.support.IntegrationTestSupport;
-import com.myroutine.support.SettlementSnapshot;
-import com.myroutine.support.TestFixtures;
+import com.myroutine.support.*;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -27,15 +26,25 @@ class SettlementServiceTest extends IntegrationTestSupport {
     private final TestFixtures testFixtures;
     private final JdbcTemplate jdbcTemplate;
     private final SettlementService settlementService;
+    private final FakePayoutGateway payoutGateway;
+    private final OutboxAssert outboxAssert;
 
     @MockitoSpyBean
     private SettlementRepository settlementRepository;
 
     @Autowired
-    public SettlementServiceTest(TestFixtures testFixtures, JdbcTemplate jdbcTemplate, SettlementService settlementService) {
+    public SettlementServiceTest(
+            TestFixtures testFixtures,
+            JdbcTemplate jdbcTemplate,
+            SettlementService settlementService,
+            FakePayoutGateway payoutGateway,
+            OutboxAssert outboxAssert
+    ) {
         this.testFixtures = testFixtures;
         this.jdbcTemplate = jdbcTemplate;
         this.settlementService = settlementService;
+        this.payoutGateway = payoutGateway;
+        this.outboxAssert = outboxAssert;
     }
 
     @Test
@@ -51,7 +60,7 @@ class SettlementServiceTest extends IntegrationTestSupport {
         // Then
         assertThat(result.settledShops()).isEqualTo(1200);
         assertThat(testFixtures.countOf("settlement.settlement")).isEqualTo(1200);
-        int count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement.settlement WHERE gross_amount = 15000 AND item_count = 2 AND fee_rate_bp = 500 AND period_start = DATE '2026-09-01' AND period_end = DATE '2026-09-30' AND status = 'CALCULATED'", Integer.class);
+        int count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement.settlement WHERE gross_amount = 15000 AND item_count = 2 AND fee_rate_bp = 500 AND period_start = DATE '2026-09-01' AND period_end = DATE '2026-09-30' AND status = 'PAID'", Integer.class);
         assertThat(count).isEqualTo(1200);
         assertThat(testFixtures.unsettledItemCount()).isEqualTo(0);
     }
@@ -160,5 +169,119 @@ class SettlementServiceTest extends IntegrationTestSupport {
         assertThat(result.settledShops()).isEqualTo(1);
         assertThat(testFixtures.countOf("settlement.settlement")).isEqualTo(3);
         assertThat(testFixtures.settlementSnapshotOf(badShopId).grossAmount()).isEqualTo(15000);
+    }
+
+    @Test
+    @DisplayName("지급에 성공하면 정산이 PAID가 되고 지급 이벤트를 발행한다.")
+    void payoutSucceeds() {
+        // Given
+        UUID shopId = Ids.newId();
+        testFixtures.insertSettlementItems(List.of(shopId), 2, 7500, Instant.parse("2026-09-15T03:00:00Z"));
+
+        // When
+        settlementService.run(YearMonth.of(2026, 9));
+
+        // Then
+        SettlementSnapshot s = testFixtures.settlementSnapshotOf(shopId);
+        assertThat(s.status()).isEqualTo("PAID");
+        assertThat(s.payoutReference()).isNotNull();
+        assertThat(s.paidAt()).isNotNull();
+
+        assertThat(payoutGateway.calls()).hasSize(1);
+        assertThat(payoutGateway.calls().get(0).settlementId()).isEqualTo(s.id());
+        assertThat(payoutGateway.calls().get(0).shopId()).isEqualTo(shopId);
+        assertThat(payoutGateway.calls().get(0).amount()).isEqualTo(14250);
+
+        List<OutboxSnapshot> rows = outboxAssert.rows(SettlementTopics.SETTLEMENT_PAID);
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).aggregateId()).isEqualTo(s.id());
+        assertThat(rows.get(0).aggregateType()).isEqualTo("SETTLEMENT");
+        assertThat(rows.get(0).payload().get("settlementId").asString()).isEqualTo(s.id().toString());
+        assertThat(rows.get(0).payload().get("shopId").asString()).isEqualTo(shopId.toString());
+        assertThat(rows.get(0).payload().get("netAmount").asLong()).isEqualTo(14250);
+        assertThat(rows.get(0).payload().get("periodStart").asString()).isEqualTo("2026-09-01");
+        assertThat(rows.get(0).payload().get("periodEnd").asString()).isEqualTo("2026-09-30");
+
+        settlementService.run(YearMonth.of(2026, 9));
+        assertThat(payoutGateway.calls()).hasSize(1);
+        assertThat(outboxAssert.rows(SettlementTopics.SETTLEMENT_PAID)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("0원 정산은 송금 없이 PAID로 만든다.")
+    void zeroNetSettlementIsPaidWithoutPayout() {
+        // Given
+        UUID shopId = Ids.newId();
+        testFixtures.insertSettlementItem(shopId, 0, Instant.parse("2026-09-15T03:00:00Z"));
+
+        // When
+        settlementService.run(YearMonth.of(2026, 9));
+
+        // Then
+        SettlementSnapshot s = testFixtures.settlementSnapshotOf(shopId);
+        assertThat(s.status()).isEqualTo("PAID");
+        assertThat(s.payoutReference()).isNull();
+        assertThat(s.paidAt()).isNotNull();
+
+        assertThat(payoutGateway.calls()).hasSize(0);
+
+        List<OutboxSnapshot> rows = outboxAssert.rows(SettlementTopics.SETTLEMENT_PAID);
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).payload().get("netAmount").asLong()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("지급이 실패하면 PAYOUT_FAILED로 남기고 다음 실행에서 다시 지급한다.")
+    void failedPayoutIsRetriedOnNextRun() {
+        // Given
+        payoutGateway.failNext(1);
+        UUID shopId = Ids.newId();
+        testFixtures.insertSettlementItem(shopId, 7500, Instant.parse("2026-09-15T03:00:00Z"));
+
+        // When & Then
+        settlementService.run(YearMonth.of(2026, 9));
+
+        SettlementSnapshot s = testFixtures.settlementSnapshotOf(shopId);
+        assertThat(s.status()).isEqualTo("PAYOUT_FAILED");
+        assertThat(s.payoutAttempts()).isEqualTo(1);
+        assertThat(s.lastError()).isNotNull();
+        assertThat(s.lastError().length()).isLessThanOrEqualTo(500);
+        assertThat(s.payoutReference()).isNull();
+        assertThat(s.paidAt()).isNull();
+
+        assertThat(outboxAssert.rows(SettlementTopics.SETTLEMENT_PAID)).hasSize(0);
+
+        settlementService.run(YearMonth.of(2026, 9));
+        s = testFixtures.settlementSnapshotOf(shopId);
+        assertThat(s.status()).isEqualTo("PAID");
+        assertThat(s.payoutAttempts()).isEqualTo(1);
+        assertThat(s.payoutReference()).isNotNull();
+        assertThat(s.paidAt()).isNotNull();
+
+        assertThat(outboxAssert.rows(SettlementTopics.SETTLEMENT_PAID)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("같은 정산을 두 번 지급해도 이체 참조 ID는 같다.")
+    void samePayoutReferenceOnRepeatedPayout() {
+        // Given
+        UUID shopId = Ids.newId();
+        testFixtures.insertSettlementItem(shopId, 7500, Instant.parse("2026-09-15T03:00:00Z"));
+
+        settlementService.run(YearMonth.of(2026, 9));
+        SettlementSnapshot s = testFixtures.settlementSnapshotOf(shopId);
+        String refId = s.payoutReference();
+        jdbcTemplate.update("UPDATE settlement.settlement SET status = 'CALCULATED', payout_reference = NULL, paid_at = NULL WHERE id = ?", s.id());
+
+        // When & Then
+        settlementService.run(YearMonth.of(2026, 9));
+
+        s = testFixtures.settlementSnapshotOf(shopId);
+        assertThat(s.status()).isEqualTo("PAID");
+        assertThat(s.payoutReference()).isEqualTo(refId);
+
+        List<PayoutCall> calls = payoutGateway.calls();
+        assertThat(calls).hasSize(2);
+        assertThat(calls.get(0).settlementId()).isEqualTo(calls.get(1).settlementId());
     }
 }
