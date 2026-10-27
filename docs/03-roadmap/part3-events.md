@@ -2068,4 +2068,4 @@ DB 없이 `new NotificationComposer()`로 만든다. 인자는 권장안(`compos
 ---
 
 ## Part 3 완료
-- [ ] `v0.3.0` 릴리스, Part 4 문서 다듬기
+- [x] `v0.3.0` 릴리스, Part 4 문서 다듬기

@@ -41,8 +41,6 @@
 | 단계 | 항목 | 선택지와 영향 |
 |---|---|---|
 | 2-6 | `cancel` A-2·A-3의 재조회 | `insertIfAbsent`가 1행이면 방금 만든 `REQUESTED` 행이고 `id`도 알아서 재조회가 필요 없다. 0행일 때만 읽으면 취소마다 SELECT가 하나 준다. 분기가 늘어난다 |
-| 4-1·4-3 | `device` 전달 사슬(`User-Agent` → `signUp`/`login` → `TokenIssuer` → `SessionStore.create` → Redis) | 어디서도 읽지 않는다. 지우면 인자와 4-1의 "확인 필요" 문단 두 개가 줄지만 ERD의 "기기"와 FR-MEM-03(기기별 세션)에 걸린다. 기기 목록 기능을 쓸 계획이면 남긴다 |
-| 4-1 | `rotate`와 `findMemberId`가 Redis를 두 번 부른다 | 합치려면 Lua가 memberId와 재사용 여부를 함께 돌려줘야 한다. "세션 없음"과 "재사용" 구분이 3상태 반환으로 복잡해진다 |
 | 5-3 | `Order.markPaymentInProgress()` 신설 | 방금 만든 구독 주문에 2-4 `startPayment` CAS를 걸던 것을 대체했다. 거부하면 CAS로 되돌리고 0행 처리를 정한다 |
 | 5-3 | `callBillingCharge`가 `Payment`와 `BillingKey`를 다시 읽는다 | `callConfirm`과 같은 선례다. order가 값을 직접 넘기게 바꿀 수도 있다 |
 | 5-3 | 건너뜀 경로에서 `insertIfAbsent`가 0행일 때 | `runDue` 1.2와 같게 "종료"를 기본값으로 적었다 |
@@ -83,7 +81,6 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 | `settlement.fee_rate_bp`, `settlement.payout_attempts` | 요율 스냅샷과 증가만 하는 카운터. 감사 목적이면 이유를 ERD에 적는다 |
 | `notification.version`·`channel`·`member_id` | 쓰기가 모두 native SQL이라 `version`은 쓰는 곳이 없다 |
 | `subscription.end_reason`, `billing_key.deleted_at`, `product_embedding.model`, `review_summary.source_review_count`·`model`, `inquiry_answer.admin_id` | 쓰기만 하고 읽지 않는다 |
-| Redis `auth:session`의 `device` | 위 4-1·4-3 `device` 전달 사슬 항목과 같다 |
 
 ### API
 
@@ -136,21 +133,7 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 
 | 단계 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
-| 공통 | B | Spring Data Redis 4.x에서 `StringRedisTemplate` 호출 시그니처가 표와 같은지 | Part 4 공통 규칙 T | IDE·공식 문서로 확인 |
-| 4-1 | A | `rotate`가 `auth:member-sessions:{memberId}` TTL도 연장해야 하는지(규칙 T와 불일치) | 4-1 member.domain (rotate) | 사용자 결정 후 인자·규칙 T 수정 |
-| 4-1 | B | `DefaultRedisScript`의 `setLocation`·`setResultType`이 4.x에서 같은 이름인지 | 4-1 member.infrastructure | 4.x API 확인 |
-| 4-1 | C | Lua의 `==` 해시 비교가 규칙 T의 "isEqual 비교"와 어긋남 | 4-1 member.infrastructure (Lua), Part 4 공통 규칙 T | 규칙 T에 "Lua 내부 비교는 예외" 적기 |
-| 4-1 | E | sessionId 생성은 `Ids.newId()`(`common/model/Ids.java`)로 확정 | 4-1 member.application | 문구 삭제 |
-| 4-1 | D | `sid` 없는 옛 토큰은 거절, device(`User-Agent` 200자)를 Command 필드로 넘김(4-3과 같은 결정), refresh 때 회원 행이 없으면 401 후 세션 삭제 | 4-1 정책(device), common.security, member.application, member.web | 권장안으로 확정 |
-| 4-2 | A | 존재하는 이메일만 429가 나와 "항상 202" 정책과 충돌, 가입 여부가 노출됨 | 4-2 member.application (requestReset) | 사용자 결정 |
-| 4-2 | A | 비밀번호 재설정 메일 제목·본문 문구(테스트가 의존) | 4-2 member.application (requestReset), 완료 확인 테스트 준비 | 사용자 결정 |
-| 4-2 | D | 재설정 확인에서 코드는 통과했는데 회원이 없으면 400 `EMAIL_CODE_INVALID`로 통일 | 4-2 member.application (confirmReset) | 확정 |
-| 4-3 | A | `OAuthLoginResponse` 필드 모양(token 중첩 vs 펼침). 테스트 JSON 경로가 달림 | 4-3 member.web, 완료 확인 | 사용자 결정 |
-| 4-3 | B | 제공자별 authorize 파라미터·Naver `state` 요구·읽는 필드 경로, `@PathVariable` enum이 소문자 `kakao`를 받는지 | 4-3 member.infrastructure, member.web | 제공자 문서·테스트로 확인 |
-| 4-3 | C | `FakeOAuthServer` 규격에 요청 기록(`requests`)·`failWith` 범위·Kakao id 숫자 응답이 없음, 가입 인증 메일 제목·본문이 4-2와 같은지 | 4-3 가짜 제공자 서버, 완료 확인 | 규격 절에 추가 |
-| 4-3 | D | state consume을 Lua·원자 삭제로, 가입 토큰용 코드 발송 메서드 위치, 소셜 컨트롤러 이름, `providerEmail`은 제공자가 준 이메일(없으면 null) | 4-3 member.domain, member.application, member.web, 완료 확인 | 권장안으로 확정 |
-| 4-4 | C | `NotificationType`에 `BANNED`가 3-5에 없다는 표현. 3-5 문서는 4-4에서 추가한다고 계획함 | 3-5 notification.domain, 4-4 notification.domain·notification.application·notification.infrastructure | 문구 정리 |
-| 4-4 | D | `tokenVersion` 조회 시 회원 행 없으면 401, 검색 쿼리 시그니처·대소문자·정렬, 관리자 컨트롤러·테스트 헬퍼 이름, `BANNED` 회원은 `loginAttemptStore.reset`하지 않음 | 4-4 member.domain, member.infrastructure, member.application, member.web, 완료 확인 | 권장안으로 확정 |
+| 4-3 | B | Naver의 authorize 파라미터·토큰 요청의 `state` 요구·`response.id`/`response.email` 필드(Kakao·Google은 확인함. 조회 도구가 Naver 개발자센터를 막아 못 열었다), `@PathVariable` enum이 소문자 `kakao`를 받는지 | 4-3 member.infrastructure, member.web | Naver 문서를 붙여 주거나 직접 확인, enum은 테스트로 확인 |
 
 ### Part 5
 
