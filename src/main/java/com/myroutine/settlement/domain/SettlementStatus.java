@@ -9,7 +9,7 @@ import java.util.Set;
 public enum SettlementStatus {
     CALCULATED, PAID, PAYOUT_FAILED;
 
-    public static final Map<SettlementStatus, Set<SettlementStatus>> ALLOWED = Map.of(
+    private static final Map<SettlementStatus, Set<SettlementStatus>> ALLOWED = Map.of(
             CALCULATED, Set.of(PAID, PAYOUT_FAILED),
             PAYOUT_FAILED, Set.of(PAID, PAYOUT_FAILED)
     );

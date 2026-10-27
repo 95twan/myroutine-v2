@@ -13,7 +13,8 @@ public record OrderSnapshot(
         Map<UUID, LineState> linesByProduct,
         List<String> shopOrderStatuses,
         List<String> refundStatuses,
-        PaymentState payment
+        PaymentState payment,
+        String status
 ) {
 
     public LineState line(UUID productId) {

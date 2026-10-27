@@ -67,14 +67,7 @@ public class TestFixtures {
     }
 
     public UUID openShop(UUID memberId, String businessNumber) {
-        OpenShopCommand command = new OpenShopCommand(
-                "shop",
-                businessNumber,
-                "shop@test.com",
-                "010-1111-1111",
-                "shop address"
-        );
-        return openShopService.open(memberId, command);
+        return openShop(memberId, businessNumber, "shop@test.com");
     }
 
     public void closeShop(UUID shopId) {
@@ -267,7 +260,9 @@ public class TestFixtures {
                         rs.getLong("amount"), rs.getLong("cancelled_amount"), rs.getString("status"), rs.getString("payment_key")),
                 orderId);
 
-        return new OrderSnapshot(lines, shopOrderStatuses, refundStatuses, payments.isEmpty() ? null : payments.get(0));
+        List<String> status = jdbcTemplate.queryForList("SELECT status FROM orders.orders WHERE id = ?", String.class, orderId);
+
+        return new OrderSnapshot(lines, shopOrderStatuses, refundStatuses, payments.isEmpty() ? null : payments.getFirst(), status.isEmpty() ? null : status.getFirst());
     }
 
     public UUID orderLineIdOf(UUID orderId, UUID productId) {
@@ -600,4 +595,73 @@ public class TestFixtures {
         return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement.settlement_item WHERE settlement_id IS NULL", Long.class);
     }
 
+    public List<NotificationRow> notificationRowsOf(UUID memberId) {
+        return jdbcTemplate.query("""
+                        SELECT member_id, type, channel, recipient, title, status, attempts, last_error, dedup_key, sent_at, next_attempt_at
+                        FROM notification.notification
+                        WHERE member_id = ?
+                        ORDER BY created_at, id
+                        """,
+                (rs, rowNum) -> {
+                    Instant sentAt = rs.getTimestamp("sent_at") != null ? rs.getTimestamp("sent_at").toInstant() : null;
+                    return new NotificationRow(
+                            rs.getObject("member_id", UUID.class),
+                            rs.getString("type"),
+                            rs.getString("channel"),
+                            rs.getString("recipient"),
+                            rs.getString("title"),
+                            rs.getString("status"),
+                            rs.getString("last_error"),
+                            rs.getString("dedup_key"),
+                            rs.getInt("attempts"),
+                            sentAt,
+                            rs.getTimestamp("next_attempt_at").toInstant()
+                    );
+                },
+                memberId
+        );
+    }
+
+    public List<NotificationRow> notificationRows() {
+        return jdbcTemplate.query("""
+                        SELECT member_id, type, channel, recipient, title, status, attempts, last_error, dedup_key, sent_at, next_attempt_at
+                        FROM notification.notification
+                        ORDER BY created_at, id
+                        """,
+                (rs, rowNum) -> {
+                    Instant sentAt = rs.getTimestamp("sent_at") != null ? rs.getTimestamp("sent_at").toInstant() : null;
+                    return new NotificationRow(
+                            rs.getObject("member_id", UUID.class),
+                            rs.getString("type"),
+                            rs.getString("channel"),
+                            rs.getString("recipient"),
+                            rs.getString("title"),
+                            rs.getString("status"),
+                            rs.getString("last_error"),
+                            rs.getString("dedup_key"),
+                            rs.getInt("attempts"),
+                            sentAt,
+                            rs.getTimestamp("next_attempt_at").toInstant()
+                    );
+                }
+        );
+    }
+
+    public UUID openShop(UUID memberId, String businessNumber, String email) {
+        OpenShopCommand command = new OpenShopCommand(
+                "shop",
+                businessNumber,
+                email,
+                "010-1111-1111",
+                "shop address"
+        );
+        return openShopService.open(memberId, command);
+    }
+
+    public void setNotificationsDue() {
+        jdbcTemplate.update("""
+                UPDATE notification.notification
+                SET next_attempt_at = now() - interval '1 second'
+                """);
+    }
 }
