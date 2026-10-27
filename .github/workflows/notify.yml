@@ -7,10 +7,11 @@ on:
 
 jobs:
   telegram:
-    # CI 성공은 곧 CD가 이어지므로 건너뛰고, 실패와 CD 성공만 알린다.
+    # push의 CI 성공은 곧 CD가 이어지므로 건너뛴다. 실패, CD 성공, PR의 CI 성공을 알린다.
     if: >-
       github.event.workflow_run.conclusion == 'failure' ||
-      (github.event.workflow_run.name == 'CD' && github.event.workflow_run.conclusion == 'success')
+      (github.event.workflow_run.name == 'CD' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event.workflow_run.name == 'CI' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request')
     runs-on: ubuntu-latest
     steps:
       - name: Send Telegram message
