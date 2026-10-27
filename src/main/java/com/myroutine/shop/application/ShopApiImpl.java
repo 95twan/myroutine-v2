@@ -2,6 +2,7 @@ package com.myroutine.shop.application;
 
 import com.myroutine.common.error.BusinessException;
 import com.myroutine.shop.api.ShopApi;
+import com.myroutine.shop.api.ShopContact;
 import com.myroutine.shop.api.ShopInfo;
 import com.myroutine.shop.domain.Shop;
 import com.myroutine.shop.domain.ShopErrorCode;
@@ -73,11 +74,12 @@ class ShopApiImpl implements ShopApi {
     }
 
     @Override
-    public UUID getOwnerId(UUID shopId) {
+    @Transactional(readOnly = true)
+    public ShopContact getContact(UUID shopId) {
         Shop shop = shopRepository.findById(shopId).orElseThrow(
                 () -> new BusinessException(ShopErrorCode.SHOP_NOT_FOUND)
         );
-        return shop.getMemberId();
+        return new ShopContact(shop.getMemberId(), shop.getEmail());
     }
 
     @Override

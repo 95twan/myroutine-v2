@@ -26,6 +26,9 @@ public abstract class IntegrationTestSupport {
     @Autowired
     FakePayoutGateway payoutGateway;
 
+    @Autowired
+    FakeMailSender mailSender;
+
     protected static final FakePgServer pg = FakePgServer.start();
 
     @ServiceConnection
@@ -71,5 +74,10 @@ public abstract class IntegrationTestSupport {
     @AfterEach
     void resetFakePayoutGateway() {
         payoutGateway.reset();
+    }
+
+    @AfterEach
+    void resetFakeMailSender() {
+        mailSender.reset();
     }
 }
