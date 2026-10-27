@@ -138,4 +138,16 @@ public interface JpaOrderRepository extends JpaRepository<Order, UUID>, OrderRep
             where so.shopId = :shopId and so.status in :statuses
             """)
     boolean existsByShopIdAndStatusIn(UUID shopId, Collection<ShopOrderStatus> statuses);
+
+    @Query("""
+            select count(o) > 0
+            from Order o
+            where o.memberId = :memberId
+            and (
+                    o.status in :orderStatuses
+                    or exists (select 1 from ShopOrder so where so.orderId = o.id and so.status in :shopOrderStatuses)
+                    or exists (select 1 from Refund r where r.orderId = o.id and r.status in :refundStatuses)
+                )
+            """)
+    boolean existsActiveByMemberId(UUID memberId, Collection<OrderStatus> orderStatuses, Collection<ShopOrderStatus> shopOrderStatuses, Collection<RefundStatus> refundStatuses);
 }

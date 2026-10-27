@@ -8,6 +8,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -47,6 +48,9 @@ public class Member extends BaseTimeEntity {
     @Version
     @Column(name = "version", nullable = false)
     private Long version;
+
+    @Column(name = "withdrawn_at")
+    private Instant withdrawnAt;
 
     public static String normalizeEmail(String raw) {
         return raw.strip().toLowerCase(Locale.ROOT);
@@ -94,5 +98,15 @@ public class Member extends BaseTimeEntity {
         if (this.role == MemberRole.SELLER) {
             this.role = MemberRole.USER;
         }
+    }
+
+    public void withdraw(Instant now) {
+        this.status = this.status.transitTo(MemberStatus.WITHDRAWN);
+        this.email = "withdrawn+" + this.id + "@deleted.invalid";
+        this.nickname = "탈퇴-" + this.id.toString().substring(0, 8);
+        this.name = "탈퇴회원";
+        this.phone = null;
+        this.passwordHash = null;
+        this.withdrawnAt = now;
     }
 }

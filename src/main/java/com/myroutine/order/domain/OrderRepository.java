@@ -48,4 +48,6 @@ public interface OrderRepository {
     List<AutoConfirmTarget> findAutoConfirmTargets(ShopOrderStatus status, Instant before, Instant cursorAt, UUID cursorId, Limit limit);
 
     boolean existsByShopIdAndStatusIn(UUID shopId, Collection<ShopOrderStatus> statuses);
+
+    boolean existsActiveByMemberId(UUID memberId, Collection<OrderStatus> orderStatuses, Collection<ShopOrderStatus> shopOrderStatuses, Collection<RefundStatus> refundStatuses);
 }

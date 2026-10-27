@@ -19,4 +19,6 @@ public interface SettlementRepository {
     List<Settlement> findByShopIdFirstPage(UUID shopId, Limit limit);
 
     List<Settlement> findByShopIdAfter(UUID shopId, Instant cursorAt, UUID cursorId, Limit limit);
+
+    boolean existsByShopIdInAndStatusNot(Collection<UUID> shopIds, SettlementStatus status);
 }

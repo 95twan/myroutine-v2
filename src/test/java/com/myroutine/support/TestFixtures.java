@@ -324,12 +324,23 @@ public class TestFixtures {
     }
 
     public MemberSnapshot memberSnapshotOf(UUID memberId) {
+        List<AddressState> addressStates = jdbcTemplate.query("SELECT id, recipient, address2, is_default FROM member.member_address WHERE member_id = ? ORDER BY created_at, id",
+                (rs, rowNum) -> new AddressState(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("recipient"),
+                        rs.getString("address2"),
+                        rs.getBoolean("is_default")
+                ),
+                memberId
+        );
+
         return jdbcTemplate.queryForObject("""
-                        SELECT nickname, name, phone, password_hash, role, status, email, created_at, updated_at
+                        SELECT nickname, name, phone, password_hash, role, status, email, withdrawn_at, created_at, updated_at
                         FROM member.member
                         WHERE id = ?
                         """,
                 (rs, rowNum) -> {
+                    Timestamp withdrawnAt = rs.getTimestamp("withdrawn_at");
                     return new MemberSnapshot(
                             rs.getString("nickname"),
                             rs.getString("name"),
@@ -338,8 +349,10 @@ public class TestFixtures {
                             rs.getString("role"),
                             rs.getString("status"),
                             rs.getString("email"),
+                            withdrawnAt != null ? withdrawnAt.toInstant() : null,
                             rs.getTimestamp("created_at").toInstant(),
-                            rs.getTimestamp("updated_at").toInstant()
+                            rs.getTimestamp("updated_at").toInstant(),
+                            addressStates
                     );
                 },
                 memberId);
@@ -663,5 +676,30 @@ public class TestFixtures {
                 UPDATE notification.notification
                 SET next_attempt_at = now() - interval '1 second'
                 """);
+    }
+
+    public CartSnapshot cartSnapshotOf(UUID memberId) {
+        int cartCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM orders.cart WHERE member_id = ?", Integer.class, memberId);
+        String sql = """
+                    SELECT ci.product_id, ci.quantity
+                    FROM orders.cart_item ci
+                    JOIN orders.cart c ON c.id = ci.cart_id
+                    WHERE c.member_id = ?
+                """;
+
+        Map<UUID, Integer> quantityByProduct = jdbcTemplate.query(
+                sql,
+                rs -> {
+                    Map<UUID, Integer> map = new HashMap<>();
+                    while (rs.next()) {
+                        UUID productId = rs.getObject("product_id", UUID.class);
+                        int quantity = rs.getInt("quantity");
+                        map.put(productId, quantity);
+                    }
+                    return map;
+                },
+                memberId
+        );
+        return new CartSnapshot(cartCount, quantityByProduct);
     }
 }

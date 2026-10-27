@@ -12,4 +12,5 @@ public interface MemberAddressRepository {
     boolean existsByMemberId(UUID memberId);
     void delete(MemberAddress memberAddress);
     void flush();
+    void deleteAllByMemberId(UUID memberId);
 }

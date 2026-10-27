@@ -49,4 +49,11 @@ public interface JpaSettlementRepository extends JpaRepository<Settlement, UUID>
             order by s.createdAt desc, s.id desc
             """)
     List<Settlement> findByShopIdAfter(UUID shopId, Instant cursorAt, UUID cursorId, Limit limit);
+
+    @Query("""
+            SELECT count(*) > 0
+            FROM Settlement s
+            WHERE s.status != :status AND s.shopId IN :shopIds
+            """)
+    boolean existsByShopIdInAndStatusNot(Collection<UUID> shopIds, SettlementStatus status);
 }

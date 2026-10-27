@@ -9,4 +9,5 @@ public interface MemberRepository {
     boolean existsByEmail(String email);
     boolean existsByNickname(String nickname);
     Optional<Member> findByEmail(String email);
+    Optional<Member> findByIdForUpdate(UUID id);
 }
