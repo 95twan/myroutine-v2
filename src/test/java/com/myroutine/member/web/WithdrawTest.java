@@ -69,7 +69,7 @@ class WithdrawTest extends IntegrationTestSupport {
         // Given
         UUID memberId = testFixtures.signup("member@test.com");
         String token = testFixtures.login("member@test.com");
-        UUID shopId = testFixtures.openShop(memberId, "1111111111");
+        testFixtures.openShop(memberId, "1111111111");
 
         MemberSnapshot before = testFixtures.memberSnapshotOf(memberId);
 
@@ -530,7 +530,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
         MemberSnapshot s = testFixtures.memberSnapshotOf(memberId);
         assertThat(s.email()).isEqualTo("withdrawn+" + memberId + "@deleted.invalid");
-        assertThat(s.nickname()).isEqualTo("탈퇴-" + memberId.toString().substring(0, 8));
+        assertThat(s.nickname()).isEqualTo("탈퇴-" + memberId.toString().replace("-", "").substring(15));
         assertThat(s.name()).isEqualTo("탈퇴회원");
         assertThat(s.phone()).isNull();
         assertThat(s.passwordHash()).isNull();

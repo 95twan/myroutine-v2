@@ -79,7 +79,7 @@ class MemberTest {
         // Then
         assertThat(member.getStatus()).isEqualTo(MemberStatus.WITHDRAWN);
         assertThat(member.getEmail()).isEqualTo("withdrawn+" + member.getId() + "@deleted.invalid");
-        assertThat(member.getNickname()).isEqualTo("탈퇴-" + member.getId().toString().substring(0, 8));
+        assertThat(member.getNickname()).isEqualTo("탈퇴-" + member.getId().toString().replace("-", "").substring(15));
         assertThat(member.getName()).isEqualTo("탈퇴회원");
         assertThat(member.getPhone()).isNull();
         assertThat(member.getPasswordHash()).isNull();
@@ -124,5 +124,22 @@ class MemberTest {
                         e -> assertThat(e.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_STATE_TRANSITION));
 
         assertThat(member.getWithdrawnAt()).isEqualTo(now);
+    }
+
+    @Test
+    @DisplayName("ID 앞쪽이 같은 두 회원이 탈퇴해도 닉네임은 서로 다르다.")
+    void withdraw_members_with_same_id_prefix_get_different_nicknames() {
+        // Given
+        Member member1 = Member.signUp("test1@test.com", "pass1234", "test1", "테스트1");
+        Member member2 = Member.signUp("test2@test.com", "pass1234", "test2", "테스트2");
+
+        Instant now = Instant.now();
+
+        // When
+        member1.withdraw(now);
+        member2.withdraw(now);
+
+        // Then
+        assertThat(member1.getNickname()).isNotEqualTo(member2.getNickname());
     }
 }

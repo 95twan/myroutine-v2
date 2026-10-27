@@ -103,7 +103,7 @@ public class Member extends BaseTimeEntity {
     public void withdraw(Instant now) {
         this.status = this.status.transitTo(MemberStatus.WITHDRAWN);
         this.email = "withdrawn+" + this.id + "@deleted.invalid";
-        this.nickname = "탈퇴-" + this.id.toString().substring(0, 8);
+        this.nickname = "탈퇴-" + this.id.toString().replace("-", "").substring(15);
         this.name = "탈퇴회원";
         this.phone = null;
         this.passwordHash = null;

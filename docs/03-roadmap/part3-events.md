@@ -1,6 +1,7 @@
 # Part 3. 이벤트
 
-> 버전 0.75 · 2026-10-27 · **3-6 완료 확인 3번을 표로 나눴고, 4번의 `PAID` 행 준비를 실패 행에 이어 붙이지 않고 독립으로 바꿨다**(`PAID` 여부는 최종 상태만 보므로 실패 뒤 재시도 경로는 필요 없다). 항목 변경 없음
+> 버전 0.76 · 2026-10-28 · **3-6 탈퇴 닉네임을 ID 앞 8자에서 하이픈을 뺀 뒤 17자로 바꿨다**(리뷰: ID가 UUIDv7이라 앞 8자는 약 65초 단위로만 달라, 같은 시간대에 가입한 두 회원이 탈퇴하면 `uk_member_nickname`을 어겨 두 번째 탈퇴가 실패한다). `MemberTest` 4번을 더했다. 완료 확인 항목 외 변경 없음
+> 0.75 · 2026-10-27 · **3-6 완료 확인 3번을 표로 나눴고, 4번의 `PAID` 행 준비를 실패 행에 이어 붙이지 않고 독립으로 바꿨다**(`PAID` 여부는 최종 상태만 보므로 실패 뒤 재시도 경로는 필요 없다). 항목 변경 없음
 > 0.73 · 2026-10-27 · **3-6 장바구니 삭제를 항목 일괄 삭제로 바꿨다**(`CartItemRepository.deleteAllByCartId`, 항목 수와 상관없이 쿼리 3번. `deleteAll`은 지운다). 환불 조회는 `refund.order_id`로만 잇는다(환불의 `member_id` 비교는 중복이었다)
 > 0.72 · 2026-10-27 · **3-6 착수로 확인 필요를 확정했다**(진행 중 환불의 상태 집합은 `REQUESTED`·`APPROVED`·`PG_CANCELLED`로 사용자가 정했다. 구매자 진행 중 조회·settlement 탈퇴 조건 조회의 메서드 이름·시그니처와 배송지 일괄 삭제 메서드를 정했다. 규격 변경 외 항목 변경 없음)
 > 0.71 · 2026-10-27 · **3-5 `dispatchBatch`의 try/catch 구조를 3-4 `payoutAll`과 같게 적었고, 같은 내용이 두 곳에 있던 것을 한 곳으로 합쳤다**(리뷰: 건별 try/catch 범위가 모호했다. 9) 테스트용 발송기 절, "헬퍼를 쓰는 방법"의 알림 행·보낸 메일 줄, `MailSender`·`dedup_key`·재시도 횟수 설명의 반복을 정리했다. 3-5 밖에서도 3-1 "10) 테스트 헬퍼" 절을 "테스트 준비" 표로 합치고 3-1~3-6의 "헬퍼를 쓰는 방법"이 되풀이하던 필드 목록, 3-2·3-3·3-4·3-6 구현 설명이 앞의 표·정책과 되풀이하던 문장을 정리했다): 안쪽 `try`는 `send`만, 바깥 `try`는 알림 한 건 전체를 감싼다. 가게 이메일을 바꾸는 `setShopEmail` 헬퍼 대신 `openShop`에 이메일을 받는 오버로드를 쓴다. 3번에 섞여 있던 "5분 뒤 재시도"와 "FAILED는 다시 보내지 않음" 확인을 7·8번 케이스로 나눴다. 3-4에 빠져 있던 `SettlementStatusTest`를 더했다(다른 상태 enum과 같이 전이표 전 쌍을 확인한다). 3-5 밖에서도 한 케이스에 섞인 서로 다른 확인을 나눴다(README 4.1의 5번. 원래 번호는 그대로 두고 뗀 확인은 클래스 끝 번호 뒤에 이었다): `OutboxPublisherTest` 3번(trace_id를 5번으로), `OutboxRelayTest` 1·4번(다시 발행하지 않음을 6·7번으로), `InboxGuardTest` 2번(다른 eventId를 6번으로), 상품 `EventPublishingTest` 4번(단종을 6번으로), order 이벤트 테스트 1·6·7·8·11번(13~17번), `SettlementServiceTest` 5·6번(10·11번), `SettlementControllerTest` 6번(7번), `WithdrawTest` 6번(10·11번)
@@ -1858,7 +1859,7 @@ DB 없이 `new NotificationComposer()`로 만든다. 인자는 권장안(`compos
 | `ACTIVE_ORDER` | 결제 대기·진행 중 주문, 또는 구매자로서 종결되지 않은 가게주문(PAID·SHIPPED·DELIVERED), 진행 중 환불(`REQUESTED`·`APPROVED`·`PG_CANCELLED`, 발송 가드와 같은 집합) | order 구현 |
 | `PENDING_SETTLEMENT` | 내 가게(CLOSED 포함)에 미정산 품목 또는 PAID가 아닌 정산이 있다 (OPEN-07) | settlement 구현 |
 
-- 마스킹(OPEN-01: 같은 이메일로 재가입 가능하게): email `withdrawn+{memberId}@deleted.invalid`, nickname `탈퇴-{memberId 앞 8자}`, name `탈퇴회원`, phone null, password_hash null, 배송지 전부 삭제.
+- 마스킹(OPEN-01: 같은 이메일로 재가입 가능하게): email `withdrawn+{memberId}@deleted.invalid`, nickname `탈퇴-{memberId에서 하이픈을 뺀 32자의 뒤 17자}`(`uk_member_nickname` 때문에 탈퇴한 회원끼리 겹치면 안 된다. ID는 UUIDv7이라 앞쪽은 시각이어서 약 65초 안에 가입한 회원은 앞 8자가 같다. 뒤쪽은 무작위여서 겹치지 않고, `탈퇴-` 3자와 합쳐 `varchar(20)`에 딱 맞는다), name `탈퇴회원`, phone null, password_hash null, 배송지 전부 삭제.
 - 탈퇴한 회원의 기존 토큰은 Part 4(4-4 tokenVersion, 그때 탈퇴에도 버전 올리기를 붙인다)부터 즉시 막힌다. 그 전까지는 토큰 만료(1시간)까지 유효하다는 한계를 PR에 적는다.
 
 ### 할 일
@@ -1871,7 +1872,7 @@ DB 없이 `new NotificationComposer()`로 만든다. 인자는 권장안(`compos
 
 | 클래스 | 규격 |
 |---|---|
-| `Member` | 필드 `withdrawnAt`과 메서드 `withdraw(Instant now)`를 더한다. `@Column(name = "withdrawn_at") Instant withdrawnAt`. `withdraw`: `this.status = this.status.transitTo(MemberStatus.WITHDRAWN)`(`MemberStatus`가 ACTIVE → WITHDRAWN만 허용하므로 BANNED·이미 WITHDRAWN이면 `INVALID_STATE_TRANSITION`), 위 정책의 마스킹 값을 필드에 대입(`{memberId}`는 `id`, 앞 8자는 `id.toString().substring(0, 8)`), `withdrawnAt = now`. 원래 이메일이 사라지므로 같은 이메일로 다시 가입해도 중복 검사에 걸리지 않는다(완료 확인) |
+| `Member` | 필드 `withdrawnAt`과 메서드 `withdraw(Instant now)`를 더한다. `@Column(name = "withdrawn_at") Instant withdrawnAt`. `withdraw`: `this.status = this.status.transitTo(MemberStatus.WITHDRAWN)`(`MemberStatus`가 ACTIVE → WITHDRAWN만 허용하므로 BANNED·이미 WITHDRAWN이면 `INVALID_STATE_TRANSITION`), 위 정책의 마스킹 값을 필드에 대입(`{memberId}`는 `id`, 뒤 17자는 `id.toString().replace("-", "").substring(15)`), `withdrawnAt = now`. 원래 이메일이 사라지므로 같은 이메일로 다시 가입해도 중복 검사에 걸리지 않는다(완료 확인) |
 | `MemberErrorCode` | `MEMBER_HAS_ACTIVE_RESOURCES` 추가: 422(공통 규칙 R) |
 | `MemberRepository` | 잠금 조회를 더한다: `@Lock(PESSIMISTIC_WRITE)`를 단 `Optional<Member>` 조회(이름은 자유, `member.infrastructure`의 `JpaMemberRepository`에 구현). 같은 회원의 탈퇴 요청이 겹쳐도 한 번에 하나씩 처리된다 |
 | `MemberAddressRepository` | `void deleteAllByMemberId(UUID memberId)`: 그 회원의 배송지를 한 쿼리로 모두 삭제한다. `member.infrastructure`의 `JpaMemberAddressRepository`에 `@Modifying @Query("delete from MemberAddress a where a.memberId = :memberId")`로 구현한다. 배송지는 `MemberAddress.memberId` 컬럼만으로 지울 수 있고 삭제 전에 엔티티를 읽을 이유가 없어서, 건별 `delete`가 N번 나가는 것을 피한다 |
@@ -1976,7 +1977,7 @@ DB 없이 `new NotificationComposer()`로 만든다. 인자는 권장안(`compos
 **1. 탈퇴하면 개인정보가 마스킹된다** — 동작: `member.withdraw(now)`.
 - `getStatus()` = `WITHDRAWN`.
 - `getEmail()` = `"withdrawn+" + id + "@deleted.invalid"`.
-- `getNickname()` = `"탈퇴-" + id.toString().substring(0, 8)`.
+- `getNickname()` = `"탈퇴-" + id.toString().replace("-", "").substring(15)`.
 - `getName()` = `탈퇴회원`.
 - `getPhone()` = null, `getPasswordHash()` = null.
 - `getWithdrawnAt()` = `now`.
@@ -1988,6 +1989,10 @@ DB 없이 `new NotificationComposer()`로 만든다. 인자는 권장안(`compos
 **3. 이미 탈퇴한 회원의 두 번째 탈퇴** — 동작: `member.withdraw(now)` 뒤 `member.withdraw(now.plusSeconds(60))`.
 - 두 번째가 `BusinessException`, `INVALID_STATE_TRANSITION`.
 - `getWithdrawnAt()` = 첫 번째 `now` 그대로.
+
+**4. 앞쪽이 같은 ID의 두 회원이 탈퇴해도 닉네임이 다르다** — 준비: `Member.signUp`으로 회원 둘을 연달아 만든다(UUIDv7 `id`의 앞 8자가 같은 시각 접두사를 공유한다). 동작: 둘 다 `member.withdraw(now)`.
+- 두 `getNickname()`이 서로 다르다.
+- 각각 `"탈퇴-" + id.toString().replace("-", "").substring(15)`다.
 
 #### `member/web/WithdrawTest`
 
@@ -2033,7 +2038,7 @@ DB 없이 `new NotificationComposer()`로 만든다. 인자는 권장안(`compos
 
 **6. 탈퇴 성공** — 준비: 회원에게 `address(memberId)`를 두 번(배송지 2개), `addToCart(memberId, product1Id, 2)`, 조건 위반 없음. `OutboxAssert.clear()`. 동작: 탈퇴 요청.
 - 응답 204, 본문 없음.
-- 탈퇴 뒤 `s = memberSnapshotOf(memberId)`: `email()` = `withdrawn+{memberId}@deleted.invalid`, `nickname()` = `탈퇴-{memberId 앞 8자}`, `name()` = `탈퇴회원`, `phone()` null, `passwordHash()` null, `withdrawnAt()` not null, `addresses().size()` = 0.
+- 탈퇴 뒤 `s = memberSnapshotOf(memberId)`: `email()` = `withdrawn+{memberId}@deleted.invalid`, `nickname()` = `탈퇴-{memberId에서 하이픈을 뺀 32자의 뒤 17자}`, `name()` = `탈퇴회원`, `phone()` null, `passwordHash()` null, `withdrawnAt()` not null, `addresses().size()` = 0.
 - `rows("member.member-withdrawn.v1")` 정확히 1건: `aggregateType()` = `MEMBER`, `aggregateId()` = memberId, payload `memberId` = memberId 문자열.
 
 **7. 탈퇴 뒤 장바구니가 비워진다** — 준비: 6번의 회원(장바구니 항목 1개)과 다른 구매자 `other@test.com`(`addToCart(otherId, product1Id, 1)`). 탈퇴 요청(204) 뒤 `eventId` = `rows("member.member-withdrawn.v1")`의 `id()`. 동작: `outboxRelay.relayOnce()`.
