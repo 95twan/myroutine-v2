@@ -1,6 +1,6 @@
 # Phase 2. 설계서 (MyRoutine v2)
 
-> 버전 0.1 · 2026-10-02 · 근거: [01-requirements](../01-requirements/README.md), [00-as-is](../00-as-is/README.md)
+> 버전 0.1 · 2026-10-02
 
 ## 문서 구성
 | 문서 | 내용 |

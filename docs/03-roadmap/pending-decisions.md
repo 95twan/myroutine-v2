@@ -1,20 +1,7 @@
 # 구현 때 정할 것
 
-> 버전 0.15 · 2026-10-27 · 3-6 착수로 2절의 3-6 행(배송지 일괄 삭제)과 4절의 3-6 행 2개(진행 중 환불 상태 집합 A, settlement 탈퇴 조건 조회 이름 D)를 지웠다
-> 0.14 · 2026-10-27 · 같은 항목이 두 절에 있던 것을 한 곳으로 합쳤다: 2절의 7-2 호스트 포트·5-3 `findDueIds` 첫 `lastId`·6-6 `InquiryAnswer` 생성 위치 행을 4절의 같은 항목에 합치고, 4절 머리말과 ADR-012 행이 되풀이하던 설명을 줄였다. 항목·결정 변경 없음
-> 0.13 · 2026-10-26 · 위치 열의 줄 번호 참조를 단계·절 이름으로 바꿨다(로드맵 '할 일'을 계층별 절로 통일해 줄 번호가 어긋났다). 항목·결정 변경 없음
-> 0.12 · 2026-10-26 · 3-5 착수로 2절의 3 공통 규칙 S 행(`notification`의 `payment::api`, `order` 행 표기)과 4절의 3-5 행 2개(`getContact`의 `BANNED` 값 A·`Notification` 구현 방식과 제목 서식 D)를 지웠다
-> 0.11 · 2026-10-25 · 3-4b 착수로 2절의 3-4b 행(`SettlementItemRow`의 `Instant` 매핑, B)을 지웠다(임시 통합 테스트로 매핑을 확인했다)
-> 0.10 · 2026-10-24 · 3-4 착수로 2절의 3-4a·3-4b 행 4개와 공통 규칙 P(`LocalDate` 허용) 행, 4절의 3-4a·3-4b 행을 지웠다(3-4b `SettlementItemRow`의 `Instant` 매핑 B 행은 새로 남겼다)
-> 0.9 · 2026-10-23 · 3-3 착수로 4절의 3-3 행(`existsByShopIdAndStatusIn` 위치, E: 코드가 `JpaOrderRepository`에 이미 둠)을 지웠다
-> 0.8 · 2026-10-23 · 2절의 `TestFixtures` 헬퍼 위치 행("테스트 준비"가 완료 확인 뒤에 있는 구조)을 지웠다: Part 2~7의 완료 확인에서 "테스트 준비"를 테스트 클래스 앞으로 옮겼다(Part 1은 이미 앞에 있었다)
-> 0.7 · 2026-10-23 · 2절의 `TestFixtures` 헬퍼 위치 행에 3-2는 앞으로 옮겼음을 적었다
-> 0.6 · 2026-10-22 · 3-2 착수로 2절의 3-2 행(`InboxGuard`의 MDC 중복, D)을 지웠다
-> 0.5 · 2026-10-20 · 3-1 착수로 4절의 3-1 행(릴레이 중단 A, 외부 동작 B, `occurredAt` D)을 지웠다
-> 0.4 · 2026-10-20 · Part 2 마무리로 4절의 2-5 `JobLock` 예외(E), 2-8a 잠금 범위(B, 테스트 SQL 로그로 확인), 2-8a `RefundResponse`(E) 행을 지웠다
-> 0.3 · 2026-10-20 · 2-10 착수로 2절의 "전체 상수 위치"(서비스 안 상수로 확정)와 "2-7~2-10 권장 이름"(구현된 이름으로 확정), 4절의 2-10 행(150건 테스트)과 상태 조합 4번(구매확정의 가게주문 재계산)을 지웠다
-> 0.2 · 2026-10-19 · 4절을 더했다: 로드맵·설계 문서의 열린 "확인 필요"를 단계별로 모았다(서브에이전트 4개가 파일 그룹별로 추출, 줄 번호는 이 날짜 기준). 2-9 `approve`의 `findByIdForUpdate` 행은 락 없이 가기로 정해(로드맵 0.90) 지웠다
-> 0.1 · 2026-10-16 · 로드맵·설계 문서 전체에서 "쓰지 않는 요소", "재사용하려고 억지로 맞춘 경로", 단계 사이 어긋남을 점검한 결과 중 아직 결정하지 않은 항목을 모았다. 점검은 문서와 `src/`를 grep으로 확인한 것이고 코드를 실행하지는 않았다.
+> 버전 0.16 · 2026-10-28 · 기기 목록 기능을 쓰지 않아 4-1·4-3의 `device` 전달 사슬과 Redis `auth:session`의 `device`를 없앴다. 4-1 `rotate`·`findMemberId`의 Redis 두 번 호출은 합치지 않는다
+> 0.2 · 2026-10-19 · 2-9 `approve`는 `findByIdForUpdate` 락 없이 가기로 했다(로드맵 0.90)
 
 각 항목은 해당 단계를 구현할 때 정하고, 정하면 그 단계 문서에 반영한 뒤 이 표에서 지운다. 4절의 "확인 필요"는 단계 착수("N-M 진행할게")를 알리면 Claude가 그 단계 행부터 풀고 시작한다([CLAUDE.md §2](../../CLAUDE.md)).
 
@@ -41,8 +28,6 @@
 | 단계 | 항목 | 선택지와 영향 |
 |---|---|---|
 | 2-6 | `cancel` A-2·A-3의 재조회 | `insertIfAbsent`가 1행이면 방금 만든 `REQUESTED` 행이고 `id`도 알아서 재조회가 필요 없다. 0행일 때만 읽으면 취소마다 SELECT가 하나 준다. 분기가 늘어난다 |
-| 4-1·4-3 | `device` 전달 사슬(`User-Agent` → `signUp`/`login` → `TokenIssuer` → `SessionStore.create` → Redis) | 어디서도 읽지 않는다. 지우면 인자와 4-1의 "확인 필요" 문단 두 개가 줄지만 ERD의 "기기"와 FR-MEM-03(기기별 세션)에 걸린다. 기기 목록 기능을 쓸 계획이면 남긴다 |
-| 4-1 | `rotate`와 `findMemberId`가 Redis를 두 번 부른다 | 합치려면 Lua가 memberId와 재사용 여부를 함께 돌려줘야 한다. "세션 없음"과 "재사용" 구분이 3상태 반환으로 복잡해진다 |
 | 5-3 | `Order.markPaymentInProgress()` 신설 | 방금 만든 구독 주문에 2-4 `startPayment` CAS를 걸던 것을 대체했다. 거부하면 CAS로 되돌리고 0행 처리를 정한다 |
 | 5-3 | `callBillingCharge`가 `Payment`와 `BillingKey`를 다시 읽는다 | `callConfirm`과 같은 선례다. order가 값을 직접 넘기게 바꿀 수도 있다 |
 | 5-3 | 건너뜀 경로에서 `insertIfAbsent`가 0행일 때 | `runDue` 1.2와 같게 "종료"를 기본값으로 적었다 |
@@ -83,7 +68,6 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 | `settlement.fee_rate_bp`, `settlement.payout_attempts` | 요율 스냅샷과 증가만 하는 카운터. 감사 목적이면 이유를 ERD에 적는다 |
 | `notification.version`·`channel`·`member_id` | 쓰기가 모두 native SQL이라 `version`은 쓰는 곳이 없다 |
 | `subscription.end_reason`, `billing_key.deleted_at`, `product_embedding.model`, `review_summary.source_review_count`·`model`, `inquiry_answer.admin_id` | 쓰기만 하고 읽지 않는다 |
-| Redis `auth:session`의 `device` | 위 4-1·4-3 `device` 전달 사슬 항목과 같다 |
 
 ### API
 
@@ -136,21 +120,7 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 
 | 단계 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
-| 공통 | B | Spring Data Redis 4.x에서 `StringRedisTemplate` 호출 시그니처가 표와 같은지 | Part 4 공통 규칙 T | IDE·공식 문서로 확인 |
-| 4-1 | A | `rotate`가 `auth:member-sessions:{memberId}` TTL도 연장해야 하는지(규칙 T와 불일치) | 4-1 member.domain (rotate) | 사용자 결정 후 인자·규칙 T 수정 |
-| 4-1 | B | `DefaultRedisScript`의 `setLocation`·`setResultType`이 4.x에서 같은 이름인지 | 4-1 member.infrastructure | 4.x API 확인 |
-| 4-1 | C | Lua의 `==` 해시 비교가 규칙 T의 "isEqual 비교"와 어긋남 | 4-1 member.infrastructure (Lua), Part 4 공통 규칙 T | 규칙 T에 "Lua 내부 비교는 예외" 적기 |
-| 4-1 | E | sessionId 생성은 `Ids.newId()`(`common/model/Ids.java`)로 확정 | 4-1 member.application | 문구 삭제 |
-| 4-1 | D | `sid` 없는 옛 토큰은 거절, device(`User-Agent` 200자)를 Command 필드로 넘김(4-3과 같은 결정), refresh 때 회원 행이 없으면 401 후 세션 삭제 | 4-1 정책(device), common.security, member.application, member.web | 권장안으로 확정 |
-| 4-2 | A | 존재하는 이메일만 429가 나와 "항상 202" 정책과 충돌, 가입 여부가 노출됨 | 4-2 member.application (requestReset) | 사용자 결정 |
-| 4-2 | A | 비밀번호 재설정 메일 제목·본문 문구(테스트가 의존) | 4-2 member.application (requestReset), 완료 확인 테스트 준비 | 사용자 결정 |
-| 4-2 | D | 재설정 확인에서 코드는 통과했는데 회원이 없으면 400 `EMAIL_CODE_INVALID`로 통일 | 4-2 member.application (confirmReset) | 확정 |
-| 4-3 | A | `OAuthLoginResponse` 필드 모양(token 중첩 vs 펼침). 테스트 JSON 경로가 달림 | 4-3 member.web, 완료 확인 | 사용자 결정 |
-| 4-3 | B | 제공자별 authorize 파라미터·Naver `state` 요구·읽는 필드 경로, `@PathVariable` enum이 소문자 `kakao`를 받는지 | 4-3 member.infrastructure, member.web | 제공자 문서·테스트로 확인 |
-| 4-3 | C | `FakeOAuthServer` 규격에 요청 기록(`requests`)·`failWith` 범위·Kakao id 숫자 응답이 없음, 가입 인증 메일 제목·본문이 4-2와 같은지 | 4-3 가짜 제공자 서버, 완료 확인 | 규격 절에 추가 |
-| 4-3 | D | state consume을 Lua·원자 삭제로, 가입 토큰용 코드 발송 메서드 위치, 소셜 컨트롤러 이름, `providerEmail`은 제공자가 준 이메일(없으면 null) | 4-3 member.domain, member.application, member.web, 완료 확인 | 권장안으로 확정 |
-| 4-4 | C | `NotificationType`에 `BANNED`가 3-5에 없다는 표현. 3-5 문서는 4-4에서 추가한다고 계획함 | 3-5 notification.domain, 4-4 notification.domain·notification.application·notification.infrastructure | 문구 정리 |
-| 4-4 | D | `tokenVersion` 조회 시 회원 행 없으면 401, 검색 쿼리 시그니처·대소문자·정렬, 관리자 컨트롤러·테스트 헬퍼 이름, `BANNED` 회원은 `loginAttemptStore.reset`하지 않음 | 4-4 member.domain, member.infrastructure, member.application, member.web, 완료 확인 | 권장안으로 확정 |
+| 4-3 | B | Naver의 authorize 파라미터·토큰 요청의 `state` 요구·`response.id`/`response.email` 필드(Kakao·Google은 확인함. 조회 도구가 Naver 개발자센터를 막아 못 열었다), `@PathVariable` enum이 소문자 `kakao`를 받는지 | 4-3 member.infrastructure, member.web | Naver 문서를 붙여 주거나 직접 확인, enum은 테스트로 확인 |
 
 ### Part 5
 

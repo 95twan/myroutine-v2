@@ -1,9 +1,8 @@
 # 10. 상태 조합 — 어떤 상태끼리 함께 있을 수 있고, 어떻게 거기 도달하는가
 
-> 버전 0.4 · 2026-10-20 · 2-10 규격이 `confirmLine`·`autoConfirm`에서 `recalculateShopOrder`를 부르게 정해 확인 필요 4번을 지웠다(뒤 번호가 하나씩 당겨진다)
-> 0.3 · 2026-10-19 · 반품 환불 `FAILED` 때 품목 상태를 정해(로드맵 0.98) 확인 필요 3번을 "남은 것"으로 바꿨다
-> 0.2 · 2026-10-19 · `Order.rejectReturn`에 품목 `RETURN_REQUESTED` 검사를 넣기로 해(로드맵 0.96) 확인 필요 4번을 지웠다
-> 0.1 · 2026-10-19 · 사유: `Order.verifyCancellable`·`Order.requestReturn`의 주문·가게주문 `PAID` 검사를 "품목이 `PAID`이면 항상 참"이라는 불변식으로 뺐는데, 그 근거가 로드맵 버전 줄에만 있고 [04-state-machines](04-state-machines.md)에는 엔티티별 전이만 있어서 엔티티 간 조합을 한 곳에 정리한다
+> 버전 0.4 · 2026-10-20 · 2-10 규격이 `confirmLine`·`autoConfirm`에서 `recalculateShopOrder`를 부르게 정했다
+> 0.3 · 2026-10-19 · 반품 환불 `FAILED` 때 품목 상태를 정했다(로드맵 0.98)
+> 0.2 · 2026-10-19 · `Order.rejectReturn`에 품목 `RETURN_REQUESTED` 검사를 넣기로 했다(로드맵 0.96)
 
 이 문서는 **새 결정을 내리지 않는다.** 코드(2-8b까지 구현, 2-9 작업 중)와 설계 문서([04-state-machines](04-state-machines.md), [03-erd](03-erd.md), 로드맵)에 있는 것을 조합 단위로 다시 모았다. 어긋난 곳은 7절에 "확인 필요"로 적었고 여기서 고치지 않는다.
 
