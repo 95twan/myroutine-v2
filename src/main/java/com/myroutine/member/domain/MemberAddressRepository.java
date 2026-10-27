@@ -6,11 +6,18 @@ import java.util.UUID;
 
 public interface MemberAddressRepository {
     MemberAddress save(MemberAddress memberAddress);
+
     Optional<MemberAddress> findByIdAndMemberId(UUID id, UUID memberId);
+
     List<MemberAddress> findAllByMemberId(UUID memberId);
+
     Optional<MemberAddress> findByMemberIdAndIsDefaultTrue(UUID memberId);
+
     boolean existsByMemberId(UUID memberId);
+
     void delete(MemberAddress memberAddress);
+
     void flush();
+
     void deleteAllByMemberId(UUID memberId);
 }

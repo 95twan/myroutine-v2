@@ -19,10 +19,10 @@ public interface JpaSettlementRepository extends JpaRepository<Settlement, UUID>
     @Query(
             nativeQuery = true,
             value = """
-            INSERT INTO settlement.settlement (id, shop_id, period_start, period_end, fee_rate_bp, status, version, created_at, updated_at)
-            VALUES (:id, :shopId, :start, :end, :bp, 'CALCULATED', 0, :now, :now)
-            ON CONFLICT ON CONSTRAINT uk_settlement_shop_period DO NOTHING
-            """
+                    INSERT INTO settlement.settlement (id, shop_id, period_start, period_end, fee_rate_bp, status, version, created_at, updated_at)
+                    VALUES (:id, :shopId, :start, :end, :bp, 'CALCULATED', 0, :now, :now)
+                    ON CONFLICT ON CONSTRAINT uk_settlement_shop_period DO NOTHING
+                    """
     )
     int insertIfAbsent(UUID id, UUID shopId, LocalDate start, LocalDate end, int bp, Instant now);
 
