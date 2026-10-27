@@ -1,6 +1,7 @@
 # 구현 때 정할 것
 
-> 버전 0.14 · 2026-10-27 · 같은 항목이 두 절에 있던 것을 한 곳으로 합쳤다: 2절의 7-2 호스트 포트·5-3 `findDueIds` 첫 `lastId`·6-6 `InquiryAnswer` 생성 위치 행을 4절의 같은 항목에 합치고, 4절 머리말과 ADR-012 행이 되풀이하던 설명을 줄였다. 항목·결정 변경 없음
+> 버전 0.15 · 2026-10-27 · 3-6 착수로 2절의 3-6 행(배송지 일괄 삭제)과 4절의 3-6 행 2개(진행 중 환불 상태 집합 A, settlement 탈퇴 조건 조회 이름 D)를 지웠다
+> 0.14 · 2026-10-27 · 같은 항목이 두 절에 있던 것을 한 곳으로 합쳤다: 2절의 7-2 호스트 포트·5-3 `findDueIds` 첫 `lastId`·6-6 `InquiryAnswer` 생성 위치 행을 4절의 같은 항목에 합치고, 4절 머리말과 ADR-012 행이 되풀이하던 설명을 줄였다. 항목·결정 변경 없음
 > 0.13 · 2026-10-26 · 위치 열의 줄 번호 참조를 단계·절 이름으로 바꿨다(로드맵 '할 일'을 계층별 절로 통일해 줄 번호가 어긋났다). 항목·결정 변경 없음
 > 0.12 · 2026-10-26 · 3-5 착수로 2절의 3 공통 규칙 S 행(`notification`의 `payment::api`, `order` 행 표기)과 4절의 3-5 행 2개(`getContact`의 `BANNED` 값 A·`Notification` 구현 방식과 제목 서식 D)를 지웠다
 > 0.11 · 2026-10-25 · 3-4b 착수로 2절의 3-4b 행(`SettlementItemRow`의 `Instant` 매핑, B)을 지웠다(임시 통합 테스트로 매핑을 확인했다)
@@ -40,7 +41,6 @@
 | 단계 | 항목 | 선택지와 영향 |
 |---|---|---|
 | 2-6 | `cancel` A-2·A-3의 재조회 | `insertIfAbsent`가 1행이면 방금 만든 `REQUESTED` 행이고 `id`도 알아서 재조회가 필요 없다. 0행일 때만 읽으면 취소마다 SELECT가 하나 준다. 분기가 늘어난다 |
-| 3-6 | 배송지 삭제가 `findAllByMemberId` 뒤 건별 `delete`(N번 쿼리) | 벌크 삭제 메서드를 `MemberAddressRepository`에 더할지 정한다 |
 | 4-1·4-3 | `device` 전달 사슬(`User-Agent` → `signUp`/`login` → `TokenIssuer` → `SessionStore.create` → Redis) | 어디서도 읽지 않는다. 지우면 인자와 4-1의 "확인 필요" 문단 두 개가 줄지만 ERD의 "기기"와 FR-MEM-03(기기별 세션)에 걸린다. 기기 목록 기능을 쓸 계획이면 남긴다 |
 | 4-1 | `rotate`와 `findMemberId`가 Redis를 두 번 부른다 | 합치려면 Lua가 memberId와 재사용 여부를 함께 돌려줘야 한다. "세션 없음"과 "재사용" 구분이 3상태 반환으로 복잡해진다 |
 | 5-3 | `Order.markPaymentInProgress()` 신설 | 방금 만든 구독 주문에 2-4 `startPayment` CAS를 걸던 것을 대체했다. 거부하면 CAS로 되돌리고 0행 처리를 정한다 |
@@ -131,8 +131,6 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 
 | 단계 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
-| 3-6 | A | "진행 중 환불" 상태 집합(`REQUESTED, APPROVED, PG_CANCELLED`)이 정책에 없음. 탈퇴 차단 정책 | 3-6 정책 표(`ACTIVE_ORDER` 행), order.domain | 사용자 결정 |
-| 3-6 | D | settlement 저장소의 탈퇴 조건 조회 메서드 이름·시그니처 | 3-6 settlement.domain | 구현하며 정함 |
 
 ### Part 4
 

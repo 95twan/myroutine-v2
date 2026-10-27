@@ -5,8 +5,14 @@ import java.util.UUID;
 
 public interface MemberRepository {
     Member save(Member member);
+
     Optional<Member> findById(UUID id);
+
     boolean existsByEmail(String email);
+
     boolean existsByNickname(String nickname);
+
     Optional<Member> findByEmail(String email);
+
+    Optional<Member> findByIdForUpdate(UUID id);
 }

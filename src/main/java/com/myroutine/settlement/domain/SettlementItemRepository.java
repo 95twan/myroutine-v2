@@ -3,6 +3,7 @@ package com.myroutine.settlement.domain;
 import org.springframework.data.domain.Limit;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -18,4 +19,6 @@ public interface SettlementItemRepository {
     List<SettlementItemRow> findBySettlementIdFirstPage(UUID settlementId, Limit limit);
 
     List<SettlementItemRow> findBySettlementIdAfter(UUID settlementId, Instant cursorAt, UUID cursorId, Limit limit);
+
+    boolean existsUnsettledByShopIdIn(Collection<UUID> shopIds);
 }

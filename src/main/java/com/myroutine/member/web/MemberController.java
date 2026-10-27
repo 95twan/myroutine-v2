@@ -3,6 +3,7 @@ package com.myroutine.member.web;
 import com.myroutine.common.security.CurrentMember;
 import com.myroutine.member.application.MemberProfileService;
 import com.myroutine.member.application.MemberQueryService;
+import com.myroutine.member.application.WithdrawService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +17,7 @@ import java.util.UUID;
 public class MemberController {
     private final MemberQueryService memberQueryService;
     private final MemberProfileService memberProfileService;
+    private final WithdrawService withdrawService;
 
     @GetMapping("/me")
     public ResponseEntity<MeResponse> getMe(@CurrentMember UUID memberId) {
@@ -25,5 +27,11 @@ public class MemberController {
     @PatchMapping("/me")
     public ResponseEntity<MeResponse> changeProfile(@CurrentMember UUID memberId, @Valid @RequestBody ChangeProfileRequest request) {
         return ResponseEntity.ok(MeResponse.from(memberProfileService.changeProfile(memberId, request.toCommand())));
+    }
+
+    @DeleteMapping("/me")
+    public ResponseEntity<Void> withdraw(@CurrentMember UUID memberId) {
+        withdrawService.withdraw(memberId);
+        return ResponseEntity.noContent().build();
     }
 }

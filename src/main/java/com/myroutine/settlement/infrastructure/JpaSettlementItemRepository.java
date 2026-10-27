@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.RepositoryDefinition;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -80,4 +81,14 @@ public interface JpaSettlementItemRepository extends SettlementItemRepository {
                     """
     )
     List<SettlementItemRow> findBySettlementIdAfter(UUID settlementId, Instant cursorAt, UUID cursorId, Limit limit);
+
+    @Query(
+            nativeQuery = true,
+            value = """
+                    SELECT count(*) > 0
+                    FROM settlement.settlement_item
+                    WHERE settlement_id IS NULL AND shop_id IN :shopIds
+                    """
+    )
+    boolean existsUnsettledByShopIdIn(Collection<UUID> shopIds);
 }

@@ -161,6 +161,16 @@ public class CartService {
             cartItemRepository.deleteIfQuantityAtMost(cart.get().getId(), productId, quantity);
             cartItemRepository.deductQuantity(cart.get().getId(), productId, quantity, clock.instant());
         });
+    }
 
+    @Transactional
+    public void deleteByMember(UUID memberId) {
+        Optional<Cart> cart = cartRepository.findByMemberId(memberId);
+        if (cart.isEmpty()) {
+            return;
+        }
+        Cart c = cart.get();
+        cartItemRepository.deleteAllByCartId(c.getId());
+        cartRepository.delete(c);
     }
 }
