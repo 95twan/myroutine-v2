@@ -1,7 +1,10 @@
 package com.myroutine.member.application;
 
 import com.myroutine.common.error.BusinessException;
+import com.myroutine.common.outbox.OutboxPublisher;
 import com.myroutine.common.security.JwtProvider;
+import com.myroutine.member.api.event.MemberRegisteredEvent;
+import com.myroutine.member.api.event.MemberTopics;
 import com.myroutine.member.domain.Member;
 import com.myroutine.member.domain.MemberErrorCode;
 import com.myroutine.member.domain.MemberRepository;
@@ -10,12 +13,15 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.UUID;
+
 @Service
 @RequiredArgsConstructor
 public class SignupService {
     private final MemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
+    private final OutboxPublisher publisher;
 
     @Transactional
     public SignupResult signUp(SignupCommand command) {
@@ -34,9 +40,14 @@ public class SignupService {
         );
 
         Member savedMember = memberRepository.save(member);
-        String accessToken = jwtProvider.issue(savedMember.getId(), savedMember.getRole().name());
+        UUID memberId = savedMember.getId();
+
+        MemberRegisteredEvent event = new MemberRegisteredEvent(savedMember.getId(), savedMember.getEmail(), savedMember.getNickname());
+        publisher.publish(MemberTopics.MEMBER_REGISTERED, "MEMBER", memberId, event);
+
+        String accessToken = jwtProvider.issue(memberId, savedMember.getRole().name());
         TokenResult token = new TokenResult(accessToken, jwtProvider.accessTokenTtl().getSeconds());
 
-        return new SignupResult(savedMember.getId(), token);
+        return new SignupResult(memberId, token);
     }
 }

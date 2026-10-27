@@ -44,4 +44,8 @@ public interface JpaCartItemRepository extends JpaRepository<CartItem, UUID>, Ca
                     """
     )
     int deductQuantity(UUID cartId, UUID productId, int quantity, Instant now);
+
+    @Modifying
+    @Query("delete from CartItem ci where ci.cartId = :cartId")
+    void deleteAllByCartId(UUID cartId);
 }

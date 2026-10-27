@@ -21,6 +21,7 @@ public class UpdateProductService {
     private final ProductRepository productRepository;
     private final StockRepository stockRepository;
     private final Clock clock;
+    private final ProductEventPublisher publisher;
 
     @Transactional
     public ProductDetailResult update(UUID memberId, UUID shopId, UUID productId, UpdateProductCommand command) {
@@ -40,13 +41,21 @@ public class UpdateProductService {
                 command.subscribable()
         );
 
-        priceChange.ifPresent(change -> productRepository.insertPriceHistory(
-                Ids.newId(),
-                product.getId(),
-                change.oldPrice().amount(),
-                change.newPrice().amount(),
-                Instant.now(clock)
-        ));
+        productRepository.flush();
+
+        publisher.upserted(product);
+
+        Instant now = clock.instant();
+        priceChange.ifPresent(change -> {
+            productRepository.insertPriceHistory(
+                    Ids.newId(),
+                    product.getId(),
+                    change.oldPrice().amount(),
+                    change.newPrice().amount(),
+                    now
+            );
+            publisher.priceChanged(product, change, now);
+        });
 
         return ProductDetailResult.from(product, stock);
     }
@@ -58,6 +67,15 @@ public class UpdateProductService {
                 () -> new BusinessException(ProductErrorCode.PRODUCT_NOT_FOUND)
         );
         product.changeStatus(to);
+
+        productRepository.flush();
+
+        publisher.upserted(product);
+
+        if (to == ProductStatus.DISCONTINUED) {
+            publisher.discontinued(product, "SELLER");
+        }
+
         Stock stock = stockRepository.findById(product.getId()).orElseThrow(
                 () -> new IllegalStateException("상품에 연결된 재고가 없습니다.")
         );

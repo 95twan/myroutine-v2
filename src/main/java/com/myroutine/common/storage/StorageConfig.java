@@ -10,6 +10,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
+import java.net.URI;
 import java.time.Duration;
 
 @Configuration
@@ -32,12 +33,19 @@ public class StorageConfig {
     @Bean
     public S3Presigner s3Presigner(StorageProperties properties) {
         return S3Presigner.builder()
-                .endpointOverride(properties.endpoint())
+                .endpointOverride(StorageConfig.presignEndpointOf(properties))
                 .region(Region.of(properties.region()))
                 .credentialsProvider(StaticCredentialsProvider.create(
                         AwsBasicCredentials.create(properties.accessKey(), properties.secretKey()))
                 )
                 .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())
                 .build();
+    }
+
+    public static URI presignEndpointOf(StorageProperties properties) {
+        if (properties.presignEndpoint() == null || properties.presignEndpoint().isBlank()) {
+            return properties.endpoint();
+        }
+        return URI.create(properties.presignEndpoint());
     }
 }

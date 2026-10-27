@@ -1,8 +1,6 @@
 package com.myroutine.order.application;
 
-import com.myroutine.order.domain.AutoConfirmTarget;
-import com.myroutine.order.domain.OrderRepository;
-import com.myroutine.order.domain.ShopOrderStatus;
+import com.myroutine.order.domain.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Limit;
@@ -23,6 +21,7 @@ public class AutoConfirmService {
     private final OrderRepository orderRepository;
     private final TransactionTemplate tx;
     private final Clock clock;
+    private final OrderEventPublisher eventPublisher;
 
     public int confirmBatch() {
         Instant now = clock.instant();
@@ -35,9 +34,12 @@ public class AutoConfirmService {
         while (!targets.isEmpty()) {
             for (AutoConfirmTarget target : targets) {
                 try {
-                    count += tx.execute(s ->
-                            orderRepository.findByShopOrderId(target.shopOrderId()).orElseThrow().autoConfirm(target.shopOrderId(), now)
-                    );
+                    count += tx.execute(s -> {
+                        Order order = orderRepository.findByShopOrderId(target.shopOrderId()).orElseThrow();
+                        List<OrderLine> lines = order.autoConfirm(target.shopOrderId(), now);
+                        lines.forEach(line -> eventPublisher.lineConfirmed(order, order.shopOrderOf(line.getId()), line));
+                        return lines.size();
+                    });
                 } catch (Exception e) {
                     log.error("자동 구매확정 실패 shopOrderId={}", target.shopOrderId(), e);
                 }

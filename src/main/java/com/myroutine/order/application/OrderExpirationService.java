@@ -24,6 +24,7 @@ public class OrderExpirationService {
     private final ProductApi productApi;
     private final TransactionTemplate tx;
     private final Clock clock;
+    private final OrderEventPublisher publisher;
 
     public int expireBatch() {
         Instant now = clock.instant();
@@ -48,6 +49,7 @@ public class OrderExpirationService {
                 () -> new IllegalStateException("주문을 찾을 수 없습니다. orderId=" + orderId)
         );
         order.cancelPendingChildren();
+        publisher.closed(order, "EXPIRED");
         return true;
     }
 }

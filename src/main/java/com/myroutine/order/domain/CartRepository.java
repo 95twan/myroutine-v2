@@ -7,4 +7,5 @@ import java.util.UUID;
 public interface CartRepository {
     int insertIfAbsent(UUID id, UUID memberId, Instant now);
     Optional<Cart> findByMemberId(UUID memberId);
+    void delete(Cart cart);
 }

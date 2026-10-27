@@ -19,10 +19,12 @@ public class RegisterProductService {
     private final ProductRepository productRepository;
     private final StockRepository stockRepository;
     private final Clock clock;
+    private final ProductEventPublisher publisher;
 
     @Transactional
     public UUID register(UUID memberId, UUID shopId, RegisterProductCommand command) {
         shopApi.verifyOwnerOfActiveShop(shopId, memberId);
+
         Product product = Product.register(
                 shopId,
                 command.name(),
@@ -31,20 +33,26 @@ public class RegisterProductService {
                 Money.of(command.price()),
                 command.subscribable()
         );
+
         Product savedProduct = productRepository.save(product);
+
+        UUID productId = savedProduct.getId();
+
+        publisher.upserted(savedProduct);
+
         Instant now = Instant.now(clock);
-        stockRepository.insertStock(savedProduct.getId(), command.initialStock(), now);
+        stockRepository.insertStock(productId, command.initialStock(), now);
         stockRepository.insertMovement(
                 Ids.newId(),
-                savedProduct.getId(),
+                productId,
                 StockMovementType.RECEIVE.name(),
                 command.initialStock(),
                 StockRefType.PRODUCT_REGISTER.name(),
-                savedProduct.getId(),
+                productId,
                 null,
                 now
         );
 
-        return savedProduct.getId();
+        return productId;
     }
 }

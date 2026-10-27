@@ -17,6 +17,7 @@ import java.util.UUID;
 public class ConfirmPurchaseService {
     private final OrderRepository orderRepository;
     private final Clock clock;
+    private final OrderEventPublisher eventPublisher;
 
     @Transactional
     public OrderLineResult confirm(UUID memberId, UUID orderId, UUID lineId) {
@@ -25,6 +26,8 @@ public class ConfirmPurchaseService {
         );
         order.confirmLine(lineId, clock.instant());
         OrderLine line = order.findLine(lineId);
+        eventPublisher.lineConfirmed(order, order.shopOrderOf(line.getId()), line);
+
         return new OrderLineResult(line.getId(), line.getStatus(), line.getConfirmedAt());
     }
 }

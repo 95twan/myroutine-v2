@@ -8,4 +8,8 @@ public interface ShopApi {
     void verifyOwnerOfActiveShop(UUID shopId, UUID memberId);
     void verifyOwner(UUID shopId, UUID memberId);
     List<ShopInfo> requireActiveShops(Collection<UUID> shopIds);
+    int countActiveShops(UUID memberId);
+    ShopContact getContact(UUID shopId);
+
+    List<UUID> getShopIdsByOwner(UUID memberId);
 }

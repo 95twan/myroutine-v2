@@ -10,6 +10,24 @@ spring:
           time_zone: UTC
         default_batch_fetch_size: 100
     open-in-view: false
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        delivery.timeout.ms: 10000
+        request.timeout.ms: 5000
+        max.block.ms: 5000
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+    listener:
+      ack-mode: record
 
 management:
   server:
@@ -22,6 +40,7 @@ myroutine:
     access-token-ttl: 1h
   storage:
     endpoint: ${STORAGE_ENDPOINT:http://localhost:9000}
+    presign-endpoint: ${STORAGE_PRESIGN_ENDPOINT:}
     region: us-east-1
     access-key: ${MINIO_ROOT_USER}
     secret-key: ${MINIO_ROOT_PASSWORD}
@@ -37,5 +56,7 @@ myroutine:
     client-key: ${TOSS_CLIENT_KEY:}
     connect-timeout: 3s
     read-timeout: 10s
+  settlement:
+    fee-rate-bp: 500
 
 logging.pattern.level: "%5p [%X{traceId:-}]"

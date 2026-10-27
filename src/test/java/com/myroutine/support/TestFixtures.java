@@ -1,9 +1,11 @@
 package com.myroutine.support;
 
+import com.myroutine.common.model.Ids;
 import com.myroutine.member.application.*;
 import com.myroutine.order.application.*;
 import com.myroutine.product.application.*;
 import com.myroutine.product.domain.ProductCategory;
+import com.myroutine.product.domain.ProductStatus;
 import com.myroutine.shop.application.OpenShopCommand;
 import com.myroutine.shop.application.OpenShopService;
 import lombok.RequiredArgsConstructor;
@@ -15,7 +17,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.sql.Timestamp;
-import java.time.Instant;
+import java.time.*;
 import java.util.*;
 
 @Component
@@ -32,6 +34,7 @@ public class TestFixtures {
     private final CheckoutService checkoutService;
     private final ConfirmPaymentService confirmPaymentService;
     private final ShipmentService shipmentService;
+    private final UpdateProductService updateProductService;
     private final JdbcTemplate jdbcTemplate;
 
     public UUID signup(String email) {
@@ -64,14 +67,7 @@ public class TestFixtures {
     }
 
     public UUID openShop(UUID memberId, String businessNumber) {
-        OpenShopCommand command = new OpenShopCommand(
-                "shop",
-                businessNumber,
-                "shop@test.com",
-                "010-1111-1111",
-                "shop address"
-        );
-        return openShopService.open(memberId, command);
+        return openShop(memberId, businessNumber, "shop@test.com");
     }
 
     public void closeShop(UUID shopId) {
@@ -264,7 +260,9 @@ public class TestFixtures {
                         rs.getLong("amount"), rs.getLong("cancelled_amount"), rs.getString("status"), rs.getString("payment_key")),
                 orderId);
 
-        return new OrderSnapshot(lines, shopOrderStatuses, refundStatuses, payments.isEmpty() ? null : payments.get(0));
+        List<String> status = jdbcTemplate.queryForList("SELECT status FROM orders.orders WHERE id = ?", String.class, orderId);
+
+        return new OrderSnapshot(lines, shopOrderStatuses, refundStatuses, payments.isEmpty() ? null : payments.getFirst(), status.isEmpty() ? null : status.getFirst());
     }
 
     public UUID orderLineIdOf(UUID orderId, UUID productId) {
@@ -277,6 +275,10 @@ public class TestFixtures {
 
     public void setRefundUpdatedAt(UUID refundId, Instant updateAt) {
         jdbcTemplate.update("UPDATE orders.refund SET updated_at = ? WHERE id = ?", Timestamp.from(updateAt), refundId);
+    }
+
+    public void setRefundedAmount(UUID orderLineId, long refundedAmount) {
+        jdbcTemplate.update("UPDATE orders.order_line SET refunded_amount = ? WHERE id = ?", refundedAmount, orderLineId);
     }
 
     public UUID createDeliveredOrder(UUID buyerId, UUID sellerId, UUID shopId, UUID... productIds) {
@@ -319,5 +321,385 @@ public class TestFixtures {
 
     public void setShopOrderDeliveredAt(UUID shopOrderId, Instant deliveredAt) {
         jdbcTemplate.update("UPDATE orders.shop_order SET delivered_at = ? WHERE id = ?", Timestamp.from(deliveredAt), shopOrderId);
+    }
+
+    public MemberSnapshot memberSnapshotOf(UUID memberId) {
+        List<AddressState> addressStates = jdbcTemplate.query("SELECT id, recipient, address2, is_default FROM member.member_address WHERE member_id = ? ORDER BY created_at, id",
+                (rs, rowNum) -> new AddressState(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("recipient"),
+                        rs.getString("address2"),
+                        rs.getBoolean("is_default")
+                ),
+                memberId
+        );
+
+        return jdbcTemplate.queryForObject("""
+                        SELECT nickname, name, phone, password_hash, role, status, email, withdrawn_at, created_at, updated_at
+                        FROM member.member
+                        WHERE id = ?
+                        """,
+                (rs, rowNum) -> {
+                    Timestamp withdrawnAt = rs.getTimestamp("withdrawn_at");
+                    return new MemberSnapshot(
+                            rs.getString("nickname"),
+                            rs.getString("name"),
+                            rs.getString("phone"),
+                            rs.getString("password_hash"),
+                            rs.getString("role"),
+                            rs.getString("status"),
+                            rs.getString("email"),
+                            withdrawnAt != null ? withdrawnAt.toInstant() : null,
+                            rs.getTimestamp("created_at").toInstant(),
+                            rs.getTimestamp("updated_at").toInstant(),
+                            addressStates
+                    );
+                },
+                memberId);
+    }
+
+    public long countOf(String table) {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table, Long.class);
+    }
+
+    public void changeRole(UUID memberId, String role) {
+        jdbcTemplate.update("UPDATE member.member SET role = ? WHERE id = ?", role, memberId);
+    }
+
+    public int processedCountOf(String consumer, UUID eventId) {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM common.processed_message WHERE consumer = ? AND event_id = ?", Integer.class, consumer, eventId);
+    }
+
+    public ShopSnapshot shopSnapshotOf(UUID shopId) {
+        return jdbcTemplate.queryForObject("SELECT name, email, phone, address, status, business_number, closed_at FROM shop.shop WHERE id = ?",
+                (rs, rowNum) -> {
+                    Timestamp closedAt = rs.getTimestamp("closed_at");
+                    return new ShopSnapshot(
+                            rs.getString("name"),
+                            rs.getString("email"),
+                            rs.getString("phone"),
+                            rs.getString("address"),
+                            rs.getString("status"),
+                            rs.getString("business_number"),
+                            closedAt != null ? closedAt.toInstant() : null
+                    );
+                },
+                shopId);
+    }
+
+    public ProductSnapshot productSnapshotOf(UUID productId) {
+        List<MovementState> movements = jdbcTemplate.query("""
+                        SELECT type, quantity, ref_type, ref_id
+                        FROM product.stock_movement
+                        WHERE product_id = ?
+                        ORDER BY created_at, id
+                        """,
+                (rs, rowNum) -> new MovementState(
+                        rs.getString("type"),
+                        rs.getInt("quantity"),
+                        rs.getString("ref_type"),
+                        rs.getObject("ref_id", UUID.class)
+                ),
+                productId);
+
+        List<PriceChangeState> priceChangeStates = jdbcTemplate.query("""
+                        SELECT old_price, new_price, changed_at
+                        FROM product.price_history
+                        WHERE product_id = ?
+                        ORDER BY changed_at, id
+                        """,
+                (rs, rowNum) -> new PriceChangeState(
+                        rs.getLong("old_price"),
+                        rs.getLong("new_price"),
+                        rs.getTimestamp("changed_at").toInstant()
+                ),
+                productId);
+
+        return jdbcTemplate.query("""
+                        SELECT p.name, p.status, p.price, p.subscribable, s.received, p.version
+                        FROM product.product p
+                        JOIN product.stock s ON s.product_id = p.id
+                        WHERE p.id = ?
+                        """,
+                rs -> {
+                    if (!rs.next()) {
+                        return null;
+                    }
+                    return new ProductSnapshot(
+                            rs.getString("name"),
+                            rs.getString("status"),
+                            rs.getLong("price"),
+                            rs.getBoolean("subscribable"),
+                            rs.getInt("received"),
+                            rs.getLong("version"),
+                            priceChangeStates,
+                            movements
+                    );
+                },
+                productId);
+    }
+
+    public void updateProduct(UUID memberId, UUID shopId, UUID productId, String name, Long price) {
+        updateProductService.update(memberId, shopId, productId, new UpdateProductCommand(name, null, null, price, null));
+    }
+
+    public void changeProductStatus(UUID memberId, UUID shopId, UUID productId, ProductStatus to) {
+        updateProductService.changeStatus(memberId, shopId, productId, to);
+    }
+
+    public UUID insertSettlementItem(UUID shopId, long amount, Instant confirmedAt) {
+        UUID orderLineId = Ids.newId();
+        jdbcTemplate.update("""
+                        INSERT INTO settlement.settlement_item (id, order_line_id, shop_id, order_id, product_id, amount, confirmed_at, settlement_id, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, now(), now())
+                        """,
+                Ids.newId(), orderLineId, shopId, Ids.newId(), Ids.newId(), amount, OffsetDateTime.ofInstant(confirmedAt, ZoneOffset.UTC)
+        );
+        return orderLineId;
+    }
+
+    public void insertSettlementItems(List<UUID> shopIds, int itemsPerShop, long amount, Instant confirmedAt) {
+        List<Object[]> args = new ArrayList<>();
+        for (UUID shopId : shopIds) {
+            for (int i = 0; i < itemsPerShop; i++) {
+                args.add(new Object[]{
+                        Ids.newId(), Ids.newId(), shopId, Ids.newId(), Ids.newId(),
+                        amount, OffsetDateTime.ofInstant(confirmedAt, ZoneOffset.UTC)
+                });
+            }
+        }
+        jdbcTemplate.batchUpdate("""
+                        INSERT INTO settlement.settlement_item (id, order_line_id, shop_id, order_id, product_id, amount, confirmed_at, settlement_id, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, now(), now())
+                        """,
+                args
+        );
+    }
+
+    public SettlementSnapshot settlementSnapshotOf(UUID shopId, YearMonth month) {
+        List<SettlementSnapshot> snapshots = jdbcTemplate.query("""
+                        SELECT id, period_start, period_end, status, gross_amount, fee_amount, net_amount, fee_rate_bp, item_count, payout_attempts, payout_reference, last_error, paid_at
+                        FROM settlement.settlement
+                        WHERE shop_id = ? AND period_start = ?
+                        """,
+                (rs, rowNum) -> {
+                    Instant paidAt = rs.getTimestamp("paid_at") != null ? rs.getTimestamp("paid_at").toInstant() : null;
+                    UUID settlementId = rs.getObject("id", UUID.class);
+                    List<ItemState> items = jdbcTemplate.query("""
+                                    SELECT order_line_id, amount, confirmed_at
+                                    FROM settlement.settlement_item
+                                    WHERE settlement_id = ? ORDER BY confirmed_at, order_line_id
+                                    """,
+                            (r, n) -> new ItemState(
+                                    r.getObject("order_line_id", UUID.class),
+                                    r.getLong("amount"),
+                                    r.getTimestamp("confirmed_at").toInstant()
+                            ),
+                            settlementId);
+                    return new SettlementSnapshot(
+                            settlementId,
+                            rs.getDate("period_start").toLocalDate(),
+                            rs.getDate("period_end").toLocalDate(),
+                            rs.getString("status"),
+                            rs.getString("payout_reference"),
+                            rs.getString("last_error"),
+                            rs.getLong("gross_amount"),
+                            rs.getLong("fee_amount"),
+                            rs.getLong("net_amount"),
+                            rs.getInt("fee_rate_bp"),
+                            rs.getInt("item_count"),
+                            rs.getInt("payout_attempts"),
+                            paidAt,
+                            items
+                    );
+                },
+                shopId, month.atDay(1)
+        );
+
+        if (snapshots.isEmpty()) {
+            return null;
+        }
+
+        return snapshots.getFirst();
+    }
+
+    public SettlementSnapshot settlementSnapshotOf(UUID shopId) {
+        List<SettlementSnapshot> snapshots = jdbcTemplate.query("""
+                        SELECT id, period_start, period_end, status, gross_amount, fee_amount, net_amount, fee_rate_bp, item_count, payout_attempts, payout_reference, last_error, paid_at
+                        FROM settlement.settlement
+                        WHERE shop_id = ?
+                        """,
+                (rs, rowNum) -> {
+                    Instant paidAt = rs.getTimestamp("paid_at") != null ? rs.getTimestamp("paid_at").toInstant() : null;
+                    UUID settlementId = rs.getObject("id", UUID.class);
+                    List<ItemState> items = jdbcTemplate.query("""
+                                    SELECT order_line_id, amount, confirmed_at
+                                    FROM settlement.settlement_item
+                                    WHERE settlement_id = ? ORDER BY confirmed_at, order_line_id
+                                    """,
+                            (r, n) -> new ItemState(
+                                    r.getObject("order_line_id", UUID.class),
+                                    r.getLong("amount"),
+                                    r.getTimestamp("confirmed_at").toInstant()
+                            ),
+                            settlementId);
+                    return new SettlementSnapshot(
+                            settlementId,
+                            rs.getDate("period_start").toLocalDate(),
+                            rs.getDate("period_end").toLocalDate(),
+                            rs.getString("status"),
+                            rs.getString("payout_reference"),
+                            rs.getString("last_error"),
+                            rs.getLong("gross_amount"),
+                            rs.getLong("fee_amount"),
+                            rs.getLong("net_amount"),
+                            rs.getInt("fee_rate_bp"),
+                            rs.getInt("item_count"),
+                            rs.getInt("payout_attempts"),
+                            paidAt,
+                            items
+                    );
+                },
+                shopId
+        );
+
+        if (snapshots.isEmpty()) {
+            return null;
+        }
+
+        if (snapshots.size() > 1) {
+            throw new IllegalStateException("Expected at most one settlement snapshot for shopId " + shopId);
+        }
+
+        return snapshots.getFirst();
+    }
+
+    public SettlementItemSnapshot settlementItemSnapshotOf(UUID orderLineId) {
+        List<SettlementItemSnapshot> snapshots = jdbcTemplate.query("""
+                        SELECT i.id, i.shop_id, i.order_id, i.product_id, i.amount, i.confirmed_at, i.settlement_id, s.period_start
+                        FROM settlement.settlement_item i
+                        LEFT JOIN settlement.settlement s ON s.id = i.settlement_id
+                        WHERE i.order_line_id = ?
+                        """,
+                (rs, rowNum) -> {
+                    LocalDate periodStart = rs.getDate("period_start") != null ? rs.getDate("period_start").toLocalDate() : null;
+                    UUID settlementId = rs.getString("settlement_id") != null ? UUID.fromString(rs.getString("settlement_id")) : null;
+                    return new SettlementItemSnapshot(
+                            rs.getObject("id", UUID.class),
+                            rs.getObject("shop_id", UUID.class),
+                            rs.getObject("order_id", UUID.class),
+                            rs.getObject("product_id", UUID.class),
+                            settlementId,
+                            rs.getLong("amount"),
+                            rs.getTimestamp("confirmed_at").toInstant(),
+                            periodStart
+                    );
+                },
+                orderLineId
+        );
+
+        if (snapshots.isEmpty()) {
+            return null;
+        }
+        return snapshots.getFirst();
+    }
+
+    public long unsettledItemCount() {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement.settlement_item WHERE settlement_id IS NULL", Long.class);
+    }
+
+    public List<NotificationRow> notificationRowsOf(UUID memberId) {
+        return jdbcTemplate.query("""
+                        SELECT member_id, type, channel, recipient, title, status, attempts, last_error, dedup_key, sent_at, next_attempt_at
+                        FROM notification.notification
+                        WHERE member_id = ?
+                        ORDER BY created_at, id
+                        """,
+                (rs, rowNum) -> {
+                    Instant sentAt = rs.getTimestamp("sent_at") != null ? rs.getTimestamp("sent_at").toInstant() : null;
+                    return new NotificationRow(
+                            rs.getObject("member_id", UUID.class),
+                            rs.getString("type"),
+                            rs.getString("channel"),
+                            rs.getString("recipient"),
+                            rs.getString("title"),
+                            rs.getString("status"),
+                            rs.getString("last_error"),
+                            rs.getString("dedup_key"),
+                            rs.getInt("attempts"),
+                            sentAt,
+                            rs.getTimestamp("next_attempt_at").toInstant()
+                    );
+                },
+                memberId
+        );
+    }
+
+    public List<NotificationRow> notificationRows() {
+        return jdbcTemplate.query("""
+                        SELECT member_id, type, channel, recipient, title, status, attempts, last_error, dedup_key, sent_at, next_attempt_at
+                        FROM notification.notification
+                        ORDER BY created_at, id
+                        """,
+                (rs, rowNum) -> {
+                    Instant sentAt = rs.getTimestamp("sent_at") != null ? rs.getTimestamp("sent_at").toInstant() : null;
+                    return new NotificationRow(
+                            rs.getObject("member_id", UUID.class),
+                            rs.getString("type"),
+                            rs.getString("channel"),
+                            rs.getString("recipient"),
+                            rs.getString("title"),
+                            rs.getString("status"),
+                            rs.getString("last_error"),
+                            rs.getString("dedup_key"),
+                            rs.getInt("attempts"),
+                            sentAt,
+                            rs.getTimestamp("next_attempt_at").toInstant()
+                    );
+                }
+        );
+    }
+
+    public UUID openShop(UUID memberId, String businessNumber, String email) {
+        OpenShopCommand command = new OpenShopCommand(
+                "shop",
+                businessNumber,
+                email,
+                "010-1111-1111",
+                "shop address"
+        );
+        return openShopService.open(memberId, command);
+    }
+
+    public void setNotificationsDue() {
+        jdbcTemplate.update("""
+                UPDATE notification.notification
+                SET next_attempt_at = now() - interval '1 second'
+                """);
+    }
+
+    public CartSnapshot cartSnapshotOf(UUID memberId) {
+        int cartCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM orders.cart WHERE member_id = ?", Integer.class, memberId);
+        String sql = """
+                    SELECT ci.product_id, ci.quantity
+                    FROM orders.cart_item ci
+                    JOIN orders.cart c ON c.id = ci.cart_id
+                    WHERE c.member_id = ?
+                """;
+
+        Map<UUID, Integer> quantityByProduct = jdbcTemplate.query(
+                sql,
+                rs -> {
+                    Map<UUID, Integer> map = new HashMap<>();
+                    while (rs.next()) {
+                        UUID productId = rs.getObject("product_id", UUID.class);
+                        int quantity = rs.getInt("quantity");
+                        map.put(productId, quantity);
+                    }
+                    return map;
+                },
+                memberId
+        );
+        return new CartSnapshot(cartCount, quantityByProduct);
     }
 }
