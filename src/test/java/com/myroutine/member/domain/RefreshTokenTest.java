@@ -64,7 +64,6 @@ class RefreshTokenTest {
 
         // Then
         assertThat(result).doesNotContain(refreshToken.secret()).contains(refreshToken.sessionId().toString());
-        assertThat(result).doesNotContain(refreshToken.secret());
     }
 
     public static Stream<String> invalidRefreshTokens() {
