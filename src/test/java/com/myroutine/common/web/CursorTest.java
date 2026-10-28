@@ -2,6 +2,7 @@ package com.myroutine.common.web;
 
 import com.myroutine.common.error.BusinessException;
 import com.myroutine.common.error.CommonErrorCode;
+import com.myroutine.common.model.Ids;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -22,7 +23,7 @@ class CursorTest {
     void encodeAndDecode() {
         // Given
         Instant now = Instant.now();
-        UUID uuid = UUID.randomUUID();
+        UUID uuid = Ids.newId();
         Cursor cursor = new Cursor(now, uuid);
 
         // When & Then

@@ -2,6 +2,7 @@ package com.myroutine.shop.application;
 
 import com.myroutine.common.error.BusinessException;
 import com.myroutine.common.error.CommonErrorCode;
+import com.myroutine.common.model.Ids;
 import com.myroutine.shop.api.ShopApi;
 import com.myroutine.shop.api.ShopInfo;
 import com.myroutine.shop.domain.ShopErrorCode;
@@ -45,7 +46,7 @@ class ShopApiImplTest extends IntegrationTestSupport {
         UUID memberId = testFixtures.signup("test@test.com");
 
         // When & Then
-        assertThatThrownBy(() -> shopApi.verifyOwnerOfActiveShop(UUID.randomUUID(), memberId))
+        assertThatThrownBy(() -> shopApi.verifyOwnerOfActiveShop(Ids.newId(), memberId))
                 .isInstanceOfSatisfying(BusinessException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ShopErrorCode.SHOP_NOT_FOUND));
     }
@@ -138,7 +139,7 @@ class ShopApiImplTest extends IntegrationTestSupport {
         // Given
         UUID memberId = testFixtures.signup("test@test.com");
         UUID shopId1 = testFixtures.openShop(memberId, "1111111111");
-        UUID shopId2 = UUID.randomUUID();
+        UUID shopId2 = Ids.newId();
         UUID shopId3 = testFixtures.openShop(memberId, "3333333333");
         List<UUID> shopIds = List.of(shopId1, shopId2, shopId3);
 
@@ -156,7 +157,7 @@ class ShopApiImplTest extends IntegrationTestSupport {
     void requireActiveShopsClosedAndNotFound() {
         // Given
         UUID memberId = testFixtures.signup("test@test.com");
-        UUID shopId1 = UUID.randomUUID();
+        UUID shopId1 = Ids.newId();
         UUID shopId2 = testFixtures.openShop(memberId, "2222222222");
         UUID shopId3 = testFixtures.openShop(memberId, "3333333333");
         testFixtures.closeShop(shopId3);
