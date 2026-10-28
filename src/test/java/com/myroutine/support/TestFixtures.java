@@ -448,14 +448,7 @@ public class TestFixtures {
     }
 
     public UUID insertSettlementItem(UUID shopId, long amount, Instant confirmedAt) {
-        UUID orderLineId = Ids.newId();
-        jdbcTemplate.update("""
-                        INSERT INTO settlement.settlement_item (id, order_line_id, shop_id, order_id, product_id, amount, confirmed_at, settlement_id, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, now(), now())
-                        """,
-                Ids.newId(), orderLineId, shopId, Ids.newId(), Ids.newId(), amount, OffsetDateTime.ofInstant(confirmedAt, ZoneOffset.UTC)
-        );
-        return orderLineId;
+        return insertSettlementItem(shopId, amount, confirmedAt, Ids.newId(), "product", 1);
     }
 
     public void insertSettlementItems(List<UUID> shopIds, int itemsPerShop, long amount, Instant confirmedAt) {
@@ -463,14 +456,14 @@ public class TestFixtures {
         for (UUID shopId : shopIds) {
             for (int i = 0; i < itemsPerShop; i++) {
                 args.add(new Object[]{
-                        Ids.newId(), Ids.newId(), shopId, Ids.newId(), Ids.newId(),
-                        amount, OffsetDateTime.ofInstant(confirmedAt, ZoneOffset.UTC)
+                        Ids.newId(), Ids.newId(), shopId, Ids.newId(), Ids.newId(), Ids.newId(),
+                        "product", 1, amount, OffsetDateTime.ofInstant(confirmedAt, ZoneOffset.UTC)
                 });
             }
         }
         jdbcTemplate.batchUpdate("""
-                        INSERT INTO settlement.settlement_item (id, order_line_id, shop_id, order_id, product_id, amount, confirmed_at, settlement_id, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, now(), now())
+                        INSERT INTO settlement.settlement_item (id, order_line_id, shop_id, order_id, shop_order_id, product_id, product_name, quantity, amount, confirmed_at, settlement_id, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, now(), now())
                         """,
                 args
         );
@@ -576,7 +569,7 @@ public class TestFixtures {
 
     public SettlementItemSnapshot settlementItemSnapshotOf(UUID orderLineId) {
         List<SettlementItemSnapshot> snapshots = jdbcTemplate.query("""
-                        SELECT i.id, i.shop_id, i.order_id, i.product_id, i.amount, i.confirmed_at, i.settlement_id, s.period_start
+                        SELECT i.id, i.shop_id, i.order_id, i.shop_order_id, i.product_id, i.product_name, i.quantity, i.amount, i.confirmed_at, i.settlement_id, s.period_start
                         FROM settlement.settlement_item i
                         LEFT JOIN settlement.settlement s ON s.id = i.settlement_id
                         WHERE i.order_line_id = ?
@@ -588,7 +581,10 @@ public class TestFixtures {
                             rs.getObject("id", UUID.class),
                             rs.getObject("shop_id", UUID.class),
                             rs.getObject("order_id", UUID.class),
+                            rs.getObject("shop_order_id", UUID.class),
                             rs.getObject("product_id", UUID.class),
+                            rs.getString("product_name"),
+                            rs.getInt("quantity"),
                             settlementId,
                             rs.getLong("amount"),
                             rs.getTimestamp("confirmed_at").toInstant(),
@@ -701,5 +697,16 @@ public class TestFixtures {
                 memberId
         );
         return new CartSnapshot(cartCount, quantityByProduct);
+    }
+
+    public UUID insertSettlementItem(UUID shopId, long amount, Instant confirmedAt, UUID shopOrderId, String productName, int quantity) {
+        UUID orderLineId = Ids.newId();
+        jdbcTemplate.update("""
+                        INSERT INTO settlement.settlement_item (id, order_line_id, shop_id, order_id, shop_order_id, product_id, product_name, quantity, amount, confirmed_at, settlement_id, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, now(), now())
+                        """,
+                Ids.newId(), orderLineId, shopId, Ids.newId(), shopOrderId, Ids.newId(), productName, quantity, amount, OffsetDateTime.ofInstant(confirmedAt, ZoneOffset.UTC)
+        );
+        return orderLineId;
     }
 }

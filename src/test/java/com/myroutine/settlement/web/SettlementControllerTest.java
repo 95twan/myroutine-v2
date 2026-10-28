@@ -1,5 +1,6 @@
 package com.myroutine.settlement.web;
 
+import com.myroutine.common.model.Ids;
 import com.myroutine.settlement.application.SettlementService;
 import com.myroutine.support.IntegrationTestSupport;
 import com.myroutine.support.TestFixtures;
@@ -65,6 +66,7 @@ class SettlementControllerTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.items[0].periodStart").value("2026-09-01"))
                 .andExpect(jsonPath("$.items[0].periodEnd").value("2026-09-30"))
                 .andExpect(jsonPath("$.items[0].grossAmount").value(15000))
+                .andExpect(jsonPath("$.items[0].feeRateBp").value(500))
                 .andExpect(jsonPath("$.items[0].feeAmount").value(750))
                 .andExpect(jsonPath("$.items[0].netAmount").value(14250))
                 .andExpect(jsonPath("$.items[0].itemCount").value(2))
@@ -223,5 +225,30 @@ class SettlementControllerTest extends IntegrationTestSupport {
                         .param("period", "2026-09"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    @DisplayName("정산 품목을 가게주문 ID·상품 이름·수량과 함께 조회한다.")
+    void getSettlementItemsWithOrderLineFields() throws Exception {
+        // Given
+        UUID seller1Id = testFixtures.signup("seller1@test.com");
+        String token = testFixtures.login("seller1@test.com");
+        UUID shop1Id = testFixtures.openShop(seller1Id, "1111111111");
+
+        UUID shopOrderId = Ids.newId();
+        Instant confirmedAt = Instant.parse("2026-09-15T03:00:00Z");
+        testFixtures.insertSettlementItem(shop1Id, 7500, confirmedAt, shopOrderId, "상품A", 3);
+
+        settlementService.run(YearMonth.of(2026, 9));
+
+        UUID settlementA = testFixtures.settlementSnapshotOf(shop1Id, YearMonth.of(2026, 9)).id();
+
+        // When & Then
+        mockMvc.perform(get("/api/shops/{shopId}/settlements/{settlementId}", shop1Id, settlementA)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.items[0].shopOrderId").value(shopOrderId.toString()))
+                .andExpect(jsonPath("$.items.items[0].productName").value("상품A"))
+                .andExpect(jsonPath("$.items.items[0].quantity").value(3));
     }
 }

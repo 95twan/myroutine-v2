@@ -22,7 +22,10 @@ public class SettlementItemService {
                 event.orderLineId(),
                 event.shopId(),
                 event.orderId(),
+                event.shopOrderId(),
                 event.productId(),
+                event.productName(),
+                event.quantity(),
                 event.amount(),
                 event.confirmedAt(),
                 clock.instant()

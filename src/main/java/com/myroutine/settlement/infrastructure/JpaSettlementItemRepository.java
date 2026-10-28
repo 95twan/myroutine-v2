@@ -1,9 +1,6 @@
 package com.myroutine.settlement.infrastructure;
 
-import com.myroutine.settlement.domain.Settlement;
-import com.myroutine.settlement.domain.SettlementItemRepository;
-import com.myroutine.settlement.domain.SettlementItemRow;
-import com.myroutine.settlement.domain.SettlementSum;
+import com.myroutine.settlement.domain.*;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -20,12 +17,12 @@ public interface JpaSettlementItemRepository extends SettlementItemRepository {
     @Query(
             nativeQuery = true,
             value = """
-                    INSERT INTO settlement.settlement_item (id, order_line_id, shop_id, order_id, product_id, amount, confirmed_at, created_at, updated_at)
-                    VALUES (:id, :orderLineId, :shopId, :orderId, :productId, :amount, :confirmedAt, :now, :now)
+                    INSERT INTO settlement.settlement_item (id, order_line_id, shop_id, order_id, shop_order_id, product_id, product_name, quantity, amount, confirmed_at, created_at, updated_at)
+                    VALUES (:id, :orderLineId, :shopId, :orderId, :shopOrderId, :productId, :productName, :quantity, :amount, :confirmedAt, :now, :now)
                     ON CONFLICT ON CONSTRAINT uk_settlement_item_order_line DO NOTHING
                     """
     )
-    void insertIgnoringConflict(UUID id, UUID orderLineId, UUID shopId, UUID orderId, UUID productId, long amount, Instant confirmedAt, Instant now);
+    void insertIgnoringConflict(UUID id, UUID orderLineId, UUID shopId, UUID orderId, UUID shopOrderId, UUID productId, String productName, int quantity, long amount, Instant confirmedAt, Instant now);
 
     @Query(
             nativeQuery = true,
@@ -63,7 +60,7 @@ public interface JpaSettlementItemRepository extends SettlementItemRepository {
     @Query(
             nativeQuery = true,
             value = """
-                    SELECT id, order_line_id as "orderLineId", order_id as "orderId", product_id as "productId", amount, confirmed_at as "confirmedAt", created_at as "createdAt"
+                    SELECT id, order_line_id as "orderLineId", order_id as "orderId", shop_order_id as "shopOrderId", product_id as "productId", product_name as "productName", quantity, amount, confirmed_at as "confirmedAt", created_at as "createdAt"
                     FROM settlement.settlement_item
                     WHERE settlement_id = :settlementId
                     ORDER BY created_at, id
@@ -74,7 +71,7 @@ public interface JpaSettlementItemRepository extends SettlementItemRepository {
     @Query(
             nativeQuery = true,
             value = """
-                    SELECT id, order_line_id as "orderLineId", order_id as "orderId", product_id as "productId", amount, confirmed_at as "confirmedAt", created_at as "createdAt"
+                    SELECT id, order_line_id as "orderLineId", order_id as "orderId", shop_order_id as "shopOrderId", product_id as "productId", product_name as "productName", quantity, amount, confirmed_at as "confirmedAt", created_at as "createdAt"
                     FROM settlement.settlement_item
                     WHERE settlement_id = :settlementId AND (created_at > :cursorAt OR (created_at = :cursorAt AND id > :cursorId))
                     ORDER BY created_at, id
@@ -91,4 +88,14 @@ public interface JpaSettlementItemRepository extends SettlementItemRepository {
                     """
     )
     boolean existsUnsettledByShopIdIn(Collection<UUID> shopIds);
+
+    @Query(
+            nativeQuery = true,
+            value = """
+                    SELECT COUNT(*)::int AS "itemCount", COALESCE(SUM(amount), 0)::bigint AS "grossAmount", MIN(confirmed_at) AS "firstConfirmedAt"
+                    FROM settlement.settlement_item
+                    WHERE shop_id = :shopId AND settlement_id IS NULL
+                    """
+    )
+    UpcomingSettlementSum sumUnsettledByShopId(UUID shopId);
 }

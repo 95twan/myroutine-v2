@@ -10,6 +10,9 @@ public record OrderLineConfirmedEvent(
         UUID productId,
         UUID memberId,
         long amount,
-        Instant confirmedAt
+        Instant confirmedAt,
+        UUID shopOrderId,
+        String productName,
+        int quantity
 ) {
 }

@@ -36,7 +36,19 @@ class SettlementItemConsumerTest extends IntegrationTestSupport {
         UUID shopId = Ids.newId();
         UUID productId = Ids.newId();
         UUID memberId = Ids.newId();
-        OrderLineConfirmedEvent event = new OrderLineConfirmedEvent(orderLine1Id, orderId, shopId, productId, memberId, 15000, Instant.parse("2026-09-15T03:00:00Z"));
+        UUID shopOrderId = Ids.newId();
+        OrderLineConfirmedEvent event = new OrderLineConfirmedEvent(
+                orderLine1Id,
+                orderId,
+                shopId,
+                productId,
+                memberId,
+                15000,
+                Instant.parse("2026-09-15T03:00:00Z"),
+                shopOrderId,
+                "상품A",
+                3
+        );
 
         UUID event1Id = Ids.newId();
 
@@ -46,7 +58,19 @@ class SettlementItemConsumerTest extends IntegrationTestSupport {
 
         UUID orderLine2Id = Ids.newId();
         UUID event2Id = Ids.newId();
-        event = new OrderLineConfirmedEvent(orderLine2Id, orderId, shopId, productId, memberId, 15000, Instant.parse("2026-09-15T03:00:00Z"));
+        UUID shopOrder2Id = Ids.newId();
+        event = new OrderLineConfirmedEvent(
+                orderLine2Id,
+                orderId,
+                shopId,
+                productId,
+                memberId,
+                15000,
+                Instant.parse("2026-09-15T03:00:00Z"),
+                shopOrder2Id,
+                "상품A",
+                3
+        );
         testKafka.send(OrderTopics.ORDER_LINE_CONFIRMED, orderId.toString(), event2Id, event);
 
         // Then
@@ -56,7 +80,10 @@ class SettlementItemConsumerTest extends IntegrationTestSupport {
         SettlementItemSnapshot snapshot = testFixtures.settlementItemSnapshotOf(orderLine1Id);
         assertThat(snapshot.shopId()).isEqualTo(shopId);
         assertThat(snapshot.orderId()).isEqualTo(orderId);
+        assertThat(snapshot.shopOrderId()).isEqualTo(shopOrderId);
         assertThat(snapshot.productId()).isEqualTo(productId);
+        assertThat(snapshot.productName()).isEqualTo("상품A");
+        assertThat(snapshot.quantity()).isEqualTo(3);
         assertThat(snapshot.amount()).isEqualTo(15000);
         assertThat(snapshot.confirmedAt()).isEqualTo(event.confirmedAt());
         assertThat(snapshot.settlementId()).isNull();
@@ -73,8 +100,9 @@ class SettlementItemConsumerTest extends IntegrationTestSupport {
         UUID shopId = Ids.newId();
         UUID productId = Ids.newId();
         UUID memberId = Ids.newId();
-        OrderLineConfirmedEvent event1 = new OrderLineConfirmedEvent(orderLine1Id, orderId, shopId, productId, memberId, 15000, Instant.parse("2026-09-15T03:00:00Z"));
-        OrderLineConfirmedEvent event2 = new OrderLineConfirmedEvent(orderLine1Id, orderId, shopId, productId, memberId, 99999, Instant.parse("2026-09-15T03:00:00Z"));
+        UUID shopOrderId = Ids.newId();
+        OrderLineConfirmedEvent event1 = new OrderLineConfirmedEvent(orderLine1Id, orderId, shopId, productId, memberId, 15000, Instant.parse("2026-09-15T03:00:00Z"), shopOrderId, "productName", 1);
+        OrderLineConfirmedEvent event2 = new OrderLineConfirmedEvent(orderLine1Id, orderId, shopId, productId, memberId, 99999, Instant.parse("2026-09-15T03:00:00Z"), shopOrderId, "productName", 1);
 
         // When
         settlementItemService.register(event1);
