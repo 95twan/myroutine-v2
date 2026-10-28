@@ -1,5 +1,6 @@
 # 05. 이벤트 카탈로그
 
+> 2026-10-28 · `order-line-confirmed`의 payload에 `shopOrderId`·`productName`·`quantity`를 더했다(로드맵 4-0, 정산 품목 표시용)
 > 2026-10-21 · 릴레이 SQL의 시각을 앱 `Clock` 파라미터로 정했다(로드맵 3-1)
 > 2026-10-20 · 릴레이가 한 행의 발행 실패에서 그 호출을 멈추고 남은 행을 되돌린다(로드맵 3-1)
 > 2026-10-16 · 대사 호출 이름을 `queryOutcome`에서 `queryPgOutcome`으로 바꿨다(로드맵 2-6)
@@ -69,7 +70,7 @@
 | `order.order-expired.v1` | 주문 만료·결제 실패 | orderId, memberId, reason(`EXPIRED`, `PAYMENT_FAILED`) | notification |
 | `order.shop-order-shipped.v1` | 발송 | shopOrderId, orderId, memberId, carrier, trackingNumber | notification |
 | `order.shop-order-delivered.v1` | 배송완료 | shopOrderId, orderId, memberId | notification |
-| `order.order-line-confirmed.v1` | 구매확정 | orderLineId, orderId, shopId, productId, memberId, amount, confirmedAt | settlement(정산 대상 적재). 리뷰 작성 자격은 review가 `OrderApi.getConfirmedLine`으로 동기 확인한다(6-1) |
+| `order.order-line-confirmed.v1` | 구매확정 | orderLineId, orderId, shopId, productId, memberId, amount, confirmedAt, shopOrderId, productName, quantity | settlement(정산 대상 적재). 리뷰 작성 자격은 review가 `OrderApi.getConfirmedLine`으로 동기 확인한다(6-1) |
 | `order.order-line-refunded.v1` | 환불 완료 | refundId, orderLineId, orderId, memberId, amount | notification |
 | `order.subscription-status-changed.v1` | 구독 상태 변경 | subscriptionId, memberId, from, to, reason | notification |
 | `order.subscription-cycle-failed.v1` | 회차 결제 실패·건너뜀 | subscriptionId, cycleId, memberId, consecutiveFailures, reason | notification |

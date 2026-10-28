@@ -1,6 +1,7 @@
 # 07. API 명세 (Stage 1)
 
 > 엔드포인트 목록과 핵심 API의 요청·응답 계약. 필드 단위 상세는 구현 시 springdoc(OpenAPI)로 생성하고, 이 문서와 어긋나면 이 문서를 갱신한다.
+> 2026-10-28 · 정산 응답에 수수료율 `feeRateBp`, 정산 품목에 `shopOrderId`·`productName`·`quantity`를 더하고 정산 예정 조회 `GET /api/shops/{shopId}/settlements/upcoming`을 더했다. 정산 상세 경로를 구현(로드맵 3-4)대로 `/settlements/{id}`로 맞췄다(로드맵 4-0)
 > 2026-10-19 · 판매자 가게주문 응답(목록·상세·발송·배송완료)에 환불 목록 `refunds`를 더했다. 판매자는 여기서 반품 승인·거절에 쓸 `refundId`와 구매자가 적은 사유를 읽는다(로드맵 2-9)
 > 2026-10-15 · 관리자 결제 대사 경로를 `/admin/api/payments/{orderId}/reconcile`로 맞췄다(로드맵 7-3)
 > 2026-10-15 · 이메일 인증 API를 로그인 회원 전용으로 정리하고 OAuth 가입용 발송 API(`/api/auth/oauth/signup/email-verifications`)를 더했다(로드맵 4-2·4-3), 구독 신청 응답을 `{ subscriptionId }`로 맞췄다(로드맵 5-2)
@@ -140,8 +141,9 @@
 ### settlement
 | Method | Path | 권한 | 설명 | 요구사항 |
 |---|---|---|---|---|
-| GET | `/api/shops/{shopId}/settlements` | O | 정산 내역 | FR-STL-03 |
-| GET | `/api/shops/{shopId}/settlements/{id}/items` | O | 정산 품목 | FR-STL-03 |
+| GET | `/api/shops/{shopId}/settlements` | O | 정산 내역 (`feeRateBp` 포함) | FR-STL-03 |
+| GET | `/api/shops/{shopId}/settlements/{id}` | O | 정산과 품목(품목마다 `shopOrderId`·`productName`·`quantity`) | FR-STL-03 |
+| GET | `/api/shops/{shopId}/settlements/upcoming` | O | 정산 예정 `{itemCount, grossAmount, firstConfirmedAt}` (폐업한 가게 포함) | FR-STL-03 |
 
 ### review / search / recommendation
 | Method | Path | 권한 | 설명 | 요구사항 |
