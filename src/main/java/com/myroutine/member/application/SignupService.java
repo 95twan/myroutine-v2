@@ -20,7 +20,7 @@ import java.util.UUID;
 public class SignupService {
     private final MemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
-    private final JwtProvider jwtProvider;
+    private final TokenIssuer tokenIssuer;
     private final OutboxPublisher publisher;
 
     @Transactional
@@ -45,8 +45,7 @@ public class SignupService {
         MemberRegisteredEvent event = new MemberRegisteredEvent(savedMember.getId(), savedMember.getEmail(), savedMember.getNickname());
         publisher.publish(MemberTopics.MEMBER_REGISTERED, "MEMBER", memberId, event);
 
-        String accessToken = jwtProvider.issue(memberId, savedMember.getRole().name());
-        TokenResult token = new TokenResult(accessToken, jwtProvider.accessTokenTtl().getSeconds());
+        TokenResult token = tokenIssuer.issueNewSession(savedMember);
 
         return new SignupResult(memberId, token);
     }

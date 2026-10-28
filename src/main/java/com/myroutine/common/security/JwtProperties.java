@@ -14,7 +14,9 @@ public record JwtProperties(
         @NotBlank
         String secret,
         @NotNull
-        Duration accessTokenTtl
+        Duration accessTokenTtl,
+        @NotNull
+        Duration refreshTokenTtl
 ) {
     public JwtProperties {
         if (Base64.getDecoder().decode(secret).length < 32) {

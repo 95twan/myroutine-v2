@@ -15,7 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class LoginService {
     private final MemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
-    private final JwtProvider jwtProvider;
+    private final TokenIssuer tokenIssuer;
 
     @Transactional(readOnly = true)
     public TokenResult login(LoginCommand command) {
@@ -29,9 +29,7 @@ public class LoginService {
 
         member.verifyCanLogin();
 
-        String accessToken = jwtProvider.issue(member.getId(), member.getRole().name());
-
-        return new TokenResult(accessToken, jwtProvider.accessTokenTtl().getSeconds());
+        return tokenIssuer.issueNewSession(member);
     }
 
 }
