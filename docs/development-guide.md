@@ -574,7 +574,7 @@ public record ErrorResponse(String code, String message, String traceId, Map<Str
 | 예외 | `BusinessException` + `{모듈}ErrorCode` | |
 | 테이블·컬럼 | snake_case, 테이블은 단수(예약어면 복수 `orders`) | `order_line` |
 | 제약·인덱스 | `pk_`, `uk_{table}_{cols}`, `ck_{table}_{rule}`, `idx_{table}_{cols}` | `uk_stock_movement_type_ref` |
-| 테스트 메서드 | 한글 `@DisplayName` + 영문 메서드명 | `@DisplayName("배송 중인 품목은 취소할 수 없다")` |
+| 테스트 메서드 | 한글 `@DisplayName` + 영문 camelCase 메서드명 | `@DisplayName("배송 중인 품목은 취소할 수 없다")` |
 
 ## 13. 테스트
 
@@ -592,7 +592,7 @@ public record ErrorResponse(String code, String message, String traceId, Map<Str
 ```java
 @Test
 @DisplayName("배송 중인 품목은 취소할 수 없다")
-void cancel_shipped_line_fails() {
+void cancelShippedLineFails() {
     OrderLine line = OrderLineFixture.shipped();
 
     assertThatThrownBy(line::cancel)
@@ -700,7 +700,7 @@ static void pgProperties(DynamicPropertyRegistry registry) {
 ```java
 @Test
 @DisplayName("PG 승인 응답이 타임아웃이면 결제는 UNKNOWN, 주문은 만료되지 않고, 대사 후 PAID가 된다")
-void confirm_timeout_then_reconcile() {
+void confirmTimeoutThenReconcile() {
     pg.on("/v1/payments/confirm", Behavior.delay(1_000));              // read-timeout 500ms 초과
     ConfirmResult result = confirm(orderId);
     assertThat(result.status()).isEqualTo(PAYMENT_IN_PROGRESS);
