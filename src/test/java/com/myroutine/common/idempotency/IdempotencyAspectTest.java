@@ -1,5 +1,6 @@
 package com.myroutine.common.idempotency;
 
+import com.myroutine.common.model.Ids;
 import com.myroutine.shop.web.OpenShopRequest;
 import com.myroutine.support.IntegrationTestSupport;
 import com.myroutine.support.TestFixtures;
@@ -74,7 +75,7 @@ class IdempotencyAspectTest extends IntegrationTestSupport {
                 "shop address"
         );
 
-        String idempotencyKey = UUID.randomUUID().toString();
+        UUID idempotencyKey = Ids.newId();
 
         // When & Then
         MvcResult result1 = mockMvc.perform(post("/api/shops")
@@ -117,7 +118,7 @@ class IdempotencyAspectTest extends IntegrationTestSupport {
                 "shop address"
         );
 
-        String idempotencyKey = UUID.randomUUID().toString();
+        UUID idempotencyKey = Ids.newId();
 
         OpenShopRequest request2 = new OpenShopRequest(
                 "shop2",
@@ -165,7 +166,7 @@ class IdempotencyAspectTest extends IntegrationTestSupport {
                 "shop address"
         );
 
-        String idempotencyKey = UUID.randomUUID().toString();
+        UUID idempotencyKey = Ids.newId();
 
         // When & Then
         mockMvc.perform(post("/api/shops")
@@ -204,7 +205,7 @@ class IdempotencyAspectTest extends IntegrationTestSupport {
                 "shop address"
         );
 
-        String idempotencyKey = UUID.randomUUID().toString();
+        String idempotencyKey = Ids.newId().toString();
 
         mockMvc.perform(post("/api/shops")
                         .header("Authorization", "Bearer " + token)
@@ -244,7 +245,7 @@ class IdempotencyAspectTest extends IntegrationTestSupport {
                 "shop address"
         );
 
-        String idempotencyKey = UUID.randomUUID().toString();
+        String idempotencyKey = Ids.newId().toString();
 
         mockMvc.perform(post("/api/shops")
                         .header("Authorization", "Bearer " + token)

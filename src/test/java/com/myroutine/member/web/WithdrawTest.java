@@ -65,7 +65,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("탈퇴를 실패한다. (운영 중인 가게, MEMBER_HAS_ACTIVE_RESOURCES)")
-    void withdraw_active_shop_fails() throws Exception {
+    void withdrawActiveShopFails() throws Exception {
         // Given
         UUID memberId = testFixtures.signup("member@test.com");
         String token = testFixtures.login("member@test.com");
@@ -87,7 +87,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("탈퇴를 실패한다. (결제 대기 주문, MEMBER_HAS_ACTIVE_RESOURCES)")
-    void withdraw_pending_payment_order_fails() throws Exception {
+    void withdrawPendingPaymentOrderFails() throws Exception {
         // Given
         UUID sellerId = testFixtures.signup("seller@test.com");
         UUID shopId = testFixtures.openShop(sellerId, "1111111111");
@@ -113,7 +113,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("탈퇴를 실패한다. (결제 진행 중 주문, MEMBER_HAS_ACTIVE_RESOURCES)")
-    void withdraw_payment_in_progress_order_fails() throws Exception {
+    void withdrawPaymentInProgressOrderFails() throws Exception {
         // Given
         UUID sellerId = testFixtures.signup("seller@test.com");
         UUID shopId = testFixtures.openShop(sellerId, "1111111111");
@@ -143,7 +143,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("탈퇴를 실패한다. (PAID 가게주문, MEMBER_HAS_ACTIVE_RESOURCES)")
-    void withdraw_paid_shop_order_fails() throws Exception {
+    void withdrawPaidShopOrderFails() throws Exception {
         // Given
         UUID sellerId = testFixtures.signup("seller@test.com");
         UUID shopId = testFixtures.openShop(sellerId, "1111111111");
@@ -169,7 +169,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("탈퇴를 실패한다. (SHIPPED 가게주문, MEMBER_HAS_ACTIVE_RESOURCES)")
-    void withdraw_shipped_shop_order_fails() throws Exception {
+    void withdrawShippedShopOrderFails() throws Exception {
         // Given
         UUID sellerId = testFixtures.signup("seller@test.com");
         UUID shopId = testFixtures.openShop(sellerId, "1111111111");
@@ -197,7 +197,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("탈퇴를 실패한다. (DELIVERED 가게주문, MEMBER_HAS_ACTIVE_RESOURCES)")
-    void withdraw_delivered_shop_order_fails() throws Exception {
+    void withdrawDeliveredShopOrderFails() throws Exception {
         // Given
         UUID sellerId = testFixtures.signup("seller@test.com");
         UUID shopId = testFixtures.openShop(sellerId, "1111111111");
@@ -226,7 +226,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("취소된 주문만 있으면 탈퇴한다.")
-    void withdraw_cancelled_order_succeeds() throws Exception {
+    void withdrawCancelledOrderSucceeds() throws Exception {
         // Given
         UUID sellerId = testFixtures.signup("seller@test.com");
         UUID shopId = testFixtures.openShop(sellerId, "1111111111");
@@ -251,7 +251,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("COMPLETED 가게주문만 있으면 탈퇴한다.")
-    void withdraw_completed_shop_order_succeeds() throws Exception {
+    void withdrawCompletedShopOrderSucceeds() throws Exception {
         // Given
         UUID sellerId = testFixtures.signup("seller@test.com");
         UUID shopId = testFixtures.openShop(sellerId, "1111111111");
@@ -275,7 +275,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("CANCELLED 가게주문만 있으면 탈퇴한다.")
-    void withdraw_cancelled_shop_order_succeeds() throws Exception {
+    void withdrawCancelledShopOrderSucceeds() throws Exception {
         // Given
         UUID sellerId = testFixtures.signup("seller@test.com");
         UUID shopId = testFixtures.openShop(sellerId, "1111111111");
@@ -300,7 +300,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("탈퇴를 실패한다. (진행 중 환불, MEMBER_HAS_ACTIVE_RESOURCES)")
-    void withdraw_refund_in_progress_fails() throws Exception {
+    void withdrawRefundInProgressFails() throws Exception {
         // Given
         UUID sellerId = testFixtures.signup("seller@test.com");
         UUID shopId = testFixtures.openShop(sellerId, "1111111111");
@@ -344,7 +344,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("환불이 COMPLETED이면 탈퇴한다.")
-    void withdraw_completed_refund_succeeds() throws Exception {
+    void withdrawCompletedRefundSucceeds() throws Exception {
         // Given
         UUID sellerId = testFixtures.signup("seller@test.com");
         UUID shopId = testFixtures.openShop(sellerId, "1111111111");
@@ -387,7 +387,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("탈퇴를 실패한다. (미정산 품목, MEMBER_HAS_ACTIVE_RESOURCES)")
-    void withdraw_unsettled_item_fails() throws Exception {
+    void withdrawUnsettledItemFails() throws Exception {
         // Given
         UUID memberId = testFixtures.signup("member@test.com");
         String token = testFixtures.login("member@test.com");
@@ -411,7 +411,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("탈퇴를 실패한다. (PAYOUT_FAILED 정산, MEMBER_HAS_ACTIVE_RESOURCES)")
-    void withdraw_payout_failed_settlement_fails() throws Exception {
+    void withdrawPayoutFailedSettlementFails() throws Exception {
         // Given
         UUID memberId = testFixtures.signup("member@test.com");
         String token = testFixtures.login("member@test.com");
@@ -438,7 +438,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("정산이 PAID이면 탈퇴한다.")
-    void withdraw_paid_settlement_succeeds() throws Exception {
+    void withdrawPaidSettlementSucceeds() throws Exception {
         // Given
         UUID memberId = testFixtures.signup("member@test.com");
         String token = testFixtures.login("member@test.com");
@@ -459,7 +459,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("품목 없이 CLOSED 가게만 있으면 탈퇴한다.")
-    void withdraw_closed_shop_without_items_succeeds() throws Exception {
+    void withdrawClosedShopWithoutItemsSucceeds() throws Exception {
         // Given
         UUID memberId = testFixtures.signup("member@test.com");
         String token = testFixtures.login("member@test.com");
@@ -477,7 +477,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("탈퇴를 실패한다. (이유가 둘 이상이면 reasons에 모두 담는다, MEMBER_HAS_ACTIVE_RESOURCES)")
-    void withdraw_multiple_reasons_fails() throws Exception {
+    void withdrawMultipleReasonsFails() throws Exception {
         // Given
         UUID memberId = testFixtures.signup("member@test.com");
         String token = testFixtures.login("member@test.com");
@@ -514,7 +514,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("탈퇴하면 개인정보가 마스킹되고 배송지가 삭제되며 탈퇴 이벤트가 발행된다.")
-    void withdraw_masks_member_and_publishes_event() throws Exception {
+    void withdrawMasksMemberAndPublishesEvent() throws Exception {
         // Given
         UUID memberId = testFixtures.signup("member@test.com");
         String token = testFixtures.login("member@test.com");
@@ -547,7 +547,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("탈퇴 이벤트를 소비하면 장바구니가 비워진다.")
-    void withdraw_event_clears_cart() throws Exception {
+    void withdrawEventClearsCart() throws Exception {
         // Given
         UUID sellerId = testFixtures.signup("seller@test.com");
         UUID shopId = testFixtures.openShop(sellerId, "1111111111");
@@ -588,7 +588,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("장바구니가 없는 회원의 탈퇴 이벤트를 소비한다.")
-    void withdraw_event_without_cart_succeeds() throws Exception {
+    void withdrawEventWithoutCartSucceeds() throws Exception {
         // Given
         String token = testFixtures.token("member@test.com");
 
@@ -613,7 +613,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("같은 회원의 탈퇴 요청 두 건 중 하나를 실패한다. (INVALID_STATE_TRANSITION)")
-    void withdraw_concurrent_requests_one_fails() throws Exception {
+    void withdrawConcurrentRequestsOneFails() throws Exception {
         // Given
         UUID memberId = testFixtures.signup("member@test.com");
         String token = testFixtures.login("member@test.com");
@@ -645,7 +645,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("탈퇴한 회원은 로그인을 실패한다. (LOGIN_FAILED)")
-    void login_after_withdraw_fails() throws Exception {
+    void loginAfterWithdrawFails() throws Exception {
         // Given
         String token = testFixtures.token("member@test.com");
 
@@ -665,7 +665,7 @@ class WithdrawTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("탈퇴한 회원의 이메일로 다시 가입한다.")
-    void signup_with_withdrawn_email_succeeds() throws Exception {
+    void signupWithWithdrawnEmailSucceeds() throws Exception {
         // Given
         String token = testFixtures.token("member@test.com");
 

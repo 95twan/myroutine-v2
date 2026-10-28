@@ -17,7 +17,7 @@ class MemberStatusTest {
     @ParameterizedTest(name = "[성공] {0} -> {1}")
     @DisplayName("회원 상태를 전이한다. (허용된 전이)")
     @MethodSource("successTransitProvider")
-    void allowed_transitions(MemberStatus from, MemberStatus to) {
+    void allowedTransitions(MemberStatus from, MemberStatus to) {
         // When
         MemberStatus result = from.transitTo(to);
 
@@ -36,7 +36,7 @@ class MemberStatusTest {
     @ParameterizedTest(name = "[실패] {0} -> {1}")
     @DisplayName("회원 상태 전이를 실패한다. (허용되지 않은 전이)")
     @MethodSource("failTransitProvider")
-    void forbidden_transitions(MemberStatus from, MemberStatus to) {
+    void forbiddenTransitions(MemberStatus from, MemberStatus to) {
         // When & Then
         assertThatThrownBy(() -> from.transitTo(to))
                 .isInstanceOfSatisfying(BusinessException.class,

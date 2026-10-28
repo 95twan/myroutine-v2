@@ -9,6 +9,7 @@ import com.myroutine.product.domain.ProductStatus;
 import com.myroutine.shop.application.OpenShopCommand;
 import com.myroutine.shop.application.OpenShopService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -19,6 +20,8 @@ import java.net.http.HttpResponse;
 import java.sql.Timestamp;
 import java.time.*;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
@@ -36,6 +39,7 @@ public class TestFixtures {
     private final ShipmentService shipmentService;
     private final UpdateProductService updateProductService;
     private final JdbcTemplate jdbcTemplate;
+    private final StringRedisTemplate redisTemplate;
 
     public UUID signup(String email) {
 
@@ -76,6 +80,10 @@ public class TestFixtures {
 
     public String login(String email) {
         return loginService.login(new LoginCommand(email, "pass1234")).accessToken();
+    }
+
+    public TokenResult loginTokens(String email) {
+        return loginService.login(new LoginCommand(email, "pass1234"));
     }
 
     public UUID registerProduct(UUID memberId, UUID shopId) {
@@ -708,5 +716,21 @@ public class TestFixtures {
                 Ids.newId(), orderLineId, shopId, Ids.newId(), shopOrderId, Ids.newId(), productName, quantity, amount, OffsetDateTime.ofInstant(confirmedAt, ZoneOffset.UTC)
         );
         return orderLineId;
+    }
+
+    public SessionSnapshot sessionSnapshotOf(UUID sessionId) {
+        String key = "auth:session:" + sessionId;
+        Map<Object, Object> map = redisTemplate.opsForHash().entries(key);
+        Long expire = redisTemplate.getExpire(key, TimeUnit.SECONDS);
+        return new SessionSnapshot(map.entrySet().stream().collect(Collectors.toMap(e -> (String) e.getKey(), e -> (String) e.getValue())), expire);
+    }
+
+    public long memberSessionsTtlOf(UUID memberId) {
+        return redisTemplate.getExpire("auth:member-sessions:" + memberId, TimeUnit.SECONDS);
+    }
+
+    public Set<UUID> sessionIdsOf(UUID memberId) {
+        Set<String> sessionIds = redisTemplate.opsForSet().members("auth:member-sessions:" + memberId);
+        return sessionIds.stream().map(UUID::fromString).collect(Collectors.toSet());
     }
 }

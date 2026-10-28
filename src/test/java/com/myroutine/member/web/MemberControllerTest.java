@@ -1,6 +1,7 @@
 package com.myroutine.member.web;
 
 import com.jayway.jsonpath.JsonPath;
+import com.myroutine.common.model.Ids;
 import com.myroutine.common.security.JwtProperties;
 import com.myroutine.common.security.JwtProvider;
 import com.myroutine.support.IntegrationTestSupport;
@@ -97,7 +98,7 @@ class MemberControllerTest extends IntegrationTestSupport {
         // Given
         UUID memberId = testFixtures.signup("test@test.com");
         JwtProvider jwtProvider = new JwtProvider(jwtProperties, Clock.fixed(Instant.now().minusSeconds(7200), ZoneOffset.UTC));
-        String expiredToken = jwtProvider.issue(memberId, "USER");
+        String expiredToken = jwtProvider.issue(memberId, "USER", Ids.newId());
 
         // When & Then
         mockMvc.perform(get("/api/members/me")

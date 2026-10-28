@@ -221,7 +221,7 @@ class AuthControllerTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("회원 가입하면 accessToken, tokenType(Bearer), expiresIn(3600)을 응답한다.")
+    @DisplayName("회원 가입하면 accessToken, tokenType(Bearer), expiresIn(900)을 응답한다.")
     void signUpReturnsAccessToken() throws Exception {
         // Given
         String password = "password123";
@@ -235,7 +235,7 @@ class AuthControllerTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.memberId").exists())
                 .andExpect(jsonPath("$.accessToken").exists())
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
-                .andExpect(jsonPath("$.expiresIn").value(3600));
+                .andExpect(jsonPath("$.expiresIn").value(900));
     }
 
     @Test

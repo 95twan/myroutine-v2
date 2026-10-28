@@ -1,5 +1,6 @@
 package com.myroutine.order.application;
 
+import com.myroutine.common.model.Ids;
 import com.myroutine.order.web.CheckoutRequest;
 import com.myroutine.support.ConcurrencyRunner;
 import com.myroutine.support.IntegrationTestSupport;
@@ -51,7 +52,7 @@ class CheckoutIdempotencyConcurrencyTest extends IntegrationTestSupport {
 
         CheckoutRequest request = new CheckoutRequest(List.of(cartItemId), addressId);
 
-        String idempotencyKey = UUID.randomUUID().toString();
+        UUID idempotencyKey = Ids.newId();
 
         // When
         List<ConcurrencyRunner.Result<MvcResult>> results = ConcurrencyRunner.run(10, () ->

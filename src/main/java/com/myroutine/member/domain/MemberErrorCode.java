@@ -10,7 +10,8 @@ public enum MemberErrorCode implements ErrorCode {
     MEMBER_BANNED(HttpStatus.FORBIDDEN, "이용이 제한된 회원입니다."),
     MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "회원을 찾을 수 없습니다."),
     MEMBER_ADDRESS_NOT_FOUND(HttpStatus.NOT_FOUND, "배송지를 찾을 수 없습니다."),
-    MEMBER_HAS_ACTIVE_RESOURCES(HttpStatus.UNPROCESSABLE_CONTENT, "탈퇴할 수 없는 상태입니다.");
+    MEMBER_HAS_ACTIVE_RESOURCES(HttpStatus.UNPROCESSABLE_CONTENT, "탈퇴할 수 없는 상태입니다."),
+    REFRESH_REUSED(HttpStatus.UNAUTHORIZED, "이미 사용된 토큰입니다. 다시 로그인해 주세요.");
 
     private final HttpStatus status;
     private final String message;
