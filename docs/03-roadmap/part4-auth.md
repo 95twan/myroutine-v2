@@ -1,6 +1,7 @@
 # Part 4. 인증 완성
 
-> 버전 0.31 · 2026-10-28 · 세션의 `device` 필드와 `User-Agent` 전달을 지웠다(4-1 `SessionStore.create`·`TokenIssuer.issueNewSession`·`signUp`/`login`, 4-3 `login`/`signup`). 세션은 로그인마다 따로 만들어지므로 FR-MEM-03의 "기기(세션)별 관리"는 그대로고, 기기 목록은 4-1 추가 항목으로 옮겼다. 4-1: `rotate`가 `auth:member-sessions` 집합의 만료도 연장한다(`rotate(sessionId, memberId, …)`, `rotate.lua`의 KEYS[2]), `sid` 없는 옛 토큰은 거절, `rotate.lua`의 해시 비교(`==`)는 `isEqual` 규칙의 예외, 회원 행이 없는 refresh는 401 후 세션 삭제. 4-2: `confirmReset`에서 회원이 없으면 400, 재설정 요청의 발송 한도는 가입 여부와 무관하게 적용해(429로 가입 여부가 드러나지 않게) 재설정 메일 제목은 `[MyRoutine] 비밀번호 재설정 인증코드`, 본문은 `인증코드: ` + 코드. 4-3: 가입 토큰 메일은 4-2 인증 메일과 같게, `OAuthLoginResponse`는 `token`을 중첩, `consume.lua`·`sendSignupVerification` 위치·`OAuthController`·`providerEmail` 확정. 4-4: 관리자 검색 메서드(대소문자 무시, `createdAt desc`)·`AdminMemberController`, `currentVersion`은 회원이 없으면 `-1`, BANNED는 로그인 잠금 `reset`을 하지 않고, 제재 알림 문구 확정.
+> 버전 0.32 · 2026-10-28 · Part 4 앞에 4-0(정산 조회 보완)을 더했다: 구매확정 이벤트와 정산 품목에 가게주문 ID·상품 이름·수량(`NOT NULL`, 배포 전 운영 DB 초기화), 정산 응답에 수수료율, 정산 예정 조회 API `GET /api/shops/{shopId}/settlements/upcoming`.
+> 0.31 · 2026-10-28 · 세션의 `device` 필드와 `User-Agent` 전달을 지웠다(4-1 `SessionStore.create`·`TokenIssuer.issueNewSession`·`signUp`/`login`, 4-3 `login`/`signup`). 세션은 로그인마다 따로 만들어지므로 FR-MEM-03의 "기기(세션)별 관리"는 그대로고, 기기 목록은 4-1 추가 항목으로 옮겼다. 4-1: `rotate`가 `auth:member-sessions` 집합의 만료도 연장한다(`rotate(sessionId, memberId, …)`, `rotate.lua`의 KEYS[2]), `sid` 없는 옛 토큰은 거절, `rotate.lua`의 해시 비교(`==`)는 `isEqual` 규칙의 예외, 회원 행이 없는 refresh는 401 후 세션 삭제. 4-2: `confirmReset`에서 회원이 없으면 400, 재설정 요청의 발송 한도는 가입 여부와 무관하게 적용해(429로 가입 여부가 드러나지 않게) 재설정 메일 제목은 `[MyRoutine] 비밀번호 재설정 인증코드`, 본문은 `인증코드: ` + 코드. 4-3: 가입 토큰 메일은 4-2 인증 메일과 같게, `OAuthLoginResponse`는 `token`을 중첩, `consume.lua`·`sendSignupVerification` 위치·`OAuthController`·`providerEmail` 확정. 4-4: 관리자 검색 메서드(대소문자 무시, `createdAt desc`)·`AdminMemberController`, `currentVersion`은 회원이 없으면 `-1`, BANNED는 로그인 잠금 `reset`을 하지 않고, 제재 알림 문구 확정.
 > 0.12 · 2026-10-16 · 읽는 곳이 없는 값을 지웠다: 4-1 세션의 `createdAt`·`lastUsedAt`과 `StoredSession`(조회는 `findMemberId`가 회원 ID만 돌려준다, `rotate.lua`의 `now` 인자와 `RedisSessionStore`의 `Clock`도 함께), 4-3 제공자 `nickname`(`OAuthUserInfo`·`PendingSocialSignup`·Redis 가입 토큰 필드·제공자별 읽는 필드·가짜 서버). 4-2 `EmailCodeStore.save`는 해시 대신 원문 코드를 받아 `verify`와 대칭이 되게 했다.
 > 0.10 · 2026-10-15 · 인증·잠금 결정: ① 이메일 인증 확인·비밀번호 변경은 `TokenIssuer.reissueAccess`로 access만 새로 주고 `refreshToken`은 null(클라이언트가 기존 refresh 유지). ② 이메일 인증 API는 로그인 회원 전용이고 OAuth 가입용 발송은 4-3의 별도 API(`07-api-spec.md`도 맞춤). ③ 로그인 잠금 TTL을 5번째 실패에서 다시 걸어 "15분 동안 423"을 지킨다.
 > 0.6 · 2026-10-09 · Part 1 구현 코드와 정합: `TokenResult`·`TokenResponse` 필드 이름(`expiresInSeconds`), 단계마다 늘어나는 `JwtProvider.issue`·`AuthClaims` 인자를 맞췄다. Redis 이미지 태그를 고정하고(`redis:7.4.11`) 테스트 컨테이너 기동에 1-10의 MinIO를 넣었다.
@@ -13,6 +14,7 @@
 
 | 단계 | 제목 | 크기 |
 |---|---|---|
+| 4-0 | 정산 조회 보완 | S |
 | 4-1 | Redis · refresh 토큰 회전 · 로그아웃 | M |
 | 4-2 | 이메일 인증 · 비밀번호 변경·재설정 | M |
 | 4-3 | OAuth 로그인 (Kakao · Google · Naver) | L |
@@ -73,6 +75,157 @@
 | `SIGNUP_TOKEN_INVALID` | 401 | 가입 시간이 만료되었습니다. 다시 시도해 주세요. | `MemberErrorCode` | 4-3 |
 | `SOCIAL_ACCOUNT_ALREADY_LINKED` | 409 | 이미 연결된 소셜 계정입니다. | `MemberErrorCode` | 4-3 |
 | `ACCOUNT_LOCKED` | 423 | 로그인 시도가 많아 잠시 잠겼습니다. (details.unlockAt) | `MemberErrorCode` | 4-4 |
+
+---
+
+## 4-0. 정산 조회 보완 (S)
+
+**목표**: 판매자가 정산 상세의 품목마다 어떤 상품이 몇 개 팔렸는지 보고 그 가게주문으로 이동할 수 있다. 정산의 수수료율과, 아직 정산되지 않은 구매확정 금액(정산 예정)도 볼 수 있다.
+
+**왜 지금**: 판매자 정산 화면(프론트 리포 `myroutine-web`)이 이 값들을 기다린다. 3-4 정산 조회를 보완하는 일이라 Redis가 들어오는 4-1 전에 끝내 두면 인증 변경과 섞이지 않는다.
+
+**새로 등장**
+
+| 개념 | 한 줄 설명 |
+|---|---|
+| 이벤트 필드 추가 | 필드를 더하는 것은 호환되는 변경이라 토픽(`.v1`)을 그대로 쓴다([개발 가이드 §9.1](../development-guide.md)). 다만 이 단계의 받는 쪽은 새 필드를 필수로 받으므로, 배포 전에 발행돼 새 필드가 없는 이벤트는 역직렬화에 실패해(`quantity`가 `int`라 Jackson 3 기본값 `FAIL_ON_NULL_FOR_PRIMITIVES`에 걸린다) 재시도 없이 DLT로 간다(3-2에서 `JacksonException`을 재시도 제외로 정했다). 그래서 배포 전에 DB를 초기화한다 |
+
+**정책 (이 단계에서 정함)**
+- 정산 품목의 가게주문 ID·상품 이름·수량은 구매확정 이벤트가 실어 오고 `settlement_item`에 저장한다. 상품 이름은 주문 때의 스냅샷(`order_line.product_name`)이라 정산 뒤 상품 이름이 바뀌어도 그대로다. 수량은 주문 수량(`order_line.quantity`)이다.
+- 새 컬럼 세 개는 `NOT NULL`이다. 이미 적재된 행을 채우는 마이그레이션은 쓰지 않는다. 채우려면 settlement의 마이그레이션이 `orders.order_line`을 읽어야 해서, settlement가 정산 데이터만 소유한다는 경계([ADR-009](../adr/ADR-009-settlement.md))를 넘는다. 대신 이 단계를 운영에 배포하기 전에 운영 DB를 초기화한다. 정산 품목이 남아 있으면 마이그레이션이 실패해 앱이 뜨지 않는다. outbox도 함께 비므로 새 필드가 없는 이벤트도 남지 않는다.
+- 정산 예정은 그 가게의 `settlement_id IS NULL`인 품목 전부다(달을 나누지 않는다). 3-6 탈퇴 조건 `existsUnsettledByShopIdIn`과 같은 기준이라, 탈퇴가 `PENDING_SETTLEMENT`로 막혔을 때 판매자가 무엇을 기다리는지 이 API로 본다. `PAID`가 아닌 정산 때문에 막힌 경우는 정산 목록의 `status`로 본다.
+- 정산 예정에는 수수료와 정산액을 넣지 않는다. 정산을 실행할 때의 수수료율(`myroutine.settlement.fee-rate-bp`)로 확정되고, 수수료는 정산 합계에 한 번 내림하므로 미리 계산한 값과 다를 수 있다.
+- 정산 예정은 폐업한 가게도 조회한다(`shopApi.verifyOwner`). 폐업한 가게의 미정산 품목도 탈퇴를 막기 때문이다.
+
+### 할 일
+
+**구현 순서**: 1) 마이그레이션 → 2) order 이벤트 → 3) settlement 품목 적재·조회 → 4) 정산 응답의 수수료율 → 5) 정산 예정 API → 테스트. 문서([ERD](../02-design/03-erd.md), [이벤트](../02-design/05-events.md), [API 명세](../02-design/07-api-spec.md))는 이미 반영돼 있다.
+
+**1) 마이그레이션** — `settlement` 폴더에 새 파일 `V{yyyyMMddHHmm}__settlement_add_settlement_item_order_line_fields.sql`.
+
+```sql
+ALTER TABLE settlement.settlement_item
+    ADD COLUMN shop_order_id uuid         NOT NULL,
+    ADD COLUMN product_name  varchar(100) NOT NULL,
+    ADD COLUMN quantity      int          NOT NULL;
+```
+
+길이는 `orders.order_line.product_name`(`varchar(100)`)과 같다. 인덱스는 더하지 않는다. 기본값 없는 `NOT NULL` 컬럼이라 테이블에 행이 있으면 실패한다. 테스트 DB는 매번 빈 상태에서 시작해 문제가 없다.
+
+**2) order 이벤트**
+
+| 클래스 | 규격 |
+|---|---|
+| `OrderLineConfirmedEvent` | 끝에 `UUID shopOrderId, String productName, int quantity`를 더한다 |
+| `OrderEventPublisher.lineConfirmed` | 새 필드에 `shopOrder.getId()`, `orderLine.getProductName()`, `orderLine.getQuantity()`를 넣는다 |
+
+- 생성자 인자가 늘어나므로 기존 테스트의 `new OrderLineConfirmedEvent(...)` 호출(`SettlementItemConsumerTest`)을 고친다.
+
+**3) settlement 품목 적재·조회**
+
+| 클래스 | 규격 |
+|---|---|
+| `SettlementItemRepository`·`JpaSettlementItemRepository` | `insertIgnoringConflict(UUID id, UUID orderLineId, UUID shopId, UUID orderId, UUID shopOrderId, UUID productId, String productName, int quantity, long amount, Instant confirmedAt, Instant now)` — INSERT의 컬럼 목록에 `shop_order_id`, `product_name`, `quantity`를 더한다. `findBySettlementIdFirstPage`·`findBySettlementIdAfter`의 SELECT에 `shop_order_id AS "shopOrderId", product_name AS "productName", quantity`를 더한다 |
+| `SettlementItemRow` | `UUID getShopOrderId()`, `String getProductName()`, `int getQuantity()`를 더한다 |
+| `SettlementItemService.register` | 이벤트의 세 값을 그대로 넘긴다 |
+| `SettlementItemResult`·`SettlementItemResponse` | `(UUID orderLineId, UUID orderId, UUID shopOrderId, UUID productId, String productName, int quantity, long amount, Instant confirmedAt)` |
+
+**4) 정산 응답의 수수료율**
+
+| 클래스 | 규격 |
+|---|---|
+| `SettlementResult`·`SettlementResponse` | `grossAmount` 다음에 `int feeRateBp`(500 = 5%)를 더한다. `SettlementResult.from`은 `settlement.getFeeRateBp()`를 읽는다. 목록과 상세(`$.settlement`) 응답 모두에 들어간다 |
+
+**5) 정산 예정 API**
+
+| 클래스 | 규격 |
+|---|---|
+| `UpcomingSettlementSum` (domain) | 인터페이스 프로젝션. `int getItemCount()`, `long getGrossAmount()`, `Instant getFirstConfirmedAt()`. `SettlementSum`과 같은 이유로 인터페이스다 |
+| `SettlementItemRepository.sumUnsettledByShopId(UUID shopId)` → `UpcomingSettlementSum` | 아래 native 쿼리. 집계 함수만 있고 `GROUP BY`가 없어 품목이 없어도 한 행이 나온다. 3-4의 부분 인덱스 `idx_settlement_item_unsettled (shop_id, confirmed_at) WHERE settlement_id IS NULL`을 탄다 |
+| `UpcomingSettlementResult` (application) | `(int itemCount, long grossAmount, Instant firstConfirmedAt)`, `static from(UpcomingSettlementSum)` |
+| `SettlementQueryService.getUpcoming(UUID memberId, UUID shopId)` → `UpcomingSettlementResult` | `@Transactional(readOnly = true)`. `shopApi.verifyOwner(shopId, memberId)`(폐업한 가게 포함. `verifyOwnerOfActiveShop`이 아니다) → `sumUnsettledByShopId(shopId)` |
+| `SettlementController`, `UpcomingSettlementResponse` | 아래 API 표. `@CurrentMember UUID memberId`를 받아 `getUpcoming`을 부른다 |
+
+```sql
+SELECT COUNT(*)::int AS "itemCount", COALESCE(SUM(amount), 0)::bigint AS "grossAmount", MIN(confirmed_at) AS "firstConfirmedAt"
+FROM settlement.settlement_item
+WHERE shop_id = :shopId AND settlement_id IS NULL
+```
+
+| API | 권한 | 응답 |
+|---|---|---|
+| `GET /api/shops/{shopId}/settlements/upcoming` | 가게 주인(폐업한 가게 포함) | 200 `UpcomingSettlementResponse(itemCount, grossAmount, firstConfirmedAt)`. 품목이 없으면 `0`, `0`, `null` |
+
+- 경로가 `GET /api/shops/{shopId}/settlements/{id}`와 겹쳐 보이지만, Spring은 리터럴 경로(`upcoming`)를 경로 변수보다 먼저 고른다. `upcoming`이 `{id}`로 가면 UUID 변환에 실패해 400이 된다.
+
+**운영 반영 순서** — 이 단계의 PR을 develop에 머지하기 전에 VM에서 Postgres와 Kafka 볼륨을 지운다. 머지한 뒤에 지우면 CD가 먼저 돌아 마이그레이션이 실패하고 자동 롤백된다.
+
+| 순서 | 할 일 | 이 시점의 상태 |
+|---|---|---|
+| 1 | `sudo -iu runner`로 `runner` 사용자의 셸을 연 뒤 러너의 checkout 폴더(`cd ~/actions-runner/_work/myroutine-v2/myroutine-v2`)로 이동한다(`sudo -u runner cd ...`는 `cd`가 셸 내장 명령이라 동작하지 않는다). `export COMPOSE="docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml"`, `export IMAGE_TAG=$(cat /opt/myroutine/deployed-sha)` | 지금 버전이 돌고 있다 |
+| 2 | `docker volume ls \| grep myroutine-ops`로 볼륨 이름(`myroutine-ops_postgres_data`, `myroutine-ops_kafka_data`)을 확인한다 | 그대로 |
+| 3 | `$COMPOSE stop app kafka postgres` → `$COMPOSE rm -f app kafka postgres` → `docker volume rm myroutine-ops_postgres_data myroutine-ops_kafka_data` | 앱이 멈췄다. 회원·가게·주문·정산이 모두 지워졌다 |
+| 4 | `$COMPOSE up -d --wait` → `scripts/smoke.sh` | 지금 버전이 빈 DB로 뜬다(Flyway가 스키마를 다시 만든다) |
+| 5 | 4-0 PR을 develop에 머지한다 | CD가 4-0을 배포하고 마이그레이션이 빈 `settlement_item`에 적용된다 |
+
+- Kafka 볼륨도 지운다. 남겨 두면 지운 DB의 데이터를 가리키는 메시지가 토픽에 남는다. 소비 오프셋이 만료되면(기본 7일) 이 메시지를 다시 읽을 수 있고, 아직 소비되지 않은 옛 구매확정 메시지는 새 필드가 없어 DLT로 간다.
+- MinIO 볼륨은 남긴다. 지운 상품의 이미지 객체가 고아로 남지만 읽는 곳이 없다.
+- `settlement` 테이블만 비우지 않는다. 구매확정된 주문 품목은 남는데 정산 품목만 없어져 "확정 품목마다 정산 품목 1행"(INV-07)이 깨진다.
+- 관리자 계정도 지워지므로 다시 가입하고 `role`을 `ADMIN`으로 바꾼 뒤 로그인한다.
+
+### 완료 확인
+
+**테스트 준비**
+
+아래 테스트를 쓰기 전에 만든다(`support/`. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+
+| 메서드 | 만드는 방법 | 쓰는 곳 |
+|---|---|---|
+| `insertSettlementItem(UUID shopId, long amount, Instant confirmedAt, UUID shopOrderId, String productName, int quantity)` → `UUID`(만든 품목의 `orderLineId`) | 3-4a의 같은 이름 메서드에 `shop_order_id`, `product_name`, `quantity`를 더한 INSERT | `SettlementControllerTest` 8번 |
+| 3-4a의 `insertSettlementItem(shopId, amount, confirmedAt)`·`insertSettlementItems(...)` 수정 | 새 컬럼이 `NOT NULL`이라 INSERT에 세 컬럼을 더하고 고정값을 넣는다: `shop_order_id` = `Ids.newId()`, `product_name` = `"product"`, `quantity` = 1. 세 인자 메서드는 위 여섯 인자 메서드를 불러도 된다 | 3-4·3-6의 기존 테스트 |
+| `settlementItemSnapshotOf(UUID orderLineId)` 확장 | SELECT에 `i.shop_order_id, i.product_name, i.quantity`를 더하고 `SettlementItemSnapshot`에 `shopOrderId`(UUID), `productName`(String), `quantity`(int)를 더한다 | `SettlementItemConsumerTest` |
+
+이미 있는 헬퍼: `insertSettlementItem(shopId, amount, confirmedAt)`·`insertSettlementItems(...)`·`settlementSnapshotOf(shopId, month)`(3-4), `createDeliveredOrder`·`shopOrderIdOf(orderId, shopId)`·`closeShop(shopId)`·`TestKafka.send`·`signup`·`login`·`openShop`.
+
+#### `order/application/ConfirmEventPublishingTest`
+
+**`confirmPublishesLineConfirmed`(수동 구매확정) 고치기** — 준비·동작은 그대로 두고 payload 확인에 더한다.
+- payload `shopOrderId` = `shopOrderIdOf(orderId, shopId)` 문자열, `productName` = `"product"`(`registerProduct`의 이름), `quantity` = 1.
+
+#### `settlement/application/SettlementItemConsumerTest`
+
+준비: 기존 이벤트에 `shopOrderId` = `Ids.newId()`, `productName` = `"상품A"`, `quantity` = 3을 더한다.
+
+**`duplicateEventStoresOnce`(같은 확정 이벤트 두 번) 고치기** — `settlementItemSnapshotOf(orderLineId1)` 확인에 더한다.
+- `shopOrderId()` = 이벤트의 `shopOrderId`, `productName()` = `"상품A"`, `quantity()` = 3.
+
+#### `settlement/web/SettlementControllerTest`
+
+**`getSettlements`(가게 주인의 목록 조회) 고치기** — `$.items[0].feeRateBp` = 500을 더한다.
+
+**8. 정산 품목의 가게주문·상품 이름·수량** — 준비: 판매자 A와 가게 A. 가게 A에 `insertSettlementItem(shopA, 7500, Instant.parse("2026-09-15T03:00:00Z"), shopOrderId, "상품A", 3)`(`shopOrderId`는 `Ids.newId()`) → `settlementService.run(YearMonth.of(2026, 9))` → `settlementA = settlementSnapshotOf(shopA).id()`. 동작: A의 토큰으로 `GET /api/shops/{shopA}/settlements/{settlementA}`.
+- 응답 200. `$.items.items[0].shopOrderId` = `shopOrderId`, `productName` = `"상품A"`, `quantity` = 3.
+
+#### `settlement/web/UpcomingSettlementTest`
+
+공통 준비: 판매자 A(`seller@test.com`)와 가게 A(`openShop(sellerA, "1111111111")`), 판매자 B(`seller2@test.com`)와 가게 B(`"2222222222"`). 토큰은 `login`.
+
+**1. 정산 예정 합계** — 준비: 가게 A에 `insertSettlementItem(shopA, 1000, Instant.parse("2026-08-15T03:00:00Z"))` → `settlementService.run(YearMonth.of(2026, 8))`(정산된 품목). 이어서 가게 A에 `insertSettlementItem(shopA, 7500, Instant.parse("2026-09-15T03:00:00Z"))`, `insertSettlementItem(shopA, 3000, Instant.parse("2026-10-02T03:00:00Z"))`, 가게 B에 `insertSettlementItem(shopB, 5000, Instant.parse("2026-09-01T03:00:00Z"))`. 동작: A의 토큰으로 `GET /api/shops/{shopA}/settlements/upcoming`.
+- 응답 200. `$.itemCount` = 2, `$.grossAmount` = 10500, `$.firstConfirmedAt` = `2026-09-15T03:00:00Z`(정산된 8월 품목과 가게 B의 품목은 들어가지 않는다).
+
+**2. 정산 예정이 없으면 0** — 준비: 품목을 넣지 않는다. 동작: A의 토큰으로 `GET /api/shops/{shopA}/settlements/upcoming`.
+- 응답 200. `$.itemCount` = 0, `$.grossAmount` = 0, `$.firstConfirmedAt` null.
+
+**3. 폐업한 가게도 조회한다** — 준비: 가게 A에 `insertSettlementItem(shopA, 1000, Instant.parse("2026-09-15T03:00:00Z"))` → `closeShop(shopA)`. 동작: A의 토큰으로 `GET /api/shops/{shopA}/settlements/upcoming`.
+- 응답 200. `$.itemCount` = 1, `$.grossAmount` = 1000.
+
+**4. 남의 가게 정산 예정 조회 거부** — 동작: B의 토큰으로 `GET /api/shops/{shopA}/settlements/upcoming`.
+- 응답 403, `$.code` = `FORBIDDEN`.
+
+**리뷰 때 물어볼 것**
+- 운영 DB를 초기화하지 않고 배포하면 어디서 어떻게 실패하나? 초기화할 수 없는 운영이었다면 기존 행을 어떻게 채웠겠나?
+- 배포 전에 발행돼 새 필드가 없는 구매확정 이벤트가 소비되면 어떻게 되나?
+- 정산 예정 금액에 수수료를 미리 빼서 보여 주면 정산 뒤 금액과 왜 달라질 수 있나?
 
 ---
 

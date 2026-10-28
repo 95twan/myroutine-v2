@@ -70,4 +70,11 @@ public class SettlementQueryService {
         CursorPage<SettlementItemResult> cursorPage = new CursorPage<>(settlementItems.stream().map(SettlementItemResult::from).toList(), nextCursor);
         return new SettlementDetailResult(SettlementResult.from(settlement), cursorPage);
     }
+
+    @Transactional(readOnly = true)
+    public UpcomingSettlementResult getUpcoming(UUID memberId, UUID shopId) {
+        shopApi.verifyOwner(shopId, memberId);
+        UpcomingSettlementSum settlementSum = settlementItemRepository.sumUnsettledByShopId(shopId);
+        return UpcomingSettlementResult.from(settlementSum);
+    }
 }

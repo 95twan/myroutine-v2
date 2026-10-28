@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.UUID;
 
 public interface SettlementItemRepository {
-    void insertIgnoringConflict(UUID id, UUID orderLineId, UUID shopId, UUID orderId, UUID productId, long amount, Instant confirmedAt, Instant now);
+    void insertIgnoringConflict(UUID id, UUID orderLineId, UUID shopId, UUID orderId, UUID shopOrderId, UUID productId, String productName, int quantity, long amount, Instant confirmedAt, Instant now);
 
     List<UUID> findShopIdsToSettle(Instant from, Instant to, UUID afterShopId, int limit);
 
@@ -21,4 +21,6 @@ public interface SettlementItemRepository {
     List<SettlementItemRow> findBySettlementIdAfter(UUID settlementId, Instant cursorAt, UUID cursorId, Limit limit);
 
     boolean existsUnsettledByShopIdIn(Collection<UUID> shopIds);
+
+    UpcomingSettlementSum sumUnsettledByShopId(UUID shopId);
 }

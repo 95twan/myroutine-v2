@@ -50,4 +50,13 @@ public class SettlementController {
         SettlementRunResult result = settlementService.run(period);
         return ResponseEntity.ok().body(result);
     }
+
+    @GetMapping("/api/shops/{shopId}/settlements/upcoming")
+    public ResponseEntity<UpcomingSettlementResponse> getUpcoming(
+            @CurrentMember UUID memberId,
+            @PathVariable UUID shopId
+    ) {
+        UpcomingSettlementResult result = settlementQueryService.getUpcoming(memberId, shopId);
+        return ResponseEntity.ok().body(UpcomingSettlementResponse.from(result));
+    }
 }

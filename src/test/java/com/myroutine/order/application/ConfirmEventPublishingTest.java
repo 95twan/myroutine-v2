@@ -59,6 +59,7 @@ class ConfirmEventPublishingTest extends IntegrationTestSupport {
         String token = testFixtures.login("buyer@test.com");
 
         UUID orderId = testFixtures.createDeliveredOrder(buyerId, sellerId, shopId, product1Id, product2Id);
+        UUID shopOrderId = testFixtures.shopOrderIdOf(orderId, shopId);
         UUID line1Id = testFixtures.orderLineIdOf(orderId, product1Id);
 
         outboxAssert.clear();
@@ -74,7 +75,10 @@ class ConfirmEventPublishingTest extends IntegrationTestSupport {
         assertThat(rows.get(0).payload().get("orderLineId").asString()).isEqualTo(line1Id.toString());
         assertThat(rows.get(0).payload().get("orderId").asString()).isEqualTo(orderId.toString());
         assertThat(rows.get(0).payload().get("shopId").asString()).isEqualTo(shopId.toString());
+        assertThat(rows.get(0).payload().get("shopOrderId").asString()).isEqualTo(shopOrderId.toString());
         assertThat(rows.get(0).payload().get("productId").asString()).isEqualTo(product1Id.toString());
+        assertThat(rows.get(0).payload().get("productName").asString()).isEqualTo("product");
+        assertThat(rows.get(0).payload().get("quantity").asLong()).isEqualTo(1);
         assertThat(rows.get(0).payload().get("memberId").asString()).isEqualTo(buyerId.toString());
         assertThat(rows.get(0).payload().get("amount").asLong()).isEqualTo(1000);
         Instant eventConfirmedAt = Instant.parse(rows.get(0).payload().get("confirmedAt").asString()).truncatedTo(ChronoUnit.MILLIS);

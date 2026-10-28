@@ -1,5 +1,6 @@
 # 03. ERD (Stage 1)
 
+> 2026-10-28: `settlement_item`에 `shop_order_id`·`product_name`·`quantity`를 더했다(로드맵 4-0)
 > 2026-10-17: `refund.reason_type`에서 `SYSTEM`을 뺐다(환불을 만드는 경로가 구매자 취소와 반품뿐이라 쓰는 곳이 없다, 로드맵 2-8)
 > 2026-10-15: 주문 만료 스윕 조건을 `expires_at <= now()`로 맞췄다(같은 시각도 만료, 결제 시작 CAS의 `expires_at > now`와 상보적, 로드맵 2-5)
 > 2026-10-15: `review_like`에 `created_at`을 더하고, 추천 캐시 키를 로드맵 6-4의 `rec:result:{memberId}`(추천 결과 캐시)로 맞췄다
@@ -317,7 +318,10 @@ erDiagram
     uuid order_line_id UK "INV-07"
     uuid shop_id
     uuid order_id
+    uuid shop_order_id
     uuid product_id
+    varchar product_name "주문 때 스냅샷"
+    int quantity
     bigint amount "구매확정 금액 = line_amount - refunded_amount"
     timestamptz confirmed_at
     uuid settlement_id FK "null = 미정산"
@@ -339,7 +343,7 @@ erDiagram
     timestamptz paid_at
   }
 ```
-- `order.order-line-confirmed` 이벤트 소비 → `settlement_item` 적재 (`order_line_id` unique로 멱등).
+- `order.order-line-confirmed` 이벤트 소비 → `settlement_item` 적재 (`order_line_id` unique로 멱등). `shop_order_id`·`product_name`·`quantity`는 이벤트가 실어 온 주문 품목 값이다.
 - 정산 실행: 가게 ID keyset 순회 → 가게별 한 트랜잭션에서 `settlement` 생성 + 해당 기간 미정산 item에 `settlement_id` 설정 (BAT-02 offset 누락 문제 제거).
 - 지급: `PayoutGateway`(은행 송금 Mock) 호출, 멱등 키 = settlementId. 트랜잭션 밖에서 호출하고 결과를 기록한다(외부 송금 원칙, As-Is WAL-02 교훈).
 - 인덱스: `settlement_item(shop_id, confirmed_at) WHERE settlement_id IS NULL` (부분 인덱스).
