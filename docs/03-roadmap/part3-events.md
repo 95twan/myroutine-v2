@@ -1567,7 +1567,7 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 | 개념 | 한 줄 설명 |
 |---|---|
 | 저장과 발송 분리 | consumer는 "보낼 알림"을 DB에 저장만 하고, 발송 잡이 따로 보낸다. 메일 서버 장애가 consumer 재시도·DLT로 번지지 않는다 |
-| 포트 | `common.mail.MailSender` 인터페이스. local은 로그로 출력, 테스트는 가짜 구현, SMTP는 선택. 4-2의 인증 메일도 같은 포트를 쓴다(그래서 notification이 아니라 common에 둔다) |
+| 포트 | `common.mail.MailSender` 인터페이스. local은 로그로 출력, 테스트는 가짜 구현, prod는 4-2부터 Gmail SMTP. 4-2의 인증 메일도 같은 포트를 쓴다(그래서 notification이 아니라 common에 둔다) |
 
 **정책 (이 단계에서 정함)**
 - 채널은 이메일만. 수신 주소는 알림 생성 시점의 이메일을 저장한다. 회원 알림은 회원의 이메일, 가게 알림(새 주문, 정산 지급)은 가게의 이메일(`shop.shop.email`)이다.

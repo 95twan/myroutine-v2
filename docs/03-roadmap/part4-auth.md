@@ -1,6 +1,8 @@
 # Part 4. 인증 완성
 
-> 버전 0.37 · 2026-10-29 · 4-1 `RefreshToken.toString()`이 secret을 가린다(record 기본 `toString()`이 로그·예외 메시지에 refresh를 그대로 남기지 않게).
+> 버전 0.39 · 2026-10-29 · 4-2 인증 토큰과 4-3 가입 토큰도 원문 대신 SHA-256 해시로 저장한다. 토큰이 키 이름에 들어가므로 키는 `auth:signup-verified:{tokenHash}`·`auth:oauth-signup:{tokenHash}`다.
+> 0.38 · 2026-10-29 · 4-2부터 `prod`는 Gmail SMTP(`spring-boot-starter-mail`, `SmtpMailSender`)로 메일을 실제로 보내고 `LogMailSender`는 `prod` 밖에서만 쓴다. 재설정 요청은 발송 실패를 잡아 202를 돌려준다(가입 여부가 드러나지 않게).
+> 0.37 · 2026-10-29 · 4-1 `RefreshToken.toString()`이 secret을 가린다(record 기본 `toString()`이 로그·예외 메시지에 refresh를 그대로 남기지 않게).
 > 0.36 · 2026-10-28 · 4-1 `SessionStore.deleteAllOf`는 집합 키를 통째로 지우지 않고 읽은 sessionId만 집합에서 뺀다(그 사이 생긴 세션이 색인에서 빠지지 않게).
 > 0.35 · 2026-10-28 · 프론트 빈칸 반영: 4-2 발송 한도 429에 `details.retryAfterSeconds`(G10), 4-3 내 정보에 `hasPassword`·`socialAccounts`(G11), 4-4 관리자 회원 목록에 `banReason`과 `MEMBER_BANNED`의 `details.reason`(G13). 4-2 재설정의 `newPassword`에 가입과 같은 검증 규칙을 붙였다.
 > 0.34 · 2026-10-28 · 이메일 가입은 가입 전에 인증한다: 발송 → 확인(인증 토큰 `auth:signup-verified`, 30분) → 가입(`verificationToken`). 이미 가입된 이메일의 발송은 409. `ev` 클레임·`@RequireVerifiedEmail`·`email_verified_at`·로그인 회원용 인증 API·`EMAIL_NOT_VERIFIED`·`EMAIL_ALREADY_VERIFIED`를 지우고 `VERIFICATION_TOKEN_INVALID`를 더했다. 4-3 소셜 가입은 4-2의 발송·확인을 쓰고 `verificationToken`을 받으며 전용 발송 API를 지웠다. 4-4 관리자 회원 목록에서 `emailVerified`를 뺐다.
@@ -33,7 +35,7 @@
 - `StringRedisTemplate`만 쓴다(값은 문자열·해시). 객체 직렬화 설정을 따로 하지 않는다.
 - 모든 키에 **TTL**을 둔다(영구 키 금지). 키 이름과 TTL은 아래 표가 기준이다.
 - 여러 명령을 원자적으로 해야 하면 Lua 스크립트(`DefaultRedisScript`)를 쓴다. 스크립트 파일은 `src/main/resources/redis/*.lua`.
-- 비밀값(refresh 토큰, 인증코드)은 **원문을 저장하지 않고 SHA-256 해시**를 저장한다. 비교는 `MessageDigest.isEqual`(시간이 일정한 비교).
+- 비밀값(refresh 토큰, 인증코드, 4-2 인증 토큰, 4-3 가입 토큰)은 **원문을 저장하지 않고 SHA-256 해시**(16진수 문자열, 4-1 `RefreshToken.secretHash`와 같은 형식)를 저장한다. 값으로 저장한 해시의 비교는 `MessageDigest.isEqual`(시간이 일정한 비교). 토큰이 키 이름에 들어가는 경우(인증 토큰·가입 토큰)는 키 이름에 해시를 넣고 받은 토큰을 해시해 키를 찾는다. Redis가 해시값으로 키를 찾으므로 따로 비교하지 않는다.
 - 테스트: `IntegrationTestSupport`의 `@AfterEach`에서 주입받은 `StringRedisTemplate redisTemplate`(필드 `redis`는 컨테이너라 이름을 달리한다)으로 `redisTemplate.execute((RedisCallback<Void>) connection -> { connection.serverCommands().flushDb(); return null; })`를 호출한다. `execute`가 연결을 닫아 주므로 `getConnection()`을 직접 쓰지 않는다.
 
 | 키 | 타입 | 값 | TTL | 왜 필요한가 | 단계 |
@@ -43,8 +45,8 @@
 | `auth:email-code:{purpose}:{email}` | HASH | `codeHash`, `attempts` | 5분 | 보낸 인증코드와 비교하려고 기억한다. 6자리 대입을 막으려고 틀린 횟수를 센다 | 4-2 |
 | `auth:email-cooldown:{email}` | STRING | `1` | 60초 | 발송 간격 60초 제한(FR-MEM-02) | 4-2 |
 | `auth:email-hourly:{email}` | STRING | 발송 횟수 | 1시간(첫 발송 때 설정) | 시간당 5회 제한(FR-MEM-02). 간격 제한만으로는 시간당 60통까지 보낼 수 있다 | 4-2 |
-| `auth:signup-verified:{token}` | STRING | 이메일 | 30분 | 코드 확인과 가입이 다른 요청이라, 확인을 통과한 브라우저에 준 토큰으로 통과한 이메일을 기억한다 | 4-2 |
-| `auth:oauth-signup:{signupToken}` | HASH | `provider`, `providerUserId`, `email` | 10분 | 소셜 로그인부터 가입 완료까지 제공자 사용자 ID를 서버가 맡아 둔다. 클라이언트에 맡기면 바꿔치기할 수 있다 | 4-3 |
+| `auth:signup-verified:{tokenHash}` | STRING | 이메일 | 30분 | 코드 확인과 가입이 다른 요청이라, 확인을 통과한 브라우저에 준 토큰으로 통과한 이메일을 기억한다 | 4-2 |
+| `auth:oauth-signup:{tokenHash}` | HASH | `provider`, `providerUserId`, `email` | 10분 | 소셜 로그인부터 가입 완료까지 제공자 사용자 ID를 서버가 맡아 둔다. 클라이언트에 맡기면 바꿔치기할 수 있다 | 4-3 |
 | `auth:token-version:{memberId}` | STRING | 버전 숫자 | 1일 | 요청마다 필터가 비교하는 `member.token_version`의 캐시. 요청마다 DB를 읽지 않게 한다 | 4-4 |
 | `auth:login-fail:{email}` | STRING | 연속 실패 횟수 | 15분(첫 실패와 5번째 실패 때 설정) | 비밀번호 대입을 막으려고 연속 실패를 센다. 15분 뒤 저절로 풀린다 | 4-4 |
 
@@ -545,12 +547,12 @@ return 0
 - 발송: 같은 이메일로 60초에 1번, 시간당 5번(초과 시 429). 확인: 5번 틀리면 코드 무효(새로 발송해야 함).
 - 인증 토큰은 30분 유효하고 가입이 성공했을 때만 지운다. 닉네임 중복 등으로 가입이 실패하면 같은 토큰으로 다시 가입할 수 있다.
 - 이미 가입된 이메일로 가입 인증코드를 요청하면 409 `MEMBER_EMAIL_DUPLICATED`. 가입 API가 이미 같은 409로 가입 여부를 알려 주므로 여기서 숨기지 않는다.
-- 비밀번호 재설정 요청은 **가입 여부와 상관없이 같은 응답**(가입된 이메일을 알아낼 수 없게). 발송 제한(쿨다운·시간당)도 가입 여부와 무관하게 이메일 기준으로 적용해서, 한도를 넘으면 가입 여부와 상관없이 429고 그 밖에는 202다.
+- 비밀번호 재설정 요청은 **가입 여부와 상관없이 같은 응답**(가입된 이메일을 알아낼 수 없게). 발송 제한(쿨다운·시간당)도 가입 여부와 무관하게 이메일 기준으로 적용해서, 한도를 넘으면 가입 여부와 상관없이 429고 그 밖에는 202다. 가입 인증코드 발송이 이미 가입된 이메일에 409를 주므로 가입 여부는 그쪽으로 알 수 있다. 가입은 사용자에게 알려 주는 편이 낫지만 재설정은 알려 주지 않아도 사용자가 잃는 것이 없어서 숨긴다.
 - 비밀번호 변경·재설정 후: 변경은 현재 세션만 남기고 나머지 세션 폐기, 재설정은 전부 폐기. (4-4에서 tokenVersion도 올린다)
 
 ### 할 일
 
-**구현 순서**: ① common.error(1): `CommonErrorCode` → ② 메일 포트 사용(2) → ③ member.domain(3): `Member`·`MemberErrorCode` → `EmailCodePurpose` → `EmailCodeStore` → `SignupVerificationStore` → ④ member.infrastructure(4): `RedisEmailCodeStore`·`RedisSignupVerificationStore` → ⑤ member.application(5): `SignupVerificationService` → `SignupService` 변경 → `PasswordService` → ⑥ member.web(6) → ⑦ `TestFixtures` 변경(완료 확인의 테스트 준비 표) → 테스트. `SignupCommand`에 인자가 늘어 `TestFixtures.signup`과 ⑤의 `SignupService`를 함께 고쳐야 컴파일된다.
+**구현 순서**: ① common.error(1): `CommonErrorCode` → ② common.mail(2): 의존성·`SmtpMailSender`·`LogMailSender` 프로필·`prod` 설정 → ③ member.domain(3): `Member`·`MemberErrorCode` → `EmailCodePurpose` → `EmailCodeStore` → `SignupVerificationStore` → ④ member.infrastructure(4): `RedisEmailCodeStore`·`RedisSignupVerificationStore` → ⑤ member.application(5): `SignupVerificationService` → `SignupService` 변경 → `PasswordService` → ⑥ member.web(6) → ⑦ `TestFixtures` 변경(완료 확인의 테스트 준비 표) → 테스트. `SignupCommand`에 인자가 늘어 `TestFixtures.signup`과 ⑤의 `SignupService`를 함께 고쳐야 컴파일된다.
 
 **1) common.error**
 
@@ -561,6 +563,40 @@ return 0
 **2) common.mail**
 
 3-5의 `common.mail.MailSender`(`void send(String to, String title, String body)`, 실패 시 예외)를 쓴다. 발송은 트랜잭션 밖에서 한다 — 메일 서버를 기다리는 동안 DB 커넥션을 잡고 있지 않도록, 발송하는 서비스 메서드에는 `@Transactional`을 붙이지 않는다(공통 규칙 K와 같은 이유).
+
+이 단계부터 사용자가 인증코드를 메일로 받아야 가입할 수 있으므로, `prod`(운영 VM)에서는 Gmail SMTP로 실제로 보낸다. 3-5 알림 메일도 같은 포트를 쓰므로 함께 실제로 나간다.
+
+| 클래스·파일 | 규격 |
+|---|---|
+| `build.gradle` | `implementation 'org.springframework.boot:spring-boot-starter-mail'`(버전은 Boot BOM). `spring.mail.host`가 있으면 Boot가 `JavaMailSender` 빈을 만든다 |
+| `SmtpMailSender` | `@Component @Profile("prod")`, `implements MailSender`. 의존성: `JavaMailSender`, 보내는 주소 `@Value("${spring.mail.username}") String from`. `send`는 `SimpleMailMessage`에 `setFrom(from)`·`setTo(to)`·`setSubject(title)`·`setText(body)`를 넣고 `javaMailSender.send(message)`. 실패하면 `MailException`(런타임 예외)이 그대로 나간다. 잡지 않는다 |
+| `LogMailSender` | `@Profile("!prod")`를 붙인다. 3-4에서 뺀 이유(`prod`에 `MailSender` 빈이 없으면 기동 실패)는 `SmtpMailSender`가 생겨 사라졌다. 테스트(`test` 프로필)는 지금처럼 `FakeMailSender`(`@Primary`)가 주입된다 |
+| `application-prod.yaml` | 아래 `spring.mail` 설정 |
+| `.env.ops.example` | `MAIL_USERNAME=`, `MAIL_PASSWORD=`를 더한다 |
+
+```yaml
+spring:
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      mail.smtp.starttls.required: true
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
+```
+
+- 타임아웃 세 줄은 빼지 않는다. JavaMail의 기본값은 무한 대기라서 SMTP 서버가 응답하지 않으면 가입 요청 스레드와 3-5 알림 발송 잡이 멈춘 채로 남는다.
+- 587 + STARTTLS를 쓴다. `starttls.required`가 없으면 TLS 협상에 실패했을 때 평문으로 계속 보낼 수 있다.
+- Gmail 계정은 개인 계정이 아니라 발송 전용 계정을 새로 만든다. 2단계 인증을 켠 뒤 Google 계정 → 보안 → 앱 비밀번호에서 만든 16자리를 공백 없이 `MAIL_PASSWORD`에 넣는다(일반 비밀번호로는 로그인되지 않는다). 값은 VM의 `/opt/myroutine/.env`에만 두고 리포·채팅에 붙이지 않는다([vm-setup 4절](../ops/vm-setup.md)).
+- 일반 Gmail 계정의 하루 발송 한도는 약 500통이다(확인 필요: Google 고객센터 "Gmail 전송 한도"). 넘으면 그날은 `MailException`이 나고, 알림은 3-5 재시도로, 인증코드는 사용자가 다시 요청하는 것으로 처리된다.
+- `local`은 그대로 `LogMailSender`라 인증코드는 앱 콘솔 로그에서 찾는다.
+
+**발송이 실패하면** — 가입 인증 발송(`SignupVerificationService.send`)은 예외를 잡지 않아 500 `INTERNAL_ERROR`가 된다. 코드 저장과 발송 한도는 이미 반영됐으므로 사용자는 60초 뒤 다시 요청한다. 비밀번호 재설정 요청(`requestReset`)은 예외를 잡아 `log.error`로 남기고 202를 돌려준다. 가입된 이메일에만 메일을 보내므로, 실패를 500으로 드러내면 그 응답으로 가입 여부가 드러나기 때문이다.
 
 **3) member.domain**
 
@@ -576,9 +612,9 @@ return 0
 
 | 메서드 | 하는 일 | 입력 → 반환 |
 |---|---|---|
-| `void checkSendLimit(String email)` | 지금 보내도 되는지 확인한다. 안 되면 예외 | 위반이면 429 `RATE_LIMITED`. ① `setIfAbsent("auth:email-cooldown:{email}", "1", 60초)`가 `false`면 60초 안에 이미 보낸 것이므로 위반 ② `increment("auth:email-hourly:{email}")` 결과가 1이면 `expire(…, 1시간)`을 건다. 5를 넘으면 위반. 위반한 키의 남은 시간(`getExpire(key, TimeUnit.SECONDS)`, 그 사이 만료돼 1보다 작으면 1)을 `new BusinessException(RATE_LIMITED, Map.of("retryAfterSeconds", 초))`로 담는다. 사용자가 "잠시 후"가 1분인지 1시간인지 알 수 있게 하려는 것이다. 재설정 요청도 가입 여부와 상관없이 같은 키를 보므로 이 값으로 가입 여부가 드러나지 않는다 |
+| `void checkSendLimit(String email)` | 지금 보내도 되는지 확인한다. 안 되면 예외 | 위반이면 429 `RATE_LIMITED`. ① `redis.opsForValue().setIfAbsent("auth:email-cooldown:{email}", "1", Duration.ofSeconds(60))`(Redis `SET … NX EX 60`)가 `false`면 60초 안에 이미 보낸 것이므로 위반 ② `redis.opsForValue().increment("auth:email-hourly:{email}")` 결과가 1이면 `redis.expire(…, Duration.ofHours(1))`을 건다. 5를 넘으면 위반. 위반한 키의 남은 시간(`getExpire(key, TimeUnit.SECONDS)`, 그 사이 만료돼 1보다 작으면 1)을 `new BusinessException(RATE_LIMITED, Map.of("retryAfterSeconds", 초))`로 담는다. 사용자가 "잠시 후"가 1분인지 1시간인지 알 수 있게 하려는 것이다. 재설정 요청도 가입 여부와 상관없이 같은 키를 보므로 이 값으로 가입 여부가 드러나지 않는다 |
 | `void save(EmailCodePurpose p, String email, String code)` | 새 코드를 저장한다. **원문 `code`를 받아 안에서 SHA-256으로 해시한다**. 이전 코드는 덮어쓰고 `attempts`는 0으로 돌아간다 | `auth:email-code:{p}:{email}` 해시에 해시값을 `codeHash`로, `attempts = 0`을 쓰고 `expire` 5분 |
-| `boolean verify(EmailCodePurpose p, String email, String code)` | 입력한 코드가 맞는지 확인한다. `code`는 `save`처럼 원문으로 받는다 | ① `entries`로 읽어 비어 있으면(없음·만료·5번 틀려 삭제됨) `false` ② 입력의 해시와 저장된 `codeHash`를 `MessageDigest.isEqual`로 비교 ③ 맞으면 키를 지우고 `true` ④ 틀리면 `HINCRBY attempts 1`, 결과가 5 이상이면 키를 지우고 `false` |
+| `boolean verify(EmailCodePurpose p, String email, String code)` | 입력한 코드가 맞는지 확인한다. `code`는 `save`처럼 원문으로 받는다 | ① `entries`로 읽어 비어 있으면(없음·만료·5번 틀려 삭제됨) `false`. `codeHash` 필드가 없으면 키를 지우고 `false`(읽은 뒤 키가 만료되면 ④의 `HINCRBY`가 `attempts`만 있고 TTL이 없는 키를 새로 만들기 때문) ② 입력의 해시와 저장된 `codeHash`를 `MessageDigest.isEqual`로 비교 ③ 맞으면 키를 지우고 `true` ④ 틀리면 `HINCRBY attempts 1`, 결과가 5 이상이면 키를 지우고 `false` |
 
 - 코드 만들기: `String.format("%06d", secureRandom.nextInt(1_000_000))` — `000123`처럼 앞이 0이어도 6자리를 지킨다
 
@@ -586,9 +622,9 @@ return 0
 
 | 메서드 | 하는 일 | 입력 → 반환 |
 |---|---|---|
-| `String issue(String email)` | 확인을 통과한 이메일에 인증 토큰을 만든다 | 추측할 수 없는 토큰(`SecureRandom` 32바이트를 Base64URL로 인코딩. 4-1 `RefreshToken.generate`의 `secret`과 같은 방식)을 만들어 `set("auth:signup-verified:{token}", email, 30분)` → 토큰 |
-| `Optional<String> findEmail(String token)` | 토큰이 가리키는 이메일 | `get` 결과가 `null`(없음·만료·이미 가입에 씀)이면 `Optional.empty()` |
-| `void delete(String token)` | 가입이 끝났으니 지운다 | `delete(key)` |
+| `String issue(String email)` | 확인을 통과한 이메일에 인증 토큰을 만든다 | 추측할 수 없는 토큰(`SecureRandom` 32바이트를 Base64URL로 인코딩. 4-1 `RefreshToken.generate`의 `secret`과 같은 방식)을 만들어 `set("auth:signup-verified:" + 해시(토큰), email, 30분)` → 토큰(원문은 돌려주기만 하고 저장하지 않는다) |
+| `Optional<String> findEmail(String token)` | 토큰이 가리키는 이메일 | `get("auth:signup-verified:" + 해시(token))` 결과가 `null`(없음·만료·이미 가입에 씀)이면 `Optional.empty()` |
+| `void delete(String token)` | 가입이 끝났으니 지운다 | `delete("auth:signup-verified:" + 해시(token))` |
 
 **4) member.infrastructure**
 
@@ -640,7 +676,7 @@ return 0
 
 `requestReset` — `POST /api/auth/password-reset`이 부른다. 트랜잭션 없음(메일 발송). 순서
 1. `Member.normalizeEmail(email)` → `emailCodeStore.checkSendLimit(email)`(한도 위반이면 429 `RATE_LIMITED`. 가입 여부를 보기 전에 하므로 가입하지 않은 이메일도 같은 한도를 받는다)
-2. `findByEmail`로 회원이 있고 `ACTIVE`면 코드 생성 → `save(RESET_PASSWORD, email, code)` → `mailSender.send(email, "[MyRoutine] 비밀번호 재설정 인증코드", "인증코드: " + code)`
+2. `findByEmail`로 회원이 있고 `ACTIVE`면 코드 생성 → `save(RESET_PASSWORD, email, code)` → `mailSender.send(email, "[MyRoutine] 비밀번호 재설정 인증코드", "인증코드: " + code)`. `send`가 던진 예외는 잡아서 `log.error`로 남기고 정상 반환한다(위 "발송이 실패하면")
 3. 없거나 `ACTIVE`가 아니면 메일만 보내지 않는다(응답은 같다)
 
 `confirmReset` — `POST /api/auth/password-reset/confirm`이 부른다. 순서
@@ -663,7 +699,7 @@ return 0
 - 공개 API는 모두 `SecurityConfig`의 `/api/auth/**` 허용 안에 있다. 비밀번호 변경은 `/api/members/**`라 이미 로그인이 필요하다
 - 비밀번호 변경은 `sessionId`가 필요해 `@AuthenticationPrincipal AuthClaims claims`로 받는다
 - 컨트롤러: 가입 인증 두 API와 재설정 두 API는 `AuthController`(`/api/auth`)에, 비밀번호 변경은 `MemberController`(`/api/members`)에 `@PatchMapping("/me/password")`로 더한다. 각 메서드는 위 서비스를 호출한다(`send`·`confirm`·`change`·`requestReset`·`confirmReset`)
-- `/api/auth/signup`을 직접 부르는 기존 테스트(`AuthControllerTest`, 4-1 `TokenRefreshTest` 1번)는 본문에 `verificationToken`(아래 `testFixtures.verificationToken(email)`)을 더한다
+- `new SignupRequest(…)`로 `/api/auth/signup`을 직접 부르는 기존 테스트(`AuthControllerTest`, 4-1 `TokenRefreshTest` 1번, 3-6 `WithdrawTest`, `support/TableCleanupTest`)는 본문에 `verificationToken`(아래 `testFixtures.verificationToken(email)`)을 더한다
 
 ### 완료 확인
 
@@ -675,8 +711,24 @@ return 0
 |---|---|---|
 | `verificationToken(String email)` → `String` | `signupVerificationStore.issue(Member.normalizeEmail(email))` — 메일·발송 제한을 거치지 않고 인증 토큰을 만든다 | `/api/auth/signup`·4-3 `/api/auth/oauth/signup`을 직접 부르는 테스트 |
 | `signup(String email)` → `UUID`(변경) | `verificationToken(email)`을 `SignupCommand`에 넣어 기존처럼 `signupService.signUp`을 부른다 | 기존 테스트 전부(호출 모양은 그대로) |
-| `emailAuthSnapshotOf(EmailCodePurpose purpose, String email)` → `EmailAuthSnapshot` | Redis 키 셋을 한 번에 읽는다: 코드 해시 `redis.opsForHash().entries("auth:email-code:{purpose}:{email}")`, 쿨다운 `redis.opsForValue().get("auth:email-cooldown:{email}")`, 시간당 `redis.opsForValue().get("auth:email-hourly:{email}")`와 각 키의 `redis.getExpire(key, TimeUnit.SECONDS)`. `support/`의 record. 코드 키는 `codeExists()`, `codeHash()`(`String`, 없으면 `null`), `attempts()`(`Integer`, 없으면 `null`), `fieldNames()`(`Set<String>`), `codeTtlSeconds()`, 쿨다운 키는 `cooldown()`(`String`, 없으면 `null`), `cooldownTtlSeconds()`, 시간당 키는 `hourly()`(`Integer`, 없으면 `null`), `hourlyTtlSeconds()`로 읽는다. 없는 키의 남은 시간은 -2 | `SignupVerificationTest`, `PasswordTest` |
+| `emailAuthSnapshotOf(EmailCodePurpose purpose, String email)` → `EmailAuthSnapshot` | 한 이메일의 Redis 키 셋을 한 번에 읽어 아래 record에 담는다. 코드 키 `auth:email-code:{purpose}:{email}`는 `redis.opsForHash().entries(key)`를 `Map<String, String>`으로 바꾼 값, 쿨다운 키 `auth:email-cooldown:{email}`은 `redis.opsForValue().get(key)` 그대로, 시간당 키 `auth:email-hourly:{email}`은 `get(key)`를 `Integer.valueOf`(없으면 `null`)로 바꾼 값을 넣는다. 세 키 모두 남은 시간은 `redis.getExpire(key, TimeUnit.SECONDS)`이고 없는 키는 -2 | `SignupVerificationTest`, `PasswordTest` |
 | `redisStringOf(String key)` → `RedisString` | `redis.opsForValue().get(key)`와 `redis.getExpire(key, TimeUnit.SECONDS)`. `support/`의 record(`String value`, `long ttlSeconds`)이고 `exists()`(`value != null`)를 가진다. 키가 없으면 `value`는 `null`, 남은 시간은 -2 | `SignupVerificationTest`의 `auth:signup-verified:*`, 4-3 `OAuthLoginTest`, 4-4 `LoginLockTest` |
+| `static String sha256Hex(String value)` | `MessageDigest.getInstance("SHA-256")`로 UTF-8 바이트를 해시해 `HexFormat.of().formatHex`. 운영 코드의 해시와 같은 형식이어야 한다 | 토큰 키 이름 만들기: `"auth:signup-verified:" + sha256Hex(V)`, 4-3 `"auth:oauth-signup:" + sha256Hex(T)` |
+
+`EmailAuthSnapshot`(`support/`)은 `SessionSnapshot`처럼 해시 전체를 맵으로 들고, 해시 필드는 메서드로 꺼낸다.
+
+| 이름 | 타입 | 종류 | 값 |
+|---|---|---|---|
+| `codeFields` | `Map<String, String>` | record 필드 | 코드 키의 해시 전체. 키가 없으면 빈 맵 |
+| `codeTtlSeconds` | `long` | record 필드 | 코드 키의 남은 시간 |
+| `cooldown` | `String` | record 필드 | 쿨다운 키의 값(`"1"`). 없으면 `null` |
+| `cooldownTtlSeconds` | `long` | record 필드 | 쿨다운 키의 남은 시간 |
+| `hourly` | `Integer` | record 필드 | 시간당 발송 횟수. 없으면 `null` |
+| `hourlyTtlSeconds` | `long` | record 필드 | 시간당 키의 남은 시간 |
+| `codeExists()` | `boolean` | 메서드 | `!codeFields.isEmpty()` |
+| `codeHash()` | `String` | 메서드 | `codeFields.get("codeHash")`. 없으면 `null` |
+| `attempts()` | `Integer` | 메서드 | `codeFields.get("attempts")`를 `Integer.valueOf`. 없으면 `null` |
+| `fieldNames()` | `Set<String>` | 메서드 | `Set.copyOf(codeFields.keySet())` |
 
 이미 있는 헬퍼(`TestFixtures`)는 다음과 같다.
 - `SessionSnapshot sessionSnapshotOf(UUID sessionId)`: 세션 해시와 남은 시간을 한 번에 읽는다. 접근자는 `exists()`, `memberId()`, `refreshHash()`, `fieldNames()`, `ttlSeconds()`.
@@ -701,12 +753,12 @@ return 0
 
 **2. 확인하면 인증 토큰을 준다** — 준비: 발송 → 메일에서 `code`. 동작: 확인.
 - 응답: 200, `$.verificationToken`이 비어 있지 않다(`V`).
-- `redisStringOf("auth:signup-verified:" + V)`: `value()` = `new@test.com`, `ttlSeconds()` 1~1800.
+- `redisStringOf("auth:signup-verified:" + sha256Hex(V))`: `value()` = `new@test.com`, `ttlSeconds()` 1~1800.
 - `emailAuthSnapshotOf(VERIFY_EMAIL, "new@test.com").codeExists()` = false.
 
 **3. 인증 토큰으로 가입한다** — 준비: 2번의 동작까지 → `V`. 동작: 가입.
 - 응답: 201.
-- `memberSnapshotOf($.memberId).email()` = `new@test.com`. `redisStringOf("auth:signup-verified:" + V).exists()` = false.
+- `memberSnapshotOf($.memberId).email()` = `new@test.com`. `redisStringOf("auth:signup-verified:" + sha256Hex(V)).exists()` = false.
 
 **4. 60초 안에 재발송** — 동작: 발송 → 202, 곧바로 발송.
 - 두 번째 응답: 429, `$.code` = `RATE_LIMITED`, `$.details.retryAfterSeconds` 1~60.
@@ -716,7 +768,7 @@ return 0
 - 앞의 5번은 모두 202, 메일 5건. 5번째 직후 `emailAuthSnapshotOf(VERIFY_EMAIL, "new@test.com").hourly()` = 5.
 - 6번째 응답: 429, `$.code` = `RATE_LIMITED`, `$.details.retryAfterSeconds` 3500~3600. 메일은 5건 그대로, `hourly()` = 6.
 
-**6. 5번 틀리면 맞는 코드도 거부한다** — 준비: 발송 → `code`. 틀린 코드 `wrong` = `code`가 `000000`이 아니면 `000000`, 맞으면 `111111`.
+**6. 5번 틀리면 맞는 코드도 거부한다** — 준비: 발송 → `code`. 틀린 코드는 `String wrong = code.equals("000000") ? "111111" : "000000";`. 코드가 무작위라 고정값 하나만 쓰면 드물게(100만 분의 1) 맞는 코드와 같아지기 때문이다.
 - 동작: 확인을 `wrong`으로 5번 호출한다. 매번 400, `$.code` = `EMAIL_CODE_INVALID`. 3번째 직후 `emailAuthSnapshotOf(VERIFY_EMAIL, "new@test.com").attempts()` = 3, 4번째 직후 4. 5번째 직후 `codeExists()` = false.
 - 이어 맞는 `code`로 확인 → 400, `$.code` = `EMAIL_CODE_INVALID`. `redis.keys("auth:signup-verified:*")`가 비어 있다.
 
@@ -745,6 +797,9 @@ return 0
 **14. 같은 인증 토큰으로 두 번 가입할 수 없다** — 준비: 3번의 동작까지(`new@test.com` 가입 201, `V`). 동작: 같은 `V`, 닉네임 `newbie2`로 다시 가입.
 - 응답: 400, `$.code` = `VERIFICATION_TOKEN_INVALID`. `countOf("member.member")` = 1.
 
+**15. Redis에 인증 토큰 원문이 없다** — 준비: 2번의 동작까지 → `V`.
+- `redis.keys("auth:*")`의 어떤 키 이름에도 `V`가 들어 있지 않고, 어떤 STRING 값도 `V`와 같지 않다.
+
 #### `member/web/PasswordTest`
 
 **공통 준비**: 회원 `pw@test.com`(`signup`, 비밀번호 `pass1234`) → `memberId`. 변경은 `PATCH /api/members/me/password` 본문 `{"currentPassword":"pass1234","newPassword":"newpass5678"}`. 재설정 요청은 `POST /api/auth/password-reset` 본문 `{"email":"pw@test.com"}`(인증 없음), 재설정 확인은 `POST /api/auth/password-reset/confirm` 본문 `{"email":"pw@test.com","code":"{code}","newPassword":"resetpass99"}`.
@@ -768,7 +823,7 @@ return 0
 
 **5. 재설정 후 모든 refresh와 로그인** — 준비: `loginTokens(…)` → `refreshA`·`sidA`, `loginTokens(…)` → `refreshB`·`sidB`. 재설정 요청 → 202, 메일에서 `code`.
 - 동작: `code`로 재설정 확인.
-- 확인 1: 204, 본문 없음. `sessionSnapshotOf(sidA).exists()`·`sessionSnapshotOf(sidB).exists()` = false, `sessionIdsOf(memberId)`가 비어 있다. `emailAuthSnapshotOf(RESET_PASSWORD, "pw@test.com").codeExists()` = false.
+- 확인 1: 204. `sessionSnapshotOf(sidA).exists()`·`sessionSnapshotOf(sidB).exists()` = false, `sessionIdsOf(memberId)`가 비어 있다. `emailAuthSnapshotOf(RESET_PASSWORD, "pw@test.com").codeExists()` = false.
 - 확인 2: 로그인 `pass1234` → 401 `LOGIN_FAILED`, `resetpass99` → 200.
 
 **6. 비밀번호가 없는 회원의 변경 거부** — 준비: 3번과 같다(`loginTokens(…)` → `accessA`·`sidA`). 동작: `UPDATE member.member SET password_hash = NULL WHERE id = ?` 후 올바른 현재 비밀번호 `pass1234`로 변경(`Bearer {accessA}`, 본문 `{"currentPassword":"pass1234","newPassword":"newpass5678"}`).
@@ -785,6 +840,14 @@ return 0
 
 **10. 재설정의 새 비밀번호도 가입 규칙을 따른다** — 준비: 재설정 요청 → 202, 메일에서 `code`. 요청 전 `memberSnapshotOf(memberId).passwordHash()`를 읽어 둔다. 동작: `newPassword`를 `"abcdefgh"`로 재설정 확인.
 - 응답: 400, `$.code` = `INVALID_REQUEST`. `memberSnapshotOf(memberId).passwordHash()` 그대로, `emailAuthSnapshotOf(RESET_PASSWORD, "pw@test.com").codeExists()` = true.
+
+**11. 재설정 메일 발송이 실패해도 같은 응답** — 준비: `fakeMailSender.failNext(1)`. 동작: `pw@test.com`으로 재설정 요청.
+- 응답: 202, 본문 비어 있음(4번의 가입되지 않은 이메일과 같다).
+- `sent()` 1건(`FakeMailSender`는 예외를 던지기 전에 기록한다). 발송을 시도하지 않고 202를 준 경우와 구분하기 위한 확인이다.
+
+**수동 확인: 운영 메일 발송** — 배포 뒤 공개 주소로 본인 이메일에 가입 인증 발송(`POST /api/auth/signup/email-verifications`)을 보낸다.
+- 202이고, 받은편지함(없으면 스팸함)에 발신자가 발송 전용 Gmail 주소이고 제목이 `[MyRoutine] 이메일 인증코드`인 메일이 온다. 그 코드로 확인 → 가입까지 된다.
+- 운영 VM 앱 로그(`docker compose logs app`)에서 그 6자리 코드가 검색되지 않는다.
 
 **리뷰 때 물어볼 것**
 - 인증코드를 비교할 때 타이밍 공격은?
@@ -840,7 +903,7 @@ return 0
 |---|---|
 | `OAuthProvider` | enum `KAKAO, GOOGLE, NAVER`. DB `social_account.provider`와 Redis 가입 토큰의 `provider` 필드에 `name()` 그대로 쓴다 |
 | `OAuthUserInfo` | `record (String providerUserId, String email)` — 제공자 응답을 우리 모양으로 옮긴 사용자 정보. `email`은 제공자가 안 주면 `null`(`providerUserId`는 항상 있어야 한다). 닉네임은 가입 요청이 직접 받으므로 제공자 응답에서 읽지 않는다 |
-| `PendingSocialSignup` | `record (OAuthProvider provider, String providerUserId, String email)` — Redis 해시(공통 규칙 T의 `auth:oauth-signup:{signupToken}`)의 필드 |
+| `PendingSocialSignup` | `record (OAuthProvider provider, String providerUserId, String email)` — Redis 해시(공통 규칙 T의 `auth:oauth-signup:{tokenHash}`)의 필드 |
 | `SocialAccount`·`SocialAccountRepository` | 엔티티(`member.social_account`)와 저장소. 필드는 위 마이그레이션 컬럼과 1:1(`id`는 `Ids.newId()`, 수정이 없는 테이블이라 `BaseTimeEntity`를 상속하지 않고 `@EntityListeners(AuditingEntityListener.class)`와 `@CreatedDate Instant createdAt` 필드 하나만 둔다). 메서드는 `Optional<SocialAccount> findByProviderAndProviderUserId`, `boolean existsByProviderAndProviderUserId`, `boolean existsByMemberIdAndProvider`, `List<SocialAccount> findByMemberIdOrderByCreatedAtAscIdAsc(UUID memberId)`(내 정보의 연결 목록), `save` |
 | `Member` | `Member.signUpWithSocial(String email, String nickname, String name)` — `Member.signUp`과 같은 정적 팩토리(id 생성, `ACTIVE`, `USER`, 이메일 정규화)에 `passwordHash = null` |
 | `MemberErrorCode` | `OAUTH_PROVIDER_ERROR`(502)·`SIGNUP_TOKEN_INVALID`(401)·`SOCIAL_ACCOUNT_ALREADY_LINKED`(409)를 추가한다(공통 규칙 U) |
@@ -850,9 +913,9 @@ return 0
 
 | 메서드 | 하는 일 | 입력 → 반환 |
 |---|---|---|
-| `String issue(OAuthProvider provider, OAuthUserInfo info)` | 신규 소셜 사용자의 제공자 정보를 가입이 끝날 때까지 맡아 둔다 | 추측할 수 없는 토큰(`SecureRandom` 32바이트를 Base64URL로 인코딩. 4-1 `RefreshToken.generate`의 `secret`과 같은 방식)을 만들어 `auth:oauth-signup:{token}` 해시에 `provider`·`providerUserId`·`email`을 저장하고 10분 `expire` → 토큰. `email`이 `null`이면 그 필드는 저장하지 않는다(공통 규칙 T) |
-| `Optional<PendingSocialSignup> find(String token)` | 토큰으로 맡겨 둔 정보를 찾는다 | 해시가 비었으면 `Optional.empty()`. 없는 필드는 `null`로 읽는다 |
-| `void delete(String token)` | 가입이 끝났으니 지운다 | `delete(key)` |
+| `String issue(OAuthProvider provider, OAuthUserInfo info)` | 신규 소셜 사용자의 제공자 정보를 가입이 끝날 때까지 맡아 둔다 | 추측할 수 없는 토큰(`SecureRandom` 32바이트를 Base64URL로 인코딩. 4-1 `RefreshToken.generate`의 `secret`과 같은 방식)을 만들어 `auth:oauth-signup:` + 해시(토큰) 키의 해시에 `provider`·`providerUserId`·`email`을 저장하고 10분 `expire` → 토큰. `email`이 `null`이면 그 필드는 저장하지 않는다(공통 규칙 T) |
+| `Optional<PendingSocialSignup> find(String token)` | 토큰으로 맡겨 둔 정보를 찾는다 | `entries("auth:oauth-signup:" + 해시(token))`가 비었으면 `Optional.empty()`. 없는 필드는 `null`로 읽는다 |
+| `void delete(String token)` | 가입이 끝났으니 지운다 | `delete("auth:oauth-signup:" + 해시(token))` |
 
 **3) member.infrastructure**
 
@@ -1002,12 +1065,12 @@ return 0
 - 동작 1: `GET /api/auth/oauth/kakao/authorize-url`.
 - 확인 1: 200, `$.state`가 비어 있지 않다.
 - 동작 2: `oauthLogin(KAKAO, state)`.
-- 확인 2: 200, `$.status` = `SIGNUP_REQUIRED`, `$.email` = `social@test.com`, `$.signupToken`이 비어 있지 않음(`T`), `$.token`이 없음/null. `h = redisHashOf("auth:oauth-signup:" + T)`: `h.exists()` = true, `h.ttlSeconds()` 1~600. `countOf("member.member")` = 0, `countOf("member.social_account")` = 0.
+- 확인 2: 200, `$.status` = `SIGNUP_REQUIRED`, `$.email` = `social@test.com`, `$.signupToken`이 비어 있지 않음(`T`), `$.token`이 없음/null. `h = redisHashOf("auth:oauth-signup:" + sha256Hex(T))`: `h.exists()` = true, `h.ttlSeconds()` 1~600. `countOf("member.member")` = 0, `countOf("member.social_account")` = 0.
 - 동작 3: `V = testFixtures.verificationToken("social@test.com")` → `POST /api/auth/oauth/signup` 본문 `{"signupToken":"{T}","nickname":"socialnick","name":"소셜","verificationToken":"{V}"}`.
 - 확인 3: 201, `$.accessToken`·`$.refreshToken` 있음. `parse($.accessToken)`: `role()` = `USER`, `memberId()` = `memberIdOf("social@test.com")`.
   - `countOf("member.member")` = 1, `m = memberSnapshotOf(memberIdOf("social@test.com"))`: `m.passwordHash()` null, `m.nickname()` = `socialnick`.
   - `countOf("member.social_account")` = 1이고 `socialAccountsOf(그 회원)`의 1행이 `provider` = `KAKAO`, `providerUserId` = `123456789`.
-  - `redisHashOf("auth:oauth-signup:" + T).exists()` = false, `redisStringOf("auth:signup-verified:" + V).exists()` = false, `s = sessionSnapshotOf(sid)`(`sid` = `RefreshToken.parse($.refreshToken).sessionId()`): `s.memberId()` = 그 회원.
+  - `redisHashOf("auth:oauth-signup:" + sha256Hex(T)).exists()` = false, `redisStringOf("auth:signup-verified:" + sha256Hex(V)).exists()` = false, `s = sessionSnapshotOf(sid)`(`sid` = `RefreshToken.parse($.refreshToken).sessionId()`): `s.memberId()` = 그 회원.
   - `GET /api/members/me`를 `Bearer {$.accessToken}`으로 → 200.
 
 **2. 같은 소셜 계정으로 다시 로그인** — 준비: 1번의 동작·확인 전부를 `socialSignup(KAKAO, "123456789", "social@test.com")`로 한 번 수행한다 → `memberId`. 새 `state` = `issueState(KAKAO)`.
@@ -1024,15 +1087,15 @@ return 0
 
 **5. 세 제공자의 응답 파싱** — `@ParameterizedTest` 입력: `(KAKAO, "123456789")`, `(GOOGLE, "google-sub-1")`, `(NAVER, "naver-id-1")`. 준비: `oauth.givenUser(p, id, p.name().toLowerCase() + "@test.com")`.
 - 동작: `state = issueState(p)` → `oauthLogin(p, state)`.
-- 확인: 로그인 200, `$.status` = `SIGNUP_REQUIRED`, `$.email` = `{소문자 제공자}@test.com`. `h = redisHashOf("auth:oauth-signup:" + $.signupToken)`: `h.fields()`의 `provider` = `p.name()`, `providerUserId` = `id`, `email` = 위 이메일.
+- 확인: 로그인 200, `$.status` = `SIGNUP_REQUIRED`, `$.email` = `{소문자 제공자}@test.com`. `h = redisHashOf("auth:oauth-signup:" + sha256Hex($.signupToken))`: `h.fields()`의 `provider` = `p.name()`, `providerUserId` = `id`, `email` = 위 이메일.
 
 **6. 이메일을 주지 않는 제공자** — 준비: `oauth.givenUser(KAKAO, "kakao-noemail", null)`, `state = issueState(KAKAO)`.
-- 동작 1: `oauthLogin(KAKAO, state)` → 200, `$.status` = `SIGNUP_REQUIRED`, `$.email` 없음/null. `redisHashOf("auth:oauth-signup:" + T).fields().keySet()`이 정확히 `provider`, `providerUserId` 둘이다.
+- 동작 1: `oauthLogin(KAKAO, state)` → 200, `$.status` = `SIGNUP_REQUIRED`, `$.email` 없음/null. `redisHashOf("auth:oauth-signup:" + sha256Hex(T)).fields().keySet()`이 정확히 `provider`, `providerUserId` 둘이다.
 - 동작 2: `V = testFixtures.verificationToken("typed@test.com")` → 가입 본문 `{"signupToken":"{T}","email":"typed@test.com","nickname":"socialnick","name":"소셜","verificationToken":"{V}"}` → 201. `memberIdOf("typed@test.com")`가 null이 아니다.
 
 **7. 다른 이메일의 인증 토큰으로는 가입이 거부된다** — 준비: `oauth.givenUser(KAKAO, "123456789", "social@test.com")`, `oauthLogin(KAKAO, issueState(KAKAO))`의 `$.signupToken`(`T`), `V = testFixtures.verificationToken("other@test.com")`.
 - 동작: `verificationToken` = `V`로 가입(이메일은 가입 토큰의 `social@test.com`).
-- 확인: 400, `$.code` = `VERIFICATION_TOKEN_INVALID`. `countOf("member.member")`·`countOf("member.social_account")` = 0. `redisHashOf("auth:oauth-signup:" + T).exists()` = true.
+- 확인: 400, `$.code` = `VERIFICATION_TOKEN_INVALID`. `countOf("member.member")`·`countOf("member.social_account")` = 0. `redisHashOf("auth:oauth-signup:" + sha256Hex(T)).exists()` = true.
 
 **8. 같은 소셜 계정의 제공자 이메일이 바뀌어도 같은 회원으로 로그인한다** — 준비: 2번과 같다(`socialSignup(KAKAO, "123456789", "social@test.com")`). 동작: `oauth.givenUser(KAKAO, "123456789", "changed@test.com")` 후 새 `state`로 `oauthLogin(KAKAO, state)`.
 - 확인: 200, `$.status` = `LOGGED_IN`, 같은 `memberId`.
@@ -1052,7 +1115,7 @@ return 0
 **13. 이메일이 어디에도 없으면 가입을 거부한다** — 준비: 6번의 준비와 동작 1(`oauthLogin(KAKAO, state)` → `T`)까지 같다. 동작: 본문의 `email` 없이 가입 요청(`verificationToken`은 `testFixtures.verificationToken("typed@test.com")`).
 - 확인: 400, `$.code` = `INVALID_REQUEST`, `countOf("member.member")` = 0.
 
-**14. 가입 토큰이 없으면 가입을 거부한다** — 준비: `oauth.givenUser(KAKAO, "123456789", "social@test.com")`, `oauthLogin(KAKAO, issueState(KAKAO))`의 `$.signupToken`(`T`), `V = testFixtures.verificationToken("social@test.com")`. 동작: `redis.delete("auth:oauth-signup:" + T)` 후 가입.
+**14. 가입 토큰이 없으면 가입을 거부한다** — 준비: `oauth.givenUser(KAKAO, "123456789", "social@test.com")`, `oauthLogin(KAKAO, issueState(KAKAO))`의 `$.signupToken`(`T`), `V = testFixtures.verificationToken("social@test.com")`. 동작: `redis.delete("auth:oauth-signup:" + sha256Hex(T))` 후 가입.
 - 확인: 401, `$.code` = `SIGNUP_TOKEN_INVALID`. `countOf("member.member")` = 0.
 
 **15. 소셜 가입 회원의 내 정보에는 비밀번호가 없다** — 준비: 2번과 같다(`socialSignup(KAKAO, "123456789", "social@test.com")` → `memberId`), 새 `state`로 `oauthLogin(KAKAO, state)` → `$.token.accessToken`. 동작: `GET /api/members/me`를 그 토큰으로.

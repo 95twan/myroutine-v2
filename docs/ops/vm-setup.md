@@ -1,6 +1,7 @@
 # 운영 환경 VM 준비 가이드 (Proxmox + Docker + Actions runner)
 
-> 버전 0.5 · 2026-10-21 · `.env` 표에 `STORAGE_PRESIGN_ENDPOINT`를 더했다(외부 공개용 설정, 로드맵 3-0). 외부 공개 전에는 비워 두고, 공개 때는 `CORS_ALLOWED_ORIGINS`에도 공개 주소를 더한다
+> 버전 0.6 · 2026-10-29 · `.env`에 Gmail SMTP 발송용 `MAIL_USERNAME`·`MAIL_PASSWORD`를 더했다(로드맵 4-2)
+> 0.5 · 2026-10-21 · `.env` 표에 `STORAGE_PRESIGN_ENDPOINT`를 더했다(외부 공개용 설정, 로드맵 3-0). 외부 공개 전에는 비워 두고, 공개 때는 `CORS_ALLOWED_ORIGINS`에도 공개 주소를 더한다
 > 0.4 · 2026-10-14 · MinIO를 NAS로 이전했다(ADR-011 §8): VM 디스크·ufw 9000 규칙·`STORAGE_*` 주소·백업 범위를 고쳤다
 > 0.3 · 2026-10-10 · VM RAM을 호스트 24GB에 맞춰 16GB로 변경
 > 0.2 · 2026-10-09 · OS 버전·ufw 우회·러너 토큰 만료·`svc.sh` 인자를 공식 문서로 확인해 확정하고, `.env` 키 이름을 1-11의 `.env.ops.example`(`SPRING_DATASOURCE_*`)에 맞췄다
@@ -166,9 +167,10 @@ sudo -u runner touch /opt/myroutine/.env && sudo chmod 600 /opt/myroutine/.env
 | MinIO 접속 키 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | 비밀번호: `openssl rand -base64 32`. **NAS의 MinIO에도 같은 값**을 넣는다([nas-minio.md](nas-minio.md) §3) |
 | 저장소 주소 | `STORAGE_ENDPOINT=http://{NAS_IP}:9000`, `STORAGE_PUBLIC_BASE_URL=http://{NAS_IP}:9000/myroutine` | **컨테이너 내부 주소를 쓰지 않는다**(presigned URL 때문. 1-11 S3) |
 | 업로드 URL 서명 주소 | `STORAGE_PRESIGN_ENDPOINT=` (외부 공개 전에는 비워 둔다) | 외부 공개 때만 `https://{공개 주소}`를 넣고 `STORAGE_PUBLIC_BASE_URL`도 `https://{공개 주소}/myroutine`로 바꾼다. `STORAGE_ENDPOINT`는 그대로 둔다. 순서와 이유는 로드맵 [3-0](../03-roadmap/part3-events.md) |
+| 메일 발송(Gmail SMTP) | `MAIL_USERNAME`, `MAIL_PASSWORD` | 발송 전용 Gmail 주소와 그 계정의 앱 비밀번호 16자리(공백 없이). 앱 비밀번호는 2단계 인증을 켠 뒤 Google 계정 → 보안 → 앱 비밀번호에서 만든다. 4-2부터 필요하다([로드맵 4-2](../03-roadmap/part4-auth.md) common.mail) |
 | CORS | `CORS_ALLOWED_ORIGINS=http://{프론트 주소}` | `*` 금지. 외부 공개 때는 `https://{공개 주소}`를 쉼표로 더한다. 프록시 뒤에서 앱이 요청을 http로 받아 POST의 `Origin`이 다른 오리진으로 판정되기 때문이다(로드맵 [3-0](../03-roadmap/part3-events.md)) |
 
-**한 번에 만들기** — 비밀번호를 직접 짓지 않고, 값이 화면·셸 기록에 남지 않게 만든다(`tee ... > /dev/null`이라 출력이 없고, `$(openssl ...)`는 명령 글자만 기록에 남는다). `NAS_IP`와 `CORS_ALLOWED_ORIGINS`만 환경에 맞게 바꾼다(프론트가 아직 없으면 `http://localhost:5173` 그대로 둔다. curl로만 시험하면 CORS는 영향이 없다).
+**한 번에 만들기** — 비밀번호를 직접 짓지 않고, 값이 화면·셸 기록에 남지 않게 만든다(`tee ... > /dev/null`이라 출력이 없고, `$(openssl ...)`는 명령 글자만 기록에 남는다). `NAS_IP`와 `CORS_ALLOWED_ORIGINS`를 환경에 맞게 바꾸고, `MAIL_USERNAME`·`MAIL_PASSWORD`는 만든 뒤 편집기로 채운다(앱 비밀번호가 셸 기록에 남지 않게)(프론트가 아직 없으면 `http://localhost:5173` 그대로 둔다. curl로만 시험하면 CORS는 영향이 없다).
 ```bash
 NAS_IP=192.168.10.20   # 예시 값. 실제 NAS의 고정 IP로 바꾼다
 sudo -u runner tee /opt/myroutine/.env > /dev/null <<EOF
@@ -181,6 +183,8 @@ MINIO_ROOT_PASSWORD=$(openssl rand -base64 32)
 STORAGE_ENDPOINT=http://$NAS_IP:9000
 STORAGE_PUBLIC_BASE_URL=http://$NAS_IP:9000/myroutine
 CORS_ALLOWED_ORIGINS=http://localhost:5173
+MAIL_USERNAME=
+MAIL_PASSWORD=
 EOF
 sudo chmod 600 /opt/myroutine/.env
 ```
