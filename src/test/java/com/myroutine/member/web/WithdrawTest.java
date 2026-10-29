@@ -673,7 +673,7 @@ class WithdrawTest extends IntegrationTestSupport {
                         .header("Authorization", "Bearer " + token))
                 .andReturn();
 
-        SignupRequest request = new SignupRequest("member@test.com", "pass1234", "member", "테스터");
+        SignupRequest request = new SignupRequest("member@test.com", "pass1234", "member", "테스터", testFixtures.verificationToken("member@test.com"));
 
         // When & Then
         mockMvc.perform(post("/api/auth/signup")

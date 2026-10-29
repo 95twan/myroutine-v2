@@ -4,6 +4,7 @@ public record SignupCommand(
         String email,
         String password,
         String nickname,
-        String name
+        String name,
+        String verificationToken
 ) {
 }

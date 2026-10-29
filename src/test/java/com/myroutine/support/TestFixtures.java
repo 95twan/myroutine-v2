@@ -2,6 +2,9 @@ package com.myroutine.support;
 
 import com.myroutine.common.model.Ids;
 import com.myroutine.member.application.*;
+import com.myroutine.member.domain.EmailCodePurpose;
+import com.myroutine.member.domain.Member;
+import com.myroutine.member.domain.SignupVerificationStore;
 import com.myroutine.order.application.*;
 import com.myroutine.product.application.*;
 import com.myroutine.product.domain.ProductCategory;
@@ -17,6 +20,9 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.Timestamp;
 import java.time.*;
 import java.util.*;
@@ -40,6 +46,47 @@ public class TestFixtures {
     private final UpdateProductService updateProductService;
     private final JdbcTemplate jdbcTemplate;
     private final StringRedisTemplate redisTemplate;
+    private final SignupVerificationStore signupVerificationStore;
+
+    public RedisString redisStringOf(String key) {
+        String value = redisTemplate.opsForValue().get(key);
+        long ttlSeconds = redisTemplate.getExpire(key, TimeUnit.SECONDS);
+        return new RedisString(value, ttlSeconds);
+    }
+
+    public static String sha256Hex(String value) {
+        MessageDigest md;
+        try {
+            md = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 not available", e);
+        }
+        byte[] digest = md.digest(value.getBytes(StandardCharsets.UTF_8));
+        return HexFormat.of().formatHex(digest);
+    }
+
+    public EmailAuthSnapshot emailAuthSnapshotOf(EmailCodePurpose purpose, String email) {
+        Map<Object, Object> map = redisTemplate.opsForHash().entries("auth:email-code:" + purpose + ":" + email);
+        Map<String, String> emailCodeFields = map.entrySet().stream()
+                .collect(Collectors.toMap(e -> (String) e.getKey(), e -> (String) e.getValue()));
+
+        String cooldown = redisTemplate.opsForValue().get("auth:email-cooldown:" + email);
+        String h = redisTemplate.opsForValue().get("auth:email-hourly:" + email);
+        Integer hourly = h == null ? null : Integer.valueOf(h);
+
+        return new EmailAuthSnapshot(
+                emailCodeFields,
+                redisTemplate.getExpire("auth:email-code:" + purpose + ":" + email, TimeUnit.SECONDS),
+                cooldown,
+                redisTemplate.getExpire("auth:email-cooldown:" + email, TimeUnit.SECONDS),
+                hourly,
+                redisTemplate.getExpire("auth:email-hourly:" + email, TimeUnit.SECONDS)
+        );
+    }
+
+    public String verificationToken(String email) {
+        return signupVerificationStore.issue(Member.normalizeEmail(email));
+    }
 
     public UUID signup(String email) {
 
@@ -47,7 +94,8 @@ public class TestFixtures {
                 email,
                 "pass1234",
                 email.substring(0, email.indexOf("@")),
-                "테스터"
+                "테스터",
+                verificationToken(email)
         );
 
         SignupResult result = signupService.signUp(command);
@@ -59,7 +107,8 @@ public class TestFixtures {
                 email,
                 "pass1234",
                 email.substring(0, email.indexOf("@")),
-                "테스터"
+                "테스터",
+                verificationToken(email)
         );
 
         SignupResult result = signupService.signUp(command);
