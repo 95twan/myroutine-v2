@@ -1,6 +1,7 @@
 # Part 4. 인증 완성
 
-> 버전 0.39 · 2026-10-29 · 4-2 인증 토큰과 4-3 가입 토큰도 원문 대신 SHA-256 해시로 저장한다. 토큰이 키 이름에 들어가므로 키는 `auth:signup-verified:{tokenHash}`·`auth:oauth-signup:{tokenHash}`다.
+> 버전 0.40 · 2026-10-29 · 4-2 `EmailCodeStore.verify`를 `verify.lua` 하나로 실행한다. 읽기·비교·`HINCRBY`를 따로 하면 동시에 보낸 틀린 코드가 모두 비교를 받아 5번 제한을 넘기 때문이다(동시 50개에 50번 비교). 동시성 케이스 `EmailCodeConcurrencyTest`를 더했다.
+> 0.39 · 2026-10-29 · 4-2 인증 토큰과 4-3 가입 토큰도 원문 대신 SHA-256 해시로 저장한다. 토큰이 키 이름에 들어가므로 키는 `auth:signup-verified:{tokenHash}`·`auth:oauth-signup:{tokenHash}`다.
 > 0.38 · 2026-10-29 · 4-2부터 `prod`는 Gmail SMTP(`spring-boot-starter-mail`, `SmtpMailSender`)로 메일을 실제로 보내고 `LogMailSender`는 `prod` 밖에서만 쓴다. 재설정 요청은 발송 실패를 잡아 202를 돌려준다(가입 여부가 드러나지 않게).
 > 0.37 · 2026-10-29 · 4-1 `RefreshToken.toString()`이 secret을 가린다(record 기본 `toString()`이 로그·예외 메시지에 refresh를 그대로 남기지 않게).
 > 0.36 · 2026-10-28 · 4-1 `SessionStore.deleteAllOf`는 집합 키를 통째로 지우지 않고 읽은 sessionId만 집합에서 뺀다(그 사이 생긴 세션이 색인에서 빠지지 않게).
@@ -552,7 +553,7 @@ return 0
 
 ### 할 일
 
-**구현 순서**: ① common.error(1): `CommonErrorCode` → ② common.mail(2): 의존성·`SmtpMailSender`·`LogMailSender` 프로필·`prod` 설정 → ③ member.domain(3): `Member`·`MemberErrorCode` → `EmailCodePurpose` → `EmailCodeStore` → `SignupVerificationStore` → ④ member.infrastructure(4): `RedisEmailCodeStore`·`RedisSignupVerificationStore` → ⑤ member.application(5): `SignupVerificationService` → `SignupService` 변경 → `PasswordService` → ⑥ member.web(6) → ⑦ `TestFixtures` 변경(완료 확인의 테스트 준비 표) → 테스트. `SignupCommand`에 인자가 늘어 `TestFixtures.signup`과 ⑤의 `SignupService`를 함께 고쳐야 컴파일된다.
+**구현 순서**: ① common.error(1): `CommonErrorCode` → ② common.mail(2): 의존성·`SmtpMailSender`·`LogMailSender` 프로필·`prod` 설정 → ③ member.domain(3): `Member`·`MemberErrorCode` → `EmailCodePurpose` → `EmailCodeStore` → `SignupVerificationStore` → ④ member.infrastructure(4): `verify.lua` → `RedisEmailCodeStore`·`RedisSignupVerificationStore` → ⑤ member.application(5): `SignupVerificationService` → `SignupService` 변경 → `PasswordService` → ⑥ member.web(6) → ⑦ `TestFixtures` 변경(완료 확인의 테스트 준비 표) → 테스트. `SignupCommand`에 인자가 늘어 `TestFixtures.signup`과 ⑤의 `SignupService`를 함께 고쳐야 컴파일된다.
 
 **1) common.error**
 
@@ -614,7 +615,7 @@ spring:
 |---|---|---|
 | `void checkSendLimit(String email)` | 지금 보내도 되는지 확인한다. 안 되면 예외 | 위반이면 429 `RATE_LIMITED`. ① `redis.opsForValue().setIfAbsent("auth:email-cooldown:{email}", "1", Duration.ofSeconds(60))`(Redis `SET … NX EX 60`)가 `false`면 60초 안에 이미 보낸 것이므로 위반 ② `redis.opsForValue().increment("auth:email-hourly:{email}")` 결과가 1이면 `redis.expire(…, Duration.ofHours(1))`을 건다. 5를 넘으면 위반. 위반한 키의 남은 시간(`getExpire(key, TimeUnit.SECONDS)`, 그 사이 만료돼 1보다 작으면 1)을 `new BusinessException(RATE_LIMITED, Map.of("retryAfterSeconds", 초))`로 담는다. 사용자가 "잠시 후"가 1분인지 1시간인지 알 수 있게 하려는 것이다. 재설정 요청도 가입 여부와 상관없이 같은 키를 보므로 이 값으로 가입 여부가 드러나지 않는다 |
 | `void save(EmailCodePurpose p, String email, String code)` | 새 코드를 저장한다. **원문 `code`를 받아 안에서 SHA-256으로 해시한다**. 이전 코드는 덮어쓰고 `attempts`는 0으로 돌아간다 | `auth:email-code:{p}:{email}` 해시에 해시값을 `codeHash`로, `attempts = 0`을 쓰고 `expire` 5분 |
-| `boolean verify(EmailCodePurpose p, String email, String code)` | 입력한 코드가 맞는지 확인한다. `code`는 `save`처럼 원문으로 받는다 | ① `entries`로 읽어 비어 있으면(없음·만료·5번 틀려 삭제됨) `false`. `codeHash` 필드가 없으면 키를 지우고 `false`(읽은 뒤 키가 만료되면 ④의 `HINCRBY`가 `attempts`만 있고 TTL이 없는 키를 새로 만들기 때문) ② 입력의 해시와 저장된 `codeHash`를 `MessageDigest.isEqual`로 비교 ③ 맞으면 키를 지우고 `true` ④ 틀리면 `HINCRBY attempts 1`, 결과가 5 이상이면 키를 지우고 `false` |
+| `boolean verify(EmailCodePurpose p, String email, String code)` | 입력한 코드가 맞는지 확인한다. `code`는 `save`처럼 원문으로 받는다 | 입력을 SHA-256으로 해시해 아래 `verify.lua`에 넘기고, 결과가 `1L`이면 `true`. 스크립트 안에서 ① `codeHash`가 없으면(없음·만료·5번 틀려 삭제됨) `false` ② 저장된 `codeHash`와 같으면 키를 지우고 `true` ③ 다르면 `HINCRBY attempts 1`, 결과가 5 이상이면 키를 지우고 `false` |
 
 - 코드 만들기: `String.format("%06d", secureRandom.nextInt(1_000_000))` — `000123`처럼 앞이 0이어도 6자리를 지킨다
 
@@ -630,8 +631,29 @@ spring:
 
 | 클래스 | 규격 |
 |---|---|
-| `RedisEmailCodeStore` | `EmailCodeStore` 구현(Redis) |
+| `RedisEmailCodeStore` | `EmailCodeStore` 구현(Redis). 의존성은 `StringRedisTemplate`, `verify.lua`를 담은 `DefaultRedisScript<Long>`이다. 스크립트 객체는 4-1 `RedisSessionStore`처럼 생성자 안에서 만든다(그래서 `@RequiredArgsConstructor` 대신 생성자를 직접 쓴다) |
 | `RedisSignupVerificationStore` | `SignupVerificationStore` 구현(Redis) |
+
+`verify.lua` — `EmailCodeStore.verify`의 읽기·비교·시도 횟수 증가를 **Redis 안에서 한 번에** 실행한다. 자바에서 `entries` → 비교 → `HINCRBY`를 따로 하면, 같은 코드에 틀린 추측을 동시에 보냈을 때 5번째 삭제 전에 해시를 읽어 간 요청이 모두 비교를 받는다(동시 50개면 50번). 재설정 코드는 로그인 없이 요청할 수 있어서 이 차이가 곧 남의 계정 비밀번호를 맞힐 기회다. Redis는 스크립트를 하나씩 실행하므로 비교는 코드 하나에 5번까지만 일어난다. 위치는 `src/main/resources/redis/verify.lua`.
+```lua
+-- KEYS[1] = auth:email-code:{purpose}:{email}, ARGV[1] = 입력 코드의 해시
+local stored = redis.call('HGET', KEYS[1], 'codeHash')
+if not stored then
+  return 0
+end
+if stored == ARGV[1] then
+  redis.call('DEL', KEYS[1])
+  return 1
+end
+if redis.call('HINCRBY', KEYS[1], 'attempts', 1) >= 5 then
+  redis.call('DEL', KEYS[1])
+end
+return 0
+```
+
+- 자바에서 부르는 형태: `Long r = redis.execute(verifyScript, List.of("auth:email-code:" + p + ":" + email), 해시(code));` → `r`이 `1L`이면 `true`. `verifyScript`는 `DefaultRedisScript<Long>`에 `setLocation(new ClassPathResource("redis/verify.lua"))`, `setResultType(Long.class)`를 한 것이다
+- 없는 필드의 `HGET`은 Lua에서 `false`라 `not stored`로 확인한다. 스크립트가 도는 동안 키가 만료되지 않으므로, 자바에서 나눠 실행할 때 생기던 "만료 직후 `HINCRBY`가 TTL 없는 키를 만드는" 경우도 없다
+- 해시 비교가 `MessageDigest.isEqual`이 아니라 Redis 안의 `==`에서 일어난다. 4-1 `rotate.lua`와 같은 이유로 공통 규칙 T의 예외다(둘 다 SHA-256 해시라 비교 시간으로 값을 알아낼 수 없다)
 
 **5) member.application**
 
@@ -713,6 +735,7 @@ spring:
 | `signup(String email)` → `UUID`(변경) | `verificationToken(email)`을 `SignupCommand`에 넣어 기존처럼 `signupService.signUp`을 부른다 | 기존 테스트 전부(호출 모양은 그대로) |
 | `emailAuthSnapshotOf(EmailCodePurpose purpose, String email)` → `EmailAuthSnapshot` | 한 이메일의 Redis 키 셋을 한 번에 읽어 아래 record에 담는다. 코드 키 `auth:email-code:{purpose}:{email}`는 `redis.opsForHash().entries(key)`를 `Map<String, String>`으로 바꾼 값, 쿨다운 키 `auth:email-cooldown:{email}`은 `redis.opsForValue().get(key)` 그대로, 시간당 키 `auth:email-hourly:{email}`은 `get(key)`를 `Integer.valueOf`(없으면 `null`)로 바꾼 값을 넣는다. 세 키 모두 남은 시간은 `redis.getExpire(key, TimeUnit.SECONDS)`이고 없는 키는 -2 | `SignupVerificationTest`, `PasswordTest` |
 | `redisStringOf(String key)` → `RedisString` | `redis.opsForValue().get(key)`와 `redis.getExpire(key, TimeUnit.SECONDS)`. `support/`의 record(`String value`, `long ttlSeconds`)이고 `exists()`(`value != null`)를 가진다. 키가 없으면 `value`는 `null`, 남은 시간은 -2 | `SignupVerificationTest`의 `auth:signup-verified:*`, 4-3 `OAuthLoginTest`, 4-4 `LoginLockTest` |
+| `resetRedisStats()`, `redisCallsOf(String command)` → `long` | `resetRedisStats`는 `redis.execute((RedisCallback<Void>) c -> { c.serverCommands().resetConfigStats(); return null; })`(Redis `CONFIG RESETSTAT`). `redisCallsOf`는 `c.serverCommands().info("commandstats")`가 돌려준 `Properties`에서 `cmdstat_{command}`(예: `cmdstat_hincrby`) 값 `calls=5,usec=…,rejected_calls=0,failed_calls=0`의 맨 앞 숫자를 꺼낸다(정규식 `^calls=(\d+),`. `.*calls=`로 쓰면 뒤의 `failed_calls=`를 잡는다). 항목이 없으면 0. Lua 스크립트 안의 `redis.call`도 센다 | `EmailCodeConcurrencyTest` |
 | `static String sha256Hex(String value)` | `MessageDigest.getInstance("SHA-256")`로 UTF-8 바이트를 해시해 `HexFormat.of().formatHex`. 운영 코드의 해시와 같은 형식이어야 한다 | 토큰 키 이름 만들기: `"auth:signup-verified:" + sha256Hex(V)`, 4-3 `"auth:oauth-signup:" + sha256Hex(T)` |
 
 `EmailAuthSnapshot`(`support/`)은 `SessionSnapshot`처럼 해시 전체를 맵으로 들고, 해시 필드는 메서드로 꺼낸다.
@@ -844,6 +867,14 @@ spring:
 **11. 재설정 메일 발송이 실패해도 같은 응답** — 준비: `fakeMailSender.failNext(1)`. 동작: `pw@test.com`으로 재설정 요청.
 - 응답: 202, 본문 비어 있음(4번의 가입되지 않은 이메일과 같다).
 - `sent()` 1건(`FakeMailSender`는 예외를 던지기 전에 기록한다). 발송을 시도하지 않고 202를 준 경우와 구분하기 위한 확인이다.
+
+#### `member/infrastructure/EmailCodeConcurrencyTest` (`@RepeatedTest(10)`)
+
+`IntegrationTestSupport`를 상속하고 `EmailCodeStore`·`TestFixtures`를 주입받는다. 동시 실행은 `support/ConcurrencyRunner.run(List<Callable<T>>)`.
+
+**1. 틀린 코드를 동시에 보내도 비교는 5번까지만 한다** — 준비: `emailCodeStore.save(RESET_PASSWORD, "pw@test.com", "123456")` → `testFixtures.resetRedisStats()`. 동작: 50개 작업을 동시에 실행한다. `i`번째 작업은 `emailCodeStore.verify(RESET_PASSWORD, "pw@test.com", String.format("%06d", 200000 + i))`(모두 `123456`과 다르다).
+- 50개 모두 예외 없이 `false`.
+- `testFixtures.redisCallsOf("hincrby")` = 5.
 
 **수동 확인: 운영 메일 발송** — 배포 뒤 공개 주소로 본인 이메일에 가입 인증 발송(`POST /api/auth/signup/email-verifications`)을 보낸다.
 - 202이고, 받은편지함(없으면 스팸함)에 발신자가 발송 전용 Gmail 주소이고 제목이 `[MyRoutine] 이메일 인증코드`인 메일이 온다. 그 코드로 확인 → 가입까지 된다.
