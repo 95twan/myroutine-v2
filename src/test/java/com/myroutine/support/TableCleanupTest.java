@@ -21,12 +21,14 @@ public class TableCleanupTest extends IntegrationTestSupport {
     private final MockMvc mockMvc;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final JdbcTemplate jdbcTemplate;
+    private final TestFixtures testFixtures;
 
 
     @Autowired
-    public TableCleanupTest(MockMvc mockMvc, JdbcTemplate jdbcTemplate) {
+    public TableCleanupTest(MockMvc mockMvc, JdbcTemplate jdbcTemplate, TestFixtures testFixtures) {
         this.mockMvc = mockMvc;
         this.jdbcTemplate = jdbcTemplate;
+        this.testFixtures = testFixtures;
     }
 
 
@@ -35,7 +37,7 @@ public class TableCleanupTest extends IntegrationTestSupport {
     @DisplayName("회원 가입을 한다.")
     void createMember() throws Exception {
         // Given
-        SignupRequest request = new SignupRequest("test@test.com", "password123", "nick", "name");
+        SignupRequest request = new SignupRequest("test@test.com", "password123", "nick", "name", testFixtures.verificationToken("test@test.com"));
 
         // When & Then
         mockMvc.perform(post("/api/auth/signup")

@@ -1,10 +1,7 @@
 package com.myroutine.member.web;
 
 import com.myroutine.common.security.AuthClaims;
-import com.myroutine.member.application.LoginService;
-import com.myroutine.member.application.LogoutService;
-import com.myroutine.member.application.SignupService;
-import com.myroutine.member.application.TokenRefreshService;
+import com.myroutine.member.application.*;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -20,6 +17,20 @@ public class AuthController {
     private final LoginService loginService;
     private final TokenRefreshService tokenRefreshService;
     private final LogoutService logoutService;
+    private final SignupVerificationService signupVerificationService;
+    private final PasswordService passwordService;
+
+    @PostMapping("/signup/email-verifications")
+    public ResponseEntity<Void> sendEmailVerification(@Valid @RequestBody SignupEmailRequest request) {
+        signupVerificationService.send(request.email());
+        return ResponseEntity.accepted().build();
+    }
+
+    @PostMapping("/signup/email-verifications/confirm")
+    public ResponseEntity<SignupVerificationResponse> sendEmailVerification(@Valid @RequestBody SignupEmailConfirmRequest request) {
+        String verificationToken = signupVerificationService.confirm(request.email(), request.code());
+        return ResponseEntity.ok(new SignupVerificationResponse(verificationToken));
+    }
 
     @PostMapping("/signup")
     public ResponseEntity<SignupResponse> signUp(@Valid @RequestBody SignupRequest request) {
@@ -42,4 +53,17 @@ public class AuthController {
         logoutService.logout(claims.memberId(), claims.sessionId(), all);
         return ResponseEntity.noContent().build();
     }
+
+    @PostMapping("/password-reset")
+    public ResponseEntity<Void> passwordResetRequest(@Valid @RequestBody PasswordResetRequest request) {
+        passwordService.requestReset(request.email());
+        return ResponseEntity.accepted().build();
+    }
+
+    @PostMapping("/password-reset/confirm")
+    public ResponseEntity<Void> passwordResetConfirm(@Valid @RequestBody PasswordResetConfirmRequest request) {
+        passwordService.confirmReset(request.email(), request.code(), request.newPassword());
+        return ResponseEntity.noContent().build();
+    }
+
 }

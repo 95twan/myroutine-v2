@@ -50,7 +50,7 @@ class TokenRefreshTest extends IntegrationTestSupport {
     @DisplayName("가입 응답에 refresh 토큰이 들어 있고 세션이 만들어진다.")
     void signupIssueRefreshToken() throws Exception {
         // Given
-        SignupRequest request = new SignupRequest("new@test.com", "pass1234", "newbie", "테스터");
+        SignupRequest request = new SignupRequest("new@test.com", "pass1234", "newbie", "테스터", testFixtures.verificationToken("new@test.com"));
 
         // When & Then
         MvcResult result = mockMvc.perform(post("/api/auth/signup")
@@ -69,7 +69,7 @@ class TokenRefreshTest extends IntegrationTestSupport {
         SessionSnapshot s = testFixtures.sessionSnapshotOf(sid);
         assertThat(s.memberId().toString()).isEqualTo(memberId);
         assertThat(s.refreshHash()).isEqualTo(RefreshToken.parse(refreshToken).secretHash());
-        assertThat(s.ttlSeconds()).isGreaterThanOrEqualTo(604000).isLessThanOrEqualTo(604800);
+        assertThat(s.ttlSeconds()).isBetween(604000L, 604800L);
     }
 
     @Test
@@ -372,7 +372,7 @@ class TokenRefreshTest extends IntegrationTestSupport {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk());
 
-        assertThat(testFixtures.memberSessionsTtlOf(memberId)).isGreaterThanOrEqualTo(604000).isLessThanOrEqualTo(604800);
+        assertThat(testFixtures.memberSessionsTtlOf(memberId)).isBetween(604000L, 604800L);
     }
 
     @Test
@@ -418,6 +418,6 @@ class TokenRefreshTest extends IntegrationTestSupport {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk());
 
-        assertThat(testFixtures.sessionSnapshotOf(sid).ttlSeconds()).isGreaterThanOrEqualTo(604000).isLessThanOrEqualTo(604800);
+        assertThat(testFixtures.sessionSnapshotOf(sid).ttlSeconds()).isBetween(604000L, 604800L);
     }
 }

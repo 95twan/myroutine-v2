@@ -109,4 +109,8 @@ public class Member extends BaseTimeEntity {
         this.passwordHash = null;
         this.withdrawnAt = now;
     }
+
+    public void changePassword(String encodedPassword) {
+        this.passwordHash = encodedPassword;
+    }
 }

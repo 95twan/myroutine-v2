@@ -1,5 +1,6 @@
 # 03. ERD (Stage 1)
 
+> 2026-10-29: Redis `auth:signup-verified`·`auth:oauth-signup` 키에 토큰 원문 대신 SHA-256 해시를 넣는다(로드맵 Part 4 공통 규칙 T)
 > 2026-10-28: Redis `auth:session`의 기기 필드와 `auth:oauth-state` 키를 빼고 `auth:signup-verified:{token}`을 더했다. 가입 전에 이메일을 인증해 `member.email_verified_at`을 뺐다(로드맵 4-1·4-2·4-3)
 > 2026-10-28: `settlement_item`에 `shop_order_id`·`product_name`·`quantity`를 더했다(로드맵 4-0)
 > 2026-10-17: `refund.reason_type`에서 `SYSTEM`을 뺐다(환불을 만드는 경로가 구매자 취소와 반품뿐이라 쓰는 곳이 없다, 로드맵 2-8)
@@ -71,7 +72,7 @@ erDiagram
     text content
   }
 ```
-Redis(키·TTL의 기준은 [로드맵 Part 4 공통 규칙 T](../03-roadmap/part4-auth.md)): `auth:session:{sessionId}`(memberId, refreshHash — 세션 하나가 곧 refresh family), `auth:member-sessions:{memberId}`, `auth:email-code:{purpose}:{email}`(코드 해시, 시도 횟수, TTL 5분), `auth:email-cooldown:{email}`(60초), `auth:email-hourly:{email}`(1시간), `auth:signup-verified:{token}`(인증을 통과한 이메일, TTL 30분), `auth:oauth-signup:{signupToken}`, `auth:token-version:{memberId}`, `auth:login-fail:{email}`(연속 실패 횟수, TTL 15분).
+Redis(키·TTL의 기준은 [로드맵 Part 4 공통 규칙 T](../03-roadmap/part4-auth.md)): `auth:session:{sessionId}`(memberId, refreshHash — 세션 하나가 곧 refresh family), `auth:member-sessions:{memberId}`, `auth:email-code:{purpose}:{email}`(코드 해시, 시도 횟수, TTL 5분), `auth:email-cooldown:{email}`(60초), `auth:email-hourly:{email}`(1시간), `auth:signup-verified:{tokenHash}`(인증을 통과한 이메일, TTL 30분), `auth:oauth-signup:{tokenHash}`, `auth:token-version:{memberId}`, `auth:login-fail:{email}`(연속 실패 횟수, TTL 15분).
 - 한 회원은 비밀번호(`password_hash`)와 소셜 계정(`social_account`)을 함께 가질 수 있다. 둘 다 없는 회원은 없다.
 - 이메일 미인증 회원은 주문·결제·가게 개설 API를 쓸 수 없다(FR-MEM-09).
 - Redis는 로드맵 Part 4에서 도입한다. 그 전에는 로그인 실패 제한·refresh 세션 없이 Access 토큰만 쓴다.

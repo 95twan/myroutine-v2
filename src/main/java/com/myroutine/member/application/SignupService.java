@@ -8,11 +8,13 @@ import com.myroutine.member.api.event.MemberTopics;
 import com.myroutine.member.domain.Member;
 import com.myroutine.member.domain.MemberErrorCode;
 import com.myroutine.member.domain.MemberRepository;
+import com.myroutine.member.domain.SignupVerificationStore;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -22,10 +24,17 @@ public class SignupService {
     private final PasswordEncoder passwordEncoder;
     private final TokenIssuer tokenIssuer;
     private final OutboxPublisher publisher;
+    private final SignupVerificationStore signupVerificationStore;
 
     @Transactional
     public SignupResult signUp(SignupCommand command) {
-        if (memberRepository.existsByEmail(Member.normalizeEmail(command.email()))) {
+        String normalizedEmail = Member.normalizeEmail(command.email());
+        Optional<String> email = signupVerificationStore.findEmail(command.verificationToken());
+        if (email.isEmpty() || !email.get().equals(normalizedEmail)) {
+            throw new BusinessException(MemberErrorCode.VERIFICATION_TOKEN_INVALID);
+        }
+
+        if (memberRepository.existsByEmail(normalizedEmail)) {
             throw new BusinessException(MemberErrorCode.MEMBER_EMAIL_DUPLICATED);
         }
         if (memberRepository.existsByNickname(command.nickname())) {
@@ -44,6 +53,8 @@ public class SignupService {
 
         MemberRegisteredEvent event = new MemberRegisteredEvent(savedMember.getId(), savedMember.getEmail(), savedMember.getNickname());
         publisher.publish(MemberTopics.MEMBER_REGISTERED, "MEMBER", memberId, event);
+
+        signupVerificationStore.delete(command.verificationToken());
 
         TokenResult token = tokenIssuer.issueNewSession(savedMember);
 
