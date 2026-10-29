@@ -4,8 +4,9 @@ import com.myroutine.common.error.BusinessException;
 import com.myroutine.common.error.CommonErrorCode;
 import com.myroutine.member.domain.EmailCodePurpose;
 import com.myroutine.member.domain.EmailCodeStore;
-import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -13,14 +14,22 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @Component
-@RequiredArgsConstructor
 public class RedisEmailCodeStore implements EmailCodeStore {
 
     private final StringRedisTemplate redisTemplate;
+    private final DefaultRedisScript<Long> verifyScript;
+
+    public RedisEmailCodeStore(StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
+        this.verifyScript = new DefaultRedisScript<>();
+        this.verifyScript.setLocation(new ClassPathResource("redis/verify.lua"));
+        this.verifyScript.setResultType(Long.class);
+    }
 
     @Override
     public void checkSendLimit(String email) {
@@ -48,25 +57,10 @@ public class RedisEmailCodeStore implements EmailCodeStore {
     @Override
     public boolean verify(EmailCodePurpose p, String email, String code) {
         String key = "auth:email-code:" + p + ":" + email;
-        Map<Object, Object> map = redisTemplate.opsForHash().entries(key);
-        if (map.isEmpty()) {
-            return false;
-        }
-        if (map.get("codeHash") == null) {
-            redisTemplate.delete(key);
-            return false;
-        }
-        String codeHash = getCodeHash(code);
-        if (MessageDigest.isEqual(codeHash.getBytes(StandardCharsets.UTF_8), ((String) map.get("codeHash")).getBytes(StandardCharsets.UTF_8))) {
-            redisTemplate.delete(key);
-            return true;
-        } else {
-            Long increment = redisTemplate.opsForHash().increment(key, "attempts", 1);
-            if (increment >= 5) {
-                redisTemplate.delete(key);
-            }
-            return false;
-        }
+
+        Long r = redisTemplate.execute(verifyScript, List.of(key), getCodeHash(code));
+
+        return Long.valueOf(1L).equals(r);
     }
 
     private String getCodeHash(String code) {

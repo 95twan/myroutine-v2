@@ -12,6 +12,7 @@ import com.myroutine.product.domain.ProductStatus;
 import com.myroutine.shop.application.OpenShopCommand;
 import com.myroutine.shop.application.OpenShopService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -47,6 +48,24 @@ public class TestFixtures {
     private final JdbcTemplate jdbcTemplate;
     private final StringRedisTemplate redisTemplate;
     private final SignupVerificationStore signupVerificationStore;
+
+    public void resetRedisStats() {
+        redisTemplate.execute((RedisCallback<Void>) c -> {
+            c.serverCommands().resetConfigStats();
+            return null;
+        });
+    }
+
+    public long redisCallsOf(String command) {
+        Properties stats = redisTemplate.execute((RedisCallback<Properties>) c ->
+                c.serverCommands().info("commandstats")
+        );
+        String value = stats.getProperty("cmdstat_" + command);
+        if (value == null) {
+            return 0;
+        }
+        return Long.parseLong(value.replaceAll("^calls=(\\d+),.*", "$1"));
+    }
 
     public RedisString redisStringOf(String key) {
         String value = redisTemplate.opsForValue().get(key);
