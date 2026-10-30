@@ -4,6 +4,7 @@ import com.myroutine.common.error.BusinessException;
 import com.myroutine.member.domain.MemberErrorCode;
 import com.myroutine.member.domain.OAuthProvider;
 import com.myroutine.member.domain.OAuthUserInfo;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -13,6 +14,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.JsonNode;
 
+@Slf4j
 @Component
 public class GoogleOAuthClient implements OAuthProviderClient {
 
@@ -47,6 +49,7 @@ public class GoogleOAuthClient implements OAuthProviderClient {
 
             String accessToken = tokenResponse == null ? "" : tokenResponse.path("access_token").asString();
             if (accessToken.isBlank()) {
+                log.warn("OAuth token response has no access_token. provider={}", provider());
                 throw new BusinessException(MemberErrorCode.OAUTH_PROVIDER_ERROR);
             }
 
@@ -57,12 +60,14 @@ public class GoogleOAuthClient implements OAuthProviderClient {
 
             String id = userInfoResponse == null ? "" : userInfoResponse.path("sub").asString();
             if (id.isBlank()) {
+                log.warn("OAuth user info has no id. provider={}", provider());
                 throw new BusinessException(MemberErrorCode.OAUTH_PROVIDER_ERROR);
             }
 
             String email = userInfoResponse.path("email").asString();
             return new OAuthUserInfo(id, email.isBlank() ? null : email);
         } catch (RestClientException e) {
+            log.warn("Failed to fetch OAuth user. provider={}", provider(), e);
             throw new BusinessException(MemberErrorCode.OAUTH_PROVIDER_ERROR);
         }
     }
