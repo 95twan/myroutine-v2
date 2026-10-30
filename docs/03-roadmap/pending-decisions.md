@@ -120,7 +120,7 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 
 | 단계 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
-| 4-3 | B | Naver의 authorize 파라미터·토큰 요청의 `state` 요구·`response.id`/`response.email` 필드(Kakao·Google은 확인함. 조회 도구가 Naver 개발자센터를 막아 못 열었다), `@PathVariable` enum이 소문자 `kakao`를 받는지 | 4-3 member.infrastructure, member.web | Naver 문서를 붙여 주거나 직접 확인, enum은 테스트로 확인 |
+| 4-3 | B | Naver 토큰 요청에 `redirect_uri`가 필요한지, `response.email` 필드(이메일 미동의 때 모양). 토큰·사용자 정보 주소, 토큰 요청의 `state`, `response.id`는 동작하는 요청으로 확인함. 조회 도구가 Naver 개발자센터를 막아 문서는 못 열었다. `@PathVariable` enum이 소문자 `kakao`를 받는지 | 4-3 member.infrastructure, member.web | Naver 문서 내용을 붙여 주면 확정, 안 되면 `NaverOAuthClient` 구현 때 실제 응답으로 확인. enum은 테스트로 확인 |
 
 ### Part 5
 

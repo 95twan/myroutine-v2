@@ -65,5 +65,4 @@ public class AuthController {
         passwordService.confirmReset(request.email(), request.code(), request.newPassword());
         return ResponseEntity.noContent().build();
     }
-
 }

@@ -1,6 +1,8 @@
 # Part 4. 인증 완성
 
-> 버전 0.40 · 2026-10-29 · 4-2 `EmailCodeStore.verify`를 `verify.lua` 하나로 실행한다. 읽기·비교·`HINCRBY`를 따로 하면 동시에 보낸 틀린 코드가 모두 비교를 받아 5번 제한을 넘기 때문이다(동시 50개에 50번 비교). 동시성 케이스 `EmailCodeConcurrencyTest`를 더했다.
+> 버전 0.42 · 2026-10-30 · 4-3 제공자 로그인 화면 주소를 프론트가 직접 만든다. `GET /api/auth/oauth/{provider}/authorize-url`·`OAuthLoginService.authorizeUrl`·`OAuthProviderClient.authorizeUrl`·`AuthorizeUrl`·`Provider.authorizeUri`/`scope`와 완료 확인 11번(authorize-url)을 지웠고, `state`는 프론트가 만든다. 서버 설정의 `redirect-uri`는 토큰 교환에 남아 프론트 값과 같아야 한다.
+> 0.41 · 2026-10-29 · 4-3 탈퇴가 그 회원의 소셜 계정 연결 행을 지운다(`SocialAccountRepository.deleteAllByMemberId`, `WithdrawService.withdraw`). 지우지 않으면 탈퇴한 회원의 소셜 계정으로 로그인은 401 `LOGIN_FAILED`, 가입은 unique 제약으로 영영 막힌다. 탈퇴 후 재가입 완료 확인을 더했다.
+> 0.40 · 2026-10-29 · 4-2 `EmailCodeStore.verify`를 `verify.lua` 하나로 실행한다. 읽기·비교·`HINCRBY`를 따로 하면 동시에 보낸 틀린 코드가 모두 비교를 받아 5번 제한을 넘기 때문이다(동시 50개에 50번 비교). 동시성 케이스 `EmailCodeConcurrencyTest`를 더했다.
 > 0.39 · 2026-10-29 · 4-2 인증 토큰과 4-3 가입 토큰도 원문 대신 SHA-256 해시로 저장한다. 토큰이 키 이름에 들어가므로 키는 `auth:signup-verified:{tokenHash}`·`auth:oauth-signup:{tokenHash}`다.
 > 0.38 · 2026-10-29 · 4-2부터 `prod`는 Gmail SMTP(`spring-boot-starter-mail`, `SmtpMailSender`)로 메일을 실제로 보내고 `LogMailSender`는 `prod` 밖에서만 쓴다. 재설정 요청은 발송 실패를 잡아 202를 돌려준다(가입 여부가 드러나지 않게).
 > 0.37 · 2026-10-29 · 4-1 `RefreshToken.toString()`이 secret을 가린다(record 기본 `toString()`이 로그·예외 메시지에 refresh를 그대로 남기지 않게).
@@ -896,7 +898,7 @@ return 0
 | 개념 | 한 줄 설명 |
 |---|---|
 | Authorization Code 흐름 | 사용자를 제공자 로그인 화면으로 보냄 → 돌아온 `code`를 서버가 토큰으로 교환 → 사용자 정보 조회 |
-| `state` | 인가 URL에 붙이는 랜덤 값. 프론트가 출발 전에 브라우저(`sessionStorage`)에 저장하고, 돌아온 `state`가 그 값과 다르면 로그인 요청을 보내지 않는다. "이 로그인은 이 브라우저가 시작했다"를 확인해, 공격자가 자기 계정의 `code`가 붙은 콜백 링크를 피해자에게 열게 하는 공격(로그인 CSRF)을 막는다. 서버는 `state`를 저장하지 않는다. 서버에 저장하면 모든 브라우저가 같은 장부를 쓰게 되어, 공격자가 직접 발급받은 `state`도 "우리가 만든 값"으로 통과한다 |
+| `state` | 인가 URL에 붙이는 랜덤 값. 프론트가 만들어 출발 전에 브라우저(`sessionStorage`)에 저장하고, 돌아온 `state`가 그 값과 다르면 로그인 요청을 보내지 않는다. "이 로그인은 이 브라우저가 시작했다"를 확인해, 공격자가 자기 계정의 `code`가 붙은 콜백 링크를 피해자에게 열게 하는 공격(로그인 CSRF)을 막는다. 서버는 `state`를 만들지도 저장하지도 비교하지도 않는다. 서버에 저장하면 모든 브라우저가 같은 장부를 쓰게 되어, 공격자가 직접 발급받은 `state`도 "우리가 만든 값"으로 통과한다 |
 | 전략(Strategy) | 제공자마다 주소·요청 파라미터·응답 JSON 모양이 다르다. `OAuthProviderClient` 구현체 3개가 차이를 흡수한다 |
 
 **정책 (이 단계에서 정함)**
@@ -904,10 +906,12 @@ return 0
 - 한 회원은 제공자마다 소셜 계정 1개.
 - 제공자가 이메일을 주지 않으면(카카오 선택 동의 등) 사용자가 가입 단계에서 이메일을 입력한다.
 - 제공자 호출 타임아웃: connect 3초, read 5초.
+- 제공자 로그인 화면 주소는 프론트가 만든다(`client_id`·`redirect_uri`·`scope`를 프론트 환경변수로 가진다). 서버에는 인가 주소를 만드는 API가 없고, 토큰 교환 요청에 `redirect_uri`가 같은 값으로 필요해 서버 설정의 `redirect-uri`가 프론트의 값과 같아야 한다.
+- 탈퇴하면 그 회원의 소셜 계정 연결을 모두 지운다. 제공자 사용자 ID도 개인을 가리키는 값이고, 행이 남으면 같은 소셜 계정으로 로그인(401 `LOGIN_FAILED`)도 가입(`uk_social_account_provider_user`)도 못 한다. 지운 뒤에는 같은 소셜 계정이 처음 보는 계정이 되어 `SIGNUP_REQUIRED`로 다시 가입한다(이메일 회원의 재가입과 같다, 3-6).
 
 **전체 흐름** (프론트 = 사용자 브라우저에서 도는 화면, 제공자 = Kakao·Google·Naver)
-1. 프론트가 `GET /api/auth/oauth/kakao/authorize-url`을 부른다 → 서버가 랜덤 `state`를 만들어(저장하지 않는다) 제공자 로그인 화면 주소 `url`과 `state`를 돌려준다. 프론트는 `state`를 `sessionStorage`에 저장한다
-2. 프론트가 브라우저를 `url`로 이동시킨다. 사용자가 제공자에서 로그인·동의하면 제공자가 **미리 등록해 둔 `redirectUri`(프론트 화면)** 로 `?code=...&state=...`를 붙여 돌려보낸다. `code`는 한 번만 쓰는 교환권이다(우리 API가 `code`·`state`를 바디로 받으므로 `redirectUri`는 서버가 아니라 프론트 화면이다)
+1. 프론트가 제공자 로그인 화면 주소를 직접 만든다(제공자의 인가 주소에 `response_type=code`, `client_id`, `redirect_uri`, `scope`, `state`를 쿼리로 붙인다). `state`는 프론트가 만든 랜덤 값이고 `sessionStorage`에 저장한다
+2. 프론트가 브라우저를 그 주소로 이동시킨다. 사용자가 제공자에서 로그인·동의하면 제공자가 **미리 등록해 둔 `redirectUri`(프론트 화면)** 로 `?code=...&state=...`를 붙여 돌려보낸다. `code`는 한 번만 쓰는 교환권이다(우리 API가 `code`·`state`를 바디로 받으므로 `redirectUri`는 서버가 아니라 프론트 화면이다)
 3. 프론트가 돌아온 `state`를 `sessionStorage`의 값과 비교해 다르거나 없으면 멈춘다. 같으면 `POST /api/auth/oauth/kakao/login` 바디 `{code, state}`를 보낸다 → 서버가 ① `code`를 제공자 토큰 주소로 보내 **제공자 access token**으로 바꾸고 ② 그 토큰으로 사용자 정보를 읽는다(`fetchUser`). `state`는 비교하지 않고 Naver 토큰 요청에 넘기기만 한다. 제공자 access token은 사용자 정보를 읽는 데만 쓰고 저장하지 않는다(우리 토큰과 별개다)
 4. 이미 연결된 소셜 계정이면 `LOGGED_IN` + 우리 토큰. 처음 보는 계정이면 `SIGNUP_REQUIRED` + 가입 토큰(Redis 10분)과 제공자가 준 이메일
 5. 신규 가입: 프론트가 4-2의 `POST /api/auth/signup/email-verifications`로 인증코드를 받고 `…/confirm`으로 인증 토큰을 받는다 → 가입 토큰·인증 토큰과 함께 `POST /api/auth/oauth/signup` → 201 우리 토큰
@@ -915,7 +919,7 @@ return 0
 
 ### 할 일
 
-**구현 순서**: ① 마이그레이션(1) → ② member.domain(2): `OAuthProvider`·`OAuthUserInfo` → 에러 코드·`SocialAccount`·`SocialAccountRepository`·`Member.signUpWithSocial` → `SignupTokenStore`·`PendingSocialSignup` → ③ member.infrastructure(3): `OAuthProperties`·`application.yaml` → `OAuthProviderClient`와 구현체 3개·`OAuthClients` → 가입 토큰 저장소의 Redis 구현 → ④ member.application(4): `OAuthLoginService` → ⑤ member.web(5): 컨트롤러 → ⑥ `FakeOAuthServer`(6) → 테스트.
+**구현 순서**: ① 마이그레이션(1) → ② member.domain(2): `OAuthProvider`·`OAuthUserInfo` → 에러 코드·`SocialAccount`·`SocialAccountRepository`·`Member.signUpWithSocial` → `SignupTokenStore`·`PendingSocialSignup` → ③ member.infrastructure(3): `OAuthProperties`·`OAuthConfig`·`application.yaml` → `OAuthProviderClient`와 구현체 3개·`OAuthClients` → 가입 토큰 저장소의 Redis 구현 → ④ member.application(4): `OAuthLoginService` → `WithdrawService` 변경 → ⑤ member.web(5): 컨트롤러 → ⑥ `FakeOAuthServer`(6) → 테스트.
 
 **1) 마이그레이션** — `db/migration/member/V{...}__member_create_social_account.sql`
 
@@ -935,7 +939,7 @@ return 0
 | `OAuthProvider` | enum `KAKAO, GOOGLE, NAVER`. DB `social_account.provider`와 Redis 가입 토큰의 `provider` 필드에 `name()` 그대로 쓴다 |
 | `OAuthUserInfo` | `record (String providerUserId, String email)` — 제공자 응답을 우리 모양으로 옮긴 사용자 정보. `email`은 제공자가 안 주면 `null`(`providerUserId`는 항상 있어야 한다). 닉네임은 가입 요청이 직접 받으므로 제공자 응답에서 읽지 않는다 |
 | `PendingSocialSignup` | `record (OAuthProvider provider, String providerUserId, String email)` — Redis 해시(공통 규칙 T의 `auth:oauth-signup:{tokenHash}`)의 필드 |
-| `SocialAccount`·`SocialAccountRepository` | 엔티티(`member.social_account`)와 저장소. 필드는 위 마이그레이션 컬럼과 1:1(`id`는 `Ids.newId()`, 수정이 없는 테이블이라 `BaseTimeEntity`를 상속하지 않고 `@EntityListeners(AuditingEntityListener.class)`와 `@CreatedDate Instant createdAt` 필드 하나만 둔다). 메서드는 `Optional<SocialAccount> findByProviderAndProviderUserId`, `boolean existsByProviderAndProviderUserId`, `boolean existsByMemberIdAndProvider`, `List<SocialAccount> findByMemberIdOrderByCreatedAtAscIdAsc(UUID memberId)`(내 정보의 연결 목록), `save` |
+| `SocialAccount`·`SocialAccountRepository` | 엔티티(`member.social_account`)와 저장소. 필드는 위 마이그레이션 컬럼과 1:1(`id`는 `Ids.newId()`, 수정이 없는 테이블이라 `BaseTimeEntity`를 상속하지 않고 `@EntityListeners(AuditingEntityListener.class)`와 `@CreatedDate Instant createdAt` 필드 하나만 둔다). 만드는 곳은 정적 팩토리 `SocialAccount.link(UUID memberId, OAuthProvider provider, String providerUserId, String providerEmail)` 하나다(`MemberAddress.register`처럼 `new SocialAccount()`에 `id = Ids.newId()`와 인자 넷을 넣어 돌려주고, `createdAt`은 저장할 때 채워지므로 넣지 않는다). 메서드는 `Optional<SocialAccount> findByProviderAndProviderUserId`, `boolean existsByProviderAndProviderUserId`, `boolean existsByMemberIdAndProvider`, `List<SocialAccount> findByMemberIdOrderByCreatedAtAscIdAsc(UUID memberId)`(내 정보의 연결 목록), `void deleteAllByMemberId(UUID memberId)`(탈퇴, `MemberAddressRepository.deleteAllByMemberId`와 같은 방식), `SocialAccount save(SocialAccount socialAccount)`(`MemberRepository.save`처럼 엔티티를 돌려준다. `void`로 선언하면 `JpaRepository.save`와 반환 타입이 충돌해 컴파일되지 않는다) |
 | `Member` | `Member.signUpWithSocial(String email, String nickname, String name)` — `Member.signUp`과 같은 정적 팩토리(id 생성, `ACTIVE`, `USER`, 이메일 정규화)에 `passwordHash = null` |
 | `MemberErrorCode` | `OAUTH_PROVIDER_ERROR`(502)·`SIGNUP_TOKEN_INVALID`(401)·`SOCIAL_ACCOUNT_ALREADY_LINKED`(409)를 추가한다(공통 규칙 U) |
 | `SignupTokenStore` | 인터페이스 — 신규 소셜 사용자의 제공자 정보를 가입이 끝날 때까지 Redis에 맡아 둔다. `OAuthLoginService`가 쓴다. 메서드는 아래 표 |
@@ -945,14 +949,15 @@ return 0
 | 메서드 | 하는 일 | 입력 → 반환 |
 |---|---|---|
 | `String issue(OAuthProvider provider, OAuthUserInfo info)` | 신규 소셜 사용자의 제공자 정보를 가입이 끝날 때까지 맡아 둔다 | 추측할 수 없는 토큰(`SecureRandom` 32바이트를 Base64URL로 인코딩. 4-1 `RefreshToken.generate`의 `secret`과 같은 방식)을 만들어 `auth:oauth-signup:` + 해시(토큰) 키의 해시에 `provider`·`providerUserId`·`email`을 저장하고 10분 `expire` → 토큰. `email`이 `null`이면 그 필드는 저장하지 않는다(공통 규칙 T) |
-| `Optional<PendingSocialSignup> find(String token)` | 토큰으로 맡겨 둔 정보를 찾는다 | `entries("auth:oauth-signup:" + 해시(token))`가 비었으면 `Optional.empty()`. 없는 필드는 `null`로 읽는다 |
+| `Optional<PendingSocialSignup> find(String token)` | 토큰으로 맡겨 둔 정보를 찾는다 | `entries("auth:oauth-signup:" + 해시(token))`가 비었으면 `Optional.empty()`. 아니면 `provider`는 `OAuthProvider.valueOf`로, `providerUserId`는 그대로 읽고, `email`만 저장되지 않았을 수 있어 없으면 `null`로 읽는다(`provider`·`providerUserId`는 `issue`가 항상 저장한다) |
 | `void delete(String token)` | 가입이 끝났으니 지운다 | `delete("auth:oauth-signup:" + 해시(token))` |
 
 **3) member.infrastructure**
 
 | 클래스 | 규격 |
 |---|---|
-| `OAuthProperties` | `@ConfigurationProperties("myroutine.oauth") record (Map<String, Provider> providers)`, `Provider(String clientId, String clientSecret, String authorizeUri, String tokenUri, String userInfoUri, String redirectUri, String scope)`. 시크릿은 환경변수(`KAKAO_CLIENT_SECRET` 등) |
+| `OAuthProperties` | `@ConfigurationProperties("myroutine.oauth") record (Map<String, Provider> providers)`, `Provider(String clientId, String clientSecret, String tokenUri, String userInfoUri, String redirectUri)`. 시크릿은 환경변수(`KAKAO_CLIENT_SECRET` 등) |
+| `OAuthConfig` | `@Configuration @EnableConfigurationProperties(OAuthProperties.class)`. `@Bean RestClient oauthRestClient()`: `JdkClientHttpRequestFactory`(`HttpClient.newBuilder().connectTimeout(3초)`, `setReadTimeout(5초)`)를 `RestClient.builder().requestFactory(factory).build()`에 넣는다. 세 구현체가 이 빈 하나를 주입받는다. `TossClientConfig`와 같은 방식이다 |
 | `OAuthProviderClient` | 인터페이스 — 제공자 한 곳과의 통신을 맡는다. 호출자는 `OAuthLoginService`뿐이다. 메서드는 아래 표 |
 | `KakaoOAuthClient`·`GoogleOAuthClient`·`NaverOAuthClient` | `OAuthProviderClient`의 구현체. 제공자별로 읽는 필드는 아래 표 |
 | `OAuthClients` | `@Component`. `List<OAuthProviderClient>`를 주입받아 `Map<OAuthProvider, OAuthProviderClient>`로 만든다(`client.provider()`가 키). `OAuthProviderClient get(OAuthProvider provider)`가 서비스의 진입점이다 |
@@ -960,49 +965,79 @@ return 0
 
 `OAuthProperties` 설정
 
-- `OAuthProperties`를 등록하는 `@EnableConfigurationProperties(OAuthProperties.class)` 설정 클래스가 필요하다(클래스 이름은 정해져 있지 않다)
+- `OAuthConfig`(`member.infrastructure`, `@Configuration @EnableConfigurationProperties(OAuthProperties.class)`)가 `OAuthProperties`를 등록하고 세 구현체가 함께 쓰는 `RestClient` 빈 `oauthRestClient`도 만든다(타임아웃이 제공자 셋에 같다). `TossClientConfig`와 같은 방식이다
 - yaml은 `myroutine.oauth.providers.kakao.client-id`처럼 **소문자 제공자 이름을 맵 키**로 쓴다(`Map<String, Provider>`). 코드에서는 `properties.providers().get("kakao")`처럼 `OAuthProvider.name().toLowerCase(Locale.ROOT)`로 찾는다
 - 환경변수가 없는 `${...}`는 기동 때 실패하므로, 테스트용 더미 `client-id`·`client-secret`은 `src/test/resources/application-test.yaml`에 둔다
 
-서비스(`OAuthLoginService`)는 제공자를 if로 가르지 않고, "인가 URL 만들기"와 "code로 사용자 정보 얻기"를 `OAuthProviderClient` 하나로 부른다.
+`application.yaml`의 `myroutine:` 아래(`toss:` 다음)에 제공자 세 곳을 이렇게 쓴다. `Provider`의 필드 이름이 kebab-case로 바인딩된다(`clientId` ← `client-id`).
+
+```yaml
+  oauth:
+    providers:
+      kakao:
+        client-id: ${KAKAO_CLIENT_ID}
+        client-secret: ${KAKAO_CLIENT_SECRET}
+        token-uri: https://kauth.kakao.com/oauth/token
+        user-info-uri: https://kapi.kakao.com/v2/user/me
+        redirect-uri: ${KAKAO_REDIRECT_URI:http://localhost:5173/oauth/kakao/callback}
+      google:
+        client-id: ${GOOGLE_CLIENT_ID}
+        client-secret: ${GOOGLE_CLIENT_SECRET}
+        token-uri: https://oauth2.googleapis.com/token
+        user-info-uri: https://openidconnect.googleapis.com/v1/userinfo
+        redirect-uri: ${GOOGLE_REDIRECT_URI:http://localhost:5173/oauth/google/callback}
+      naver:
+        client-id: ${NAVER_CLIENT_ID}
+        client-secret: ${NAVER_CLIENT_SECRET}
+        token-uri: https://nid.naver.com/oauth2.0/token
+        user-info-uri: https://openapi.naver.com/v1/nid/me
+        redirect-uri: ${NAVER_REDIRECT_URI:http://localhost:5173/oauth/naver/callback}
+```
+
+- `redirect-uri`는 프론트의 콜백 화면 주소이고 제공자 콘솔에 등록한 값, 프론트가 인가 주소에 넣는 `redirect_uri`와 글자까지 같아야 한다(서버는 토큰 교환 요청에 쓴다). 기본값은 로컬이고, 운영은 `.env`의 `KAKAO_REDIRECT_URI=https://myroutine.dev/oauth/kakao/callback`처럼 덮어쓴다(Google·Naver도 같다).
+- Naver의 `token-uri`·`user-info-uri`는 동작하는 요청으로 확인했다.
+- `client-id`·`client-secret`은 기본값 없이 환경변수만 쓴다. 로컬은 `.env.local`, 운영은 `/opt/myroutine/.env`에 넣고 `docker/`·`docs/ops/vm-setup.md`의 키 목록에도 더한다.
+- `application-test.yaml`은 같은 구조에서 `client-id`·`client-secret`만 더미 값으로 덮는다(`token-uri`·`user-info-uri`는 `IntegrationTestSupport`의 `@DynamicPropertySource`가 가짜 서버 주소로 덮는다). 테스트가 덮은 값은 `${...}`가 풀리지 않아 환경변수가 없어도 기동한다(`jwt.secret`과 같은 방식).
+
+서비스(`OAuthLoginService`)는 제공자를 if로 가르지 않고, "code로 사용자 정보 얻기"를 `OAuthProviderClient` 하나로 부른다.
 
 `OAuthProviderClient` 메서드
 
 | 메서드 | 하는 일 | 입력 → 반환 |
 |---|---|---|
 | `OAuthProvider provider()` | 이 구현체가 어느 제공자인지 | → enum 값(`OAuthClients`가 키로 쓴다) |
-| `String authorizeUrl(String state)` | 사용자를 보낼 제공자 로그인 화면 주소를 만든다. 서버 호출은 없다 | `state` → `authorizeUri`에 `response_type=code`, `client_id`, `redirect_uri`, `scope`, `state`를 쿼리로 붙인 URL(값은 URL 인코딩, `UriComponentsBuilder`). `scope`는 설정값이 비어 있으면 붙이지 않는다. Kakao는 `scope`(쉼표로 구분한 동의 항목 ID)가 선택이고 이메일을 받으려면 `account_email`, Google은 `scope`가 필수이고 이메일을 받으려면 `openid email`이다. `state`는 두 제공자 모두 선택이지만 우리는 항상 붙인다. Naver의 필수·불필요 파라미터는 확인 필요 |
 | `OAuthUserInfo fetchUser(String code, String state)` | `code`를 제공자 토큰으로 바꾸고 그 토큰으로 사용자 정보를 읽는다 | 아래 순서 |
 
-`fetchUser` 순서 (구현체마다 같고, 순서 3에서 꺼내는 필드 이름만 다르다)
-1. 토큰 주소(`tokenUri`)에 `grant_type=authorization_code`, `code`, `redirect_uri`, `client_id`, `client_secret`을 폼으로 POST → 응답 JSON의 `access_token`. Kakao·Google의 토큰 요청에는 `state`가 없어 보내지 않는다. Naver는 `state`도 요구하는 것으로 알려져 있어 인터페이스가 `state`를 받는다(확인 필요: Naver 문서). Kakao는 Client Secret이 기본 ON이라 `client_secret`이 필수다
-2. 사용자 정보 주소(`userInfoUri`)에 `Authorization: Bearer {access_token}`으로 GET
-3. 응답 JSON에서 필드를 꺼내 `OAuthUserInfo`로 만든다
-4. 어느 단계든 제공자 쪽 4xx·5xx, 타임아웃, 필수 필드(`providerUserId`) 누락이면 `BusinessException(OAUTH_PROVIDER_ERROR)`(502)
+`fetchUser(code, state)`는 제공자 서버를 두 번 부른다(`code`를 토큰으로 바꾸기, 그 토큰으로 사용자 정보 읽기). 구현체 셋의 구조는 같고 꺼내는 필드 이름만 다르다. 구현체는 생성자로 `OAuthProperties`(자기 제공자 설정)와 `oauthRestClient`(`OAuthConfig`가 만든 공유 `RestClient`)를 받는다.
 
-- 호출은 `RestClient`(정적 `RestClient.builder()` + `JdkClientHttpRequestFactory`에 정책의 connect·read 타임아웃)로 한다. 상태 코드를 분류하지 않고 `retrieve()`가 4xx·5xx에서 던지는 `RestClientException`(타임아웃은 그 하위 `ResourceAccessException`)을 한 번에 잡아 `OAUTH_PROVIDER_ERROR`로 바꾼다
-- 응답 JSON은 `Map<String, Object>` 또는 `JsonNode`(Jackson 3, `tools.jackson.databind`)로 받아 꺼낸다. 중첩 필드가 비어 있을 수 있으니 중간 객체의 `null`을 확인한다. Kakao `id`는 JSON 숫자라 `String`으로 바꿔야 한다
+`fetchUser` 순서
+1. 호출 두 개(2·4)와 값 꺼내기(3·5)를 모두 하나의 `try`로 감싼다. `catch (RestClientException e)`에서 `throw new BusinessException(OAUTH_PROVIDER_ERROR)`(502)를 던진다. 제공자의 4xx·5xx는 `RestClientResponseException`, 타임아웃·연결 실패는 `ResourceAccessException`으로 `retrieve()`가 던지고 둘 다 `RestClientException`의 하위라 이 `catch` 하나로 잡힌다. 상태 코드를 따로 분류하지 않는다
+2. 토큰 요청: `MultiValueMap<String, String> form = new LinkedMultiValueMap<>()`에 `grant_type`(`authorization_code`), `code`, `redirect_uri`, `client_id`, `client_secret`을 `form.add(이름, 값)`으로 담고 `restClient.post().uri(tokenUri).contentType(MediaType.APPLICATION_FORM_URLENCODED).body(form).retrieve().body(JsonNode.class)`로 보낸다. 폼 값은 `RestClient`가 인코딩한다. 값은 설정(`provider`)과 `code`에서 온다. Kakao·Google의 토큰 요청에는 `state`가 없어 보내지 않는다. Naver는 토큰 요청에 `state`도 보낸다(프론트가 돌려준 값 그대로, 그래서 인터페이스가 `state`를 받는다. 동작하는 요청으로 확인). Naver 요청에 `redirect_uri`가 필요한지는 확인하지 못했다(동작하는 요청에는 없었다). 보내서 거절되면 Naver 구현체만 뺀다. Kakao는 Client Secret이 기본 ON이라 `client_secret`이 필수다
+3. 응답에서 `access_token`을 꺼낸다: `tokenResponse`가 `null`이거나 `tokenResponse.path("access_token").asString()`이 빈 문자열이면(Jackson 3에서 없는 노드와 `null` 노드의 `asString()`은 `""`이라 `isBlank()` 하나로 셋을 모두 거른다) `throw new BusinessException(OAUTH_PROVIDER_ERROR)`를 직접 던진다(이 경우는 `RestClientException`이 아니라 순서 1의 `catch`에 걸리지 않는다). 있으면 `asString()`으로 문자열을 얻는다
+4. 사용자 정보 요청: `restClient.get().uri(userInfoUri).header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken).retrieve().body(JsonNode.class)`
+5. 응답에서 `providerUserId`와 `email`을 꺼낸다(필드 이름은 아래 표). 응답이 `null`이거나 `providerUserId` 노드가 없거나 비어 있으면 순서 3처럼 직접 `OAUTH_PROVIDER_ERROR`를 던진다. `email`은 없으면 `null`이다(키가 없거나 `null`이거나 빈 문자열이면 모두 `null`). 중첩 필드(`kakao_account.email`)는 `path("kakao_account").path("email")`로 내려간다. `path`는 없으면 `null`이 아니라 `MissingNode`를 돌려주므로 중간 객체가 없어도 NPE가 나지 않는다
+6. `new OAuthUserInfo(providerUserId, email)`을 반환한다. Kakao `id`는 JSON 숫자인데 `asString()`이 `"123456789"` 문자열로 바꿔 준다. Jackson 3(`tools.jackson.databind`)의 `JsonNode`는 문자열 변환 메서드가 `asString()`이다
 
 | 구현체 | 읽는 필드 |
 |---|---|
 | `KakaoOAuthClient` | `id`(숫자), `kakao_account.email`. 사용자 정보 주소 `https://kapi.kakao.com/v2/user/me`. 이메일은 동의 항목 `account_email`에 동의해야 내려온다 |
 | `GoogleOAuthClient` | `sub`, `email`. 사용자 정보 주소 `https://openidconnect.googleapis.com/v1/userinfo`. 이메일은 `openid email` scope로 받는다 |
-| `NaverOAuthClient` | `response.id`, `response.email`(확인 필요: Naver 문서) |
+| `NaverOAuthClient` | `response.id`(동작하는 요청으로 확인), `response.email`(확인 필요: 이메일 제공에 동의하지 않았을 때 키가 없는지·`null`인지·빈 문자열인지) |
 
 **4) member.application**
 
 | 클래스 | 메서드 |
 |---|---|
-| `OAuthLoginService` | `authorizeUrl`·`login`·`signup`·`link` 4개. 규격은 아래 표 |
+| `OAuthLoginService` | `login`·`signup`·`link` 3개. 규격은 아래 표 |
 | `MemberQueryService` | `getMe` 변경(아래 "내 정보의 비밀번호 유무와 소셜 계정") |
+| `WithdrawService` | `withdraw` 변경(아래 "탈퇴와 소셜 계정") |
 | `OAuthLoginResult` | `record (String status, TokenResult token, String signupToken, String email)` — `status`는 `LOGGED_IN`(`token`만 채움) 또는 `SIGNUP_REQUIRED`(`signupToken`·`email`만 채움, 나머지는 `null`) |
 | `SocialSignupCommand` | `record (String signupToken, String email, String nickname, String name, String verificationToken)` — `SocialSignupRequest.toCommand()`로 만든다 |
 
-`OAuthLoginService` (`@Service`) — OAuth 로그인·가입·연결 유스케이스 4개. 컨트롤러가 부르고, 제공자 호출·Redis·DB를 조율한다. 의존성: `OAuthClients`, `SignupTokenStore`, `SignupVerificationStore`(4-2), `SocialAccountRepository`, `MemberRepository`, `TokenIssuer`.
+`OAuthLoginService` (`@Service`) — OAuth 로그인·가입·연결 유스케이스 3개. 컨트롤러가 부르고, 제공자 호출·Redis·DB를 조율한다. 의존성: `OAuthClients`, `SignupTokenStore`, `SignupVerificationStore`(4-2), `SocialAccountRepository`, `MemberRepository`, `TokenIssuer`.
 
 | 메서드 | 한 줄 설명 | 입력 → 반환 |
 |---|---|---|
-| `AuthorizeUrl authorizeUrl(OAuthProvider provider)` | 제공자 로그인 화면 주소와 `state`를 만든다 | → `record AuthorizeUrl(String url, String state)`. `state`는 가입 토큰과 같은 방식의 랜덤 문자열이고 저장하지 않는다 → `url = clients.get(provider).authorizeUrl(state)` |
 | `OAuthLoginResult login(OAuthProvider provider, String code, String state)` | 소셜 로그인. 가입된 계정이면 로그인, 아니면 가입 토큰을 준다 | → `OAuthLoginResult` |
 | `TokenResult signup(SocialSignupCommand command)` | 가입 토큰 + 인증코드로 가입을 끝낸다 | → `TokenResult` |
 | `void link(UUID memberId, OAuthProvider provider, String code, String state)` | 로그인한 회원에게 소셜 계정을 연결한다 | → 없음 |
@@ -1020,32 +1055,35 @@ return 0
 3. `signupVerificationStore.findEmail(command.verificationToken())`가 비었거나 `email`과 다르면 400 `VERIFICATION_TOKEN_INVALID`(4-2 `signUp`과 같다)
 4. `existsByEmail(email)`이면 409 `MEMBER_EMAIL_DUPLICATED` (자동 연결 안 함)
 5. `existsByNickname(command.nickname())`이면 409 `MEMBER_NICKNAME_DUPLICATED`
-6. `Member.signUpWithSocial(...)`을 저장하고 `SocialAccount`를 저장한다(한 트랜잭션)
+6. `Member.signUpWithSocial(...)`을 저장하고 `SocialAccount.link(member.getId(), token.provider(), token.providerUserId(), token.email())`를 저장한다(한 트랜잭션). `providerEmail`은 제공자가 준 이메일이라 `command.email()`로 입력받은 값을 넣지 않는다(제공자가 안 줬으면 `null`)
 7. `signupTokenStore.delete(token)`·`signupVerificationStore.delete(command.verificationToken())` → `tokenIssuer.issueNewSession(member)` → `TokenResult`. 동시 요청이 확인을 둘 다 통과하면 unique 제약이 409 `DUPLICATE_RESOURCE`로 막는다
 
 `link` 순서
 1. `fetchUser`
 2. 이미 다른 회원에 연결된 소셜 계정이거나 이 회원이 같은 제공자를 이미 가졌으면(`existsByProviderAndProviderUserId`, `existsByMemberIdAndProvider`) 409 `SOCIAL_ACCOUNT_ALREADY_LINKED`
-3. 저장 (동시 요청 경합은 unique 제약 → 409 `DUPLICATE_RESOURCE`)
+3. `SocialAccount.link(memberId, provider, info.providerUserId(), info.email())`를 저장 (동시 요청 경합은 unique 제약 → 409 `DUPLICATE_RESOURCE`)
 
 **내 정보의 비밀번호 유무와 소셜 계정** — 소셜로 가입한 회원은 비밀번호가 없어 비밀번호 변경이 항상 400 `PASSWORD_MISMATCH`다. 화면이 이 회원에게 변경 대신 재설정을 안내하고, 제공자마다 "연결됨"과 "연결하기"를 나눠 보여 주려면 내 정보가 두 값을 알려 줘야 한다. 소셜 계정 연결은 이 화면에서만 하므로(POL-19) 연결 상태도 여기서 보여 준다. 연결 해제는 요구사항에 없다.
 - `MeResult`에 `boolean hasPassword`(`member.getPasswordHash() != null`)와 `List<SocialAccountResult> socialAccounts`를 더한다. `SocialAccountResult`는 `record (OAuthProvider provider, Instant linkedAt)`이고 `linkedAt`은 `SocialAccount.createdAt`이다
 - `MemberQueryService.getMe`: 의존성에 `SocialAccountRepository`를 더하고, 회원 조회 뒤 `findByMemberIdOrderByCreatedAtAscIdAsc(memberId)`를 `SocialAccountResult`로 옮긴다(연결한 순서, 없으면 빈 목록)
 
+**탈퇴와 소셜 계정** — `WithdrawService.withdraw`(3-6)에 `SocialAccountRepository`를 의존성으로 더하고, 배송지를 지우는 `memberAddressRepository.deleteAllByMemberId(memberId)` 바로 옆에서 `socialAccountRepository.deleteAllByMemberId(memberId)`를 부른다. 같은 `@Transactional`이고 `findByIdForUpdate`로 회원 행을 잠근 뒤라 중간 상태가 보이지 않는다.
+- 알려진 한계: 탈퇴 직후 access 토큰이 아직 유효하면 `link`가 탈퇴 회원에게 새 연결 행을 만들 수 있다. 4-4의 `tokenVersion` bump가 탈퇴 직후 토큰을 거부하면 닫히므로 4-3에서는 락을 더하지 않는다.
+
 **5) member.web**
 
 | API | 권한 | 요청 | 응답 |
 |---|---|---|---|
-| `GET /api/auth/oauth/{provider}/authorize-url` | 공개 | provider는 소문자(`kakao`) → enum 변환(실패 시 400) | 200 `{url, state}` |
 | `POST /api/auth/oauth/{provider}/login` | 공개 | `OAuthLoginRequest(@NotBlank code, @NotBlank state)` | 200 `OAuthLoginResponse` |
 | `POST /api/auth/oauth/signup` | 공개(가입 토큰) | `SocialSignupRequest(@NotBlank signupToken, @Email email, nickname, name, @NotBlank verificationToken)` | 201 `TokenResponse` |
 | `POST /api/members/me/social-accounts/{provider}` | 로그인 | `OAuthLoginRequest` | 204 |
 
+- `SocialSignupRequest`의 제약은 `SignupRequest`(4-2)와 같게 둔다: `signupToken`·`verificationToken`은 `@NotBlank`, `nickname`은 `@NotBlank @Size(min = 2, max = 20)`, `name`은 `@NotBlank @Size(max = 50)`, `email`은 `@Email @Size(max = 255)`이고 `@NotBlank`는 붙이지 않는다(제공자가 이메일을 줬으면 쓰지 않는 값이라 `null`이 정상이다. 제공자가 안 줬는데 `email`도 없으면 서비스가 400 `INVALID_REQUEST`로 거절한다). `toCommand()`는 다섯 값을 `SocialSignupCommand`로 그대로 옮긴다
 - `common.security.SecurityConfig`: `/api/auth/oauth/**`는 공개(이미 `/api/auth/**` 허용 안에 있다)
 - `{provider}`(소문자)를 `@PathVariable OAuthProvider`로 바로 받으면 Spring의 기본 문자열→enum 변환이 대소문자를 구분해 `kakao`를 받아 주지 않을 수 있다(확인 필요: 구현 때 테스트로 확인). 안 되면 `String`으로 받아 `OAuthProvider.valueOf(value.toUpperCase(Locale.ROOT))`로 바꾸고, `IllegalArgumentException`은 `BusinessException(INVALID_REQUEST)`(400)로 바꾼다. 안 바꾸면 `GlobalExceptionHandler`의 일반 `Exception` 처리로 500이 된다
 - `MeResponse`(1-5의 `GET /api/members/me` 응답)에 `boolean hasPassword`와 `List<SocialAccountResponse> socialAccounts`를 더하고 `from`에서 옮긴다. `SocialAccountResponse(String provider, Instant linkedAt)`(`provider`는 `name()`)
-- `OAuthLoginResponse(String status, TokenResponse token, String signupToken, String email)`: `OAuthLoginResult`의 네 값을 그대로 옮기고, `token`은 `TokenResponse.from(result.token())`로 중첩한다(`SIGNUP_REQUIRED`이면 `token`이 통째로 null이다). 일반 로그인 응답(`TokenResponse`)과 클라이언트가 같은 토큰 객체를 읽는다
-- 컨트롤러 클래스는 `OAuthController`(`@RequestMapping("/api/auth/oauth")`, `member.web`)다. 각 메서드는 `OAuthLoginService`의 `authorizeUrl`·`login`·`signup`·`link`를 부른다
+- `OAuthLoginResponse(String status, TokenResponse token, String signupToken, String email)`: `OAuthLoginResult`의 네 값을 그대로 옮기고, `token`은 `result.token() == null ? null : TokenResponse.from(result.token())`로 중첩한다(`SIGNUP_REQUIRED`이면 `token`이 통째로 null이고, `TokenResponse.from(null)`은 NPE라 `from` 안에서 null을 먼저 확인한다). 일반 로그인 응답(`TokenResponse`)과 클라이언트가 같은 토큰 객체를 읽는다
+- `login`·`signup`은 `OAuthController`(`@RequestMapping("/api/auth/oauth")`, `member.web`)가, `link`는 경로가 `/api/members/me/...`라 `MemberController`(`/api/members`)가 `@PostMapping("/me/social-accounts/{provider}")`로 받는다(비밀번호 변경과 같은 방식). 각 메서드는 `OAuthLoginService`의 `login`·`signup`·`link`를 부른다
 - `link`(`POST /api/members/me/social-accounts/{provider}`)는 로그인 회원 요청이라 memberId를 `@CurrentMember UUID memberId`로 받는다. 응답은 204(`ResponseEntity.noContent().build()`)
 
 **6) 가짜 제공자 서버** — `src/test/java/com/myroutine/support/`
@@ -1083,95 +1121,94 @@ return 0
 
 헬퍼를 쓰는 방법은 다음과 같다.
 - 소셜 로그인 응답: `$.status`(`LOGGED_IN` 또는 `SIGNUP_REQUIRED`), `$.signupToken`, `$.email`, 로그인 성공 시의 토큰. 토큰은 `$.token.accessToken`·`$.token.refreshToken`으로 읽는다(`OAuthLoginResponse`가 `token`을 중첩한다).
-- authorize-url 응답: `$.url`, `$.state`. `$.url`의 쿼리는 `UriComponentsBuilder.fromUriString(url).build().getQueryParams()`로 읽는다.
 - 가짜 제공자 서버 `oauth`(`FakeOAuthServer`): 제공자별로 `oauth.givenUser(OAuthProvider.KAKAO, "kakao-1001", "social@test.com")`로 사용자를 정한다. 제공자가 받은 요청 수는 `oauth.requests("/kakao/token").size()`로 읽는다. 시간 의존: 가입 토큰의 10분 경과는 `redis.delete(키)`로 흉내 낸다.
-- `UUID socialSignup(OAuthProvider provider, String providerUserId, String email)`: `OAuthLoginTest`의 private 메서드. ① `oauth.givenUser(provider, providerUserId, email)` ② `issueState(provider)` → `oauthLogin(provider, state)`의 `$.signupToken`(`T`) ③ `V = testFixtures.verificationToken(email)` ④ `POST /api/auth/oauth/signup` 본문 `{"signupToken":"{T}","nickname":"socialnick","name":"소셜","verificationToken":"{V}"}`를 MockMvc로 수행하고 `memberIdOf(email)`(가입된 `memberId`)를 돌려준다. `issueState`·`oauthLogin`은 아래 "공통 준비"에 있다.
+- `UUID socialSignup(OAuthProvider provider, String providerUserId, String email)`: `OAuthLoginTest`의 private 메서드. ① `oauth.givenUser(provider, providerUserId, email)` ② `oauthLogin(provider, STATE)`의 `$.signupToken`(`T`) ③ `V = testFixtures.verificationToken(email)` ④ `POST /api/auth/oauth/signup` 본문 `{"signupToken":"{T}","nickname":"socialnick","name":"소셜","verificationToken":"{V}"}`를 MockMvc로 수행하고 `memberIdOf(email)`(가입된 `memberId`)를 돌려준다. `issueState`·`oauthLogin`은 아래 "공통 준비"에 있다.
 - `TestFixtures.signup`·`login`은 4-2 이후 동작(인증 토큰을 직접 만들어 가입) 그대로 쓴다.
 
-**공통 준비**: `application-test.yaml`의 더미 `client-id`·`client-secret`과 가짜 서버 주소(`token-uri`, `user-info-uri`)가 들어가 있고, 테스트 클래스 private 메서드(이름은 권장안): `String issueState(OAuthProvider provider)` — `GET /api/auth/oauth/{provider 소문자}/authorize-url` 응답의 `$.state`. `ResultActions oauthLogin(OAuthProvider provider, String state)` — `POST /api/auth/oauth/{provider 소문자}/login` 본문 `{"code":"any-code","state":"{state}"}`. 가짜 서버는 어떤 `code`도 받아 준다.
+**공통 준비**: `application-test.yaml`의 더미 `client-id`·`client-secret`과 가짜 서버 주소(`token-uri`, `user-info-uri`)가 들어가 있고, 테스트 클래스 private 메서드(이름은 권장안): 상수 `STATE = "test-state"`(서버는 `state`를 만들지도 비교하지도 않으므로 아무 문자열이면 된다). `ResultActions oauthLogin(OAuthProvider provider, String state)` — `POST /api/auth/oauth/{provider 소문자}/login` 본문 `{"code":"any-code","state":"{state}"}`. 가짜 서버는 어떤 `code`도 받아 준다.
 
 #### `member/web/OAuthLoginTest`
 
 **1. 신규 소셜 로그인부터 가입까지** — 준비: `oauth.givenUser(KAKAO, "123456789", "social@test.com")`.
-- 동작 1: `GET /api/auth/oauth/kakao/authorize-url`.
-- 확인 1: 200, `$.state`가 비어 있지 않다.
-- 동작 2: `oauthLogin(KAKAO, state)`.
-- 확인 2: 200, `$.status` = `SIGNUP_REQUIRED`, `$.email` = `social@test.com`, `$.signupToken`이 비어 있지 않음(`T`), `$.token`이 없음/null. `h = redisHashOf("auth:oauth-signup:" + sha256Hex(T))`: `h.exists()` = true, `h.ttlSeconds()` 1~600. `countOf("member.member")` = 0, `countOf("member.social_account")` = 0.
-- 동작 3: `V = testFixtures.verificationToken("social@test.com")` → `POST /api/auth/oauth/signup` 본문 `{"signupToken":"{T}","nickname":"socialnick","name":"소셜","verificationToken":"{V}"}`.
-- 확인 3: 201, `$.accessToken`·`$.refreshToken` 있음. `parse($.accessToken)`: `role()` = `USER`, `memberId()` = `memberIdOf("social@test.com")`.
+- 동작 1: `oauthLogin(KAKAO, STATE)`.
+- 확인 1: 200, `$.status` = `SIGNUP_REQUIRED`, `$.email` = `social@test.com`, `$.signupToken`이 비어 있지 않음(`T`), `$.token`이 없음/null. `h = redisHashOf("auth:oauth-signup:" + sha256Hex(T))`: `h.exists()` = true, `h.ttlSeconds()` 1~600. `countOf("member.member")` = 0, `countOf("member.social_account")` = 0.
+- 동작 2: `V = testFixtures.verificationToken("social@test.com")` → `POST /api/auth/oauth/signup` 본문 `{"signupToken":"{T}","nickname":"socialnick","name":"소셜","verificationToken":"{V}"}`.
+- 확인 2: 201, `$.accessToken`·`$.refreshToken` 있음. `parse($.accessToken)`: `role()` = `USER`, `memberId()` = `memberIdOf("social@test.com")`.
   - `countOf("member.member")` = 1, `m = memberSnapshotOf(memberIdOf("social@test.com"))`: `m.passwordHash()` null, `m.nickname()` = `socialnick`.
   - `countOf("member.social_account")` = 1이고 `socialAccountsOf(그 회원)`의 1행이 `provider` = `KAKAO`, `providerUserId` = `123456789`.
   - `redisHashOf("auth:oauth-signup:" + sha256Hex(T)).exists()` = false, `redisStringOf("auth:signup-verified:" + sha256Hex(V)).exists()` = false, `s = sessionSnapshotOf(sid)`(`sid` = `RefreshToken.parse($.refreshToken).sessionId()`): `s.memberId()` = 그 회원.
   - `GET /api/members/me`를 `Bearer {$.accessToken}`으로 → 200.
 
-**2. 같은 소셜 계정으로 다시 로그인** — 준비: 1번의 동작·확인 전부를 `socialSignup(KAKAO, "123456789", "social@test.com")`로 한 번 수행한다 → `memberId`. 새 `state` = `issueState(KAKAO)`.
-- 동작: `oauthLogin(KAKAO, state)`.
+**2. 같은 소셜 계정으로 다시 로그인** — 준비: 1번의 로그인·가입 동작을 `socialSignup(KAKAO, "123456789", "social@test.com")`로 한 번 수행해 가입해 둔다(1번의 확인은 하지 않는다) → `memberId`.
+- 동작: `oauthLogin(KAKAO, STATE)`.
 - 확인: 200, `$.status` = `LOGGED_IN`. `parse($.token.accessToken).memberId()` = `memberId`. `$.token.refreshToken`의 세션 `s = sessionSnapshotOf(sid)`가 있고(`s.exists()`) `s.memberId()`가 같다.
 
 **3. 같은 이메일의 이메일 가입 계정이 있으면 가입 거부** — 준비: `testFixtures.signup("dup@test.com")` → `existingId`(비밀번호 `pass1234`). `oauth.givenUser(KAKAO, "kakao-dup", "dup@test.com")`.
 - 동작: `oauthLogin` → `SIGNUP_REQUIRED`(`T`) → `V = testFixtures.verificationToken("dup@test.com")` → `POST /api/auth/oauth/signup` 본문 `{"signupToken":"{T}","nickname":"socialnick","name":"소셜","verificationToken":"{V}"}`.
 - 확인: 로그인 단계는 200 `SIGNUP_REQUIRED`. 가입은 409, `$.code` = `MEMBER_EMAIL_DUPLICATED`. `countOf("member.member")` = 1, `memberSnapshotOf(existingId).passwordHash()`는 요청 전 값 그대로, `countOf("member.social_account")` = 0.
 
-**4. 제공자 장애** — `@ParameterizedTest` 입력: `Behavior.delay(6000)`, `Behavior.serverError()`. 준비: `oauth.givenUser(KAKAO, "kakao-1", "a@test.com")`, `oauth.failWith(KAKAO, 입력)`, `state = issueState(KAKAO)`.
-- 동작: `oauthLogin(KAKAO, state)`.
+**4. 제공자 장애** — `@ParameterizedTest` 입력: `Behavior.delay(6000)`, `Behavior.serverError()`. 준비: `oauth.givenUser(KAKAO, "kakao-1", "a@test.com")`, `oauth.failWith(KAKAO, 입력)`.
+- 동작: `oauthLogin(KAKAO, STATE)`.
 - 확인: 502, `$.code` = `OAUTH_PROVIDER_ERROR`. `countOf("member.member")`·`countOf("member.social_account")` = 0, `redis.keys("auth:oauth-signup:*")` 비어 있다.
 
 **5. 세 제공자의 응답 파싱** — `@ParameterizedTest` 입력: `(KAKAO, "123456789")`, `(GOOGLE, "google-sub-1")`, `(NAVER, "naver-id-1")`. 준비: `oauth.givenUser(p, id, p.name().toLowerCase() + "@test.com")`.
-- 동작: `state = issueState(p)` → `oauthLogin(p, state)`.
+- 동작: `oauthLogin(p, STATE)`.
 - 확인: 로그인 200, `$.status` = `SIGNUP_REQUIRED`, `$.email` = `{소문자 제공자}@test.com`. `h = redisHashOf("auth:oauth-signup:" + sha256Hex($.signupToken))`: `h.fields()`의 `provider` = `p.name()`, `providerUserId` = `id`, `email` = 위 이메일.
 
-**6. 이메일을 주지 않는 제공자** — 준비: `oauth.givenUser(KAKAO, "kakao-noemail", null)`, `state = issueState(KAKAO)`.
-- 동작 1: `oauthLogin(KAKAO, state)` → 200, `$.status` = `SIGNUP_REQUIRED`, `$.email` 없음/null. `redisHashOf("auth:oauth-signup:" + sha256Hex(T)).fields().keySet()`이 정확히 `provider`, `providerUserId` 둘이다.
+**6. 이메일을 주지 않는 제공자** — 준비: `oauth.givenUser(KAKAO, "kakao-noemail", null)`.
+- 동작 1: `oauthLogin(KAKAO, STATE)` → 200, `$.status` = `SIGNUP_REQUIRED`, `$.email` 없음/null. `redisHashOf("auth:oauth-signup:" + sha256Hex(T)).fields().keySet()`이 정확히 `provider`, `providerUserId` 둘이다.
 - 동작 2: `V = testFixtures.verificationToken("typed@test.com")` → 가입 본문 `{"signupToken":"{T}","email":"typed@test.com","nickname":"socialnick","name":"소셜","verificationToken":"{V}"}` → 201. `memberIdOf("typed@test.com")`가 null이 아니다.
 
-**7. 다른 이메일의 인증 토큰으로는 가입이 거부된다** — 준비: `oauth.givenUser(KAKAO, "123456789", "social@test.com")`, `oauthLogin(KAKAO, issueState(KAKAO))`의 `$.signupToken`(`T`), `V = testFixtures.verificationToken("other@test.com")`.
+**7. 다른 이메일의 인증 토큰으로는 가입이 거부된다** — 준비: `oauth.givenUser(KAKAO, "123456789", "social@test.com")`, `oauthLogin(KAKAO, STATE)`의 `$.signupToken`(`T`), `V = testFixtures.verificationToken("other@test.com")`.
 - 동작: `verificationToken` = `V`로 가입(이메일은 가입 토큰의 `social@test.com`).
 - 확인: 400, `$.code` = `VERIFICATION_TOKEN_INVALID`. `countOf("member.member")`·`countOf("member.social_account")` = 0. `redisHashOf("auth:oauth-signup:" + sha256Hex(T)).exists()` = true.
 
-**8. 같은 소셜 계정의 제공자 이메일이 바뀌어도 같은 회원으로 로그인한다** — 준비: 2번과 같다(`socialSignup(KAKAO, "123456789", "social@test.com")`). 동작: `oauth.givenUser(KAKAO, "123456789", "changed@test.com")` 후 새 `state`로 `oauthLogin(KAKAO, state)`.
+**8. 같은 소셜 계정의 제공자 이메일이 바뀌어도 같은 회원으로 로그인한다** — 준비: 2번과 같다(`socialSignup(KAKAO, "123456789", "social@test.com")`). 동작: `oauth.givenUser(KAKAO, "123456789", "changed@test.com")` 후 `oauthLogin(KAKAO, STATE)`.
 - 확인: 200, `$.status` = `LOGGED_IN`, 같은 `memberId`.
 
-**9. 정지 회원의 소셜 로그인은 거부한다** — 준비: 2번과 같다. 동작: `changeStatus(memberId, "BANNED")` 후 새 `state`로 `oauthLogin(KAKAO, state)`.
+**9. 정지 회원의 소셜 로그인은 거부한다** — 준비: 2번과 같다. 동작: `changeStatus(memberId, "BANNED")` 후 `oauthLogin(KAKAO, STATE)`.
 - 확인: 403, `$.code` = `MEMBER_BANNED`. 요청 전후 `sessionIdsOf(memberId).size()`가 같다.
 
 **10. `state`가 없거나 빈 문자열이면 400 `INVALID_REQUEST`** — 동작: 본문에 `state`가 없는 `{"code":"x"}`와 `state`가 빈 문자열인 요청을 `POST /api/auth/oauth/kakao/login`으로 보낸다.
 - 확인: 모두 400, `$.code` = `INVALID_REQUEST`. `countOf("member.member")`·`countOf("member.social_account")`는 0이다.
 
-**11. 세 제공자의 authorize-url** — 입력과 준비는 5번과 같다. 동작: `GET /api/auth/oauth/{p 소문자}/authorize-url`.
-- 확인: 200, `$.url`이 그 제공자 설정의 `authorizeUri`로 시작하고 쿼리의 `response_type` = `code`, `client_id`·`redirect_uri`·`scope`가 그 제공자 설정값, `state` = `$.state`.
+**11. 알 수 없는 제공자는 400** — 동작: `POST /api/auth/oauth/facebook/login`.
+- 확인: 400, `$.code` = `INVALID_REQUEST`.
 
-**12. 알 수 없는 제공자는 400** — 동작: `GET /api/auth/oauth/facebook/authorize-url`, `POST /api/auth/oauth/facebook/login`.
-- 확인: 둘 다 400, `$.code` = `INVALID_REQUEST`.
-
-**13. 이메일이 어디에도 없으면 가입을 거부한다** — 준비: 6번의 준비와 동작 1(`oauthLogin(KAKAO, state)` → `T`)까지 같다. 동작: 본문의 `email` 없이 가입 요청(`verificationToken`은 `testFixtures.verificationToken("typed@test.com")`).
+**12. 이메일이 어디에도 없으면 가입을 거부한다** — 준비: 6번의 준비와 동작 1(`oauthLogin(KAKAO, STATE)` → `T`)까지 같다. 동작: 본문의 `email` 없이 가입 요청(`verificationToken`은 `testFixtures.verificationToken("typed@test.com")`).
 - 확인: 400, `$.code` = `INVALID_REQUEST`, `countOf("member.member")` = 0.
 
-**14. 가입 토큰이 없으면 가입을 거부한다** — 준비: `oauth.givenUser(KAKAO, "123456789", "social@test.com")`, `oauthLogin(KAKAO, issueState(KAKAO))`의 `$.signupToken`(`T`), `V = testFixtures.verificationToken("social@test.com")`. 동작: `redis.delete("auth:oauth-signup:" + sha256Hex(T))` 후 가입.
+**13. 가입 토큰이 없으면 가입을 거부한다** — 준비: `oauth.givenUser(KAKAO, "123456789", "social@test.com")`, `oauthLogin(KAKAO, STATE)`의 `$.signupToken`(`T`), `V = testFixtures.verificationToken("social@test.com")`. 동작: `redis.delete("auth:oauth-signup:" + sha256Hex(T))` 후 가입.
 - 확인: 401, `$.code` = `SIGNUP_TOKEN_INVALID`. `countOf("member.member")` = 0.
 
-**15. 소셜 가입 회원의 내 정보에는 비밀번호가 없다** — 준비: 2번과 같다(`socialSignup(KAKAO, "123456789", "social@test.com")` → `memberId`), 새 `state`로 `oauthLogin(KAKAO, state)` → `$.token.accessToken`. 동작: `GET /api/members/me`를 그 토큰으로.
+**14. 소셜 가입 회원의 내 정보에는 비밀번호가 없다** — 준비: 2번과 같다(`socialSignup(KAKAO, "123456789", "social@test.com")` → `memberId`), `oauthLogin(KAKAO, STATE)` → `$.token.accessToken`. 동작: `GET /api/members/me`를 그 토큰으로.
 - 확인: 200, `$.hasPassword` = false, `$.socialAccounts`가 1건이고 `$.socialAccounts[0].provider` = `KAKAO`, `$.socialAccounts[0].linkedAt`이 비어 있지 않다.
+
+**15. 탈퇴한 회원의 소셜 계정으로 다시 가입한다** — 준비: 2번과 같다(`socialSignup(KAKAO, "123456789", "social@test.com")` → `memberId`), 로그인해 둔 access 토큰. 동작 1: `DELETE /api/members/me`로 탈퇴(가게·주문이 없어 막히지 않는다).
+- 확인 1: 204. `countOf("member.social_account")` = 0.
+- 동작 2: `oauthLogin(KAKAO, STATE)`.
+- 확인 2: 200, `$.status` = `SIGNUP_REQUIRED`(401 `LOGIN_FAILED`가 아니다).
 
 #### `member/web/SocialLinkTest`
 
-**공통 준비**: 이메일 회원 `link@test.com`(`signup`) → `memberId`, `token = login("link@test.com")`. 연결 요청은 `POST /api/members/me/social-accounts/kakao` 본문 `{"code":"any-code","state":"{state}"}`, `Bearer {token}`.
+**공통 준비**: 이메일 회원 `link@test.com`(`signup`) → `memberId`, `token = login("link@test.com")`. 연결 요청은 `POST /api/members/me/social-accounts/kakao` 본문 `{"code":"any-code","state":"test-state"}`, `Bearer {token}`.
 
-**1. 연결 후 그 계정으로 로그인** — 준비: `oauth.givenUser(KAKAO, "kakao-9", "other@test.com")`, `state = issueState(KAKAO)`.
+**1. 연결 후 그 계정으로 로그인** — 준비: `oauth.givenUser(KAKAO, "kakao-9", "other@test.com")`.
 - 동작 1: 연결 요청.
 - 확인 1: 204, 본문 없음. `countOf("member.social_account")` = 1이고 `socialAccountsOf(memberId)`의 1행이 `provider` = `KAKAO`, `providerUserId` = `kakao-9`. `memberSnapshotOf(memberId).email()` = `link@test.com` 그대로다.
-- 동작 2: 새 `state`로 `oauthLogin(KAKAO, state)`.
+- 동작 2: `oauthLogin(KAKAO, STATE)`.
 - 확인 2: 200, `$.status` = `LOGGED_IN`, `parse($.token.accessToken).memberId()` = `memberId`.
 
-**2. 다른 회원이 이미 연결한 소셜 계정은 거부한다** — 준비: `oauth.givenUser(KAKAO, "kakao-9", "other@test.com")`, `issueState(KAKAO)`로 연결 요청을 보내 `link@test.com` 회원이 `kakao-9`를 연결해 둔다(204). 두 번째 회원 `link2@test.com`(`signup`) → `member2Id`, `token2 = login("link2@test.com")`.
-- 다른 회원이 같은 소셜 계정을 연결: `oauth.givenUser(KAKAO, "kakao-9", …)` 그대로 새 `state`로 `Bearer {token2}` 연결 → 409, `$.code` = `SOCIAL_ACCOUNT_ALREADY_LINKED`. `countOf("member.social_account")` = 1이고 그 1행이 `socialAccountsOf(memberId)`의 것이다.
+**2. 다른 회원이 이미 연결한 소셜 계정은 거부한다** — 준비: `oauth.givenUser(KAKAO, "kakao-9", "other@test.com")`, 연결 요청을 보내 `link@test.com` 회원이 `kakao-9`를 연결해 둔다(204). 두 번째 회원 `link2@test.com`(`signup`) → `member2Id`, `token2 = login("link2@test.com")`.
+- 다른 회원이 같은 소셜 계정을 연결: `oauth.givenUser(KAKAO, "kakao-9", …)` 그대로 `Bearer {token2}` 연결 → 409, `$.code` = `SOCIAL_ACCOUNT_ALREADY_LINKED`. `countOf("member.social_account")` = 1이고 그 1행이 `socialAccountsOf(memberId)`의 것이다.
 
-**3. 로그인 없이 연결하면 거부한다** — 준비: 1번과 같다(`oauth.givenUser(KAKAO, "kakao-9", "other@test.com")`, `state = issueState(KAKAO)`). 동작: `Authorization` 없이 연결 요청.
+**3. 로그인 없이 연결하면 거부한다** — 준비: 1번과 같다(`oauth.givenUser(KAKAO, "kakao-9", "other@test.com")`). 동작: `Authorization` 없이 연결 요청.
 - 확인: 401, `$.code` = `UNAUTHORIZED`. `countOf("member.social_account")`가 늘지 않았다.
 
-**4. 같은 회원이 같은 제공자를 다른 계정으로 연결하면 거부한다** — 준비: 2번과 같다. 동작: `oauth.givenUser(KAKAO, "kakao-10", …)`, 새 `state`로 `Bearer {token}` 연결.
+**4. 같은 회원이 같은 제공자를 다른 계정으로 연결하면 거부한다** — 준비: 2번과 같다. 동작: `oauth.givenUser(KAKAO, "kakao-10", …)`, `Bearer {token}` 연결.
 - 확인: 409, `$.code` = `SOCIAL_ACCOUNT_ALREADY_LINKED`. `socialAccountsOf(memberId)`는 1행 그대로.
 
-**5. 다른 제공자는 연결된다** — 준비: 2번과 같다. 동작: `oauth.givenUser(GOOGLE, "google-9", …)`, `issueState(GOOGLE)`, `POST /api/members/me/social-accounts/google`.
+**5. 다른 제공자는 연결된다** — 준비: 2번과 같다. 동작: `oauth.givenUser(GOOGLE, "google-9", …)`, `POST /api/members/me/social-accounts/google`.
 - 확인: 204. `socialAccountsOf(memberId)`의 `provider`가 [`KAKAO`, `GOOGLE`] 2행이다.
 
 **6. 내 정보에 연결한 소셜 계정이 연결한 순서로 나온다** — 준비: 5번의 동작까지(`KAKAO` 다음 `GOOGLE` 연결). 동작: `GET /api/members/me`(`Bearer {token}`).

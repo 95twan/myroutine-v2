@@ -1,6 +1,7 @@
 # 07. API 명세 (Stage 1)
 
 > 엔드포인트 목록과 핵심 API의 요청·응답 계약. 필드 단위 상세는 구현 시 springdoc(OpenAPI)로 생성하고, 이 문서와 어긋나면 이 문서를 갱신한다.
+> 2026-10-30 · 제공자 로그인 화면 주소를 프론트가 만들어 `GET /api/auth/oauth/{provider}/authorize-url`을 지웠다(로드맵 4-3)
 > 2026-10-28 · 429 `RATE_LIMITED`에 `details.retryAfterSeconds`, `MEMBER_BANNED`에 `details.reason`, 내 정보에 `hasPassword`·`socialAccounts`, 관리자 회원 목록에 `banReason`(로드맵 4-2~4-4)
 > 2026-10-28 · 이메일 인증을 가입 전에 한다: 가입 인증 발송·확인 API(`/api/auth/signup/email-verifications`, `/confirm` → `verificationToken`), 가입·OAuth 가입 요청에 `verificationToken`. 로그인 회원용 인증 API·OAuth 전용 발송 API·`EMAIL_NOT_VERIFIED`를 지웠다(로드맵 4-2·4-3)
 > 2026-10-28 · 정산 응답에 수수료율 `feeRateBp`, 정산 품목에 `shopOrderId`·`productName`·`quantity`를 더하고 정산 예정 조회 `GET /api/shops/{shopId}/settlements/upcoming`을 더했다. 정산 상세 경로를 구현(로드맵 3-4)대로 `/settlements/{id}`로 맞췄다(로드맵 4-0)
@@ -60,8 +61,7 @@
 | POST | `/api/auth/login` | - | 이메일·비밀번호 로그인 → 토큰. 연속 실패 시 잠금(POL-18) | FR-MEM-09 |
 | PATCH | `/api/members/me/password` | U | 비밀번호 변경 `{currentPassword, newPassword}` → 다른 세션 모두 폐기 | FR-MEM-10 |
 | POST | `/api/auth/password-reset`, `/api/auth/password-reset/confirm` | - | 재설정 코드 발송 → 코드 + 새 비밀번호 | FR-MEM-10 |
-| GET | `/api/auth/oauth/{provider}/authorize-url` | - | OAuth 인가 URL | FR-MEM-01 |
-| POST | `/api/auth/oauth/{provider}/login` | - | code 교환 → 기존 회원: 토큰 / 신규: 임시 토큰 | FR-MEM-01 |
+| POST | `/api/auth/oauth/{provider}/login` | - | `{code, state}`로 code 교환 → 기존 회원: 토큰 / 신규: 임시 토큰. 제공자 로그인 화면 주소는 프론트가 만든다 | FR-MEM-01 |
 | POST | `/api/members/me/social-accounts/{provider}` | U | 로그인한 회원에 소셜 계정 연결 (POL-19) | FR-MEM-01 |
 | POST | `/api/auth/signup/email-verifications` | - | 가입 인증코드 발송 `{email}` (rate limit). 이미 가입된 이메일은 409 | FR-MEM-02 |
 | POST | `/api/auth/signup/email-verifications/confirm` | - | 코드 확인 `{email, code}` (5회 실패 시 무효) → `{verificationToken}`(30분, 이메일 가입·OAuth 가입에 쓴다) | FR-MEM-02 |

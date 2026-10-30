@@ -68,6 +68,18 @@ public class Member extends BaseTimeEntity {
         return member;
     }
 
+    public static Member signUpWithSocial(String email, String nickname, String name) {
+        Member member = new Member();
+        member.id = Ids.newId();
+        member.email = normalizeEmail(email);
+        member.passwordHash = null;
+        member.nickname = nickname;
+        member.name = name;
+        member.status = MemberStatus.ACTIVE;
+        member.role = MemberRole.USER;
+        return member;
+    }
+
     public void verifyCanLogin() {
         if (status == MemberStatus.BANNED) {
             throw new BusinessException(MemberErrorCode.MEMBER_BANNED);

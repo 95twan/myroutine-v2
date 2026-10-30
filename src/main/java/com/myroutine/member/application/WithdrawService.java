@@ -5,10 +5,7 @@ import com.myroutine.common.outbox.OutboxPublisher;
 import com.myroutine.member.api.WithdrawalPrecondition;
 import com.myroutine.member.api.event.MemberTopics;
 import com.myroutine.member.api.event.MemberWithdrawnEvent;
-import com.myroutine.member.domain.Member;
-import com.myroutine.member.domain.MemberAddressRepository;
-import com.myroutine.member.domain.MemberErrorCode;
-import com.myroutine.member.domain.MemberRepository;
+import com.myroutine.member.domain.*;
 import com.myroutine.shop.api.ShopApi;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -25,6 +22,7 @@ import java.util.UUID;
 public class WithdrawService {
     private final MemberRepository memberRepository;
     private final MemberAddressRepository memberAddressRepository;
+    private final SocialAccountRepository socialAccountRepository;
     private final ShopApi shopApi;
     private final List<WithdrawalPrecondition> preconditions;
     private final OutboxPublisher publisher;
@@ -48,6 +46,7 @@ public class WithdrawService {
         }
 
         memberAddressRepository.deleteAllByMemberId(memberId);
+        socialAccountRepository.deleteAllByMemberId(memberId);
         member.withdraw(clock.instant());
         publisher.publish(MemberTopics.MEMBER_WITHDRAWN, "MEMBER", memberId, new MemberWithdrawnEvent(memberId));
     }

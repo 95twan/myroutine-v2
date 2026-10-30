@@ -37,6 +37,8 @@ public abstract class IntegrationTestSupport {
 
     protected static final FakePgServer pg = FakePgServer.start();
 
+    protected static final FakeOAuthServer oauth = FakeOAuthServer.start();
+
     @ServiceConnection
     static final PostgreSQLContainer postgres = new PostgreSQLContainer("pgvector/pgvector:pg17");
 
@@ -60,6 +62,10 @@ public abstract class IntegrationTestSupport {
         registry.add("myroutine.storage.public-base-url", () -> minio.getS3URL() + "/myroutine");
         registry.add("myroutine.toss.base-url", pg::baseUrl);
         registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
+        for (String provider : List.of("kakao", "google", "naver")) {
+            registry.add("myroutine.oauth.providers." + provider + ".token-uri", () -> oauth.baseUrl() + "/" + provider + "/token");
+            registry.add("myroutine.oauth.providers." + provider + ".user-info-uri", () -> oauth.baseUrl() + "/" + provider + "/userinfo");
+        }
     }
 
     @AfterEach
@@ -96,5 +102,10 @@ public abstract class IntegrationTestSupport {
             connection.serverCommands().flushDb();
             return null;
         });
+    }
+
+    @AfterEach
+    void resetFakeOAuthServer() {
+        oauth.reset();
     }
 }
