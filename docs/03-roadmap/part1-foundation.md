@@ -231,7 +231,7 @@ public enum XxxStatus {
    - Security는 1-3에서 추가한다(지금 넣으면 모든 API가 막혀서 헷갈린다).
 4. `build.gradle`에 Java toolchain 25를 고정하고 `./gradlew build`가 통과하는지 본다.
 5. `docker/docker-compose.yml`에 Postgres 하나를 만든다.
-   - 이미지는 `pgvector/pgvector:pg17` (Part 6 추천 기능에서 vector 확장을 쓰므로 처음부터 이 이미지)
+   - 이미지는 `pgvector/pgvector:pg17` (서브 취향 추천(SUB-5)에서 vector 확장을 쓰므로 처음부터 이 이미지)
    - 포트는 `127.0.0.1:5432:5432`처럼 내 PC에서만 접근하게, 데이터는 named volume
 6. 설정 파일
    - `application.yaml`: 공통 설정 (`spring.jpa.hibernate.ddl-auto: validate`, `spring.jpa.open-in-view: false`, actuator 관리 포트 `management.server.port: 8081`)
@@ -405,7 +405,7 @@ git status --short
 - traceId는 **항상 서버가 만든다**(클라이언트가 보낸 `X-Request-Id`는 쓰지 않는다).
 - **왜 HIGHEST_PRECEDENCE인가**: Spring Security 필터보다 먼저 돌아야 401·403 응답에도 헤더가 붙는다.
 - **왜 finally에서 지우나**: 톰캣은 스레드를 재사용한다. 안 지우면 다음 요청 로그에 이전 traceId가 찍힌다.
-- `application.yaml`에 로그 패턴 추가: `logging.pattern.level: "%5p [%X{traceId:-}]"` → 콘솔 로그에 traceId가 찍힌다(JSON 로그는 Part 7).
+- `application.yaml`에 로그 패턴 추가: `logging.pattern.level: "%5p [%X{traceId:-}]"` → 콘솔 로그에 traceId가 찍힌다(JSON 로그는 Part 6).
 
 **5) 마이그레이션** — `db/migration/member/V{yyyyMMddHHmm}__member_create_member.sql`
 - `CREATE SCHEMA IF NOT EXISTS member;` 후 `member.member` 테이블
@@ -1184,7 +1184,7 @@ public record ShopInfo(UUID shopId, UUID ownerId, String name) {}
 **정책 (이 단계에서 정함)**
 - 카테고리: `FOOD, HEALTH, BEAUTY, LIVING, PET, ETC`
 - 등록 직후 상태는 `ON_SALE`. 가격은 1원 이상 1억 원 이하, 초기 재고는 0~1,000,000.
-- 공개 목록 정렬은 최신순만 지원한다(다른 정렬은 Part 6 검색에서).
+- 공개 목록 정렬은 최신순만 지원한다(다른 정렬은 Part 5 검색에서).
 - 상세 조회: HIDDEN은 404, ON_SALE·DISCONTINUED는 보인다(상태를 함께 내려준다).
 
 ### 할 일
@@ -2161,7 +2161,7 @@ curl -s -X POST localhost:8080/api/shops/$SHOP/products/$PRODUCT/images/presigne
 - 배포가 실패하면(앱이 안 뜨거나 헬스체크 실패) **직전 버전으로 자동 복구**된다. 원하는 버전을 수동으로 다시 배포할 수도 있다.
 - LAN 안의 다른 PC에서 Part 1의 기능(가입 → 로그인 → 가게 → 상품 → 이미지 업로드)이 동작한다.
 
-**왜 지금**: Postgres(1-1)와 MinIO(1-10)까지 있어 "최소 풀스택"이 갖춰졌다. 여기서 배포 파이프라인을 만들어 두면 Kafka(Part 3)·Redis(Part 4)·ES(Part 6)는 compose에 서비스를 추가하는 것만으로 같은 파이프라인에 올라탄다. 늦추면 환경 차이 문제(접속 주소, 시크릿 주입)를 한꺼번에 만난다.
+**왜 지금**: Postgres(1-1)와 MinIO(1-10)까지 있어 "최소 풀스택"이 갖춰졌다. 여기서 배포 파이프라인을 만들어 두면 Kafka(Part 3)·Redis(Part 4)·ES(Part 5)는 compose에 서비스를 추가하는 것만으로 같은 파이프라인에 올라탄다. 늦추면 환경 차이 문제(접속 주소, 시크릿 주입)를 한꺼번에 만난다.
 
 **흐름**: 아래 할 일 S2~S7이 각각 한 칸이다.
 ```
@@ -2605,7 +2605,7 @@ docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml e
 
 **러너 권한**: [`vm-setup.md` §5](../ops/vm-setup.md)의 두 점검 명령.
 
-**문서 (Claude)**: `docs/ops/vm-setup.md`(VM 준비 절차), 7-5의 README에 "운영 환경과 배포 흐름" 절 포함
+**문서 (Claude)**: `docs/ops/vm-setup.md`(VM 준비 절차), 6-5의 README에 "운영 환경과 배포 흐름" 절 포함
 
 ### 완료 확인
 
@@ -2636,7 +2636,7 @@ IMAGE_TAG=$(cat /opt/myroutine/deployed-sha) docker compose --env-file /opt/myro
 | 러너 권한 | 러너 서비스 가동 중 | `ps -o user= -p $(pgrep -f Runner.Listener \| head -1)` / `sudo -l -U runner` | 첫 명령: `runner` / 둘째 명령: 허용된 명령이 없다는 출력(`not allowed to run sudo` 계열. 확인 필요: 정확한 문구는 sudo 버전에 따라 다르다) |
 
 **추가 항목**
-- 배포 결과(성공·실패, sha)를 Actions Job Summary에 남기기 — Part 7에서 배포 이력을 보기 쉬워진다
+- 배포 결과(성공·실패, sha)를 Actions Job Summary에 남기기 — Part 6에서 배포 이력을 보기 쉬워진다
 
 **리뷰 때 물어볼 것**
 - public 리포에서 self-hosted runner가 위험한 이유는? 어떤 설정이 그걸 막나? 그래도 남는 위험은?

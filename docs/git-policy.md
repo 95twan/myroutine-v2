@@ -159,8 +159,9 @@ Refs: S2-M2
 ## 7. 릴리스와 태그
 | 시점 | 태그 | 방법 |
 |---|---|---|
-| Part 1~7 각각 완료 | `v0.1.0` ~ `v0.7.0` | develop → main PR(merge commit) → main에 태그 → GitHub Release |
+| Part 1~6 각각 완료 | `v0.1.0` ~ `v0.6.0` | develop → main PR(merge commit) → main에 태그 → GitHub Release |
 | Stage 1 완료 | `v1.0.0` | 위와 같음 |
+| [서브](04-sub/README.md) 기능(구독, 취향 추천, 월간 리뷰 요약) 하나 완료 | 다음 MINOR (`v1.x.0`, Stage 2 개선 단위와 같은 순번) | 위와 같음 |
 | Stage 2 개선 단위 | `v1.1.0`, `v1.2.0` … | 측정 리포트 링크를 Release 노트에 |
 | Stage 3 MSA 전환 | `v2.0.0` | |
 | main 긴급 수정 | PATCH 증가 (`v0.3.1`) | hotfix 브랜치 |

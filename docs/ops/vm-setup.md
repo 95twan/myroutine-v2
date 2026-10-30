@@ -22,7 +22,7 @@ flowchart LR
 | 이름 | `myroutine-ops` | |
 | OS | Ubuntu Server 26.04 LTS | Docker Engine 설치 문서의 지원 목록에 22.04·24.04·26.04가 있다(2026-10-09 확인). 앱 이미지 `eclipse-temurin:25-jre`도 26.04 기반 |
 | vCPU | 8~10, CPU 타입 `host` | 호스트 16코어 중 일부는 Proxmox와 다른 VM용으로 남긴다 |
-| RAM | 16GB, **Ballooning 끔** | 호스트 RAM이 24GB이고 증설할 수 없다. Proxmox 자체와 캐시용으로 8GB를 남긴다(20GB를 주면 호스트가 스왑에 들어갈 수 있다). ES·Kafka가 메모리를 한 번에 잡는다. 줄었다 늘었다 하면 OOM 원인이 된다. 실사용량은 7-1(ELK) 때 측정해서 조정 |
+| RAM | 16GB, **Ballooning 끔** | 호스트 RAM이 24GB이고 증설할 수 없다. Proxmox 자체와 캐시용으로 8GB를 남긴다(20GB를 주면 호스트가 스왑에 들어갈 수 있다). ES·Kafka가 메모리를 한 번에 잡는다. 줄었다 늘었다 하면 OOM 원인이 된다. 실사용량은 6-1(ELK) 때 측정해서 조정 |
 | 디스크 | 100GB, VirtIO SCSI, (SSD면) Discard 켬 | 이미지·Postgres·ES 볼륨 (MinIO는 NAS, [nas-minio.md](nas-minio.md)) |
 | 네트워크 | VirtIO, 브릿지 `vmbr0` | 집 LAN에서 바로 접근 |
 | QEMU Guest Agent | 옵션에서 켬 | Proxmox가 IP 확인·안전한 종료·스냅샷을 할 수 있다 |

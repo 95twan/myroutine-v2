@@ -134,7 +134,7 @@ com.myroutine
 | 정산 | 매월 5일 03:00 | settlement |
 | 리뷰 요약 | 매월 1일 04:00 | review |
 | Outbox 릴레이 | 1초 폴링, 실패한 행은 10초 뒤 재시도 (3-1) | common |
-| 정체 Saga·Outbox 탐지 | 30초마다 각 모듈의 메트릭 수집기가 계산 → Grafana 알림 (7-2) | common·payment·order |
+| 정체 Saga·Outbox 탐지 | 30초마다 각 모듈의 메트릭 수집기가 계산 → Grafana 알림 (6-2) | common·payment·order |
 
 > 배치는 Spring Batch 대신 **스케줄러 + 청크 단위 트랜잭션 + keyset 페이징**으로 시작한다. 정산이 Stage 2 성능 목표(100만 건 10분)를 못 맞추면 Spring Batch 파티셔닝을 도입한다.
 
