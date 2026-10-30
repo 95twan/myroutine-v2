@@ -10,6 +10,17 @@ myroutine:
     read-timeout: 500ms
   scheduling:
     enabled: false
+  oauth:
+    providers:
+      kakao:
+        client-id: dummy
+        client-secret: dummy
+      google:
+        client-id: dummy
+        client-secret: dummy
+      naver:
+        client-id: dummy
+        client-secret: dummy
 
 spring:
   jpa:

@@ -49,6 +49,39 @@ public class TestFixtures {
     private final StringRedisTemplate redisTemplate;
     private final SignupVerificationStore signupVerificationStore;
 
+    public RedisHash redisHashOf(String key) {
+        Map<Object, Object> map = redisTemplate.opsForHash().entries(key);
+        Map<String, String> fields = map.entrySet().stream()
+                .collect(Collectors.toMap(
+                        entry -> (String) entry.getKey(),
+                        entry -> (String) entry.getValue()
+                ));
+        Long ttlSeconds = redisTemplate.getExpire(key);
+        return new RedisHash(fields, ttlSeconds);
+    }
+
+    public List<SocialAccountRow> socialAccountsOf(UUID memberId) {
+        return jdbcTemplate.query("SELECT provider, provider_user_id, provider_email FROM member.social_account WHERE member_id = ? ORDER BY created_at, id",
+                (rs, rowNum) ->
+                        new SocialAccountRow(
+                                rs.getString("provider"),
+                                rs.getString("provider_user_id"),
+                                rs.getString("provider_email")
+                        ),
+                memberId);
+    }
+
+    public UUID memberIdOf(String email) {
+        return jdbcTemplate.query(
+                        "SELECT id FROM member.member WHERE email = ?",
+                        (rs, rowNum) -> rs.getObject("id", UUID.class),
+                        email
+                )
+                .stream()
+                .findFirst()
+                .orElse(null);
+    }
+
     public void resetRedisStats() {
         redisTemplate.execute((RedisCallback<Void>) c -> {
             c.serverCommands().resetConfigStats();
