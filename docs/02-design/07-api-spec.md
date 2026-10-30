@@ -1,16 +1,17 @@
 # 07. API 명세 (Stage 1)
 
 > 엔드포인트 목록과 핵심 API의 요청·응답 계약. 필드 단위 상세는 구현 시 springdoc(OpenAPI)로 생성하고, 이 문서와 어긋나면 이 문서를 갱신한다.
+> 2026-10-31 · 평점 통계 응답의 최신 요약(`latestSummary`)을 5-1에서 빼고 SUB-6(서브)에서 더하게 했다
 > 2026-10-30 · 제공자 로그인 화면 주소를 프론트가 만들어 `GET /api/auth/oauth/{provider}/authorize-url`을 지웠다(로드맵 4-3)
 > 2026-10-28 · 429 `RATE_LIMITED`에 `details.retryAfterSeconds`, `MEMBER_BANNED`에 `details.reason`, 내 정보에 `hasPassword`·`socialAccounts`, 관리자 회원 목록에 `banReason`(로드맵 4-2~4-4)
 > 2026-10-28 · 이메일 인증을 가입 전에 한다: 가입 인증 발송·확인 API(`/api/auth/signup/email-verifications`, `/confirm` → `verificationToken`), 가입·OAuth 가입 요청에 `verificationToken`. 로그인 회원용 인증 API·OAuth 전용 발송 API·`EMAIL_NOT_VERIFIED`를 지웠다(로드맵 4-2·4-3)
 > 2026-10-28 · 정산 응답에 수수료율 `feeRateBp`, 정산 품목에 `shopOrderId`·`productName`·`quantity`를 더하고 정산 예정 조회 `GET /api/shops/{shopId}/settlements/upcoming`을 더했다. 정산 상세 경로를 구현(로드맵 3-4)대로 `/settlements/{id}`로 맞췄다(로드맵 4-0)
 > 2026-10-19 · 판매자 가게주문 응답(목록·상세·발송·배송완료)에 환불 목록 `refunds`를 더했다. 판매자는 여기서 반품 승인·거절에 쓸 `refundId`와 구매자가 적은 사유를 읽는다(로드맵 2-9)
-> 2026-10-15 · 관리자 결제 대사 경로를 `/admin/api/payments/{orderId}/reconcile`로 맞췄다(로드맵 7-3)
-> 2026-10-15 · 이메일 인증 API를 로그인 회원 전용으로 정리하고 OAuth 가입용 발송 API(`/api/auth/oauth/signup/email-verifications`)를 더했다(로드맵 4-2·4-3), 구독 신청 응답을 `{ subscriptionId }`로 맞췄다(로드맵 5-2)
+> 2026-10-15 · 관리자 결제 대사 경로를 `/admin/api/payments/{orderId}/reconcile`로 맞췄다(로드맵 6-3)
+> 2026-10-15 · 이메일 인증 API를 로그인 회원 전용으로 정리하고 OAuth 가입용 발송 API(`/api/auth/oauth/signup/email-verifications`)를 더했다(로드맵 4-2·4-3), 구독 신청 응답을 `{ subscriptionId }`로 맞췄다(서브 SUB-2)
 > 2026-10-13 · 결제 전 주문 취소 `POST /api/orders/{id}/cancel`을 필수로 올림(기존 선택 API `payment/fail`을 합침, 상태는 `CANCELLED`, §3.2.1)
 > 2026-10-12 · 장바구니는 체크아웃 때 건드리지 않고 결제 완료 때 주문 수량만큼 차감(§3.1)
-> 2026-10-09 · 로드맵과 맞춤: 품목 취소에서 남의 주문은 404 `ORDER_NOT_FOUND`(2-8), DLT 재처리 경로에 파티션(7-3)
+> 2026-10-09 · 로드맵과 맞춤: 품목 취소에서 남의 주문은 404 `ORDER_NOT_FOUND`(2-8), DLT 재처리 경로에 파티션(6-3)
 
 ## 1. 공통 규약
 | 항목 | 규약 |
@@ -152,7 +153,7 @@
 | POST | `/api/reviews` | U | 작성 `{orderLineId, rating, content}` (구매확정 품목만) | FR-REV-01 |
 | PATCH/DELETE | `/api/reviews/{id}` | O | 수정(30일 내)·삭제 | POL-14 |
 | GET | `/api/products/{id}/reviews` | - | 리뷰 목록 (정렬: 최신·좋아요) | FR-REV-02 |
-| GET | `/api/products/{id}/review-stats` | - | 평점 분포 + 최신 요약 | FR-REV-02·03 |
+| GET | `/api/products/{id}/review-stats` | - | 평점 분포. 최신 요약은 SUB-6(서브)에서 더한다 | FR-REV-02·03 |
 | POST/DELETE | `/api/reviews/{id}/likes` | U | 좋아요 | FR-REV-02 |
 | GET | `/api/search/products` | - | `?q=&category=&cursor=` | FR-SRC-01 |
 | GET | `/api/search/autocomplete` | - | `?q=` | FR-SRC-01 |

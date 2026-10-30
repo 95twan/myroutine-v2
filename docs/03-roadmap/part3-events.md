@@ -194,7 +194,7 @@
 **정책 (이 단계에서 정함)**
 - 토픽은 파티션 3, 복제 1. 앱이 시작할 때 `NewTopic` 빈으로 만든다(브로커 자동 생성에 기대지 않음).
 - 릴레이: 1초마다, 한 번에 100건, 리스 30초. 발행에 실패하면 **10초 뒤** 다시. **10번 실패하면 DEAD**. 한 행이 실패하면 그 호출에서 아직 시도하지 않은 행은 시도하지 않는다(브로커가 멈췄을 때 행마다 기다리다 리스를 넘기지 않으려는 것).
-- SENT 행 정리는 Part 7(운영)에서 한다.
+- SENT 행 정리는 Part 6(운영)에서 한다.
 
 **흐름 한눈에** (가게 개설 기준. 아래 클래스가 어느 줄을 맡는지 보면서 읽는다)
 1. `OpenShopService.open`이 한 트랜잭션에서 `shop` 행과 `common.outbox_event` 행(`READY`)을 함께 INSERT한다 — `OutboxPublisher.publish`가 outbox 행을 넣는다.
@@ -543,8 +543,8 @@ void onShopOpened(String message) {
 
 **정책 (이 단계에서 정함)**
 - 재시도: 1초 → 2초 → 4초(3번) 후 DLT. 재시도하지 않는 예외: `JacksonException`(역직렬화), `IllegalArgumentException`, `BusinessException`(비즈니스 규칙 위반은 다시 해도 같음)
-- DLT 토픽은 원본과 같은 파티션 수(3). DLT 조회·재처리 API는 Part 7.
-- 폐업을 막는 진행 중 가게주문: `PENDING`, `PAID`, `SHIPPED`, `DELIVERED`(구매확정·반품 종결 전). 구독은 Part 5에서 추가.
+- DLT 토픽은 원본과 같은 파티션 수(3). DLT 조회·재처리 API는 Part 6.
+- 폐업을 막는 진행 중 가게주문: `PENDING`, `PAID`, `SHIPPED`, `DELIVERED`(구매확정·반품 종결 전). 구독은 서브 [구독](../04-sub/subscription.md)에서 추가.
 
 ### 할 일
 
@@ -907,7 +907,7 @@ void onShopOpened(String message) {
 | 가게 폐업 단종 (3-2) | `ProductDiscontinueService.discontinueAllByShop` | 상품마다 `changeStatus(DISCONTINUED)` → `flush()` 뒤 `PRODUCT_UPSERTED` + `PRODUCT_DISCONTINUED`(reason `SHOP_CLOSED`) | `PRODUCT` / productId |
 
 - **상품 이벤트 공통**: `ProductUpsertedEvent`는 `productId`, `shopId`, `name`, `description`, `category`(`product.getCategory().name()`), `price`(`product.getPrice().amount()`), `status`(`product.getStatus().name()`), `subscribable`, `version`을 현재 상품 상태에서 채운다. 상품 변경마다 **전체 스냅샷**을 보낸다(search가 이 값으로 색인을 덮어쓴다). 같은 조립 코드를 등록·수정·상태 변경·단종 네 곳이 쓰므로 위 `ProductEventPublisher`에 모은다.
-- **`version`**: 읽는 방법은 위 `product.domain`의 `flush()` 항목이다. 색인 소비자(Part 6)가 이 값이 작은 이벤트를 "오래된 것"으로 무시한다.
+- **`version`**: 읽는 방법은 위 `product.domain`의 `flush()` 항목이다. 색인 소비자(Part 5)가 이 값이 작은 이벤트를 "오래된 것"으로 무시한다.
 - **수정** `UpdateProductService.update`: `product.update(...)`가 돌려주는 `Optional<PriceChange>`가 비어 있으면 가격이 안 바뀐 것이다. 값이 있으면 `priceChanged(product, change, 가격 이력 저장에 쓴 now)`를 `PRODUCT_UPSERTED` 다음에 부른다. 이미 이력 저장 코드(`insertPriceHistory`)가 같은 `ifPresent` 안에 있으므로 거기에 붙인다.
 - **상태 변경** `UpdateProductService.changeStatus`: `to == DISCONTINUED`일 때만 `discontinued(product, "SELLER")`를 `PRODUCT_UPSERTED` 다음에 추가한다.
 
@@ -1137,7 +1137,7 @@ void onShopOpened(String message) {
 - 정산 주기: 매월 5일 03:00(Asia/Seoul)에 **전월** 구매확정분(POL-12). 기간은 업무 날짜 기준 전월 1일 00:00 ~ 당월 1일 00:00(미포함).
 - 수수료: 500bp(5%), 설정 `myroutine.settlement.fee-rate-bp: 500`. 원 미만 내림(OPEN-06): `fee = gross * bp / 10000` (정수 나눗셈)
 - 정산액 0원인 정산은 입금 없이 PAID.
-- 정산 실행 뒤에 늦게 도착한 전월 품목은 그 정산에 들어가지 않는다 → 다음 달 정산 기간에 맞지 않으므로 남는다. 정산 전에 consumer 지연이 없는지 확인하는 것을 운영 절차로 둔다(ADR-009). 남은 품목은 Part 7 점검 대상.
+- 정산 실행 뒤에 늦게 도착한 전월 품목은 그 정산에 들어가지 않는다 → 다음 달 정산 기간에 맞지 않으므로 남는다. 정산 전에 consumer 지연이 없는지 확인하는 것을 운영 절차로 둔다(ADR-009). 남은 품목은 Part 6 점검 대상.
 - 관리자 수동 실행: `POST /admin/api/settlements/run?period=2026-09` (ADMIN 역할). 관리자 계정은 DB에서 `role`을 `ADMIN`으로 직접 바꿔 만든다.
 
 ### 할 일 (3-4a)
@@ -1571,7 +1571,7 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 
 **정책 (이 단계에서 정함)**
 - 채널은 이메일만. 수신 주소는 알림 생성 시점의 이메일을 저장한다. 회원 알림은 회원의 이메일, 가게 알림(새 주문, 정산 지급)은 가게의 이메일(`shop.shop.email`)이다.
-- 발송 재시도: 실패하면 **5분 뒤** 다시, **5번 실패하면 FAILED**. FAILED 재처리 API는 Part 7.
+- 발송 재시도: 실패하면 **5분 뒤** 다시, **5번 실패하면 FAILED**. FAILED 재처리 API는 Part 6.
 - 같은 이벤트·같은 수신자·같은 종류의 알림은 1건(`dedup_key`).
 
 **흐름 한눈에**
@@ -1647,9 +1647,9 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 
 | 클래스 | 규격 |
 |---|---|
-| `NotificationType` | 알림 종류 enum(`type` 컬럼 값): `WELCOME, ORDER_PAID, SHOP_ORDER_RECEIVED, ORDER_CLOSED, SHIPPED, DELIVERED, REFUNDED, SETTLEMENT_PAID` (Part 5에서 구독 관련, 4-4에서 `BANNED` 추가) |
+| `NotificationType` | 알림 종류 enum(`type` 컬럼 값): `WELCOME, ORDER_PAID, SHOP_ORDER_RECEIVED, ORDER_CLOSED, SHIPPED, DELIVERED, REFUNDED, SETTLEMENT_PAID` (서브 구독에서 구독 관련, 4-4에서 `BANNED` 추가) |
 | `NotificationDraft` | "보낼 알림 초안" `record (UUID memberId, UUID shopId, NotificationType type, String title, String body)`. 수신 대상은 둘 중 **정확히 하나**만 채운다: 회원 알림이면 `memberId`(`shopId`는 null), 가게 알림이면 `shopId`(`memberId`는 null). 수신 주소는 아직 없다(저장할 때 조회). 만드는 곳에서 헷갈리지 않게 `toMember(...)`·`toShop(...)` 같은 정적 팩터리를 두는 것을 권한다 |
-| `NotificationStatus` | 상태 enum. 허용 전이: `PENDING → {SENT, FAILED}`, `FAILED → {PENDING}`(관리 API의 재시도, 7-3), `SENT → {}`. 상태머신 문서([04-state-machines 9절](../02-design/04-state-machines.md))와 같다. `ShopStatus`처럼 `transitTo(to)`가 허용 밖이면 `INVALID_STATE_TRANSITION`(409). `FAILED → PENDING`은 7-3이 native `UPDATE ... WHERE status = 'FAILED'`로 하므로 이 단계에서는 엔티티가 부르지 않는다(개발 가이드 5.4: 엔티티 경로가 있는 상태는 CAS와 함께 써도 전이표를 둔다) |
+| `NotificationStatus` | 상태 enum. 허용 전이: `PENDING → {SENT, FAILED}`, `FAILED → {PENDING}`(관리 API의 재시도, 6-3), `SENT → {}`. 상태머신 문서([04-state-machines 9절](../02-design/04-state-machines.md))와 같다. `ShopStatus`처럼 `transitTo(to)`가 허용 밖이면 `INVALID_STATE_TRANSITION`(409). `FAILED → PENDING`은 6-3이 native `UPDATE ... WHERE status = 'FAILED'`로 하므로 이 단계에서는 엔티티가 부르지 않는다(개발 가이드 5.4: 엔티티 경로가 있는 상태는 CAS와 함께 써도 전이표를 둔다) |
 | `Notification` | `BaseTimeEntity`를 상속하고 1)의 컬럼을 매핑한다(`version`은 `@Version`). `markSent(Instant now)`: `status = status.transitTo(SENT)`, `sentAt = now`. `markFailed(String error, Instant now)`: `attempts++`, `lastError`는 `error`를 500자로 자른 값, `attempts >= 5`이면 `status = status.transitTo(FAILED)`, 아니면 `nextAttemptAt = now + 5분`(`PENDING` 유지). 5회·5분은 이 클래스의 상수다 |
 | `NotificationRepository` | `int insertIfAbsent(UUID id, UUID memberId, String type, String recipient, String title, String body, String dedupKey, Instant now)`(native `INSERT ... ON CONFLICT ON CONSTRAINT uk_notification_dedup_key DO NOTHING`. 삽입된 행 수를 돌려주고 0이면 이미 있던 알림이다. `type`은 `NotificationType.name()`을 문자열로 넘긴다. native 쿼리라 `@Enumerated` 매핑이 적용되지 않는다), `List<Notification> findDue(Instant now, Limit limit)`(JPQL: `status = PENDING and nextAttemptAt <= :now order by nextAttemptAt`), `Optional<Notification> findById(UUID id)` |
 
@@ -1717,7 +1717,7 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 |---|---|---|
 | `FakeMailSender` (`support/`, `@Component @Primary`, `implements MailSender`)와 `SentMail` | `@Primary`는 테스트에서 `LogMailSender` 대신 이 빈이 주입되게 한다. 여러 스레드(스케줄러·consumer)가 건드릴 수 있어 보낸 목록은 동시성 안전한 컬렉션(`CopyOnWriteArrayList` 등)으로 둔다. 메서드와 타입: ⓐ `public void send(String to, String title, String body)`(`MailSender`의 구현. 보낸 목록에 `SentMail`을 더하고, 남은 실패 횟수가 있으면 하나 줄이고 예외를 던진다) ⓑ `public List<SentMail> sent()` ⓒ `public void failNext(int times)` ⓓ `public void reset()`(목록과 남은 실패 횟수를 비운다). 함께 둘 record는 `public record SentMail(String to, String title, String body)` | 3-5 `NotificationFlowTest` |
 | `IntegrationTestSupport`의 `@AfterEach void resetFakeMailSender()` → `void` (메서드 이름은 자유) | `@Autowired FakeMailSender fakeMailSender` 필드를 더하고 본문에서 `fakeMailSender.reset()` 호출 | 모든 테스트 |
-| `notificationRowsOf(UUID memberId)` → `List<NotificationRow>` | `TestFixtures`. JDBC `SELECT member_id, type, channel, recipient, title, status, attempts, last_error, dedup_key, sent_at, next_attempt_at FROM notification.notification WHERE member_id = ? ORDER BY created_at, id`. `NotificationRow`(`support/`의 record) 필드: `memberId`(UUID), `type`·`channel`·`recipient`·`title`·`status`·`lastError`·`dedupKey`(String, `lastError`는 없으면 null), `attempts`(int), `sentAt`·`nextAttemptAt`(`Instant`, `sentAt`은 없으면 null) | 3-5 `NotificationFlowTest`, 5-4 |
+| `notificationRowsOf(UUID memberId)` → `List<NotificationRow>` | `TestFixtures`. JDBC `SELECT member_id, type, channel, recipient, title, status, attempts, last_error, dedup_key, sent_at, next_attempt_at FROM notification.notification WHERE member_id = ? ORDER BY created_at, id`. `NotificationRow`(`support/`의 record) 필드: `memberId`(UUID), `type`·`channel`·`recipient`·`title`·`status`·`lastError`·`dedupKey`(String, `lastError`는 없으면 null), `attempts`(int), `sentAt`·`nextAttemptAt`(`Instant`, `sentAt`은 없으면 null) | 3-5 `NotificationFlowTest`, SUB-4 |
 | `notificationRows()` → `List<NotificationRow>` | 위와 같은 컬럼·변환으로 `WHERE`와 회원 조건 없이 전체 | `NotificationFlowTest` 1·2·5·6번 |
 | `openShop(UUID memberId, String businessNumber, String email)` → `UUID` | `TestFixtures`의 오버로드. 기존 `openShop(memberId, businessNumber)`가 가게 이메일을 `shop@test.com`으로 고정해서 가게별 수신 주소를 구분할 수 없으므로, `OpenShopCommand`의 `email`을 인자로 받는다. 기존 2인자 메서드는 이 메서드에 `"shop@test.com"`을 넘기게 한다 | `NotificationFlowTest` 1·5번 |
 | `setNotificationsDue()` → `void` | 재시도 시각을 당긴다. JDBC `UPDATE notification.notification SET next_attempt_at = now() - interval '1 second'` | `NotificationFlowTest` 3·4번 |
@@ -1811,7 +1811,7 @@ DB 없이 `new NotificationComposer()`로 만든다. 인자는 권장안(`compos
 
 ## 3-6. 회원 탈퇴 (M)
 
-**목표**: 진행 중인 주문·운영 중인 가게·정산 대기 금액이 없으면 탈퇴할 수 있다(구독은 Part 5에서 추가). 개인정보는 마스킹된다.
+**목표**: 진행 중인 주문·운영 중인 가게·정산 대기 금액이 없으면 탈퇴할 수 있다(구독은 서브 [구독](../04-sub/subscription.md)에서 추가). 개인정보는 마스킹된다.
 
 **정책 (이 단계에서 정함)**
 - 막는 조건(`details.reasons`에 모두 담는다)

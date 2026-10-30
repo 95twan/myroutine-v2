@@ -1,58 +1,56 @@
-# Part 6. 리뷰 · 검색 · 추천
+# Part 5. 리뷰 · 검색 · 문의
 
-> 버전 0.26 · 2026-10-27
-> 0.10 · 2026-10-16 · 쓰지 않는 요소를 걷어냈다. 6-1 `ConfirmedLineInfo`의 `shopId`·`confirmedAt`을 뺐다. 반환값을 아무도 읽지 않는 `ReviewStatRepository.add`·`remove`·`change`, `ReviewRepository.increaseLikeCount`·`decreaseLikeCount`의 "반영 행 수"를 "없음"으로 바꿨다. 6-2 ES 문서의 `updatedAt` 필드를 매핑과 `upsert` 본문에서 뺐다. 6-3 `ProductIndexSnapshot`을 없애고 `findForIndexing`이 `List<ProductUpsertedEvent>`를 돌려주게 했다. 6-4 `recommendation/api/package-info.java`를 뺐다
+> 버전 0.27 · 2026-10-31 · SUB-5(취향 추천)·SUB-6(월간 리뷰 요약)를 로드맵에서 빼서 [서브](../04-sub/README.md)로 옮겼다. 5-1 평점 통계 응답에서 `latestSummary`를 빼고 SUB-6이 더하게 했다
+> 0.26 · 2026-10-27
+> 0.10 · 2026-10-16 · 쓰지 않는 요소를 걷어냈다. 5-1 `ConfirmedLineInfo`의 `shopId`·`confirmedAt`을 뺐다. 반환값을 아무도 읽지 않는 `ReviewStatRepository.add`·`remove`·`change`, `ReviewRepository.increaseLikeCount`·`decreaseLikeCount`의 "반영 행 수"를 "없음"으로 바꿨다. 5-2 ES 문서의 `updatedAt` 필드를 매핑과 `upsert` 본문에서 뺐다. 5-3 `ProductIndexSnapshot`을 없애고 `findForIndexing`이 `List<ProductUpsertedEvent>`를 돌려주게 했다. SUB-5 `recommendation/api/package-info.java`를 뺐다
 > 0.5 · 2026-10-09 · ES 이미지 `9.4.8`(Spring Data Elasticsearch: Boot BOM 6.1.1, 클라이언트 9.4.5), Spring AI `2.0.1`(Boot 4.1.1 스타터에 의존)과 OpenAI 설정 키를 확정했다. Spring AI 2.0의 OpenAI 클라이언트가 자체 재시도(기본 3회)를 하므로 테스트의 호출 횟수에 반영한다. pgvector `avg` 집계를 확인했다. 1-10 규칙에 따라 추천 응답의 `thumbnailKey`를 `thumbnailUrl`로 바꿨다
-> 0.4 · 2026-10-02 · 6-3 무중단 재색인을 선택 단계로 하고, 리뷰 임베딩을 제거했다(요약은 단순 선택). 제재 회원 문의 허용은 제안으로, 리뷰 중복은 사전 조회로 했다
+> 0.4 · 2026-10-02 · 5-3 무중단 재색인을 선택 단계로 하고, 리뷰 임베딩을 제거했다(요약은 단순 선택). 제재 회원 문의 허용은 제안으로, 리뷰 중복은 사전 조회로 했다
 
-> **끝나면**: 구매확정한 상품에 리뷰를 쓰고, 키워드로 상품을 검색하고, 취향 기반 추천과 월간 리뷰 요약을 본다.
-> **인프라 추가**: **Elasticsearch**, pgvector 확장(이미 쓰는 Postgres 이미지에 포함), OpenAI(Spring AI)
-> 검색·추천 모듈은 **이벤트로 데이터를 받고**, 동기 호출은 상품 조회(`ProductApi`)만 한다. Stage 3에서 가장 먼저 분리될 대상이다.
-> 시간이 부족하면 6-1(리뷰), 6-2(검색)만 하고 나머지는 생략할 수 있다. **6-3은 선택 단계**다.
-> **릴리스**: `v0.6.0`
+> **끝나면**: 구매확정한 상품에 리뷰를 쓰고, 키워드로 상품을 검색하고, 1:1 문의를 남긴다.
+> **인프라 추가**: **Elasticsearch**
+> 검색 모듈은 **이벤트로 데이터를 받고**, 동기 호출은 상품 조회(`ProductApi`)만 한다. Stage 3에서 가장 먼저 분리될 대상이다.
+> 시간이 부족하면 5-1(리뷰), 5-2(검색)만 하고 나머지는 생략할 수 있다. **5-3은 선택 단계**다.
+> **릴리스**: `v0.5.0`
 
 | 단계 | 제목 | 크기 |
 |---|---|---|
-| 6-1 | 리뷰 · 평점 통계 · 좋아요 | M |
-| 6-2 | 상품 검색 · 자동완성 (Elasticsearch) | M |
-| 6-3 | (선택) 무중단 재색인 | S |
-| 6-4 | 취향 추천 (pgvector) | M |
-| 6-5 | 월간 리뷰 요약 | S |
-| 6-6 | 1:1 문의 | S |
+| 5-1 | 리뷰 · 평점 통계 · 좋아요 | M |
+| 5-2 | 상품 검색 · 자동완성 (Elasticsearch) | M |
+| 5-3 | (선택) 무중단 재색인 | S |
+| 5-4 | 1:1 문의 | S |
 
 ---
 
-## Part 6 공통 규칙 (Part 1~5 공통 규칙에 더해서)
+## Part 5 공통 규칙 (Part 1~4 공통 규칙에 더해서)
 
 ### X. 외부 AI·검색 호출
 - OpenAI·Elasticsearch 호출은 **트랜잭션 밖**에서 한다(공통 규칙 K). consumer에서 외부 호출이 필요하면 순서를 "중복 확인 → 외부 호출 → `InboxGuard.runOnce`로 저장"으로 한다(`runOnce`는 트랜잭션이라 그 안에서 부르면 안 된다).
 - 타임아웃: ES 2초, OpenAI 임베딩 10초·요약 60초. 테스트는 가짜 서버(JDK `HttpServer`).
 - 호환 버전(2026-10-09 Maven Central 확인, 개발 가이드 §1.1 표에도 적었다): Spring Data Elasticsearch **6.1.1**(Boot 4.1.1 BOM이 관리, ES Java 클라이언트 9.4.5) / Spring AI **2.0.1**(`spring-ai-starter-model-openai` 2.0.1이 Boot 4.1.1 스타터에 의존). 착수할 때 더 새 패치가 있으면 그것으로.
-- **consumer 모양** (6-2·6-4의 consumer 설명은 이 모양을 전제로 한다): `@KafkaListener(topics = XxxTopics.YYY, groupId = "{모듈}") void onYyy(String message)` → `eventEnvelopes.parse(message, Payload.class)`가 `TypedEnvelope`(`envelope()` = `eventId`·`traceId`가 든 봉투, `payload()` = 이벤트 record)를 돌려준다 → `inboxGuard.runOnce("{모듈}.{이벤트}", typed.envelope(), () -> 처리)`. `runOnce`는 `processed_message` INSERT와 처리를 한 트랜잭션에 묶어서, 처리가 예외면 INSERT도 롤백되고 다시 소비해도 처리된다. `runOnce`를 쓰지 않는 consumer(6-2)는 `EventContext.run(envelope, () -> ...)`로 MDC만 설정한다. 예외는 던지면 3-2 정책(3번 재시도 → DLT)이고, `BusinessException`·`IllegalArgumentException`·JSON 오류는 **재시도 없이 바로 DLT**다. 그래서 ES·OpenAI 호출 실패는 `BusinessException`이 아니라 일반 예외(`RuntimeException`)로 던져야 재시도된다.
+- **consumer 모양** (5-2와 서브 [취향 추천](../04-sub/recommendation.md)의 consumer 설명은 이 모양을 전제로 한다): `@KafkaListener(topics = XxxTopics.YYY, groupId = "{모듈}") void onYyy(String message)` → `eventEnvelopes.parse(message, Payload.class)`가 `TypedEnvelope`(`envelope()` = `eventId`·`traceId`가 든 봉투, `payload()` = 이벤트 record)를 돌려준다 → `inboxGuard.runOnce("{모듈}.{이벤트}", typed.envelope(), () -> 처리)`. `runOnce`는 `processed_message` INSERT와 처리를 한 트랜잭션에 묶어서, 처리가 예외면 INSERT도 롤백되고 다시 소비해도 처리된다. `runOnce`를 쓰지 않는 consumer(5-2)는 `EventContext.run(envelope, () -> ...)`로 MDC만 설정한다. 예외는 던지면 3-2 정책(3번 재시도 → DLT)이고, `BusinessException`·`IllegalArgumentException`·JSON 오류는 **재시도 없이 바로 DLT**다. 그래서 ES·OpenAI 호출 실패는 `BusinessException`이 아니라 일반 예외(`RuntimeException`)로 던져야 재시도된다.
 - Redis는 `StringRedisTemplate`만 쓰고 모든 키에 TTL을 둔다([Part 4 공통 규칙 T](part4-auth.md)). JSON 값은 주입받은 `ObjectMapper`(`tools.jackson.databind`)로 문자열 ↔ record를 바꾼다.
 
-### Y. 모듈 의존 (Part 6 추가분)
+### Y. 모듈 의존 (Part 5 추가분)
 
 | 모듈 | `allowedDependencies` |
 |---|---|
 | review | `common`, `order::api` |
 | search | `common`, `product::api` |
-| recommendation | `common`, `product::api`, `order::api`, `member::api` |
 
-### Z. Part 6 에러 코드
+### Z. Part 5 에러 코드
 
 | 코드 | HTTP | 메시지 | 정의 위치 | 단계 |
 |---|---|---|---|---|
-| `REVIEW_NOT_ALLOWED` | 422 | 구매확정한 상품만 리뷰를 쓸 수 있습니다. | `OrderErrorCode` | 6-1 |
-| `REVIEW_ALREADY_EXISTS` | 409 | 이미 리뷰를 작성했습니다. | `ReviewErrorCode` | 6-1 |
-| `REVIEW_NOT_FOUND` | 404 | 리뷰를 찾을 수 없습니다. | `ReviewErrorCode` | 6-1 |
-| `REVIEW_EDIT_EXPIRED` | 409 | 작성 후 30일이 지나 수정할 수 없습니다. | `ReviewErrorCode` | 6-1 |
-| `SEARCH_UNAVAILABLE` | 503 | 검색을 일시적으로 사용할 수 없습니다. | `SearchErrorCode` | 6-2 |
-| `INQUIRY_NOT_FOUND` | 404 | 문의를 찾을 수 없습니다. | `MemberErrorCode` | 6-6 |
+| `REVIEW_NOT_ALLOWED` | 422 | 구매확정한 상품만 리뷰를 쓸 수 있습니다. | `OrderErrorCode` | 5-1 |
+| `REVIEW_ALREADY_EXISTS` | 409 | 이미 리뷰를 작성했습니다. | `ReviewErrorCode` | 5-1 |
+| `REVIEW_NOT_FOUND` | 404 | 리뷰를 찾을 수 없습니다. | `ReviewErrorCode` | 5-1 |
+| `REVIEW_EDIT_EXPIRED` | 409 | 작성 후 30일이 지나 수정할 수 없습니다. | `ReviewErrorCode` | 5-1 |
+| `SEARCH_UNAVAILABLE` | 503 | 검색을 일시적으로 사용할 수 없습니다. | `SearchErrorCode` | 5-2 |
+| `INQUIRY_NOT_FOUND` | 404 | 문의를 찾을 수 없습니다. | `MemberErrorCode` | 5-4 |
 
 ---
 
-## 6-1. 리뷰 · 평점 통계 · 좋아요 (M)
+## 5-1. 리뷰 · 평점 통계 · 좋아요 (M)
 
 **목표**: 구매확정된 품목당 리뷰 1개. 상품별 평점 분포와 좋아요.
 
@@ -223,10 +221,9 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 좋아요순은 상위 50개이고 `nextCursor = null`이다. `getReviews`의 `sort`: `latest`(최신순) / `likes`(좋아요순). 기본값·허용 밖의 값의 처리와 좋아요순에서 `size`·동점 정렬이 어떻게 적용되는지는 문서에 없다(확인 필요)
 
-`getStats` 순서 — 평점 통계와 최신 월간 요약을 돌려준다
+`getStats` 순서 — 평점 통계를 돌려준다
 1. 통계 행을 `productId`로 읽는다. `average`는 `rating_sum / review_count`를 소수 1자리로 만든다(반올림 방식과, 행이 없거나 `review_count = 0`일 때의 응답은 문서에 정해져 있지 않다. 확인 필요)
 2. `distribution`은 `{1: r1, 2: r2, 3: r3, 4: r4, 5: r5}`
-3. `latestSummary`: 6-5 전에는 `null`이다. 채우는 일은 6-5가 한다
 - review는 product를 호출하지 않으므로(허용 의존) 상품이 실제로 있는지는 확인하지 않는다
 
 **9) review.web**
@@ -238,7 +235,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 | `DELETE /api/reviews/{id}` | 작성자 | | 204 |
 | `POST /api/reviews/{id}/likes`, `DELETE ...` | 로그인 | | 204 |
 | `GET /api/products/{id}/reviews?sort=latest\|likes&cursor=&size=` | 공개 | | 200 `CursorPage<ReviewResponse(id, rating, content, likeCount, createdAt)>` (작성자 정보는 내려주지 않는다 — review가 member를 참조하지 않게) |
-| `GET /api/products/{id}/review-stats` | 공개 | | 200 `ReviewStatsResponse(reviewCount, average(소수 1자리), distribution{1..5}, latestSummary)` |
+| `GET /api/products/{id}/review-stats` | 공개 | | 200 `ReviewStatsResponse(reviewCount, average(소수 1자리), distribution{1..5})` |
 
 - 컨트롤러는 review 모듈의 `review.web`에 둔다(클래스 이름은 문서에 없다. 권장 `ReviewController`). 경로가 `/api/products/{id}/...`인 두 GET도 product 모듈이 아니라 여기서 처리한다(위 정책). 요청자 ID는 `@CurrentMember UUID memberId`
 
@@ -264,7 +261,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 이미 있는 헬퍼: `signup`, `login`, `token`, `openShop`, `registerProduct`, `createDeliveredOrder`, `orderLineIdOf`, `ConcurrencyRunner`, `OutboxAssert`.
 
 헬퍼를 쓰는 방법은 다음과 같다.
-- 응답: `jsonPath`. 에러 응답의 코드는 `$.code`. 리뷰 목록은 `$.items[i].id`·`.rating`·`.content`·`.likeCount`·`.createdAt`과 `$.nextCursor`(마지막 페이지는 `null`). 통계는 `$.reviewCount`, `$.average`, `$.distribution['1']`~`['5']`, `$.latestSummary`.
+- 응답: `jsonPath`. 에러 응답의 코드는 `$.code`. 리뷰 목록은 `$.items[i].id`·`.rating`·`.content`·`.likeCount`·`.createdAt`과 `$.nextCursor`(마지막 페이지는 `null`). 통계는 `$.reviewCount`, `$.average`, `$.distribution['1']`~`['5']`.
 
 **공통 준비**: 판매자 1명(`seller@test.com`), 가게 1개, 상품 `productA`(`registerProduct(sellerId, shopId, 10000, 100)`, 재고 100). 구매자는 필요한 만큼 `buyer1@test.com`, `buyer2@test.com`, …로 `signup` + `login`해 토큰을 받고, 각자 `createConfirmedLine(buyerId, sellerId, shopId, productA)`로 구매확정된 품목 하나씩을 가진다(`lineOf(buyerN)`이라 부른다). 작성 요청은 `POST /api/reviews`에 `Authorization: Bearer {구매자 토큰}`, 본문 `{"orderLineId":"{lineId}","rating":5,"content":"효과가 좋아요 정말 만족합니다"}`(본문 16자)다. 응답 `$.reviewId`로 리뷰 ID를 받는다.
 
@@ -373,7 +370,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 ---
 
-## 6-2. 상품 검색 · 자동완성 (Elasticsearch) (M)
+## 5-2. 상품 검색 · 자동완성 (Elasticsearch) (M)
 
 **목표**: 키워드 검색과 자동완성. 상품 변경이 몇 초 안에 반영된다. ES가 죽어도 검색만 실패한다.
 
@@ -382,7 +379,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 | 개념 | 한 줄 설명 |
 |---|---|
 | Elasticsearch | 검색 전용 저장소. 원본은 Postgres, ES는 이벤트로 갱신하는 **읽기 모델**이다 |
-| alias | 인덱스에 붙이는 별칭. 검색·색인은 항상 alias(`products`)로 한다 → 6-3에서 실제 인덱스를 바꿔치기할 수 있다 |
+| alias | 인덱스에 붙이는 별칭. 검색·색인은 항상 alias(`products`)로 한다 → 5-3에서 실제 인덱스를 바꿔치기할 수 있다 |
 | external version | 문서에 상품 `version`을 같이 넣으면 ES가 **더 오래된 버전의 쓰기를 거부**한다 → 이벤트 순서가 뒤바뀌어도 최신 유지 |
 | edge_ngram | "루틴" → "루", "루틴"처럼 앞부분 조각을 미리 색인해 자동완성을 빠르게 |
 
@@ -409,14 +406,14 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 | 클래스 | 규격 |
 |---|---|
-| `search/package-info.java` | 모듈 경계. `@ApplicationModule(allowedDependencies = {"common", "product::api"})`(규칙 Y). `product::api`는 이벤트 record(`ProductUpsertedEvent`)와 6-3의 `findForIndexing`을 쓰기 위한 것이다 |
+| `search/package-info.java` | 모듈 경계. `@ApplicationModule(allowedDependencies = {"common", "product::api"})`(규칙 Y). `product::api`는 이벤트 record(`ProductUpsertedEvent`)와 5-3의 `findForIndexing`을 쓰기 위한 것이다 |
 
 **3) search.infrastructure**
 
 | 클래스 | 규격 |
 |---|---|
-| `ProductIndexDefinition` | 인덱스를 만들 때 쓰는 설정·매핑 JSON(`src/main/resources/search/products-index.json`)을 읽어 준다. `ensureIndex`와 6-3 재색인이 같은 JSON을 쓰므로 한 곳에 둔다. JSON 내용: 분석기 `autocomplete`(tokenizer `edge_ngram` min 1 max 20, filter `lowercase`), 필드 `productId keyword`, `shopId keyword`, `name text` + 하위 필드 `name.autocomplete`(분석기 autocomplete, 검색 분석기 standard), `description text`, `category keyword`, `price long`, `status keyword`. JSON 내용을 돌려주는 메서드 하나(이름은 구현이 정한다). 패키지는 문서에 정해져 있지 않다(확인 필요, 권장 `search.infrastructure`) |
-| `ProductIndexer` | `@Component`. 상품 문서를 ES에 쓰는 유일한 곳. consumer와 6-3 재색인이 같이 쓴다. `void ensureIndex()` — 앱 시작 때 한 번 / `void upsert(ProductUpsertedEvent e, String indexOrAlias)` — 문서 한 건 색인 |
+| `ProductIndexDefinition` | 인덱스를 만들 때 쓰는 설정·매핑 JSON(`src/main/resources/search/products-index.json`)을 읽어 준다. `ensureIndex`와 5-3 재색인이 같은 JSON을 쓰므로 한 곳에 둔다. JSON 내용: 분석기 `autocomplete`(tokenizer `edge_ngram` min 1 max 20, filter `lowercase`), 필드 `productId keyword`, `shopId keyword`, `name text` + 하위 필드 `name.autocomplete`(분석기 autocomplete, 검색 분석기 standard), `description text`, `category keyword`, `price long`, `status keyword`. JSON 내용을 돌려주는 메서드 하나(이름은 구현이 정한다). 패키지는 문서에 정해져 있지 않다(확인 필요, 권장 `search.infrastructure`) |
+| `ProductIndexer` | `@Component`. 상품 문서를 ES에 쓰는 유일한 곳. consumer와 5-3 재색인이 같이 쓴다. `void ensureIndex()` — 앱 시작 때 한 번 / `void upsert(ProductUpsertedEvent e, String indexOrAlias)` — 문서 한 건 색인 |
 | `ProductEventConsumer` | consumer `search.product-upserted`. `product-upserted` 이벤트를 받아 `indexer.upsert`를 부른다. `void onProductUpserted(String message)` |
 
 **분석기가 두 개인 이유**: `name.autocomplete`는 **색인할 때만** 앞부분 조각(edge_ngram)을 만들고, 검색어는 `standard`로만 쪼갠다. 검색어까지 조각내면 "루틴"이 "루"·"루틴"으로 쪼개져 "루"로 시작하는 모든 문서가 걸린다.
@@ -439,7 +436,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 - `inboxGuard.runOnce`를 쓰지 않는다. ES 쓰기 자체가 external version으로 멱등이고, `runOnce`는 DB 트랜잭션이라 그 안에서 ES를 부르면 안 되기 때문이다(규칙 X).
 
 - `product-discontinued`는 따로 구독하지 않는다. 단종도 `product-upserted`(status DISCONTINUED)가 함께 발행되기 때문이다(3-3).
-- ES가 내려가 있으면 consumer가 실패 → 3번 재시도 → DLT. 복구 후 DLT 재처리 API(`POST /admin/api/dlt/{topic}/{partition}/{offset}/replay`, 7-3 — DLT 레코드 하나를 원래 토픽으로 다시 보낸다)로 재처리하거나 6-3 재색인으로 맞춘다.
+- ES가 내려가 있으면 consumer가 실패 → 3번 재시도 → DLT. 복구 후 DLT 재처리 API(`POST /admin/api/dlt/{topic}/{partition}/{offset}/replay`, 6-3 — DLT 레코드 하나를 원래 토픽으로 다시 보낸다)로 재처리하거나 5-3 재색인으로 맞춘다.
 
 **4) search.application**
 
@@ -479,7 +476,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `productSearchDocOf(UUID productId)` → `ProductSearchDoc` | ES REST `GET {es 주소}/products/_doc/{productId}`(alias로 읽는다)를 JDK `HttpClient`로 보내 응답 JSON에서 한 번에 읽는다(요청 코드는 테스트에 쓰지 않는다): `found`, `_version`(external version이 그대로 저장된다), `_source.name`·`.description`·`.category`·`.price`·`.status`. `ProductSearchDoc`은 `support/`의 record `(boolean found, Long version, String name, String description, String category, Long price, String status)`이고, 404면 `found` = `false`에 나머지는 `null`이다. ES 주소는 `IntegrationTestSupport`의 `es.getHttpHostAddress()`(확인 필요: `TestFixtures`가 `es`에 접근하는 방법. `es`가 package-private이면 노출이 필요하다) | `ProductSearchTest` 4·5·8번, 6-3 `ReindexTest` 2·5번 |
+| `productSearchDocOf(UUID productId)` → `ProductSearchDoc` | ES REST `GET {es 주소}/products/_doc/{productId}`(alias로 읽는다)를 JDK `HttpClient`로 보내 응답 JSON에서 한 번에 읽는다(요청 코드는 테스트에 쓰지 않는다): `found`, `_version`(external version이 그대로 저장된다), `_source.name`·`.description`·`.category`·`.price`·`.status`. `ProductSearchDoc`은 `support/`의 record `(boolean found, Long version, String name, String description, String category, Long price, String status)`이고, 404면 `found` = `false`에 나머지는 `null`이다. ES 주소는 `IntegrationTestSupport`의 `es.getHttpHostAddress()`(확인 필요: `TestFixtures`가 `es`에 접근하는 방법. `es`가 package-private이면 노출이 필요하다) | `ProductSearchTest` 4·5·8번, 5-3 `ReindexTest` 2·5번 |
 
 이미 있는 헬퍼와 주입: `RegisterProductService`·`UpdateProductService`(주입), `outboxRelay.relayOnce()`(`int` 반환. `READY` outbox 행을 Kafka로 한 번 발행한다), `Eventually.await(Duration timeout, ThrowingRunnable assertion)`(단언을 100ms마다 다시 실행해 통과하면 끝나고, 시간이 다 되면 마지막 실패를 던진다), `ProductIndexer.upsert`(이 단계에서 만든다). `ProductUpsertedEvent` 필드 순서는 `(productId, shopId, name, description, category, price, status, subscribable, version)`(3-3)이다.
 헬퍼를 쓰는 방법은 다음과 같다.
@@ -566,7 +563,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 ---
 
-## 6-3. (선택) 무중단 재색인 (S)
+## 5-3. (선택) 무중단 재색인 (S)
 
 > 이 단계는 **선택**이다. 하지 않으면 재색인이 필요할 때 인덱스를 지우고 다시 만들며(그동안 검색 결과가 비어 있음), 그 한계를 회고에 적는다.
 
@@ -584,7 +581,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 | 클래스 | 규격 |
 |---|---|
-| `ProductRepository` | 상품 keyset 쿼리를 추가한다. `id > :afterId ORDER BY id LIMIT :limit`, 상태를 가리지 않는다(단종·숨김 문서도 인덱스에 두고 `status`로 걸러내는 정책, 6-2). 비교는 DB가 하므로 자바 `UUID` 정렬과 달라도 문제없다. 메서드 이름은 문서에 없다(확인 필요). 첫 호출의 `afterId`에 `null`을 허용할지도 문서에 없다(확인 필요). `ProductApiImpl.findForIndexing`이 쓴다 |
+| `ProductRepository` | 상품 keyset 쿼리를 추가한다. `id > :afterId ORDER BY id LIMIT :limit`, 상태를 가리지 않는다(단종·숨김 문서도 인덱스에 두고 `status`로 걸러내는 정책, 5-2). 비교는 DB가 하므로 자바 `UUID` 정렬과 달라도 문제없다. 메서드 이름은 문서에 없다(확인 필요). 첫 호출의 `afterId`에 `null`을 허용할지도 문서에 없다(확인 필요). `ProductApiImpl.findForIndexing`이 쓴다 |
 
 **2) product.infrastructure**
 
@@ -609,7 +606,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 | 클래스 | 규격 |
 |---|---|
 | ES 쓰기 작업 | 새 인덱스 생성(`ProductIndexDefinition`의 JSON), bulk 색인(문서마다 external version), alias `products` 원자 교체(`_aliases` 한 요청), 새 인덱스 `refresh`, 인덱스 삭제, alias가 가리키는 현재 인덱스 이름 조회. 메서드 이름과 둘 클래스는 문서에 없다(확인 필요: `ProductIndexer`가 "상품 문서를 ES에 쓰는 유일한 곳"이므로 거기에 더하는 것이 자연스럽다). `ReindexService`가 쓴다 |
-| `ProductEventConsumer` (6-2 수정) | 재색인 중 이중 쓰기: 6-2 consumer 순서 2번의 `indexer.upsert(typed.payload(), "products")` 뒤에, `StringRedisTemplate`로 Redis `search:reindex-target`을 읽어 값이 있으면 같은 문서를 `indexer.upsert(payload, target)`으로 그 인덱스에도 쓴다. 두 쓰기 사이에 실패해 같은 메시지가 다시 와도 이미 쓴 쪽은 409로 무시되고 못 쓴 쪽만 반영된다. Redis 의존성을 consumer에 더한다 |
+| `ProductEventConsumer` (5-2 수정) | 재색인 중 이중 쓰기: 5-2 consumer 순서 2번의 `indexer.upsert(typed.payload(), "products")` 뒤에, `StringRedisTemplate`로 Redis `search:reindex-target`을 읽어 값이 있으면 같은 문서를 `indexer.upsert(payload, target)`으로 그 인덱스에도 쓴다. 두 쓰기 사이에 실패해 같은 메시지가 다시 와도 이미 쓴 쪽은 409로 무시되고 못 쓴 쪽만 반영된다. Redis 의존성을 consumer에 더한다 |
 | 실행기 빈 | `Executors.newSingleThreadExecutor()` 빈(`@Async` 대신. MDC traceId는 `JobRunner`가 새로 만든다). 클래스 이름은 문서에 없다 |
 
 **6) search.application**
@@ -620,7 +617,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 `ReindexService.reindex()` — **누가 부르나**: 아래 `search.web` 절의 API가 `JobRunner`로 부른다. `JobRunner.run`은 `Supplier<Integer>`를 받으므로 `reindex()`는 색인한 문서 수(`int`)를 반환한다.
 1. `newIndex = "products-" + 시각` 인덱스를 `ProductIndexDefinition`의 JSON으로 만든다(`ensureIndex`와 같은 매핑). alias는 아직 붙이지 않는다
-2. Redis `SET search:reindex-target newIndex EX 7200`(`StringRedisTemplate`의 `opsForValue().set(키, 값, Duration.ofHours(2))`) → 이 순간부터 6-2의 consumer가 새 인덱스에도 쓴다(위 `search.infrastructure` 절의 consumer 이중 쓰기). 적재 중에 들어온 변경이 새 인덱스에서 빠지지 않게 하려는 것이다
+2. Redis `SET search:reindex-target newIndex EX 7200`(`StringRedisTemplate`의 `opsForValue().set(키, 값, Duration.ofHours(2))`) → 이 순간부터 5-2의 consumer가 새 인덱스에도 쓴다(위 `search.infrastructure` 절의 consumer 이중 쓰기). 적재 중에 들어온 변경이 새 인덱스에서 빠지지 않게 하려는 것이다
 3. `afterId = null`부터 `productApi.findForIndexing(afterId, 1_000)`을 반복해 bulk 색인한다. 문서마다 `version`을 external version으로 붙인다(실시간 변경이 이미 더 큰 버전을 썼다면 적재 쪽이 409로 거절된다). **bulk 요청은 HTTP 200이어도 항목별로 실패할 수 있다**: 응답의 항목 상태를 보고 409는 무시, 그 밖의 오류가 하나라도 있으면 재색인 실패로 본다
 4. alias `products`를 원자적으로 교체한다. `_aliases` 한 요청에 `remove`(옛 인덱스)와 `add`(새 인덱스)를 같이 담는다(두 요청으로 나누면 그 사이에 alias가 비는 순간이 생긴다). 옛 인덱스 이름은 교체 전에 alias `products`가 가리키는 인덱스를 조회해 얻는다. 교체 전에 새 인덱스를 `refresh`하지 않으면 마지막 몇 건이 최대 1초 동안 검색에 보이지 않을 수 있다(기본 refresh 주기 기준. 문서 규격에 없는 단계라 구현 때 판단, 확인 필요)
 5. Redis 키 삭제 → 이전 인덱스 삭제
@@ -640,9 +637,9 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `searchIndexStateOf()` → `SearchIndexState` | 한 번 호출로 읽는다(요청 코드는 테스트에 쓰지 않는다). 읽는 곳 4개: ES `GET /_alias/products`(응답 JSON의 **키**들 → `aliasTargets` = alias `products`가 가리키는 인덱스 이름들, alias가 없어 404면 빈 목록), ES `GET /_cat/indices/products-*?format=json`(각 항목의 `index` → `indexNames` = `products-*` 인덱스 전부), ES `GET /products/_count`(`count` → `docCount` = alias로 센 문서 수, alias가 없으면 0), Redis `StringRedisTemplate.opsForValue().get("search:reindex-target")`(`reindexTarget`, 키가 없으면 `null`). `SearchIndexState`는 `support/`의 record `(List<String> aliasTargets, List<String> indexNames, long docCount, String reindexTarget)`. ES 요청은 JDK `HttpClient`로 보내고 주소는 `es.getHttpHostAddress()`다(6-2 `productSearchDocOf`와 같다) | `ReindexTest` 2·3·4·5번 |
+| `searchIndexStateOf()` → `SearchIndexState` | 한 번 호출로 읽는다(요청 코드는 테스트에 쓰지 않는다). 읽는 곳 4개: ES `GET /_alias/products`(응답 JSON의 **키**들 → `aliasTargets` = alias `products`가 가리키는 인덱스 이름들, alias가 없어 404면 빈 목록), ES `GET /_cat/indices/products-*?format=json`(각 항목의 `index` → `indexNames` = `products-*` 인덱스 전부), ES `GET /products/_count`(`count` → `docCount` = alias로 센 문서 수, alias가 없으면 0), Redis `StringRedisTemplate.opsForValue().get("search:reindex-target")`(`reindexTarget`, 키가 없으면 `null`). `SearchIndexState`는 `support/`의 record `(List<String> aliasTargets, List<String> indexNames, long docCount, String reindexTarget)`. ES 요청은 JDK `HttpClient`로 보내고 주소는 `es.getHttpHostAddress()`다(5-2 `productSearchDocOf`와 같다) | `ReindexTest` 2·3·4·5번 |
 
-이미 있는 헬퍼: 6-2 `productSearchDocOf`, `String adminToken(String email)`(4-4. `signup(email)` → `changeRole(memberId, "ADMIN")` → `login(email)`로 ADMIN 토큰을 돌려준다), `Eventually.await(Duration timeout, ThrowingRunnable assertion)`(통과할 때까지 100ms마다 단언을 다시 실행).
+이미 있는 헬퍼: 5-2 `productSearchDocOf`, `String adminToken(String email)`(4-4. `signup(email)` → `changeRole(memberId, "ADMIN")` → `login(email)`로 ADMIN 토큰을 돌려준다), `Eventually.await(Duration timeout, ThrowingRunnable assertion)`(통과할 때까지 100ms마다 단언을 다시 실행).
 
 헬퍼를 쓰는 방법은 다음과 같다.
 - DB: `SELECT version FROM product.product WHERE id = ?`(이 한 곳뿐이라 헬퍼 없이 쓴다).
@@ -677,336 +674,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 ---
 
-## 6-4. 취향 추천 (pgvector) (M)
-
-**목표**: 최근 구매 상품으로 취향을 만들고 비슷한 상품을 추천한다.
-
-**새로 등장**
-
-| 개념 | 한 줄 설명 |
-|---|---|
-| 임베딩 | 문장을 숫자 벡터(1536차원)로 바꾼 것. 뜻이 비슷하면 벡터도 가깝다 |
-| pgvector | Postgres에서 벡터를 저장하고 `<=>`(코사인 거리)로 가까운 것을 찾는다 |
-| Spring AI | OpenAI 같은 모델 호출을 감싸는 라이브러리. `EmbeddingModel`, `ChatClient` |
-
-**정책 (이 단계에서 정함)**
-- 임베딩 모델 `text-embedding-3-small`(1536차원). 입력 = `상품명 + "\n" + 카테고리 + "\n" + 설명 앞 1,000자`.
-- 본문 해시(SHA-256)가 바뀐 경우에만 임베딩을 다시 만든다(비용 관리).
-- 취향 = 최근 90일 결제 상품 최대 20개 임베딩의 평균. 이미 산 상품과 판매 중이 아닌 상품은 제외, 최대 20개 추천. 구매 이력이 없으면 빈 목록.
-- 결과는 Redis `rec:result:{memberId}`에 30분 캐시. 새 주문 결제·탈퇴 시 삭제.
-- 장바구니 기반 취향은 이번 범위에서 뺀다(장바구니 이벤트가 없음).
-
-### 할 일
-
-**구현 순서**: 절 번호 순서대로 만든다. 1) 의존성·설정·`FakeOpenAiServer`·`IntegrationTestSupport` 등록 → 2) 마이그레이션 → 3) `common.inbox` 중복 확인 조회 → 4) 모듈 경계 → 5) `recommendation.infrastructure`(consumer: `order-paid` → `member-withdrawn` → `product-upserted`) → 6) `recommendation.application`(`RecommendationResult` → `ProductEmbeddingService` → `RecommendationService.recommend`) → 7) `recommendation.web` → 테스트.
-
-**1) 인프라·설정**
-- 의존성: `implementation platform('org.springframework.ai:spring-ai-bom:2.0.1')`, `implementation 'org.springframework.ai:spring-ai-starter-model-openai'`(버전은 BOM). Spring AI는 Boot BOM이 관리하지 않아 BOM을 직접 import한다
-- 설정 (키 이름은 `spring-ai-autoconfigure-model-openai` 2.0.1의 메타데이터로 확인)
-
-| 키 | 값 | 이유 |
-|---|---|---|
-| `spring.ai.openai.api-key` | `${OPENAI_API_KEY}` | |
-| `spring.ai.openai.base-url` | 테스트는 가짜 서버 주소 | 확인 필요: Spring AI 2.0의 OpenAI 클라이언트가 이 값 뒤에 `/v1`을 붙이는지(공식 `openai-java` SDK 4.49.0 기반). 가짜 서버가 받은 경로를 로그로 보고 `/v1`을 base-url에 넣을지 정한다 |
-| `spring.ai.openai.embedding.options.model` | `text-embedding-3-small` | |
-| `spring.ai.openai.embedding.timeout` / `spring.ai.openai.chat.timeout` | `10s` / `60s` | 공통 규칙 X (둘 다 기본 60s) |
-| `spring.ai.openai.embedding.max-retries` / `spring.ai.openai.chat.max-retries` | `0` | **기본 3** — 클라이언트가 안에서 다시 부르면 500 한 번에 가짜 서버 호출이 4번 찍히고, 재시도는 Kafka(3-2)·잡이 이미 한다 |
-
-- `EmbeddingModel`은 스타터가 빈으로 만든다. 호출 형태: `float[] vector = embeddingModel.embed(String text)` — 글 한 건을 OpenAI에 보내 `text-embedding-3-small`의 1536차원 벡터를 받는다(`vector.length == 1536`). 타임아웃·HTTP 오류는 `RuntimeException`으로 올라온다. 이 벡터를 `'[0.1,0.2,...]'` 형식의 문자열(공백 없이 쉼표로 잇고 앞뒤에 대괄호)로 바꿔 `CAST(? AS vector)`에 넘긴다. `Arrays.toString`은 쉼표 뒤에 공백이 붙으므로 쓰지 않고 직접 이어 붙인다(pgvector가 공백을 받는지는 확인 필요)
-- `support/FakeOpenAiServer`: `/v1/embeddings` → 입력 문자열 해시로 결정적인 1536차원 벡터를 만들어 응답, 호출 횟수 기록, 지연·500 설정 / `/v1/chat/completions` → 고정 요약 문장 (6-5)
-
-**2) 마이그레이션** — `db/migration/recommendation/V{...}__recommendation_create_tables.sql` (`CREATE SCHEMA IF NOT EXISTS recommendation; CREATE EXTENSION IF NOT EXISTS vector;`)
-- `recommendation.product_embedding`: `product_id uuid pk`, `embedding vector(1536) X`, `model varchar(50) X`, `source_hash varchar(64) X`, `status varchar(20) X ck IN ('ACTIVE','INACTIVE')`, `updated_at`. 인덱스 `CREATE INDEX idx_product_embedding_hnsw ON recommendation.product_embedding USING hnsw (embedding vector_cosine_ops)`
-- `recommendation.member_purchase`: `member_id uuid`, `product_id uuid`, `purchased_at timestamptz`, `pk_member_purchase (member_id, product_id)` (같은 상품 재구매는 시각만 갱신)
-
-**3) common.inbox — 중복 확인 조회**
-
-| 클래스 | 규격 |
-|---|---|
-| `processed_message` 조회 전용 메서드 | `(consumer, event_id)`가 이미 있는지 **조회만** 한다. `InboxGuard`에는 `runOnce(String consumer, EventEnvelope envelope, Runnable action)`(INSERT와 처리를 한 트랜잭션에 묶는다) 하나뿐이라 조회 전용 메서드가 없다(확인 필요: `InboxGuard`에 더할지 `JdbcTemplate`으로 직접 읽을지). `product-upserted` consumer 순서의 1번에서 쓴다 |
-
-**4) recommendation — 모듈 경계와 SQL 접근**
-
-- 벡터는 JPA로 매핑하지 않고 `JdbcTemplate`으로 다룬다(새 라이브러리 없이. 문자열 형식은 1) 절의 `EmbeddingModel` 호출 형태). 아래 SQL의 `:name` 표기는 설명용이다. 순수 `JdbcTemplate`은 `?`만 받으므로 `IN`·`NOT IN` 목록은 `?`를 개수만큼 이어 붙여야 한다(`NamedParameterJdbcTemplate`도 spring-jdbc에 들어 있다. 어느 쪽을 쓸지는 문서에 없다. 확인 필요)
-- **역할**: recommendation은 이벤트로 받은 두 가지를 자기 테이블에 쌓아 둔다 — 상품별 임베딩(`product_embedding`)과 회원별 구매 상품(`member_purchase`). 추천 요청은 이 테이블과 Redis만 보고, 상품 이름·가격·판매 여부만 `productApi`로 동기 조회한다.
-- 클래스 이름은 문서에 없어 권장안으로 적었다.
-
-| 클래스 | 규격 |
-|---|---|
-| `recommendation/package-info.java` | 모듈 경계. `@ApplicationModule(allowedDependencies = {"common", "product::api", "order::api", "member::api"})`(규칙 Y). 이벤트 record·토픽 상수(`ProductUpsertedEvent`, `OrderPaidEvent`, `MemberWithdrawnEvent`)와 `ProductApi.getForCheckout`을 쓰기 위한 것이다. 다른 모듈이 recommendation을 부르지 않으므로 `api` 패키지는 두지 않는다(search도 같다) |
-
-**5) recommendation.infrastructure**
-
-| 클래스 | 규격 |
-|---|---|
-| `RecommendationEventConsumer` | consumer 세 개를 둔다(규칙 X의 모양). 아래 표 |
-
-| consumer | 처리 순서 |
-|---|---|
-| `product-upserted` (consumer `recommendation.product-upserted`) | 아래 `product-upserted` consumer 순서 |
-| `order-paid` (consumer `recommendation.order-paid`) | 아래 `order-paid` consumer 순서 |
-| `member-withdrawn` (consumer `recommendation.member-withdrawn`) | 아래 `member-withdrawn` consumer 순서 |
-
-`order-paid` consumer — `OrderPaidEvent(orderId, memberId, totalAmount, shopOrders[{shopOrderId, shopId, lines[{orderLineId, productId, productName, quantity}]}])`
-1. `runOnce` 안에서 `shopOrders[*].lines[*].productId`를 펼쳐 **중복을 제거**한다(같은 상품이 두 번 나와도 같은 PK로 두 번 쓰지 않게)
-2. 상품마다 `INSERT INTO recommendation.member_purchase (member_id, product_id, purchased_at) VALUES (?, ?, ?) ON CONFLICT (member_id, product_id) DO UPDATE SET purchased_at = EXCLUDED.purchased_at` — 같은 상품 재구매는 시각만 갱신한다. `purchased_at`에 넣을 시각은 문서에 없다(이벤트 record에 결제 시각이 없다. 후보는 봉투의 `occurredAt`. 확인 필요)
-3. `runOnce`가 **끝난 뒤(커밋 뒤)** `redis.delete("rec:result:" + memberId)`. 커밋 전에 지우면 그 사이 `recommend()`가 옛 데이터로 캐시를 다시 채울 수 있다. Redis 삭제가 실패해 예외가 나면 재시도하며, 두 번째는 `runOnce`가 중복으로 건너뛰고 삭제만 다시 한다
-
-`member-withdrawn` consumer — `MemberWithdrawnEvent(UUID memberId)`: `runOnce` 안에서 `DELETE FROM recommendation.member_purchase WHERE member_id = ?` → 끝난 뒤 같은 캐시 키 삭제(`order-paid`의 3번과 같은 이유)
-
-`product-upserted` consumer 순서 — `ProductUpsertedEvent`에서 쓰는 필드는 `productId`, `name`, `description`, `category`, `status`다(가격은 임베딩 입력이 아니다)
-1. **중복 확인**: `common.processed_message`에서 `(consumer = "recommendation.product-upserted", event_id = 봉투의 eventId)`가 있는지 **조회만** 한다. 있으면 종료. 이 조회가 없으면 이미 처리한 메시지가 다시 올 때마다 4번에서 OpenAI를 또 부른다(비용). `runOnce`는 5번에서야 중복을 알기 때문이다. 조회 전용 메서드는 위 `common.inbox` 절이다
-2. `status`가 `ON_SALE`이 아니면 `runOnce`로 `UPDATE recommendation.product_embedding SET status = 'INACTIVE', updated_at = ? WHERE product_id = ?`만 하고 종료. 아직 임베딩이 없는 상품이면 0행이라 아무 일도 없다
-3. **본문 해시**: 정책의 임베딩 입력을 `input`으로 만든다(설명이 1,000자보다 짧으면 전체. `substring(0, Math.min(1000, length))`). `sourceHash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(input.getBytes(UTF_8)))`(64자 = `varchar(64)`). `SELECT source_hash FROM recommendation.product_embedding WHERE product_id = ?`의 값과 같으면 `runOnce`로 `status = 'ACTIVE'`만 바꾸고 종료(가격만 바뀐 수정, 숨김 → 판매 중 복귀가 여기로 온다). 행이 없으면 다음 단계로
-4. **트랜잭션 밖에서** `float[] vector = embeddingModel.embed(input)` → 문자열 `'[...]'`로 변환. 실패하면 예외가 그대로 올라가 3-2 정책으로 재시도 → DLT(`BusinessException`으로 감싸지 않는다)
-5. `runOnce("recommendation.product-upserted", envelope, () -> upsert)`: `INSERT INTO recommendation.product_embedding (product_id, embedding, model, source_hash, status, updated_at) VALUES (?, CAST(? AS vector), ?, ?, 'ACTIVE', ?) ON CONFLICT (product_id) DO UPDATE SET embedding = EXCLUDED.embedding, model = EXCLUDED.model, source_hash = EXCLUDED.source_hash, status = 'ACTIVE', updated_at = EXCLUDED.updated_at`. `model`에 적을 값은 문서에 없다(설정 `spring.ai.openai.embedding.options.model`의 값이 자연스럽다. 확인 필요)
-- 4번 호출이 성공한 뒤 5번 전에 죽으면 같은 메시지로 임베딩을 한 번 더 부른다(중복 호출 가능성, "리뷰 때 물어볼 것").
-**6) recommendation.application**
-
-| 클래스 | 규격 |
-|---|---|
-| `RecommendationResult` | `record (UUID productId, String name, long price, String thumbnailKey)` — 응답 `RecommendationResponse`(recommendation.web 절)의 필드 + `thumbnailKey`. 이름은 Part 1 규칙 D·E를 따른 권장안이다. `recommend`의 반환이고 Redis 캐시 JSON이다 |
-| `ProductEmbeddingService` | 임베딩 생성·저장. 위 `product-upserted` consumer 순서에서 중복 확인 뒤의 일을 맡는다. consumer와 서비스의 분담은 문서에 없다(확인 필요) |
-
-| 클래스 | 메서드 |
-|---|---|
-| `RecommendationService` | `List<RecommendationResult> recommend(UUID memberId)` |
-
-`RecommendationService.recommend(UUID memberId)` (`@Transactional(readOnly = true)` 아님 — 캐시 적중이면 DB 커넥션을 잡지 않으려고 Redis를 먼저 본다. SQL은 `JdbcTemplate`이 문장마다 실행한다) → `List<RecommendationResult>`
-1. Redis 캐시 있으면 반환: `redis.opsForValue().get("rec:result:" + memberId)`가 `null`이 아니면 JSON 문자열을 `ObjectMapper`로 `List<RecommendationResult>`(`TypeReference` 사용)로 바꿔 반환
-2. 최근 구매 상품 ID(90일, 최대 20): `SELECT product_id FROM recommendation.member_purchase WHERE member_id = ? AND purchased_at >= ? ORDER BY purchased_at DESC LIMIT 20`(`?`는 `clock.instant().minus(90, DAYS)`). 비어 있으면 빈 목록을 반환한다. 90일 안에서 20개를 고르는 순서와, 정책의 "이미 산 상품 제외"가 이 20개만인지 전체 구매 이력인지는 문서에 명시돼 있지 않다(확인 필요). 아래 4번의 `NOT IN`은 이 목록을 쓰는 것으로 적혀 있다
-3. 평균 벡터를 SQL로: `SELECT AVG(embedding)::text FROM recommendation.product_embedding WHERE product_id IN (...)` (pgvector README의 집계 함수 표에 `avg(vector) → vector`가 있다, 2026-10-09 확인). 결과는 `'[...]'` 형식의 문자열 하나(`queryForObject(sql, String.class, ...)`)로, 4번의 `:taste`에 그대로 넘긴다. 구매한 상품에 임베딩 행이 하나도 없으면 `NULL`이 나온다 — 이때의 응답은 문서에 없다(확인 필요: 빈 목록이 자연스럽다)
-4. `SELECT product_id FROM recommendation.product_embedding WHERE status = 'ACTIVE' AND product_id NOT IN (:purchased) ORDER BY embedding <=> CAST(:taste AS vector) LIMIT 20` — `<=>`는 코사인 거리라 작을수록 비슷하다. 결과는 가까운 순서의 `List<UUID>`
-5. `productApi.getForCheckout(ids)`(`List<ProductForCheckout>`, 없는 ID는 빠진다)로 이름·가격·판매 여부 → `onSale`인 것만, **4번의 순서대로**(반환 목록은 순서를 보장하지 않으므로 `productId`로 맵을 만들어 `ids`를 순회) `RecommendationResult(productId, name, price.amount(), thumbnailKey)`로 만든다 → Redis 저장: `ObjectMapper`로 JSON 문자열을 만들어 `redis.opsForValue().set("rec:result:" + memberId, json, Duration.ofMinutes(30))`
-- 5번에서 다시 판매 중인지 거르는 이유: 4번은 임베딩 테이블의 `status`(이벤트로 갱신되어 잠시 늦을 수 있다)만 보기 때문이다.
-
-**7) recommendation.web**
-
-| API | 요청 | 응답 |
-|---|---|---|
-| `GET /api/recommendations/me` | | 200 `List<RecommendationResponse(productId, name, price, thumbnailUrl)>` |
-
-- `ImageUrls`는 `common.storage`의 `@Component`이고 `String toUrl(String objectKey)`가 키가 `null`이면 `null`, 아니면 `{publicBaseUrl}/{키}`를 돌려준다. Redis 캐시에는 키를 저장한다(URL은 설정에 따라 바뀔 수 있다)
-- `RecommendationController`는 `@CurrentMember UUID memberId`로 `recommendationService.recommend(memberId)`를 부르고, `RecommendationResponse`의 `static RecommendationResponse from(RecommendationResult result, ImageUrls imageUrls)`(`ProductSummaryResponse.from`처럼 `thumbnailUrl = imageUrls.toUrl(result.thumbnailKey())`로 채운다. `ImageUrls`는 컨트롤러가 주입받아 넘긴다)로 바꾼다
-
-### 완료 확인
-
-**테스트 준비**
-
-아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `embeddingOf(UUID productId)` → `EmbeddingRow` | JDBC `SELECT status, source_hash, model, vector_dims(embedding), updated_at FROM recommendation.product_embedding WHERE product_id = ?`. `EmbeddingRow`는 `support/`의 record `(String status, String sourceHash, String model, int dims, Instant updatedAt)`. 행이 없으면 `null`(PK가 `product_id`라 "1행"은 `null`이 아님으로 확인한다) | `ProductEmbeddingTest`, `RecommendationTest` 준비 |
-| `purchasedProductIdsOf(UUID memberId)` → `Set<UUID>` | JDBC `SELECT product_id FROM recommendation.member_purchase WHERE member_id = ?` | `RecommendationTest` 준비·4·7번 |
-| `processedCountOf(String consumer)` → `long` | 기존 `int processedCountOf(String consumer, UUID eventId)`(그 `(consumer, eventId)`의 행 수)와 이름이 같고 인자가 다른 오버로드다. JDBC `SELECT count(*) FROM common.processed_message WHERE consumer = ?`(그 consumer의 행 수) | `ProductEmbeddingTest` 1·2·5·6번 |
-| `recommendationCacheOf(UUID memberId)` → `RecommendationCache` | `StringRedisTemplate`로 `get("rec:result:" + memberId)`를 읽고(없으면 `null`) JSON 배열을 `objectMapper.readTree`로 푼다. `getExpire(키, TimeUnit.SECONDS)`가 TTL. `RecommendationCache`는 `support/`의 record `(JsonNode items, long ttlSeconds)`이고 `productIds()`가 `items`의 `productId`를 저장된 JSON 배열의 순서대로 `List<UUID>`로 돌려준다. `items()`는 `JsonNode` 배열이고 항목에 `thumbnailKey`가 있다 | `RecommendationTest` 2·4·6번 |
-| `setEmbedding(UUID productId, float x, float y, float z, String status)` → `void` | JDBC `UPDATE recommendation.product_embedding SET embedding = CAST(? AS vector), status = ? WHERE product_id = ?`. 벡터 문자열은 앞 세 성분이 `x, y, z`이고 나머지 1,533개가 0인 1536개를 공백 없이 `,`로 이어 `[`·`]`로 감싼 것(`'[x,y,z,0,0,…]'`) | `RecommendationTest` 준비 |
-| `setEmbeddingStatus(UUID productId, String status)` → `void` | JDBC `UPDATE recommendation.product_embedding SET status = ? WHERE product_id = ?` | `RecommendationTest` 3번 |
-| `FakeOpenAiServer.embeddingInputs()` → `List<String>` | 받은 `/v1/embeddings` 요청 본문을 받은 순서대로 `readTree`로 읽어 `input` 문자열을 모은다. 건수는 `.size()`. `input`이 문자열인지 배열인지는 서버를 만들 때 실제 요청을 보고 정한다(확인 필요) | `ProductEmbeddingTest` 전부 |
-
-이미 있는 헬퍼: `signup`, `login`, `UUID createPaidOrder(UUID buyerId, UUID... productIds)`(상품을 담아 체크아웃하고 결제 승인까지 마쳐 `orderId`를 돌려준다), `void hideProduct(UUID productId)`, `outboxRelay.relayOnce()`, `Eventually.await(Duration timeout, ThrowingRunnable assertion)`(통과할 때까지 100ms마다 단언을 다시 실행하고, 시간이 다 되면 마지막 실패를 던진다), `List<ConsumerRecord<String, String>> TestKafka.readAll(String topic)`(토픽의 모든 레코드를 처음부터 읽는다. `key()`가 집계 ID, `value()`가 봉투 JSON). 탈퇴(`member-withdrawn`)가 구매 이력과 캐시를 지우는지는 이 단계의 완료 확인에 없다(Part 3의 탈퇴 흐름이 필요해 추가하지 않았다. 확인 필요).
-
-헬퍼를 쓰는 방법은 다음과 같다.
-- 응답: `jsonPath`. 추천은 배열이라 `$.length()`와 `$[i].productId`·`.name`·`.price`·`.thumbnailUrl`.
-- 가짜 OpenAI 서버(`FakeOpenAiServer`): 메서드는 `FakePgServer`와 같은 모양을 권장안으로 한다: `static FakeOpenAiServer start()`(JDK `HttpServer`를 빈 포트로 띄운다), `String baseUrl()`, `void on(String pathPrefix, Behavior behavior)`(기존 `support/Behavior` record를 쓴다. 예: `Behavior.serverError()`는 500 응답), `List<RecordedRequest> requests(String pathPrefix)`(`RecordedRequest(method, path, headers, body)`), `void reset()`(설정과 기록을 비운다). `IntegrationTestSupport`의 `@AfterEach`에서 `reset()`을 부른다.
-- DLT: `TestKafka.readAll("product.product-upserted.v1.dlt")`(3-1). 레코드의 봉투 `eventId`는 `common.outbox_event`의 행 ID와 같다.
-
-**공통 준비**: 판매자 1명, 가게 1개. 상품은 `RegisterProductService.register(sellerId, shopId, new RegisterProductCommand(이름, "설명", 카테고리, 가격, 10, false))`로 만든다. 이벤트는 `outboxRelay.relayOnce()`로 흘리고 `Eventually.await(Duration.ofSeconds(10), …)`로 기다린다.
-
-#### `recommendation/application/ProductEmbeddingTest` (가짜 OpenAI 서버)
-
-공통: 상품 `P` = 이름 `"비타민 C 1000"`, 설명 `"하루 한 알 비타민"`, `HEALTH`, 10000원. 임베딩 입력은 `expectedInput` = `"비타민 C 1000\nHEALTH\n하루 한 알 비타민"`, `expectedHash` = `expectedInput`의 UTF-8 SHA-256 16진수(테스트가 `MessageDigest`로 계산).
-
-**1. 같은 이벤트가 두 번 와도 임베딩 호출은 1번** — 동작 1: `P` 등록 → `relayOnce()` → Eventually로 `embeddingOf(P)`가 `null`이 아닐 때까지.
-- `embeddingOf(P).updatedAt()`을 읽어 둔다.
-- 동작 2: JDBC `UPDATE common.outbox_event SET status = 'READY', next_attempt_at = now() WHERE topic = 'product.product-upserted.v1'` → `relayOnce()` → 3초 대기.
-- 확인: `embeddingInputs()` 여전히 1건, `embeddingOf(P).updatedAt()`이 읽어 둔 값과 같다, `processedCountOf(…)` 여전히 1.
-
-**2. 가격만 바뀐 수정은 호출하지 않는다** — 준비: 1번 동작 1까지. 동작: `updateProductService.update(sellerId, shopId, P, new UpdateProductCommand(null, null, null, 12000L, null))` → `relayOnce()` → Eventually로 `processedCountOf(…)`가 2가 될 때까지.
-- 확인: `embeddingInputs()` 여전히 1건. `embeddingOf(P)`: `sourceHash` = `expectedHash`.
-
-**3. 설명은 앞 1,000자만 쓴다** (추가) — 준비: 상품 이름 `"자르기 검증"`, 설명 `"가"×1500`, `HEALTH`. 동작: 등록 → `relayOnce()` → Eventually로 `embeddingInputs()`가 1건이 될 때까지. 확인: 그 입력 = `"자르기 검증\nHEALTH\n" + "가"×1000`. `embeddingOf(상품).sourceHash()`도 그 문자열의 SHA-256.
-
-**4. 숨김·단종은 INACTIVE, 복귀는 ACTIVE (호출 없이)** — 준비: 1번 동작 1까지. 동작과 확인(매번 `relayOnce()` 후 Eventually로 `embeddingOf(P).status()`를 기다린다):
-- `changeStatus(sellerId, shopId, P, HIDDEN)` → `status` = `INACTIVE`.
-- `changeStatus(…, ON_SALE)` → `status` = `ACTIVE`.
-- `changeStatus(…, DISCONTINUED)` → `status` = `INACTIVE`.
-- 세 번의 변경 내내 `sourceHash`는 `expectedHash` 그대로, `embeddingInputs()`는 1건 그대로.
-
-**5. OpenAI 500이면 재시도 후 DLT** — 준비: `openAi.on("/v1/embeddings", Behavior.serverError())`. 동작: `P` 등록 → `relayOnce()`.
-- `Eventually.await(Duration.ofSeconds(30), …)`로 `TestKafka.readAll("product.product-upserted.v1.dlt")`에 `P`가 키인 레코드가 1개 올 때까지 기다린다. 그 레코드의 봉투 `eventId` = 이 상품의 `product.product-upserted.v1` outbox 행 ID.
-- `openAi.embeddingInputs()` 정확히 4건.
-- `embeddingOf(P)` = `null`, `processedCountOf("recommendation.product-upserted")` = 0.
-
-**6. 등록하면 임베딩이 저장된다** — 동작: 1번의 동작 1(`P` 등록 → `relayOnce()` → Eventually로 `embeddingOf(P)`가 `null`이 아닐 때까지).
-- 확인: `openAi.embeddingInputs()` = [`expectedInput`]. `embeddingOf(P)`: `status` = `ACTIVE`, `sourceHash` = `expectedHash`, `model` = `text-embedding-3-small`(저장하는 값은 문서에 없다. 확인 필요). `processedCountOf("recommendation.product-upserted")` = 1.
-
-**7. 본문이 바뀐 수정은 임베딩을 다시 만든다** — 준비: 1번 동작 1까지. 동작: `update(sellerId, shopId, P, new UpdateProductCommand("비타민 C 2000", null, null, null, null))` → `relayOnce()` → Eventually로 `embeddingInputs()`가 2건이 될 때까지.
-- 확인: 두 번째 입력 = `"비타민 C 2000\nHEALTH\n하루 한 알 비타민"`, `embeddingOf(P).sourceHash()` = 그 문자열의 SHA-256.
-
-**8. OpenAI가 500이어도 상품 API는 정상** — 준비: `openAi.on("/v1/embeddings", Behavior.serverError())`. 동작: 상품 API `POST /api/shops/{shopId}/products`(판매자 토큰, 새 `Idempotency-Key`, 본문 `RegisterProductRequest`) → `GET /api/products/{id}`.
-- 확인: 등록 201, 조회 200, `$.id` = 새 상품 ID.
-
-#### `recommendation/web/RecommendationTest` (가짜 OpenAI 서버)
-
-**공통 준비**: 구매자 `buyer`(`signup` + `login`). 상품 6개를 등록한다(모두 설명 `"설명"`).
-
-| 상품 | 이름 | 카테고리 | 가격 | 임베딩 `(x, y, z)` | 임베딩 `status` | 비고 |
-|---|---|---|---|---|---|---|
-| A | `"비타민 C 1000"` | `HEALTH` | 10000 | (1, 0, 0) | `ACTIVE` | 구매 상품 |
-| B | `"비타민 D 2000"` | `HEALTH` | 12000 | (0.9, 0.1, 0) | `ACTIVE` | |
-| C | `"오메가 쓰리"` | `HEALTH` | 20000 | (0.6, 0.8, 0) | `ACTIVE` | |
-| D | `"고양이 사료"` | `PET` | 30000 | (0, 0, 1) | `ACTIVE` | |
-| E | `"비타민 E"` | `HEALTH` | 15000 | (0.95, 0.05, 0) | `INACTIVE` | |
-| F | `"비타민 B"` | `HEALTH` | 11000 | (0.8, 0.6, 0) | `ACTIVE` | `hideProduct(F)`로 숨김 |
-
-준비 순서: ① 6개 등록 → `relayOnce()` → Eventually로 여섯 상품 모두 `embeddingOf(상품)`이 `null`이 아닐 때까지 ② 상품마다 `setEmbedding(상품, x, y, z, status)`로 위 표의 벡터·`status`로 덮어쓴다 ③ `hideProduct(F)` ④ `createPaidOrder(buyerId, A)` → `relayOnce()` → Eventually로 `purchasedProductIdsOf(buyerId)`가 {`A`}가 될 때까지.
-
-**1. 비슷한 상품이 앞에, 산 상품은 제외** — 동작: `GET /api/recommendations/me`(Bearer `buyer`).
-- 응답: 200, `$.length()` = 3.
-- 순서 `[B, C, D]`: `$[0].productId` = B, `$[1].productId` = C, `$[2].productId` = D. F·A·E는 없다.
-- `$[0].name` = `"비타민 D 2000"`, `.price` = 12000 / `$[1].name` = `"오메가 쓰리"`, `.price` = 20000 / `$[2].name` = `"고양이 사료"`, `.price` = 30000.
-
-**2. 구매 이력이 없으면 빈 목록** — 동작: 구매가 없는 회원 `buyer2`(`signup` + `login`)로 호출.
-- 응답: 200, `$.length()` = 0. `recommendationCacheOf(buyer2)` = `null`.
-
-**3. 두 번째 호출은 캐시에서 나온다** — 준비: 첫 호출(1번과 같다)로 캐시를 만든다. 동작·확인:
-- `setEmbeddingStatus(B, "INACTIVE")` 후 두 번째 호출: 200, 응답이 첫 호출과 같다(`[B, C, D]`).
-- Redis 키 `rec:result:{buyer}`를 `delete`하고 세 번째 호출: 200, `$.length()` = 2, `[C, D]`.
-
-**4. 새 결제가 캐시를 지운다** — 준비: 첫 호출로 캐시를 만든다. 동작: `createPaidOrder(buyerId, C)` → `relayOnce()` → Eventually(10초)로 아래를 기다린다.
-- `purchasedProductIdsOf(buyer)` = `{A, C}`.
-- `recommendationCacheOf(buyer)` = `null`.
-
-**5. 90일이 지난 구매는 이력이 아니다** — 준비: 준비 ④까지 한 `buyer`의 구매 시각을 JDBC `UPDATE recommendation.member_purchase SET purchased_at = ? WHERE member_id = ?`(`Instant.now().minus(91, DAYS)`)로 바꾸고 Redis 키 `rec:result:{buyer}`를 지운다. 동작: 호출.
-- 응답: 200, `$.length()` = 0.
-
-**6. 첫 호출은 결과를 캐시에 30분 저장한다** — 동작: 첫 호출(1번과 같다).
-- `recommendationCacheOf(buyer)`: `null`이 아니고 `productIds()` = `[B, C, D]`, `items().get(0)`에 `thumbnailKey` 필드가 있고 값은 `null`, `ttlSeconds()`는 1700 이상 1800 이하.
-
-**7. 구매 상품이 둘이면 취향은 두 임베딩의 평균** — 준비: 준비 ④까지. 동작: `createPaidOrder(buyerId, C)` → `relayOnce()` → Eventually(10초)로 `purchasedProductIdsOf(buyer)` = `{A, C}`가 될 때까지 기다린 뒤 호출.
-- 응답: 200, `$.length()` = 2, `[B, D]`.
-
-**리뷰 때 물어볼 것**
-- OpenAI 비용을 어떻게 관리했나?
-- consumer에서 외부 호출을 `runOnce` 밖에서 하는 이유는? 그 대가는(중복 호출 가능성)?
-
----
-
-## 6-5. 월간 리뷰 요약 (S)
-
-**목표**: 매월 1일 상품별 리뷰를 LLM으로 요약한다. 직전 요약 이후 새 리뷰가 없으면 건너뛴다.
-
-**정책 (이 단계에서 정함)**
-- 프롬프트에 넣는 리뷰: 좋아요 많은 순 30개 + 별점 낮은 순 10개(중복 제외, 최대 40개이므로 리뷰가 아무리 많아도 40개를 넘지 않는다).
-- 요약 대상: 전월(업무 날짜)에 ACTIVE 리뷰가 1개 이상 새로 생긴 상품. 요약 모델은 설정값 `spring.ai.openai.chat.options.model`(예: `gpt-4o-mini` — 착수 시점에 OpenAI가 제공하는 저가 모델인지 확인 필요).
-- 요약 잡: 매월 1일 04:00(Asia/Seoul), 상품별 실패는 기록하고 건너뛴다.
-
-### 할 일
-
-**구현 순서**: 절 번호 순서대로 만든다. 1) 마이그레이션 → 2) 설정 → 3) `review.infrastructure`(`ReviewSummaryJob`) → 4) `review.application`(`ReviewSummaryService.summarizeMonth` → `ReviewQueryService.getStats`의 `latestSummary`) → 테스트.
-
-**1) 마이그레이션** — `review.review_summary`: `id uuid pk`, `product_id uuid X`, `period_end date X`, `uk_review_summary_product_period (product_id, period_end)`, `summary text X`, `source_review_count int X`, `model varchar(50) X`, `created_at`
-
-**2) 설정** — `application.yaml`
-
-- `spring.ai.openai.chat.options.model`(위 정책의 요약 모델)을 둔다. `chat.timeout`(60s)·`chat.max-retries`(0)는 6-4 설정 표에 있다. 테스트는 `FakeOpenAiServer`의 `/v1/chat/completions`(6-4)를 쓴다. `ReviewSummaryService`가 읽는다
-
-**3) review.infrastructure**
-
-| 클래스 | 규격 |
-|---|---|
-| `ReviewSummaryJob` | `@Scheduled(cron = "0 0 4 1 * *", zone = "Asia/Seoul")` → `jobRunner.run("review-summary", () -> service.summarizeMonth(YearMonth.now(clock.withZone(businessZone)).minusMonths(1)))`(잡 이름은 권장안) |
-
-**4) review.application**
-
-| 클래스 | 메서드 |
-|---|---|
-| `ReviewSummaryService` | `int summarizeMonth(YearMonth month)` — `@Transactional` 없음 |
-| `ReviewQueryService` (6-1 수정) | `getStats` 수정 |
-
-`ReviewSummaryService.summarizeMonth(YearMonth month)` — 한 달 치 대상 상품을 돌며 LLM 요약을 만들어 `review_summary`에 저장한다. 순서는 아래다. `JobRunner.run`이 `Supplier<Integer>`를 받으므로 저장한 요약 건수(`int`)를 반환한다. 의존성: `JdbcTemplate`(또는 review repository), Spring AI `ChatClient`(스타터가 만드는 `ChatClient.Builder`로 `build()`한다. 2.0.1에서 확인 필요), `Clock`, `BusinessProperties`(3-4가 만드는 `common.config`의 `@ConfigurationProperties("myroutine") record`. `ZoneId businessZone()`이 업무 시간대 `Asia/Seoul`을 돌려준다). `ReviewSummaryJob`이 부르고, 스케줄러는 테스트에서 꺼져 있으므로 테스트가 직접 부른다(2-5)
-
-`summarizeMonth` 순서
-1. 기간: `from = month.atDay(1)`의 업무 시간대 0시, `to = month.plusMonths(1).atDay(1)`의 0시(포함 미만). 0시는 `atStartOfDay(businessProperties.businessZone()).toInstant()`로 구한다. 대상 상품 ID: `SELECT DISTINCT product_id FROM review.review WHERE status = 'ACTIVE' AND created_at >= :from AND created_at < :to` (keyset: `product_id > :after ORDER BY product_id LIMIT :n`씩 반복. `n`은 구현이 정한다)
-2. 상품마다 try/catch(실패하면 상품 ID·사유를 `log.error`로 남기고 **다음 상품으로**):
-   1. 이미 `(product_id, period_end)` 요약이 있으면 건너뜀(**LLM 호출 전에** 확인 — 비용). 잡을 두 번 돌려도 호출이 한 번이 되는 장치다. `period_end`에 넣을 날짜는 6-5에 정의돼 있지 않다(`month.atEndOfMonth()`, 말일 포함이 자연스럽다. 3-4 정산의 `period_end`도 말일 포함이다. 확인 필요)
-   2. 대표 리뷰 선택(위 정책: `ORDER BY like_count DESC LIMIT 30` + `ORDER BY rating, created_at DESC LIMIT 10`): 쿼리 두 번의 결과를 리뷰 ID로 합쳐 중복을 빼면 최대 40개다. 이 쿼리가 그 상품의 **전체 ACTIVE 리뷰**를 대상으로 하는지 대상 월의 리뷰만인지, `source_review_count`가 프롬프트에 넣은 개수(≤ 40)인지 전체 개수인지는 문서에 없다(확인 필요)
-   3. 프롬프트: 시스템 "상품 리뷰를 3문장 이내로 장단점 중심 요약" + 리뷰 목록(별점·본문 200자, `substring(0, Math.min(200, length))`. 줄 형식은 구현이 정한다). **트랜잭션 밖에서** `String summary = chatClient.prompt().system(시스템문구).user(리뷰목록).call().content()` (Spring AI의 `ChatClient` 호출 형태. 2.0.1에서 확인 필요). 응답 지연·500은 예외로 올라와 위 try/catch가 받는다(`max-retries`는 0)
-   4. `INSERT INTO review.review_summary (id, product_id, period_end, summary, source_review_count, model, created_at) VALUES (...) ON CONFLICT (product_id, period_end) DO NOTHING`. `id`는 `Ids.newId()`, `model`에는 요약에 쓴 설정 `spring.ai.openai.chat.options.model`의 값을 적는다(`model` 값은 문서에 명시돼 있지 않다. 확인 필요). 1번 확인과 이 INSERT 사이에 다른 서버가 먼저 넣어도 `DO NOTHING`이라 안전하다
-
-`ReviewQueryService.getStats` 수정 (6-1) — `review_summary`에서 `product_id`의 `period_end` 최댓값 행 `(periodEnd, summary)`를 읽어 `latestSummary`에 넣는다. 없으면 `null`. 읽는 쿼리를 둘 곳은 문서에 없다(확인 필요: 6-1 통계 읽기 메서드와 같은 repository).
-
-### 완료 확인
-
-**테스트 준비**
-
-아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안).
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `insertReview(UUID productId, int rating, int likeCount, String status, String content, Instant createdAt)` → `UUID` | JDBC `INSERT INTO review.review (id, order_line_id, product_id, member_id, rating, content, like_count, status, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`. `id`·`order_line_id`·`member_id`는 `Ids.newId()`, `updated_at` = `created_at` | `ReviewSummaryTest` |
-| `reviewSummariesOf(UUID productId)` → `List<ReviewSummaryRow>` | JDBC `SELECT period_end, summary, source_review_count, model FROM review.review_summary WHERE product_id = ? ORDER BY period_end`. `ReviewSummaryRow`는 `support/`의 record `(LocalDate periodEnd, String summary, int sourceReviewCount, String model)`이고 행 수는 `.size()`, 없으면 빈 목록 | `ReviewSummaryTest` 1·2·5·7·9번 |
-| `insertReviewStat(UUID productId, int reviewCount, long ratingSum, int r1, int r2, int r3, int r4, int r5)` → `void` | JDBC `INSERT INTO review.product_review_stat (product_id, review_count, rating_sum, r1, r2, r3, r4, r5, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, now())` | `ReviewSummaryTest` 6번 |
-| `insertReviewSummary(UUID productId, LocalDate periodEnd, String summary)` → `void` | JDBC `INSERT INTO review.review_summary (id, product_id, period_end, summary, source_review_count, model, created_at) VALUES (?, ?, ?, ?, 1, 'test', now())`. `id`는 `Ids.newId()` | `ReviewSummaryTest` 6번 |
-| `FakeOpenAiServer.chatUserPrompts()` → `List<String>` | 받은 `/v1/chat/completions` 요청마다 `messages` 중 `role`이 `user`인 것의 `content` 텍스트를 받은 순서대로 모은다. 호출 건수는 `.size()`, 프롬프트는 `.get(0)`처럼 읽는다(`content`가 문자열인지 배열인지는 서버를 만들 때 실제 요청을 보고 정한다. 확인 필요) | `ReviewSummaryTest` 1~5·8·9번 |
-
-헬퍼를 쓰는 방법은 다음과 같다.
-- 방금 호출 하나만 실패시키는 `openAi.failNext("/v1/chat/completions", 1)`이 필요하다(이름은 권장안. 해당 경로에 앞으로 `n`번 오는 요청만 500으로 응답하고 호출마다 남은 횟수를 하나씩 줄이며, `reset()`이 남은 횟수를 비운다).
-- 가짜 서버의 고정 요약 문장: 서버를 만들 때 정하는 상수(예: `FakeOpenAiServer.SUMMARY`)와 `review_summary.summary`를 비교한다.
-
-**공통 준비**: 요약 월은 오늘 날짜에 기대지 않도록 `YearMonth.of(2026, 9)`로 고정하고 `service.summarizeMonth(...)`를 직접 부른다. 리뷰는 6-1 흐름을 거치지 않고 JDBC로 직접 넣는다. `review`는 상품을 호출하지 않고 6-1 마이그레이션에 외래 키도 없으므로 `productId`·`order_line_id`·`member_id`는 `Ids.newId()`면 된다.
-
-시각은 업무 시간대(Asia/Seoul) 기준이다: `ZonedDateTime.of(2026, 9, 15, 12, 0, 0, 0, ZoneId.of("Asia/Seoul")).toInstant()` 같은 식으로 만든다. 기간은 `2026-09-01T00:00+09:00` 이상, `2026-10-01T00:00+09:00` 미만이다.
-
-#### `review/application/ReviewSummaryTest` (가짜 OpenAI 서버)
-
-**1. 잡을 두 번 돌려도 요약 1건, LLM 호출 1번** — 준비: 상품 `Pa`에 `ACTIVE` 리뷰 3개: 5점·`2026-09-01T00:00+09:00`, 4점·`2026-09-15T12:00+09:00`, 2점·`2026-09-30T23:59:59+09:00`. 동작: `summarizeMonth(YearMonth.of(2026, 9))`를 두 번 호출.
-- 반환값: 첫 호출 1, 둘째 호출 0.
-- `reviewSummariesOf(Pa)`: 1개.
-- `openAi.chatUserPrompts()` 정확히 1건.
-
-**2. 전월에 새 리뷰가 없는 상품은 호출하지 않는다** — 준비: 상품 세 개.
-- `Pb`: `ACTIVE` 리뷰 1개, `2026-08-31T23:59:59+09:00`.
-- `Pc`: `ACTIVE` 리뷰 1개, `2026-10-01T00:00:00+09:00`.
-- `Pd`: `DELETED` 리뷰 1개, `2026-09-15T12:00+09:00`.
-- 동작: `summarizeMonth(YearMonth.of(2026, 9))`. 확인: 반환값 0, `chatUserPrompts()` 0건.
-
-**3. 리뷰 100개인 상품도 프롬프트는 40개 이하** — 준비: 상품 `Pe`에 `ACTIVE` 리뷰 100개. `i` = 1~100:
-- `content` = `"리뷰본문-" + 3자리 0패딩 i`(예: `리뷰본문-007`). 단 `i` = 100은 `"리뷰본문-100 " + "힣"×500`.
-- `rating` = `i ≤ 10`이면 1, 아니면 5.
-- `like_count` = `i ≥ 71`이면 `i`, 아니면 0.
-- `created_at` = `2026-09-05T00:00+09:00`에 `i`분을 더한 값.
-- 동작: `summarizeMonth(YearMonth.of(2026, 9))`.
-- `chatUserPrompts()` 1건. 그 프롬프트에서 정규식 `리뷰본문-(\d{3})`로 찾은 매치를 리스트로 모으면 크기가 정확히 40이고, 그 집합은 `{001~010, 071~100}`이다.
-
-**4. 좋아요 상위와 별점 하위가 겹치면 한 번만 넣는다** (추가) — 준비: 상품 `Pf`에 `ACTIVE` 리뷰 12개, `i` = 1~12, `content` = `"리뷰본문-0" + 두 자리 i`(예: `리뷰본문-007`), `rating` = `i ≤ 5`이면 1, 아니면 5, `like_count` = `i`, `created_at` = 9월 안의 서로 다른 시각. 확인: `chatUserPrompts()` 1건, 그 프롬프트에서 같은 정규식 매치 리스트 크기가 정확히 12, 집합 `{001~012}`.
-
-**5. 한 상품이 실패해도 다른 상품은 요약된다** — 준비: 상품 `Pg`, `Ph`에 각각 9월 `ACTIVE` 리뷰 2개. `failed` = 두 ID 중 `UUID.toString()` 기준 작은 쪽, `ok` = 큰 쪽. `openAi.failNext("/v1/chat/completions", 1)`.
-- 동작: `summarizeMonth(YearMonth.of(2026, 9))`. 확인: 예외가 밖으로 나오지 않는다. 반환값 1. `reviewSummariesOf(ok)` 1개, `reviewSummariesOf(failed)` 빈 목록. `chatUserPrompts()` 2건.
-
-**6. 최신 요약이 리뷰 통계 응답에 들어간다** (추가) — 준비: 상품 `Pa`(1번 케이스처럼 9월 요약 완료) + `insertReviewStat(Pa, 3, 11, 0, 1, 0, 1, 1)` + `insertReviewSummary(Pa, LocalDate.of(2026, 8, 31), "8월 요약")`. 동작: `GET /api/products/{Pa}/review-stats`(Authorization 없이).
-- 응답: 200, `$.latestSummary`의 요약 문장 = 가짜 서버의 고정 문장. `latestSummary`의 JSON 키 이름은 문서에 없다(확인 필요, 후보 `$.latestSummary.summary`·`$.latestSummary.periodEnd`).
-- 요약이 하나도 없는 상품: `$.latestSummary`는 `value(nullValue())`.
-
-**7. 전월 리뷰로 요약 한 건이 저장된다** — 준비: 1번과 같은 준비. 동작: `summarizeMonth(YearMonth.of(2026, 9))`를 한 번 호출.
-- `reviewSummariesOf(Pa)`: `sourceReviewCount()` = 3, `summary()` = 가짜 서버의 고정 문장, `periodEnd()` = `2026-09-30`(말일 포함이 후보. 문서에 없다. 확인 필요), `model()` = 설정 `spring.ai.openai.chat.options.model` 값(문서에 없다. 확인 필요).
-
-**8. 리뷰 본문은 200자까지만 프롬프트에 넣는다** — 준비: 3번과 같은 준비. 동작: `summarizeMonth(YearMonth.of(2026, 9))`.
-- 확인: `chatUserPrompts()`의 프롬프트에서 `힣` 글자가 정확히 191개(100번 리뷰의 본문은 200자까지만: 앞의 `"리뷰본문-100 "` 9자 + 191자).
-
-**9. 실패한 상품은 다시 돌리면 요약된다** — 준비: 5번의 준비와 동작(첫 호출까지). 동작: `summarizeMonth(YearMonth.of(2026, 9))`를 한 번 더 호출.
-- 확인: 반환값 1. `reviewSummariesOf(failed)` 1개, `reviewSummariesOf(ok)`는 그대로 1개. `chatUserPrompts()`는 총 3건.
-
-**추가 항목**
-- 리뷰 임베딩(`review-created` 구독 → 리뷰 벡터 저장)으로 대표 리뷰 고르기: 리뷰 벡터의 평균(중심)에 가까운 리뷰를 고르면 "가장 흔한 의견"을 대표로 넣을 수 있다
-
-**리뷰 때 물어볼 것**: 리뷰가 너무 많으면 무엇을 프롬프트에 넣나? 왜 그렇게 골랐나?
-
----
-
-## 6-6. 1:1 문의 (S)
+## 5-4. 1:1 문의 (S)
 
 **목표**: 회원 문의, 관리자 답변.
 
@@ -1016,7 +684,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 **구현 순서**: 절 번호 순서대로 만든다. 1) 마이그레이션 → 2) `member.domain` → 3) `member.infrastructure` → 4) `member.application` → 5) `member.web` → 테스트.
 
-새 모듈이 아니라 기존 member 모듈(`member.domain`·`member.application`·`member.web`)에 더한다. Part 6 모듈 의존 표(규칙 Y)에 member가 없는 이유다.
+새 모듈이 아니라 기존 member 모듈(`member.domain`·`member.application`·`member.web`)에 더한다. Part 5 모듈 의존 표(규칙 Y)에 member가 없는 이유다.
 
 **1) 마이그레이션** — `member.inquiry`: `id`, `member_id fk_inquiry_member`, `title varchar(100) X`, `content text X`, `status varchar(20) X ck IN ('OPEN','ANSWERED')`, `version`, `created_at`, `updated_at`, 인덱스 `(member_id, created_at DESC, id DESC)`, `(status, created_at)` / `member.inquiry_answer`: `id`, `inquiry_id uk_inquiry_answer_inquiry fk`, `admin_id uuid X`, `content text X`, `created_at`
 
@@ -1073,7 +741,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 이미 있는 헬퍼: `signup`, `login`, `void changeRole(UUID memberId, String role)`(JDBC로 `member.member.role`을 바꾼다).
 
 헬퍼를 쓰는 방법은 다음과 같다.
-- 응답: `jsonPath`. 에러 코드는 `$.code`, 목록은 `$.items.length()`·`$.items[i].…`·`$.nextCursor`. 목록·상세의 항목 필드 이름은 문서에 없다(확인 필요: 6-6 `member.application` 절의 `InquiryResult`·`InquiryDetailResult`가 정한다. 아래는 `Inquiry` 컬럼에 맞춘 `id`·`title`·`status`·`createdAt`을 쓴다).
+- 응답: `jsonPath`. 에러 코드는 `$.code`, 목록은 `$.items.length()`·`$.items[i].…`·`$.nextCursor`. 목록·상세의 항목 필드 이름은 문서에 없다(확인 필요: 5-4 `member.application` 절의 `InquiryResult`·`InquiryDetailResult`가 정한다. 아래는 `Inquiry` 컬럼에 맞춘 `id`·`title`·`status`·`createdAt`을 쓴다).
 
 **공통 준비**: 회원 `user1@test.com`, `user2@test.com`(`signup` + `login`으로 ID와 토큰). 관리자 `admin@test.com`: `adminId = signup("admin@test.com")` → `changeRole(adminId, "ADMIN")` → `login`으로 토큰을 다시 받는다(4-4의 `adminToken(email)`은 같은 순서를 밟지만 가입한 회원 ID를 돌려주지 않아 `admin_id` 확인에 쓸 수 없다). 문의 작성 요청은 `POST /api/inquiries`에 `Authorization: Bearer {user1 토큰}`, 본문 `{"title":"배송이 늦어요","content":"주문한 상품이 아직 도착하지 않았습니다."}`다. 응답 `$.inquiryId`로 문의 ID(`Q1`)를 받는다. 답변 요청은 `POST /admin/api/inquiries/{id}/answer`에 `Authorization: Bearer {admin 토큰}`, 본문 `{"content":"확인 후 오늘 중 안내드리겠습니다."}`다.
 
@@ -1118,5 +786,5 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 ---
 
-## Part 6 완료
-- [ ] `v0.6.0` 릴리스, Part 7 문서 다듬기
+## Part 5 완료
+- [ ] `v0.5.0` 릴리스, Part 6 문서 다듬기

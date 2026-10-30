@@ -5,7 +5,7 @@
 > 0.120 · 2026-10-20 · 테스트 중 스케줄러를 끄려면 `myroutine.scheduling.enabled: false`만으로는 부족하고 Spring Modulith `MomentsAutoConfiguration`의 `@EnableScheduling` 때문에 `spring.modulith.moments.enabled: false`도 필요하다
 > 0.117 · 2026-10-20 · 2-10 자동 확정 7일을 `AutoConfirmService`의 상수로 정했다(설정 프로퍼티 아님). 구현된 `OrderLine.addRefundAmount`에 맞춰 `addRefundedAmount`를 고쳤다(2-8, 2-10)
 > 0.99 · 2026-10-19 · 2-9 `request`에서 `findLine`을 `REJECTED` 환불 검사 앞으로 옮겼다: 이 주문의 품목이 아니면 409 `RETURN_NOT_ALLOWED`가 아니라 404 `ORDER_LINE_NOT_FOUND`가 나온다
-> 0.98 · 2026-10-19 · 2-9 `approve`에서 PG 취소가 `FAILED`이면 환불은 `FAILED`, 품목은 `RETURN_REQUESTED` 그대로 두고 운영자가 7-3 재시도로 처리한다(자동 재시도 잡 없음)
+> 0.98 · 2026-10-19 · 2-9 `approve`에서 PG 취소가 `FAILED`이면 환불은 `FAILED`, 품목은 `RETURN_REQUESTED` 그대로 두고 운영자가 6-3 재시도로 처리한다(자동 재시도 잡 없음)
 > 0.96 · 2026-10-19 · 2-9 `Order.rejectReturn`이 품목이 `RETURN_REQUESTED`인지 검사한다(아니면 `INVALID_STATE_TRANSITION`)
 > 0.94 · 2026-10-19 · 2-8a `Order.verifyCancellable`은 품목 `PAID` 하나만 검사한다(주문·가게주문 `PAID` 검사는 도달할 수 없어 뺐다)
 > 0.93 · 2026-10-19 · 2-9 `Order.requestReturn`의 주문 `PAID` 검사를 뺐다(품목이 `DELIVERED`이면 주문은 항상 `PAID`)
@@ -32,8 +32,8 @@
 > 0.51 · 2026-10-16 · 2-6 `queryOutcome`의 `reconcile_attempts` 증가를 `PaymentRepository.increaseReconcileAttempts` CAS 쿼리로 정했다(status 조건, 0행 처리)
 > 0.48 · 2026-10-15 · 2-5 만료 조건을 `expiresAt <= :now`로 바꿨다(정확히 같은 시각도 만료). 결제 시작 CAS의 `expires_at > :now`와 겹치지 않고 빠지지 않는다
 > 0.45 · 2026-10-15 · 2-4 `ConfirmPaymentService` 트랜잭션 1에서 `startPayment`가 0행이면: `from`은 `PENDING_PAYMENT` 고정, `EXPIRED`·`PAYMENT_FAILED`는 409 `INVALID_STATE_TRANSITION`
-> 0.44 · 2026-10-15 · 공통 규칙 J 표의 payment 허용 의존에 `member::api`(5-1부터)를 더했다
-> 0.43 · 2026-10-15 · 2-6 `cancel`은 같은 키의 `DONE`·`FAILED` 재생 확인을 payment 상태 검사보다 먼저 한다(전액 취소 뒤 복구 잡이 `DONE`을 받는다). `refund.pg_attempts`와 `Refund.pgIdempotencyKey()`를 더해 관리자 재시도(7-3)가 새 키로 PG까지 가게 했다. 빌링 결제의 `paymentKey`는 5-3에서 `PgOutcome`에 더한다
+> 0.44 · 2026-10-15 · 공통 규칙 J 표의 payment 허용 의존에 `member::api`(SUB-1부터)를 더했다
+> 0.43 · 2026-10-15 · 2-6 `cancel`은 같은 키의 `DONE`·`FAILED` 재생 확인을 payment 상태 검사보다 먼저 한다(전액 취소 뒤 복구 잡이 `DONE`을 받는다). `refund.pg_attempts`와 `Refund.pgIdempotencyKey()`를 더해 관리자 재시도(6-3)가 새 키로 PG까지 가게 했다. 빌링 결제의 `paymentKey`는 SUB-3에서 `PgOutcome`에 더한다
 > 0.41 · 2026-10-15 · 2-4 `OrderPaymentApplier`: `order`가 없으면 `IllegalStateException`, `PAYMENT_IN_PROGRESS`가 아니면 그대로 반환하는 가드를 둔다
 > 0.39 · 2026-10-14 · 2-4 `callConfirm`에서 payment가 없으면 `IllegalStateException`(2-6과 같음)이고 `PaymentErrorCode`는 만들지 않는다
 > 0.38 · 2026-10-14 · 2-4 승인 흐름(`ConfirmPaymentService`)의 순서와 정의가 없던 `ConfirmPaymentCommand`·`ConfirmResult`를 정의했다. 2-5·2-6 서비스의 의존성(`tx`, `applier`)과 2-10 `OrderLineResult`를 정의했다
@@ -94,7 +94,7 @@
 | member | `common` | `MemberApi` (2-2) |
 | shop | `common` | `ShopApi` |
 | product | `common`, `shop::api` | `ProductApi` |
-| payment | `common`, `member::api`(5-1부터. 탈퇴 consumer가 `MemberTopics`를 쓴다) | `PaymentApi` (2-4) |
+| payment | `common`, `member::api`(SUB-1부터. 탈퇴 consumer가 `MemberTopics`를 쓴다) | `PaymentApi` (2-4) |
 | order | `common`, `product::api`, `shop::api`, `member::api`, `payment::api` | 없음 (Part 3에서 추가) |
 
 - `{module}/api/package-info.java`에 `@NamedInterface("api")`. 구현체 `XxxApiImpl`은 `{module}.application`의 **package-private** 클래스다.
@@ -395,8 +395,8 @@ DO UPDATE SET quantity = LEAST(orders.cart_item.quantity + EXCLUDED.quantity, 99
   1. **중복 주문**: 둘 다 결제하면 주문 2건·결제 2건이 된다. 시스템에서는 각각 정상적인 별개의 주문이다(각 결제는 정확히 한 주문에 한 번 반영되어 INV-02가 유지되고, **같은 주문의 이중 결제는 막힌다**). 구매자가 의도하지 않았다면 결제 전에는 주문 취소 API(2-4)로 바로 풀고, 결제됐다면 발송 전에 한쪽을 품목 취소해 환불받는다(2-8).
   2. **결제 중 장바구니 표시**: 장바구니에는 결제 대기 중인 항목도 평소처럼 보이고, 재고가 그 주문에 예약되어 `OUT_OF_STOCK`으로 보일 수 있다.
   3. **차감은 상품 단위**: 결제 중에 항목을 지우고 같은 상품을 새로 담으면 새로 담은 수량에서 주문 수량만큼 빠진다.
-  4. **재고 점유 남용**: 회원당 결제 대기 주문 수와 체크아웃 횟수에 상한이 없어, 한 회원이 체크아웃을 반복하면 인기 상품 재고를 15분씩 계속 붙잡을 수 있다(항목당 수량은 최대 99, 품목은 최대 50). 이번 단계에서는 막지 않는다. 방어는 Part 4(이메일 미인증 회원의 체크아웃 403)와 Part 7(예약 비율 모니터링)에 걸쳐 있고, 직접 막으려면 아래 "추가 항목"의 회원당 상한·속도 제한을 쓴다.
-- 차감은 장바구니를 거친 주문만 한다. Part 2의 주문은 모두 장바구니에서 만든 NORMAL이라 조건이 필요 없고, 구독 회차 주문이 생기는 Part 5에서 `type == NORMAL` 조건을 더한다.
+  4. **재고 점유 남용**: 회원당 결제 대기 주문 수와 체크아웃 횟수에 상한이 없어, 한 회원이 체크아웃을 반복하면 인기 상품 재고를 15분씩 계속 붙잡을 수 있다(항목당 수량은 최대 99, 품목은 최대 50). 이번 단계에서는 막지 않는다. 방어는 Part 4(이메일 미인증 회원의 체크아웃 403)와 Part 6(예약 비율 모니터링)에 걸쳐 있고, 직접 막으려면 아래 "추가 항목"의 회원당 상한·속도 제한을 쓴다.
+- 차감은 장바구니를 거친 주문만 한다. Part 2의 주문은 모두 장바구니에서 만든 NORMAL이라 조건이 필요 없고, 구독 회차 주문이 생기는 서브 [구독](../04-sub/subscription.md)에서 `type == NORMAL` 조건을 더한다.
 - 주문을 사람에게 보여줄 때는 주문 ID를 쓴다(별도 주문번호 없음).
 - 이메일 미인증 회원의 주문 제한은 Part 4에서 붙인다.
 - 멱등 키: 회원 단위로 구분, 24시간 보관. **2xx 응답만 저장**하고, 예외로 끝나면 키를 지워 같은 키로 재시도할 수 있게 한다. 만료된 키는 다음 요청이 지우고 새로 점유한다.
@@ -1118,7 +1118,7 @@ void resetPg() { pg.reset(); }    // 기존 truncateAllTables 옆에 둔다
 - `Rejected`, `code()` = `"NOT_FOUND_PAYMENT"`.
 
 **추가 항목**
-- PG 호출 감사 테이블(`payment.pg_call_log`: 작업·HTTP 상태·결과·지연시간·요약) — 지금은 로그 한 줄로 대신한다. Part 7 ELK가 붙으면 로그로 같은 것을 검색할 수 있다
+- PG 호출 감사 테이블(`payment.pg_call_log`: 작업·HTTP 상태·결과·지연시간·요약) — 지금은 로그 한 줄로 대신한다. Part 6 ELK가 붙으면 로그로 같은 것을 검색할 수 있다
 - 외부 호출 메서드 시작 시 `TransactionSynchronizationManager.isActualTransactionActive()`가 true면 예외 — 트랜잭션 안에서 실수로 부르는 것을 막는 안전장치
 
 **리뷰 때 물어볼 것**
@@ -1159,7 +1159,7 @@ void resetPg() { pg.reset(); }    // 기존 truncateAllTables 옆에 둔다
 | cancelled_amount | bigint | X | DEFAULT 0, `ck_payment_cancelled`: `cancelled_amount >= 0 AND cancelled_amount <= amount` (INV-06) |
 | pg_order_id | varchar(64) | X | `uk_payment_pg_order_id` |
 | payment_key | varchar(200) | X | `uk_payment_payment_key` |
-| billing_key_id | uuid | O | Part 5 |
+| billing_key_id | uuid | O | 서브 구독(SUB-1) |
 | method | varchar(30) | O | |
 | status | varchar(30) | X | `ck_payment_status`: `IN ('IN_PROGRESS','APPROVED','FAILED','UNKNOWN','PARTIAL_CANCELLED','CANCELLED')` |
 | failure_code | varchar(100) | O | 거절 코드 (실패 이력, As-Is ORD-03) |
@@ -1256,7 +1256,7 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 
 - **순서가 중요하다**: ②를 먼저 하면 3개 중 2개를 주문했을 때 3→1로 줄어든 행을 곧바로 ①(`quantity <= 2`)이 지워 버린다. ①을 먼저 하면 원래 수량이 주문 수량 이하인 행만 지워지고, 남은 행만 ②로 차감된다. `quantity`는 1~99 제약(`ck_cart_item_quantity`)이라 0이 되는 UPDATE는 하지 않는다.
 - **결제 완료를 막지 않는다**: 행 단위 원자적 SQL이라 구매자가 같은 시각에 수량을 바꿔도 낙관적 락 예외가 우리 쪽에서 나지 않는다(`version + 1`이 올라 구매자의 수정 쪽이 `CONFLICT_RETRY`가 된다). 장바구니에 그 상품이 없으면 0행이라 아무 일도 없다.
-- 구독 회차 주문(Part 5)은 이 단계의 호출을 타지 않도록 그때 `type == NORMAL` 조건을 더한다.
+- 구독 회차 주문(서브 구독)은 이 단계의 호출을 타지 않도록 그때 `type == NORMAL` 조건을 더한다.
 
 `ConfirmPaymentService` (order.application, `@Service`) — 승인 요청 한 건의 흐름. 트랜잭션 두 개 사이에서 Toss를 부르므로 메서드에 `@Transactional`을 붙이지 않고 `TransactionTemplate`으로 트랜잭션 1·2를 직접 연다(공통 규칙 K)
 
@@ -1317,7 +1317,7 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 
 **테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
 
-아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 구현된 단계라 이 단계 테스트는 기존 코드를 쓴다. `snapshotOf`와 `OrderSnapshot`은 2-8a에서 만들고, 아래 필드는 처음 쓰는 미구현 단계에서 더한다: `status`는 3-5, 결제 `id`·`method`·`approvedAt`은 7-3, `reservationStatuses`는 7-4. `failureReason`·`paidAt`·결제 `failureCode`는 미구현 단계에서 쓰지 않는다. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 구현된 단계라 이 단계 테스트는 기존 코드를 쓴다. `snapshotOf`와 `OrderSnapshot`은 2-8a에서 만들고, 아래 필드는 처음 쓰는 미구현 단계에서 더한다: `status`는 3-5, 결제 `id`·`method`·`approvedAt`은 6-3, `reservationStatuses`는 6-4. `failureReason`·`paidAt`·결제 `failureCode`는 미구현 단계에서 쓰지 않는다. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
@@ -1627,7 +1627,7 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 | PG 멱등 키 재사용 | 결과가 불확실했던 취소는 **같은 Idempotency-Key로 다시 호출**한다. Toss가 처음 결과를 돌려주므로 두 번 취소되지 않는다. Toss 멱등키는 처음 요청한 날부터 **15일** 유효하다(2-3, 2026-10-09 확인) — 복구 잡(2-8b)은 1분마다 돌며 5분 넘게 멈춘 환불을 다시 처리하므로 이 안에 끝난다 |
 
 **정책 (이 단계에서 정함)**
-- 재시도 간격: 잡이 1분마다 돌므로 **조회에 실패하면 다음 실행(1분 뒤)에 다시** 한다. `reconcile_attempts`만 늘린다(Part 7 알림의 근거).
+- 재시도 간격: 잡이 1분마다 돌므로 **조회에 실패하면 다음 실행(1분 뒤)에 다시** 한다. `reconcile_attempts`만 늘린다(Part 6 알림의 근거).
 - 대사 대상: PAYMENT_IN_PROGRESS로 30초 넘게 머문 주문.
 - 보상 취소: PG 승인 시각으로부터 5분이 지났는데도 주문 완료에 실패하면 전액 취소하고 주문을 PAYMENT_FAILED로.
 
@@ -1744,7 +1744,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 **테스트 준비** ([N-1](#n-1-단계별-testfixtures-추가))
 
-아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 구현된 단계라 이 단계 테스트는 기존 코드를 쓴다. `paymentCancelOf`와 `reconcileAttempts`는 처음 쓰는 미구현 단계 7-3에서 추가한다. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 구현된 단계라 이 단계 테스트는 기존 코드를 쓴다. `paymentCancelOf`와 `reconcileAttempts`는 처음 쓰는 미구현 단계 6-3에서 추가한다. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
@@ -1856,7 +1856,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 **리뷰 때 물어볼 것**
 - 외부 결제가 타임아웃 나면 어떻게 처리하나? (면접 단골 — 이 단계의 테스트가 답)
 - 타임아웃 즉시 PG에 취소를 보내지 않고 조회부터 하는 이유는?
-- 대사가 영영 확정을 못 하면? (Part 7 운영 API·알림 예고)
+- 대사가 영영 확정을 못 하면? (Part 6 운영 API·알림 예고)
 - 보상 취소가 `DONE`이 됐는데 뒤따르는 `failOrder`가 실패하면 주문은 어떻게 끝나나?
 
 ---
@@ -2042,7 +2042,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 **정책 (이 단계에서 정함)**
 - 취소는 품목 단위, 그 품목 금액 전체(`lineAmount - refundedAmount`)를 환불한다(부분 수량 취소 없음).
 - 진행 중 환불이 있는 가게주문은 발송할 수 없다(409 `REFUND_IN_PROGRESS`).
-- PG 취소가 명확히 실패하면 환불은 FAILED로 끝나고 502를 준다. 운영자 처리 대상이다(Part 7 운영 API).
+- PG 취소가 명확히 실패하면 환불은 FAILED로 끝나고 502를 준다. 운영자 처리 대상이다(Part 6 운영 API).
 
 ### 할 일 (2-8a)
 
@@ -2062,7 +2062,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | amount | bigint | X | `> 0` — PG 부분취소 금액 |
 | status | varchar(20) | X | `ck_refund_status`: `IN ('REQUESTED','APPROVED','PG_CANCELLED','COMPLETED','REJECTED','FAILED')` |
 | reject_reason | varchar(200) | O | |
-| pg_attempts | int | X | DEFAULT 0 — PG 취소를 다시 시도한 횟수(Part 7 관리자 재시도마다 +1). PG 취소 멱등 키를 시도마다 달리하는 데 쓴다 |
+| pg_attempts | int | X | DEFAULT 0 — PG 취소를 다시 시도한 횟수(Part 6 관리자 재시도마다 +1). PG 취소 멱등 키를 시도마다 달리하는 데 쓴다 |
 | completed_at | timestamptz | O | |
 | version | bigint | X | |
 | created_at, updated_at | timestamptz | X | |
@@ -2093,7 +2093,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | `void complete(Instant now)` | 환불 완료 `→ COMPLETED`, `completedAt = now` |
 | `void fail()` | PG가 취소를 명확히 거절 `APPROVED → FAILED` |
 | `boolean needsPgCancel()` | PG 취소를 아직 안 했나 → `status == APPROVED` |
-| `String pgIdempotencyKey()` | PG 취소 호출에 쓸 멱등 키(`PaymentApi.cancel`의 `idempotencyKey`). `pgAttempts == 0`이면 `id.toString()`, 재시도 뒤(관리자 재시도, 7-3)에는 `id + "-r" + pgAttempts`. 같은 시도를 다시 처리하면 같은 키라 한 번만 취소되고, `FAILED` 뒤의 재시도는 새 키라 Toss까지 간다(같은 키의 `FAILED` 행이 있으면 `cancel`이 PG를 부르지 않고 `FAILED`를 재생하기 때문) |
+| `String pgIdempotencyKey()` | PG 취소 호출에 쓸 멱등 키(`PaymentApi.cancel`의 `idempotencyKey`). `pgAttempts == 0`이면 `id.toString()`, 재시도 뒤(관리자 재시도, 6-3)에는 `id + "-r" + pgAttempts`. 같은 시도를 다시 처리하면 같은 키라 한 번만 취소되고, `FAILED` 뒤의 재시도는 새 키라 Toss까지 간다(같은 키의 `FAILED` 행이 있으면 `cancel`이 PG를 부르지 않고 `FAILED`를 재생하기 때문) |
 | `boolean readyToComplete()` | 재고·품목 반영만 남았나 → `status == PG_CANCELLED` |
 
 `RefundRepository` (domain 인터페이스, 구현은 `JpaRefundRepository`)
@@ -2436,7 +2436,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
    5. `refund.approve()` — `REQUESTED`가 아니면 `INVALID_STATE_TRANSITION`. 같은 환불에 승인·거절이 동시에 오면 `@Version` 충돌로 한쪽이 실패한다
 2. `RefundStatus status = refundProcessor.process(refundId)` (트랜잭션 밖. PG 취소 뒤 재고 복구·`COMPLETED`까지 진행하고, 완료 시 품목 `RETURNED`, 가게주문 재계산)
 3. 반환 규칙은 2-8과 같음(`COMPLETED` → 200, `APPROVED` → 202, `FAILED` → 서비스가 `PG_ERROR` 502)
-   - `FAILED`(PG가 취소를 명확히 거절)이면 환불은 `FAILED`로 끝나고 품목은 `RETURN_REQUESTED`로 둔다. 자동 재시도 잡은 없다. 구매자는 품목이 `DELIVERED`가 아니라 다시 요청할 수 없고, 판매자는 `REQUESTED`가 아닌 환불을 거절할 수 없다. 운영자가 7-3의 환불 재시도(`FAILED → APPROVED`)로 처리한다. 판매자는 가게주문의 `refunds`에서 `FAILED`를 볼 수 있다
+   - `FAILED`(PG가 취소를 명확히 거절)이면 환불은 `FAILED`로 끝나고 품목은 `RETURN_REQUESTED`로 둔다. 자동 재시도 잡은 없다. 구매자는 품목이 `DELIVERED`가 아니라 다시 요청할 수 없고, 판매자는 `REQUESTED`가 아닌 환불을 거절할 수 없다. 운영자가 6-3의 환불 재시도(`FAILED → APPROVED`)로 처리한다. 판매자는 가게주문의 `refunds`에서 `FAILED`를 볼 수 있다
 
 `reject` 순서 (한 트랜잭션)
 1. `shopApi.verifyOwner(shopId, memberId)`, `refundRepository.findById(refundId)`(없으면 `REFUND_NOT_FOUND`), `order = findById(refund.getOrderId())`
@@ -2572,7 +2572,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 
 ## 2-10. 구매확정 (수동 · 자동) (M)
 
-**목표**: 구매자가 구매확정하거나, 배송완료 후 7일이 지나면 자동으로 확정된다. 확정된 품목은 이후 정산(3-4)과 리뷰(6-1)의 대상이 된다.
+**목표**: 구매자가 구매확정하거나, 배송완료 후 7일이 지나면 자동으로 확정된다. 확정된 품목은 이후 정산(3-4)과 리뷰(5-1)의 대상이 된다.
 
 **정책 (이 단계에서 정함)**
 - 자동 확정 기준: 가게주문 `delivered_at + 7일 < now` (POL-06). 반품 요청 중(RETURN_REQUESTED) 품목은 제외.
@@ -2629,7 +2629,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
 | `setShopOrderDeliveredAt(UUID shopOrderId, Instant deliveredAt)` → `void` | JDBC `UPDATE orders.shop_order SET delivered_at = ? WHERE id = ?` | `AutoConfirmServiceTest`(8일 전·6일 전), `ConfirmConcurrencyTest` |
-| `OrderSnapshot.LineState`에 `Instant confirmedAt` 추가 | `snapshotOf`의 품목 쿼리에 `orders.order_line.confirmed_at` 컬럼을 더한다(컬럼은 2-2 마이그레이션에 있다) | `ConfirmPurchaseTest` 2번(나), 7-4 S1 |
+| `OrderSnapshot.LineState`에 `Instant confirmedAt` 추가 | `snapshotOf`의 품목 쿼리에 `orders.order_line.confirmed_at` 컬럼을 더한다(컬럼은 2-2 마이그레이션에 있다) | `ConfirmPurchaseTest` 2번(나), 6-4 S1 |
 
 이미 있는 헬퍼(앞 단계·Part 1에서 만든 것, 그대로 쓴다): `signup`, `token`, `login`, `changeStatus`, `openShop`, `closeShop`, `registerProduct`, `hideProduct`, `discontinueProduct`, `registerProductImage`, `putToStorage`, `ConcurrencyRunner`, `address`, `addToCart`, `checkout`, `stockOf`, `StockSnapshot`, `createPendingOrder`, `confirmPayment`, `setOrderExpired`, `breakReservedStock`, `setOrderUpdatedAt`, `createPaidOrder`, `shopOrderIdOf`, `shipShopOrder`, `deliverShopOrder`, `orderLineIdOf`, `refundIdOf`, `setRefundUpdatedAt`, `createDeliveredOrder`, `snapshotOf`, `shopOrderSnapshotOf`, `refundRowOf`
 
@@ -2710,12 +2710,12 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | 중복 주문 | 같은 장바구니로 결제 대기 주문이 둘 생기고, 둘 다 결제하면 주문 2건 | 결제 전이면 주문 취소(2-4)로 바로 풀고, 결제됐다면 발송 전 품목 취소·환불(2-8). 같은 주문의 이중 결제는 막힘. 방어 선택지는 2-2 "채택하지 않은 선택지" | 2-2 |
 | 결제 중 장바구니 표시 | 결제 대기 중인 항목이 구매 가능·`OUT_OF_STOCK`으로 보임 | 표시만 영향 | 2-2 |
 | 차감이 상품 단위 | 결제 중 항목을 삭제 후 재담기하면 새 수량에서 차감 | 드문 경우, 수용 | 2-2 |
-| 재고 점유 남용 | 회원당 결제 대기 수·체크아웃 횟수 상한 없음 → 반복 점유 가능 | Part 4 이메일 인증, Part 7 모니터링, 2-2 "추가 항목" | 2-2 |
+| 재고 점유 남용 | 회원당 결제 대기 수·체크아웃 횟수 상한 없음 → 반복 점유 가능 | Part 4 이메일 인증, Part 6 모니터링, 2-2 "추가 항목" | 2-2 |
 | 지난 주문의 썸네일 | 판매자가 상품 이미지를 지우면 지난 주문의 썸네일 URL이 404가 된다 | 의도한 한계(주문은 이미지 키만 저장하고 이미지를 복사하지 않는다) | 2-2 |
-| PG가 거절한 환불(`FAILED`) | 구매자 취소는 502로 끝나고 품목은 `PAID` 그대로라 다시 취소를 요청할 수 있다(새 환불 행이 생긴다). 반품 승인 뒤 거절이면 품목이 `RETURN_REQUESTED`로 남아 구매자·판매자 모두 더 할 수 있는 것이 없다. 자동 재시도는 없다 | 운영자 재시도는 7-3. 재시도해도 계속 거절되는 환불을 닫는 방법도 7-3에서 정한다 | 2-8a, 2-9 |
-| `FAILED` 환불이 있는 품목의 발송 | 발송 가드는 진행 중 환불(`REQUESTED`·`APPROVED`·`PG_CANCELLED`)만 봐서 `FAILED` 환불이 있는 `PAID` 품목도 발송된다. 7-3에서 그 환불을 `APPROVED`로 되돌리면 이미 발송된 품목이 PG 취소될 수 있다 | 7-3에서 재시도 조건과 함께 정한다 | [상태 조합 7절](../02-design/10-state-combinations.md) 1 |
-| 대사가 닫지 못하는 주문 | `PAYMENT_IN_PROGRESS` 주문의 payment 행이 없거나 `PARTIAL_CANCELLED`이면 대사가 로그만 남기고 매번 다시 시도한다 | 로그로 찾아 운영자가 처리. Part 7 모니터링 | 2-6, 상태 조합 7절 4 |
-| `UNKNOWN` 재조회 상한 | `reconcile_attempts`가 늘기만 하고 상한·알림이 없다 | Part 7 지표·알림 | 2-6, 상태 조합 7절 9 |
+| PG가 거절한 환불(`FAILED`) | 구매자 취소는 502로 끝나고 품목은 `PAID` 그대로라 다시 취소를 요청할 수 있다(새 환불 행이 생긴다). 반품 승인 뒤 거절이면 품목이 `RETURN_REQUESTED`로 남아 구매자·판매자 모두 더 할 수 있는 것이 없다. 자동 재시도는 없다 | 운영자 재시도는 6-3. 재시도해도 계속 거절되는 환불을 닫는 방법도 6-3에서 정한다 | 2-8a, 2-9 |
+| `FAILED` 환불이 있는 품목의 발송 | 발송 가드는 진행 중 환불(`REQUESTED`·`APPROVED`·`PG_CANCELLED`)만 봐서 `FAILED` 환불이 있는 `PAID` 품목도 발송된다. 6-3에서 그 환불을 `APPROVED`로 되돌리면 이미 발송된 품목이 PG 취소될 수 있다 | 6-3에서 재시도 조건과 함께 정한다 | [상태 조합 7절](../02-design/10-state-combinations.md) 1 |
+| 대사가 닫지 못하는 주문 | `PAYMENT_IN_PROGRESS` 주문의 payment 행이 없거나 `PARTIAL_CANCELLED`이면 대사가 로그만 남기고 매번 다시 시도한다 | 로그로 찾아 운영자가 처리. Part 6 모니터링 | 2-6, 상태 조합 7절 4 |
+| `UNKNOWN` 재조회 상한 | `reconcile_attempts`가 늘기만 하고 상한·알림이 없다 | Part 6 지표·알림 | 2-6, 상태 조합 7절 9 |
 | Toss API별 에러 표 | 불확실 코드 목록(`UNCERTAIN_CODES`)은 Toss 전체 에러 목록과만 대조했다. 승인·취소 API에만 나오는 "처리 중" 4xx 코드가 목록에 없으면 조회 대신 거절로 처리된다 | 개발자센터의 API별 에러 표와 대조한다(2-3 확인 필요) | 2-3 |
 | 결제 내역 조회 API 없음 | `payment.method`·`approved_at`을 보여 줄 `GET /api/payments`(FR-PAY-08)를 만드는 단계가 로드맵에 없다 | 단계를 추가할지 정한다 | [pending-decisions 3절](pending-decisions.md) |
 | 코드를 읽고 추론만 한 것 | 서로 다른 키로 동시에 온 두 PG 취소 중 하나의 `payment_cancel` 행이 `REQUESTED`/`UNKNOWN`으로 남을 수 있다. PG 조회의 `CANCELED`·`PARTIAL_CANCELED`를 `APPROVED`로 매핑해, 로컬 `UNKNOWN` 결제가 PG에서 이미 취소됐어도 `APPROVED`가 될 수 있다 | 테스트로 재현하지 않았다. 재현한 뒤 고친다 | 상태 조합 7절 5·6 |

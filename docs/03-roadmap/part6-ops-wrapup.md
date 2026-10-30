@@ -1,37 +1,38 @@
-# Part 7. 관측 · 운영 · 마무리
+# Part 6. 관측 · 운영 · 마무리
 
-> 버전 0.31 · 2026-10-28 · 7-1 `LogSafetyTest`의 가입을 4-2의 가입 전 인증(발송 → 확인 → 인증 토큰으로 가입)으로 바꾸고 인증 토큰도 로그에 없어야 할 값에 더했다
+> 버전 0.32 · 2026-10-31 · 구독·취향 추천·월간 리뷰 요약을 로드맵에서 빼서([서브](../04-sub/README.md)) Part 6에서 구독·OpenAI 의존을 걷어냈다: 6-1 `LogSafetyTest`의 빌링키 등록, 6-2 `openai_call_seconds`, 6-4 `subscriptionCycles()`(INV-08)·S5·S7의 구독 단계. 옮긴 내용은 서브 문서의 "Part 6에 더할 것"에 있다
+> 0.31 · 2026-10-28 · 6-1 `LogSafetyTest`의 가입을 4-2의 가입 전 인증(발송 → 확인 → 인증 토큰으로 가입)으로 바꾸고 인증 토큰도 로그에 없어야 할 값에 더했다
 > 0.30 · 2026-10-27
-> 0.26 · 2026-10-23 · 7-3 구현물 2번 `reconcileOne`: 이미 있는 `private boolean reconcileOne`을 `public OrderStatus`로 열고 반환을 바꾼다
-> 0.22 · 2026-10-22 · 7-1 MDC 표를 3-2 결정에 맞췄다: `InboxGuard`가 `EventContext.run` 안에서 실행되므로 `traceId`를 빼는 곳을 `EventContext`로 했다
-> 0.11 · 2026-10-16 · 7-3 `reconcileOne`을 2-6 변경에 맞춰, 확정된 결제는 `applyPaymentState`로 바로 처리하는 지금의 `reconcileBatch` 처리와 같게 했다
-> 0.9 · 2026-10-15 · 7-3 `reconcile`의 `{id}`는 `orderId`, `reconcileOne`은 `OrderStatus`를 반환한다. 7-4 `InvariantChecker`에 INV-08을 더하고 INV-09는 최종적 일관성이라 제외했다
-> 0.8 · 2026-10-15 · 7-3 환불 재시도의 PG 멱등 키: `retry`가 `FAILED → APPROVED`와 함께 `pgAttempts`를 올려 `refundId-r{n}` 키로 PG까지 가게 했다(2-8 `Refund.pgIdempotencyKey()`)
+> 0.26 · 2026-10-23 · 6-3 구현물 2번 `reconcileOne`: 이미 있는 `private boolean reconcileOne`을 `public OrderStatus`로 열고 반환을 바꾼다
+> 0.22 · 2026-10-22 · 6-1 MDC 표를 3-2 결정에 맞췄다: `InboxGuard`가 `EventContext.run` 안에서 실행되므로 `traceId`를 빼는 곳을 `EventContext`로 했다
+> 0.11 · 2026-10-16 · 6-3 `reconcileOne`을 2-6 변경에 맞춰, 확정된 결제는 `applyPaymentState`로 바로 처리하는 지금의 `reconcileBatch` 처리와 같게 했다
+> 0.9 · 2026-10-15 · 6-3 `reconcile`의 `{id}`는 `orderId`, `reconcileOne`은 `OrderStatus`를 반환한다. 6-4 `InvariantChecker`에 INV-08을 더하고 INV-09는 최종적 일관성이라 제외했다
+> 0.8 · 2026-10-15 · 6-3 환불 재시도의 PG 멱등 키: `retry`가 `FAILED → APPROVED`와 함께 `pgAttempts`를 올려 `refundId-r{n}` 키로 PG까지 가게 했다(2-8 `Refund.pgIdempotencyKey()`)
 > 0.5 · 2026-10-09 · logstash-logback-encoder `9.0`(Jackson 3·Logback 1.5 기반)과 ELK·Prometheus·Grafana 이미지 태그를 확인해 고정했다. Spring Boot가 Kafka 클라이언트 지표를 자동 등록한다. 1-11 운영 VM에서는 Prometheus가 `app:8081`을 긁는다
 > 0.4 · 2026-10-02 · 예치금 제거: 원장 점검을 재고 대조 점검으로 바꾸고, E2E 시나리오에서 예치금을 삭제했다
 
 > **끝나면**: 로그(Kibana)와 메트릭(Grafana)으로 시스템을 보고, 정합성 문제가 생기면 알림이 오고, 운영 API로 처리할 수 있다. 전체 시나리오가 E2E 테스트로 증명되고, Stage 1이 `v1.0.0`으로 릴리스된다.
-> **인프라 추가**: **ELK**(Logstash, Kibana — ES는 Part 6 것을 같이 씀), **Prometheus, Grafana**
+> **인프라 추가**: **ELK**(Logstash, Kibana — ES는 Part 5 것을 같이 씀), **Prometheus, Grafana**
 
 | 단계 | 제목 | 크기 |
 |---|---|---|
-| 7-1 | ELK: 로그 수집과 traceId 검색 | M |
-| 7-2 | Prometheus · Grafana: 메트릭 · 대시보드 · 알림 | L |
-| 7-3 | 운영 API | M |
-| 7-4 | E2E 시나리오 · 불변식 점검 | L |
-| 7-5 | README · 회고 · Stage 1 릴리스 | M |
+| 6-1 | ELK: 로그 수집과 traceId 검색 | M |
+| 6-2 | Prometheus · Grafana: 메트릭 · 대시보드 · 알림 | L |
+| 6-3 | 운영 API | M |
+| 6-4 | E2E 시나리오 · 불변식 점검 | L |
+| 6-5 | README · 회고 · Stage 1 릴리스 | M |
 
 ---
 
-## Part 7 공통 규칙
+## Part 6 공통 규칙
 
 - 관측 스택(Logstash, Kibana, Prometheus, Grafana)은 docker-compose **`observability` 프로필**로 띄운다: `docker compose --profile observability up -d`. 평소 개발에는 띄우지 않는다(메모리).
 - 설정 파일은 모두 리포에 둔다: `docker/logstash/`, `docker/kibana/`, `docker/prometheus/`, `docker/grafana/provisioning/`. 화면에서 만든 대시보드·검색은 **JSON으로 내보내 커밋**한다.
-- 7-3의 운영 API는 모두 `/admin/api/**`(ADMIN)이다. 실행 로그 형식은 7-3 "모든 API에 공통"에 적었다.
+- 6-3의 운영 API는 모두 `/admin/api/**`(ADMIN)이다. 실행 로그 형식은 6-3 "모든 API에 공통"에 적었다.
 
 ---
 
-## 7-1. ELK: 로그 수집과 traceId 검색 (M)
+## 6-1. ELK: 로그 수집과 traceId 검색 (M)
 
 **목표**: 앱 로그를 Kibana에서 검색한다. traceId 하나로 HTTP 요청 → DB → Kafka 소비 → 알림까지 한 흐름이 보인다.
 
@@ -78,8 +79,8 @@ MDC는 SLF4J가 스레드마다 들고 있는 `Map<String, String>`이다. 인�
 **3) docker** — `docker/logstash/pipeline/logstash.conf`, `docker/docker-compose.yml`, `docker/kibana/saved-objects.ndjson`
 - `docker/logstash/pipeline/logstash.conf`: `input { tcp { port => 5000 codec => json_lines } }` → `output { elasticsearch { hosts => ["http://elasticsearch:9200"] index => "logs-myroutine-%{+YYYY.MM.dd}" } }`
   - 흐름: 앱의 appender가 로그 1건을 JSON 한 줄로 TCP 5000에 보낸다 → `json_lines` 코덱이 줄 단위로 JSON을 이벤트로 풀어 필드로 만든다 → `elasticsearch` output이 색인 이름 날짜를 이벤트의 `@timestamp`(UTC)로 채워 저장한다. 그래서 한국 시간 새벽 로그는 전날 날짜 색인에 들어간다
-  - `http://elasticsearch:9200`은 인증 없는 접속이다. 6-2가 ES를 `xpack.security.enabled=false`로 띄우기 때문에 이대로 된다. 컨테이너끼리는 compose 서비스 이름(`elasticsearch`)으로 접속한다
-- compose: `docker.elastic.co/logstash/logstash:9.4.8`(5000), `docker.elastic.co/kibana/kibana:9.4.8`(5601) — ES(6-2)와 같은 버전
+  - `http://elasticsearch:9200`은 인증 없는 접속이다. 5-2가 ES를 `xpack.security.enabled=false`로 띄우기 때문에 이대로 된다. 컨테이너끼리는 compose 서비스 이름(`elasticsearch`)으로 접속한다
+- compose: `docker.elastic.co/logstash/logstash:9.4.8`(5000), `docker.elastic.co/kibana/kibana:9.4.8`(5601) — ES(5-2)와 같은 버전
   - Logstash는 `./docker/logstash/pipeline`을 컨테이너의 파이프라인 디렉터리로 마운트한다(확인 필요: 마운트 경로는 `logstash:9.4.8` 이미지 문서로 확인). 5000은 호스트에 publish해야 호스트에서 도는 앱의 `localhost:5000`이 닿는다. Kibana는 환경변수로 ES 주소(`ELASTICSEARCH_HOSTS=http://elasticsearch:9200`)를 준다(확인 필요: 변수 이름)
 - Kibana: 데이터 뷰 `logs-myroutine-*`, 저장 검색 3개 — "traceId로 흐름 보기"(`traceId : "..."`, 시간 오름차순, 열 level·logger·message·job), "ERROR만", "결제 UNKNOWN"(`message : "UNKNOWN" and logger_name : *payment*`) → `docker/kibana/saved-objects.ndjson`로 내보내기
   - 쿼리는 Kibana 검색창의 KQL이고 `traceId`·`logger_name`·`message`·`job`은 위 JSON 필드 이름이다. "ERROR만"은 `level : "ERROR"`. 내보내기는 Kibana 화면의 저장된 객체(Saved Objects) 관리에서 하고 `.ndjson`(줄마다 JSON 한 개)으로 받는다(확인 필요: 9.4 화면의 메뉴 위치)
@@ -107,13 +108,12 @@ MDC는 SLF4J가 스레드마다 들고 있는 `Map<String, String>`이다. 인�
 | 3 | `POST /api/auth/signup` 본문 `{"email":"logsafe@test.com","password":"LogSafe9183x","nickname":"logsafe","name":"테스터","verificationToken": 2번 값}` → 201 | 비밀번호 `LogSafe9183x`, `$.accessToken`, `$.refreshToken`, `$.memberId`(구매자 ID) |
 | 4 | `POST /api/auth/login` 본문 `{"email":"logsafe@test.com","password":"LogSafe9183x"}` → 200 | `$.accessToken`, `$.refreshToken` |
 | 5 | `POST /api/auth/refresh` 본문 `{"refreshToken": 4번의 refresh}` → 200 | `$.accessToken`(이후 요청에 쓴다), `$.refreshToken` |
-| 6 | `POST /api/billing-keys` 본문 `{"authKey":"auth_logsafe_0001"}` → 201 | `authKey` = `auth_logsafe_0001`, 빌링키 평문 = JDBC `SELECT billing_key_encrypted FROM payment.billing_key WHERE member_id = ?`을 `AesGcmEncryptor.decrypt`로 푼 값 |
-| 7 | `createPendingOrder(구매자 ID, 상품 ID)`로 주문을 만든다(체크아웃 응답에 쓸 값은 `CheckoutResult`의 `orderId`·`pgOrderId`·`totalAmount`) | |
-| 8 | `POST /api/orders/{orderId}/payment/confirm`(5번 access 토큰, `Idempotency-Key` = orderId) 본문 `{"paymentKey":"pk_logsafe_{orderId}","pgOrderId": 7번 값,"amount": 7번 totalAmount}` → 200, `$.status` = `PAID` | `paymentKey` = `pk_logsafe_{orderId}` |
+| 6 | `createPendingOrder(구매자 ID, 상품 ID)`로 주문을 만든다(체크아웃 응답에 쓸 값은 `CheckoutResult`의 `orderId`·`pgOrderId`·`totalAmount`) | |
+| 7 | `POST /api/orders/{orderId}/payment/confirm`(5번 access 토큰, `Idempotency-Key` = orderId) 본문 `{"paymentKey":"pk_logsafe_{orderId}","pgOrderId": 6번 값,"amount": 6번 totalAmount}` → 200, `$.status` = `PAID` | `paymentKey` = `pk_logsafe_{orderId}` |
 
 **확인할 것**
 - 캡처가 비어 있지 않다: `output.getAll()`이 `"pg confirm paymentId=" + paymentId + " result=Approved"`를 포함한다(`paymentId`는 JDBC `SELECT id FROM payment.payment WHERE order_id = ?`).
-- 아래 값 각각에 대해 `assertThat(output.getAll()).doesNotContain(값)`이 통과한다: 비밀번호, 인증코드, 인증 토큰, 3·4·5번의 access 토큰 3개와 refresh 토큰 3개, `authKey`, 빌링키 평문, `paymentKey`. 값이 하나라도 걸리면 어느 값이 걸렸는지 `.as("값 이름")`으로 알 수 있게 쓴다.
+- 아래 값 각각에 대해 `assertThat(output.getAll()).doesNotContain(값)`이 통과한다: 비밀번호, 인증코드, 인증 토큰, 3·4·5번의 access 토큰 3개와 refresh 토큰 3개, `paymentKey`. 값이 하나라도 걸리면 어느 값이 걸렸는지 `.as("값 이름")`으로 알 수 있게 쓴다.
 - 확인 필요: `LogMailSender`(3-5)는 메일 본문 앞 100자를 로그로 찍어 인증코드가 포함된다. 테스트에서는 `FakeMailSender`가 대신 주입되므로 이 테스트로는 잡히지 않는다. `local` 프로필에서 인증코드가 로그에 남는지는 수동으로 확인한다(4번 요청 뒤 앱 콘솔에서 인증코드 검색).
 
 #### Kibana에서 traceId로 흐름 보기 (수동)
@@ -136,7 +136,7 @@ MDC는 SLF4J가 스레드마다 들고 있는 `Map<String, String>`이다. 인�
 
 ---
 
-## 7-2. Prometheus · Grafana: 메트릭 · 대시보드 · 알림 (L)
+## 6-2. Prometheus · Grafana: 메트릭 · 대시보드 · 알림 (L)
 
 **목표**: 서비스 상태와 **정합성 지표**를 대시보드로 보고, 문제가 생기면 알림이 온다.
 
@@ -182,7 +182,7 @@ Micrometer 종류 세 가지 — 모두 주입받은 `MeterRegistry registry`로
 | `stock_reservation_expired_total` | Counter | 만료 잡이 주문 하나를 만료시킬 때 +1 | `OrderExpirationService` |
 | `stock_balance_mismatch_count` | Gauge | 아래 점검 잡의 불일치 상품 수 | product `StockCheckJob` |
 | `pg_call_seconds{operation,result}` | Timer | Toss 호출마다 | `TossClient` |
-| `mail_send_seconds{result}`, `openai_call_seconds{operation,result}` | Timer | 호출마다 | 각 클라이언트 |
+| `mail_send_seconds{result}` | Timer | 호출마다 | 메일 발송기 |
 
 수집기(`OutboxMetrics`, `PaymentMetrics`, `OrderMetrics`)의 공통 모양 — 위 정책의 "30초마다 계산해 `AtomicLong`에 넣는" 일을 하는 `@Component`다. 모양은 셋이 같다
 
@@ -198,7 +198,7 @@ Micrometer 종류 세 가지 — 모두 주입받은 `MeterRegistry registry`로
 | `OutboxMetrics` (`@Component`, 권장 패키지 `common.outbox`) | 수집기(공통 모양은 위 2)). 조회 수단: `JdbcTemplate` — `common.outbox_event`는 같은 모듈 테이블. 계산: 표의 세 값. `now`는 SQL의 `now()`로 구하면 된다(릴레이도 DB 시각을 쓴다) |
 | `KafkaConfig` (기존 수정, 3-2) | `kafka_dlt_records_total{topic}` Counter를 건다. 방법은 아래 첫 항목 |
 
-- `kafka_dlt_records_total{topic}`: 3-2 `KafkaConfig`가 만든 `DeadLetterPublishingRecoverer`는 `ConsumerRecordRecoverer`(= `BiConsumer<ConsumerRecord<?,?>, Exception>`)다. `DefaultErrorHandler`에 넘기기 전에 `ConsumerRecordRecoverer counting = (record, ex) -> { recoverer.accept(record, ex); registry.counter("kafka_dlt_records_total", "topic", record.topic()).increment(); }`로 감싸 넘긴다(시그니처는 spring-kafka 3.3.16 jar에서 확인, Boot 4.1.1이 쓰는 버전에서도 같은지 확인 필요). `record.topic()`은 **원본 토픽**이라 7-3 DLT API의 `{topic}`과 같은 값이다(라벨을 원본·`.dlt` 중 무엇으로 할지는 문서에 없다. 확인 필요). `KafkaConfig`가 `MeterRegistry`를 주입받는다
+- `kafka_dlt_records_total{topic}`: 3-2 `KafkaConfig`가 만든 `DeadLetterPublishingRecoverer`는 `ConsumerRecordRecoverer`(= `BiConsumer<ConsumerRecord<?,?>, Exception>`)다. `DefaultErrorHandler`에 넘기기 전에 `ConsumerRecordRecoverer counting = (record, ex) -> { recoverer.accept(record, ex); registry.counter("kafka_dlt_records_total", "topic", record.topic()).increment(); }`로 감싸 넘긴다(시그니처는 spring-kafka 3.3.16 jar에서 확인, Boot 4.1.1이 쓰는 버전에서도 같은지 확인 필요). `record.topic()`은 **원본 토픽**이라 6-3 DLT API의 `{topic}`과 같은 값이다(라벨을 원본·`.dlt` 중 무엇으로 할지는 문서에 없다. 확인 필요). `KafkaConfig`가 `MeterRegistry`를 주입받는다
 
 **4) payment.domain · payment.infrastructure · payment.application**
 
@@ -209,7 +209,7 @@ Micrometer 종류 세 가지 — 모두 주입받은 `MeterRegistry registry`로
 | `PaymentMetrics` (`@Component`, application) | 수집기(공통 모양은 위 2)). 조회 수단: `PaymentRepository`. 계산: `payment_unknown_count` = `countByStatus(UNKNOWN)`, `payment_unknown_oldest_age_seconds` = `Duration.between(가장 오래된 updated_at, clock.instant()).toSeconds()`, 없으면 0 |
 | `TossClient` (infrastructure, 기존 수정, 2-3) | `pg_call_seconds{operation,result}` Timer를 건다. 방법은 아래 |
 
-- `pg_call_seconds{operation,result}`: `TossClient`의 `confirm`·`cancel`·`queryByOrderId`가 이미 `start`를 재고 마지막에 `logResult(pgMethod, paymentId, result, start)`를 부른다. 같은 자리에서 `registry.timer("pg_call_seconds", "operation", pgMethod, "result", ...).record(System.nanoTime() - start, TimeUnit.NANOSECONDS)`를 하면 된다. `TossClient`에 `MeterRegistry` 필드를 더한다. 라벨 값은 문서에 정해져 있지 않다(확인 필요). 로그와 대시보드가 같은 말을 쓰도록 `operation`은 `pgMethod`(`confirm`·`cancel`·`query`), `result`는 `PgResult` 종류(`Approved`·`Rejected`·`Unknown`)를 소문자로 쓰는 것을 권장한다 Part 5가 더한 `issueBillingKey`·`billingCharge`(로그의 작업 이름 `BILLING_ISSUE`·`BILLING`)에도 같은 Timer를 걸지, `operation` 값을 무엇으로 할지는 문서에 없다(확인 필요).
+- `pg_call_seconds{operation,result}`: `TossClient`의 `confirm`·`cancel`·`queryByOrderId`가 이미 `start`를 재고 마지막에 `logResult(pgMethod, paymentId, result, start)`를 부른다. 같은 자리에서 `registry.timer("pg_call_seconds", "operation", pgMethod, "result", ...).record(System.nanoTime() - start, TimeUnit.NANOSECONDS)`를 하면 된다. `TossClient`에 `MeterRegistry` 필드를 더한다. 라벨 값은 문서에 정해져 있지 않다(확인 필요). 로그와 대시보드가 같은 말을 쓰도록 `operation`은 `pgMethod`(`confirm`·`cancel`·`query`), `result`는 `PgResult` 종류(`Approved`·`Rejected`·`Unknown`)를 소문자로 쓰는 것을 권장한다.
 
 **5) order.domain · order.infrastructure · order.application**
 
@@ -237,9 +237,9 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 - **SQL 읽는 법**: `m.q`는 상품별 `stock_movement`의 **입고(RECEIVE)와 조정(ADJUST)** 수량 합(조정은 음수일 수 있다)이고, `s.received`와 같아야 한다. `r.q`는 상품별 `HELD`(보류 중) 예약 수량 합이고 `s.reserved`와 같아야 한다. 이력·예약이 한 건도 없는 상품은 LEFT JOIN 결과가 `NULL`이라 `COALESCE(..., 0)`로 0과 비교한다
 - 이 Gauge는 05:00 실행 때만 바뀐다. 앱을 재시작하면 다음 05:00까지 0으로 보인다.
 
-**7) common.mail · Part 6 OpenAI 호출부**
+**7) common.mail**
 
-- `mail_send_seconds{result}`·`openai_call_seconds{operation,result}`: "각 클라이언트"는 메일 발송기(3-5 `common.mail.MailSender` 구현체. 호출하는 `NotificationDispatcher`에서 잴지는 확인 필요)와 OpenAI를 부르는 곳(Part 6의 `EmbeddingModel.embed`·`ChatClient` 호출부)이다. 방식은 `Timer.start` → 호출 → `stop`(예외가 나도 `finally`에서 `stop`)이며 `result` 값(`success`·`failure` 등)과 `operation` 값은 정해져 있지 않다(확인 필요)
+- `mail_send_seconds{result}`: 메일 발송기(3-5 `common.mail.MailSender` 구현체. 호출하는 `NotificationDispatcher`에서 잴지는 확인 필요)에서 잰다. 방식은 `Timer.start` → 호출 → `stop`(예외가 나도 `finally`에서 `stop`)이며 `result` 값(`success`·`failure` 등)은 정해져 있지 않다(확인 필요)
 
 **8) Prometheus·Grafana** — `docker/docker-compose.yml`(프로필 `observability`), `docker/prometheus/prometheus.yml`, `docker/grafana/provisioning/`
 - docker-compose `prometheus`·`grafana` 서비스(프로필 `observability`, 공통 규칙): 이미지 `prom/prometheus:v3.15.0`, `grafana/grafana:13.2.3`(2026-10-09 Docker Hub의 최신 안정 태그). `docker/prometheus/prometheus.yml`을 컨테이너의 `/etc/prometheus/prometheus.yml`로, `docker/grafana/provisioning`을 컨테이너의 `/etc/grafana/provisioning`으로 마운트한다. 호스트 포트 publish는 문서에 없다(확인 필요)
@@ -339,7 +339,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 | 3 | 로컬 DB에서 `UPDATE product.stock SET received = received + 5, available = available + 5 WHERE product_id = ?` 후 재고 점검 잡 실행 | `stock_balance_mismatch_count` = 1, "재고 불일치" Firing(지속 즉시) | UPDATE를 되돌리고(`- 5`) 점검 잡 재실행 → Gauge 0, 규칙 `Normal` |
 
 확인 필요 (아래 셋은 구현 전에 정한다)
-- 시나리오 1: Kafka가 멈춘 동안 릴레이가 같은 행에서 10번 실패하면(실패마다 `send`가 최대 5초 막히고 10초 뒤 재시도, 약 2분 30초) 행이 `DEAD`가 된다(3-1). 그러면 `outbox_ready_count`가 줄어 "Outbox 지연" 조건이 사라지고 "Outbox DEAD"가 Firing될 수 있다. 어느 알림이 뜨는지 실측해 이 표에 적고, `DEAD`가 된 행은 Kafka를 되살려도 7-3 `POST /admin/api/outbox/{id}/retry`를 해야 READY로 돌아온다.
+- 시나리오 1: Kafka가 멈춘 동안 릴레이가 같은 행에서 10번 실패하면(실패마다 `send`가 최대 5초 막히고 10초 뒤 재시도, 약 2분 30초) 행이 `DEAD`가 된다(3-1). 그러면 `outbox_ready_count`가 줄어 "Outbox 지연" 조건이 사라지고 "Outbox DEAD"가 Firing될 수 있다. 어느 알림이 뜨는지 실측해 이 표에 적고, `DEAD`가 된 행은 Kafka를 되살려도 6-3 `POST /admin/api/outbox/{id}/retry`를 해야 READY로 돌아온다.
 - 시나리오 2: 대사 잡이 같은 UNKNOWN 결제를 1분마다 다시 조회하며 `increaseReconcileAttempts`가 `payment.updated_at`을 매번 갱신한다(2-6). `payment_unknown_oldest_age_seconds`가 `updated_at` 기준이면 이 값이 600초를 넘기 전에 0으로 돌아가 알림이 뜨지 않는다. 안 뜨면 이 때문이다. 기준 컬럼을 `created_at`으로 바꿀지 정한다.
 - 시나리오 3: 재고 점검 잡을 실행하는 방법이 문서에 없다(확인 필요: 05:00을 기다림, 로컬에서 cron 임시 변경, 별도 트리거 중 하나를 정한다).
 
@@ -349,7 +349,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 ---
 
-## 7-3. 운영 API (M)
+## 6-3. 운영 API (M)
 
 **목표**: 알림을 받았을 때 처리할 수단. 모두 ADMIN만, 실행 이력을 로그로 남긴다.
 
@@ -463,7 +463,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 **9) 문서** — `docs/runbook.md` (Claude)
 
-7-2 알림마다 "의미 → 볼 곳(대시보드·Kibana 검색) → 조치(위 API)"
+6-2 알림마다 "의미 → 볼 곳(대시보드·Kibana 검색) → 조치(위 API)"
 
 **정해지지 않은 것(확인 필요) 정리** — 이 단계 구현 전에 정할 것
 - 대상이 없을 때·상태가 맞지 않을 때의 응답 코드(예: outbox retry 0행, DLT replay의 record 없음, 환불·알림 retry가 FAILED가 아닐 때)
@@ -475,7 +475,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 **테스트 준비**
 
-아래 테스트를 쓰기 전에 만든다. 이 단계에서 더하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다. 반환 record는 `support/`에 둔다. 7-4도 이 헬퍼를 쓴다).
+아래 테스트를 쓰기 전에 만든다. 이 단계에서 더하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다. 반환 record는 `support/`에 둔다. 6-4도 이 헬퍼를 쓴다).
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
@@ -626,9 +626,9 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 ---
 
-## 7-4. E2E 시나리오 · 불변식 점검 (L)
+## 6-4. E2E 시나리오 · 불변식 점검 (L)
 
-**목표**: 시나리오 S1~S7을 테스트로 증명하고, 시나리오가 끝날 때마다 불변식(INV-01~08)을 점검한다(INV-09는 최종적 일관성이라 아래 참고).
+**목표**: 시나리오 S1~S7(S5 제외)을 테스트로 증명하고, 시나리오가 끝날 때마다 불변식(INV-01~07)을 점검한다(INV-09는 최종적 일관성이라 아래 참고). 구독 시나리오 S5와 구독 회차 불변식 INV-08은 서브인 구독을 할 때 더한다([구독 "Part 6에 더할 것"](../04-sub/subscription.md#part-6에-더할-것)).
 
 **정책**: E2E 테스트는 실제 API(MockMvc)와 실제 Kafka·Redis·Postgres·가짜 PG로 돌린다. 잡과 릴레이는 테스트에서 직접 호출한다. 위치 `src/test/java/com/myroutine/e2e/`.
 
@@ -647,11 +647,10 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 |---|---|---|
 | `orderAmounts()` | 주문마다 `total_amount = Σ line_amount`, PAID 주문은 `payment.amount = total_amount` | INV-01 |
 | `paymentsReflected()` | `APPROVED`·`PARTIAL_CANCELLED`·`CANCELLED`인 결제의 주문이 PAID이거나, 결제가 CANCELLED(보상)이고 주문이 PAYMENT_FAILED | INV-02 |
-| `stockBalance()` | `available + reserved + sold = received`, 모두 ≥ 0, `received` = `stock_movement`의 `RECEIVE`·`ADJUST` 수량 합, `reserved` = `stock_reservation`의 `HELD` 수량 합(7-2 `StockCheckJob`의 SQL이 0건) | INV-03·04 |
+| `stockBalance()` | `available + reserved + sold = received`, 모두 ≥ 0, `received` = `stock_movement`의 `RECEIVE`·`ADJUST` 수량 합, `reserved` = `stock_reservation`의 `HELD` 수량 합(6-2 `StockCheckJob`의 SQL이 0건) | INV-03·04 |
 | `refundLimits()` | `refunded_amount ≤ line_amount`, `cancelled_amount ≤ amount`, 주문별 COMPLETED 환불 합 ≤ 주문 총액 | INV-06 |
 | `settlementOnce()` | CONFIRMED 품목마다 `settlement_item` 정확히 1행(consumer가 따라잡은 뒤), 정산된 item은 정산 1건에만 | INV-07 |
-| `subscriptionCycles()` | `subscription_cycle`에서 `(subscription_id, cycle_date)`마다 행이 1개이고, `status = 'PAID'`인 회차의 `order_id` 주문이 `PAID`이며 한 주문이 두 회차에 연결되지 않는다 | INV-08 |
-| `checkAll()` | 위 전부. 실패하면 어떤 행이 어긋났는지 메시지에. **INV-09**(SELLER 권한 ↔ 가게)는 최종적 일관성이라 시나리오 끝에서 바로 검사하면 consumer가 따라잡기 전에 실패할 수 있어 여기에 넣지 않는다(3-1 consumer 테스트의 `Eventually`로 확인한다) | INV-01~08 |
+| `checkAll()` | 위 전부. 실패하면 어떤 행이 어긋났는지 메시지에. **INV-09**(SELLER 권한 ↔ 가게)는 최종적 일관성이라 시나리오 끝에서 바로 검사하면 consumer가 따라잡기 전에 실패할 수 있어 여기에 넣지 않는다(3-1 consumer 테스트의 `Eventually`로 확인한다) | INV-01~07 |
 
 **2) 시나리오** — `src/test/java/com/myroutine/e2e/` (각 테스트 끝에 `checkAll()`)
 
@@ -660,7 +659,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 | 쓰는 것 | 용도 | 출처 |
 |---|---|---|
 | `mockMvc.perform(...)` | 사용자가 하는 일(체크아웃, 결제 승인, 취소, 발송 등)은 **실제 API**로 | 위 정책. 토큰은 `fixtures.login(email)`(`signup`한 이메일. `token(email)`은 가입까지 해서 중복 가입 예외가 난다) |
-| `TestFixtures`(`fixtures.signup`, `openShop`, `registerProduct`, `addToCart`, `checkout`, ...) | 흐름의 준비 단계(회원·가게·상품·장바구니)를 API 없이 빠르게 만든다 | 1-9 이후 쌓인 헬퍼(Part 5의 `registerBillingKey`·`registerSubscribableProduct`·`createSubscription`, Part 6의 `createConfirmedLine` 포함) |
+| `TestFixtures`(`fixtures.signup`, `openShop`, `registerProduct`, `addToCart`, `checkout`, ...) | 흐름의 준비 단계(회원·가게·상품·장바구니)를 API 없이 빠르게 만든다 | 1-9 이후 쌓인 헬퍼(Part 5의 `createConfirmedLine` 포함) |
 | 아래 표의 메서드를 **직접 호출** | 스케줄이 꺼진 테스트에서 "시간이 지나 잡이 돈 것"을 흉내 낸다 | 아래 표 |
 | `pg.on(...)`·`pg.markApproved(...)`, `Eventually.await(...)` | 가짜 PG의 응답 설정, 비동기(consumer) 반영 대기 | 2-3·3-1 |
 
@@ -674,7 +673,6 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 | 자동 구매확정 | `autoConfirmService.confirmBatch()` → `int` (수동 확정 API를 써도 된다) | 2-10 |
 | 정산 | `settlementService.run(YearMonth month)` → `SettlementRunResult(int settledShops, int paid, int payoutFailed)` (지급까지 포함) | 3-4 |
 | 알림 발송 | `notificationDispatcher.dispatchBatch()` → `int`(`SENT`로 바꾼 알림 수) | 3-5 |
-| 구독 회차 | `subscriptionCycleService.runDue()` → `int`(회차를 만든 구독 수) | Part 5 |
 | Kafka 중단·재개 | `kafka.getDockerClient().pauseContainerCmd(kafka.getContainerId()).exec()` / `unpauseContainerCmd` | 3-1 `OutboxRelayTest`. `kafka` 필드가 `IntegrationTestSupport`의 package-private이면 `e2e` 패키지에서 못 쓴다 — 접근을 열지 헬퍼를 둘지는 확인 필요 |
 
 `run`만 인자(정산 대상 월)를 받고 나머지는 인자가 없다
@@ -685,10 +683,11 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 | S2 | `AbandonedPaymentE2ETest` | 체크아웃 후 결제창 이탈 → 만료 잡 → 재고 원복 |
 | S3 | `UncertainPaymentE2ETest` | 승인 타임아웃(202) → 대사 → PAID / 승인 기록 없는 타임아웃 → 대사 → PAYMENT_FAILED |
 | S4 | `LineCancelE2ETest` | 품목 3개 주문의 품목 1개 취소 → 그 금액만 PG 부분취소 → 나머지 품목 정상 진행 → 다른 품목 하나 더 취소 → 누적 취소액 정확 |
-| S5 | `SubscriptionE2ETest` | 빌링키 등록 → 구독 → 회차 잡(성공) → 다음 회차 거절 3번 → SUSPENDED → 재개 |
 | S6 | `SettlementE2ETest` | 여러 가게 구매확정 → 정산 잡 두 번 → 정산 1회, 지급 1회 |
-| S7 | `ShopCloseE2ETest` | 진행 중 주문이 있는 가게 폐업 거부 → 주문 종결 → 구독 상품 단종 → 폐업 → 상품 단종·SELLER 회수 |
+| S7 | `ShopCloseE2ETest` | 진행 중 주문이 있는 가게 폐업 거부 → 주문 종결 → 폐업 → 상품 단종·SELLER 회수 |
 | 장애 | `KafkaOutageE2ETest` | Kafka pause 상태에서 체크아웃·결제 → outbox READY 누적 → unpause → 릴레이 → 모든 consumer 처리 완료 → `checkAll()` |
+
+S5(구독)는 서브인 [구독](../04-sub/subscription.md)을 할 때 더한다.
 
 **3) CI**: 전체 테스트 시간을 PR에 기록한다. 읽는 곳과 합격 기준은 완료 확인 "CI 실행 시간"에 있다.
 
@@ -704,7 +703,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 | `notificationCounts()` → `NotificationCounts` | 3-5의 `notificationRows()`를 `type`별·`status`별로 센 값(쿼리 없음). `NotificationCounts`의 메서드는 `int type(String type)`·`int status(String status)`이고, 건수를 돌려주며 행이 없으면 0이다 | S1·S2·S4·S6, `KafkaOutageE2ETest` |
 | `OrderSnapshot`에 `reservationStatuses` 추가 | `snapshotOf`에 쿼리 `SELECT status FROM product.stock_reservation WHERE order_id = ?`를 더해 `OrderSnapshot`에 `List<String> reservationStatuses`로 담는다 | S2 2번 |
 
-이미 있는 헬퍼: `snapshotOf`·`orderLineIdOf`·`shopOrderIdOf`·`createPaidOrder`·`createDeliveredOrder`(Part 2), `cartSnapshotOf`(3-6), `stockOf`, `countOf`(3-1), `settlementSnapshotOf`·`settlementItemSnapshotOf`·`unsettledItemCount`(3-4a), `notificationRows`(3-5), `shopSnapshotOf`·`memberSnapshotOf`·`productSnapshotOf`, `registerSubscribableProduct`·`registerBillingKey`·`createSubscription`(5-2), `subscriptionSnapshotOf`(5-2)·`cyclesOf`·`setSubscriptionNextRunDate`(5-3), `OutboxAssert.rows`·`Eventually`(3-1), `FakePayoutGateway`(3-4b), `FakeMailSender`(3-5).
+이미 있는 헬퍼: `snapshotOf`·`orderLineIdOf`·`shopOrderIdOf`·`createPaidOrder`·`createDeliveredOrder`(Part 2), `cartSnapshotOf`(3-6), `stockOf`, `countOf`(3-1), `settlementSnapshotOf`·`settlementItemSnapshotOf`·`unsettledItemCount`(3-4a), `notificationRows`(3-5), `shopSnapshotOf`·`memberSnapshotOf`·`productSnapshotOf`, `OutboxAssert.rows`·`Eventually`(3-1), `FakePayoutGateway`(3-4b), `FakeMailSender`(3-5).
 
 **확인 값을 읽는 방법**
 - 응답: MockMvc `jsonPath`. 에러 응답의 코드는 `$.code`, 부가 정보는 `$.details.필드`.
@@ -714,13 +713,11 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
   - 재고: `testFixtures.stockOf(productId)` → `available`, `reserved`, `sold`.
   - outbox: 토픽별 건수·`payload` 필드·`status`·`attempts`는 `OutboxAssert.rows(topic)`(3-1), 미발행 행 수는 `unsentOutboxCount()`.
   - 정산: `settlementSnapshotOf(shopId, month)`(3-4a)의 `status()`·`grossAmount()`·`feeAmount()`·`netAmount()`·`itemCount()`·`feeRateBp()`·`payoutReference()`·`paidAt()`, 정산 전 품목은 `settlementItemSnapshotOf(orderLineId)`(3-4a)의 `amount()`·`settlementId()`와 `unsettledItemCount()`(3-4a), 정산 행 수는 `countOf("settlement.settlement")`(3-1).
-  - 구독: `subscriptionSnapshotOf(subscriptionId)`(5-2)의 `status()`·`consecutiveFailures()`·`nextRunDate()`·`endReason()`, 회차 목록은 `cyclesOf(subscriptionId)`(5-3) → `CycleRow`의 `cycleDate()`·`status()`·`orderId()`·`appliedUnitPrice()`.
   - 알림: `notificationCounts()`(`type(...)`·`status(...)`로 건수).
   - 가게·회원·상품: `shopSnapshotOf(shopId)`의 `status()`·`closedAt()`, `memberSnapshotOf(memberId).role()`, `productSnapshotOf(productId).status()`(각각 `support/`의 `ShopSnapshot`·`MemberSnapshot`·`ProductSnapshot` record).
-  - 한 곳에서만 쓰는 값(S5 1번의 구독 주문 `orders.orders.type`·`total_amount`)은 JDBC 한 줄로 읽는다.
 - 가짜 서비스: PG는 `pg.requests(경로 접두어)`(헤더 키 소문자, 본문 `cancelAmount`는 `readTree`로 읽어 `asLong()`), 메일은 `fakeMailSender.sent()`, 지급은 `fakePayoutGateway.calls()` → `List<PayoutCall>`(`record PayoutCall(UUID settlementId, UUID shopId, long amount)`, 호출 순서).
 - 비동기 반영: "릴레이+대기(조건)"은 `outboxRelay.relayOnce()` 뒤 `Eventually.await(Duration.ofSeconds(10), 조건)`이다. 조건은 아래 각 단계가 적은 DB 값이다.
-- 시나리오 클래스의 주입: `MockMvc`, `TestFixtures`, `InvariantChecker`, `JdbcTemplate`, `OutboxRelay`, `OrderExpirationService`, `OrderReconcileService`, `SettlementService`, `NotificationDispatcher`, `SubscriptionCycleService`, `Clock`, `BusinessProperties`.
+- 시나리오 클래스의 주입: `MockMvc`, `TestFixtures`, `InvariantChecker`, `JdbcTemplate`, `OutboxRelay`, `OrderExpirationService`, `OrderReconcileService`, `SettlementService`, `NotificationDispatcher`, `Clock`, `BusinessProperties`.
 
 **공통 준비**: 아래 시나리오마다 새 데이터를 만든다(`IntegrationTestSupport`가 테스트마다 테이블을 비운다). 판매자·구매자는 `signup`, 가게는 `openShop`, 상품은 `registerProduct(sellerId, shopId, 가격, 10)`(재고 10)이다. 토큰은 `login(이메일)`로 받는다(`token(이메일)`은 가입까지 해서 `signup`한 이메일로 부르면 중복 가입 예외가 난다). 배송지는 `address(구매자 ID)`. 모든 요청의 `Authorization: Bearer {토큰}`, 쓰기 요청의 `Idempotency-Key`는 새 UUID(`/payment/confirm`은 `orderId`)다. 날짜 `today`는 `LocalDate.now(clock.withZone(businessProperties.businessZone()))`다. 각 시나리오의 **마지막 줄은 `invariantChecker.checkAll()`이 예외 없이 끝나는 것**이다.
 
@@ -735,7 +732,6 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 | `stockBalance()` | `registerProduct(sellerId, shopId, 1000, 10)` | `UPDATE product.stock SET received = received + 5, available = available + 5 WHERE product_id = ?` | 상품 ID |
 | `refundLimits()` | 위 주문에서 `product1`(1,000원) 품목을 취소 API로 취소(200 `COMPLETED`) | `UPDATE orders.refund SET amount = 6001 WHERE order_id = ?` | 주문 ID |
 | `settlementOnce()` | `createDeliveredOrder` 주문의 품목을 구매확정 API로 확정 → 릴레이+대기(`settlement.settlement_item` 1행) | `DELETE FROM settlement.settlement_item WHERE order_line_id = ?` | 품목(order_line) ID |
-| `subscriptionCycles()` | 구독 1건의 회차를 `runDue()`로 성공(회차 `PAID`, 주문 `PAID`) | `UPDATE orders.orders SET status = 'PAYMENT_FAILED' WHERE id = {회차의 order_id}` | 회차 ID |
 
 #### 시나리오 S1: `e2e/CheckoutPaymentE2ETest`
 
@@ -784,18 +780,6 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 4. **이벤트** — `OutboxAssert.rows("order.order-line-refunded.v1")` 2건(`payload().get("amount").asText()`가 1000, 2000), `"order.order-line-confirmed.v1"` 1건(`payload().get("amount").asText()` = 3000). 릴레이+대기(`notificationCounts().type("REFUNDED")` = 2, `settlementItemSnapshotOf(orderLineIdOf(orderId, product3)).amount()` = 3000, `countOf("settlement.settlement_item")` = 1).
 5. `checkAll()`.
 
-#### 시나리오 S5: `e2e/SubscriptionE2ETest`
-
-**준비**: 판매자, 가게, 구독 상품 `registerSubscribableProduct(sellerId, shopId, 10000, 20)`, 구매자, `billingKeyId = registerBillingKey(구매자 ID)`, `subscriptionId = createSubscription(구매자 ID, 상품 ID, billingKeyId)`(주기 WEEKLY 1 = 월요일, 수량 1). 아래 "다시 실행"은 `UPDATE orders.subscription SET next_run_date = today`(= `setSubscriptionNextRunDate`)와 이미 있는 회차를 어제로 미루는 `UPDATE orders.subscription_cycle SET cycle_date = cycle_date - 1 WHERE subscription_id = ?`다.
-
-1. **성공 회차** — `setSubscriptionNextRunDate(subscriptionId, today)` → `subscriptionCycleService.runDue()` 반환값 1. `cyclesOf(subscriptionId)` 1건 — `cycleDate()` = today, `status()` = `PAID`, `appliedUnitPrice()` = 10000, `orderId()` = 구독 주문 ID(`subOrderId`로 둔다) / 구독 주문: `snapshotOf(subOrderId)`의 `status()` = `PAID` / `subscriptionSnapshotOf(subscriptionId)`: `consecutiveFailures()` = 0, `nextRunDate()`가 today보다 크고 today + 7 이하이며 `getDayOfWeek()` = `MONDAY`.
-2. **거절 1회** — `pg.on("/v1/billing/bk_", Behavior.reject("REJECT_CARD_COMPANY"))` → 다시 실행 → `runDue()` 반환값 1. `cyclesOf(subscriptionId)`의 마지막 회차 `status()` = `FAILED`, 그 회차의 주문 `snapshotOf(마지막 회차의 orderId()).status()` = `PAYMENT_FAILED` / `subscriptionSnapshotOf(subscriptionId)`: `consecutiveFailures()` = 1, `nextRunDate()` = today + 1 / `OutboxAssert.rows("order.subscription-cycle-failed.v1")` 1건, `payload().get("consecutiveFailures").asText()` = 1.
-3. **거절 2회** — 다시 실행 → 반환값 1. `subscriptionSnapshotOf(subscriptionId)`: `consecutiveFailures()` = 2, `order.subscription-cycle-failed.v1` 누적 2건.
-4. **거절 3회** — 다시 실행 → 반환값 1. `subscriptionSnapshotOf(subscriptionId)`: `status()` = `SUSPENDED`, `consecutiveFailures()` = 3 / `cyclesOf(subscriptionId)`의 `status()` 목록 = [`PAID`, `FAILED`, `FAILED`, `FAILED`](생성 순). outbox `order.subscription-status-changed.v1` 1건: `payload().get("from").asText()` = `ACTIVE`, `payload().get("to").asText()` = `SUSPENDED`. `order.subscription-cycle-failed.v1`은 2건 그대로.
-5. **정지 중에는 실행되지 않음** — 다시 실행 → `runDue()` 반환값 0. `cyclesOf(subscriptionId)`의 `status()` 목록이 4번과 같다.
-6. **재개** — 구매자 토큰으로 `POST /api/subscriptions/{subscriptionId}/resume` → 200. `subscriptionSnapshotOf(subscriptionId)`: `status()` = `ACTIVE`, `consecutiveFailures()` = 0, `nextRunDate()` > today.
-7. `checkAll()`.
-
 #### 시나리오 S6: `e2e/SettlementE2ETest`
 
 **준비**: 가게 3곳(판매자 3명)의 상품 `productA` 10,000원·`productB` 20,000원·`productC` 30,000원, 구매자 1명. 가게마다 `createDeliveredOrder(구매자 ID, 판매자 ID, 가게 ID, 상품 ID)` → 구매자 토큰으로 품목 3개를 구매확정 API로 확정(각 200, `$.status` = `CONFIRMED`) → 릴레이+대기(`unsettledItemCount()` = 3).
@@ -806,12 +790,11 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 #### 시나리오 S7: `e2e/ShopCloseE2ETest`
 
-**준비**: 판매자 1명, 가게 1개(이 판매자의 유일한 가게), 일반 상품 `product1` 10,000원, 구독 상품 `product2`(`registerSubscribableProduct(sellerId, shopId, 10000, 10)`), 구매자 1명. `createPaidOrder(구매자 ID, product1)`(가게주문 `PAID`), `createSubscription(구매자 ID, product2, registerBillingKey(구매자 ID))`(`ACTIVE`).
-1. **진행 중 주문** — 판매자 토큰으로 `DELETE /api/shops/{shopId}` → 422, `$.code` = `SHOP_HAS_ACTIVE_ORDERS`. `shopSnapshotOf(shopId)`: `status()` = `ACTIVE`, `closedAt()` = null / outbox `shop.shop-closed.v1` 0건 / `memberSnapshotOf(판매자 ID).role()` = `SELLER` / `productSnapshotOf`의 `status()`가 두 상품 모두 `ON_SALE`.
-2. **주문 종결** — `product1` 주문을 발송·배송완료 API와 구매자의 구매확정 API로 끝낸다(`snapshotOf(orderId).shopOrderStatus()` = `COMPLETED`). `DELETE /api/shops/{shopId}` → 422, `$.code` = `SHOP_HAS_ACTIVE_ORDERS`, `$.details.reason` = `ACTIVE_SUBSCRIPTION`. `shopSnapshotOf(shopId).status()` = `ACTIVE` 그대로.
-3. **구독 상품 단종** — `PATCH /api/shops/{shopId}/products/{product2}/status` 본문 `{"status":"DISCONTINUED"}` → 200. outbox `product.product-discontinued.v1` 1건(`payload().get("reason").asText()` = `SELLER`). 릴레이+대기(`subscriptionSnapshotOf(subscriptionId)`의 `status()` = `TERMINATED`, `endReason()` = `PRODUCT_DISCONTINUED`).
-4. **폐업** — `DELETE /api/shops/{shopId}` → 204. `shopSnapshotOf(shopId)`: `status()` = `CLOSED`, `closedAt()`이 null이 아니다. outbox `shop.shop-closed.v1` 1건. 릴레이+대기(두 상품의 `productSnapshotOf(productId).status()` = `DISCONTINUED`, `memberSnapshotOf(판매자 ID).role()` = `USER`). outbox `product.product-discontinued.v1`은 총 2건(`product2` `SELLER`, `product1` `SHOP_CLOSED`).
-5. `checkAll()`.
+**준비**: 판매자 1명, 가게 1개(이 판매자의 유일한 가게), 상품 `product1` 10,000원, 구매자 1명. `createPaidOrder(구매자 ID, product1)`(가게주문 `PAID`).
+1. **진행 중 주문** — 판매자 토큰으로 `DELETE /api/shops/{shopId}` → 422, `$.code` = `SHOP_HAS_ACTIVE_ORDERS`. `shopSnapshotOf(shopId)`: `status()` = `ACTIVE`, `closedAt()` = null / outbox `shop.shop-closed.v1` 0건 / `memberSnapshotOf(판매자 ID).role()` = `SELLER` / `productSnapshotOf(product1).status()` = `ON_SALE`.
+2. **주문 종결** — `product1` 주문을 발송·배송완료 API와 구매자의 구매확정 API로 끝낸다(`snapshotOf(orderId).shopOrderStatus()` = `COMPLETED`).
+3. **폐업** — `DELETE /api/shops/{shopId}` → 204. `shopSnapshotOf(shopId)`: `status()` = `CLOSED`, `closedAt()`이 null이 아니다. outbox `shop.shop-closed.v1` 1건. 릴레이+대기(`productSnapshotOf(product1).status()` = `DISCONTINUED`, `memberSnapshotOf(판매자 ID).role()` = `USER`). outbox `product.product-discontinued.v1` 1건(`payload().get("reason").asText()` = `SHOP_CLOSED`).
+4. `checkAll()`.
 
 #### 장애 시나리오: `e2e/KafkaOutageE2ETest`
 
@@ -831,7 +814,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 ---
 
-## 7-5. README · 회고 · Stage 1 릴리스 (M)
+## 6-5. README · 회고 · Stage 1 릴리스 (M)
 
 **목표**: 리포만 보고 프로젝트를 이해하고 실행할 수 있다. 이력서에 쓸 근거가 정리된다.
 
@@ -857,7 +840,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 **5) 릴리스** — develop → main, 태그 `v1.0.0`
 
-develop → main PR을 **merge commit**으로 합치고(squash 아님), main에 태그를 붙인 뒤 GitHub Release를 만든다. Release 노트에는 완료한 단계 목록, 주요 ADR, 알려진 한계를 쓴다([git-policy §7](../git-policy.md#7-릴리스와-태그). 같은 표에 Part 7 완료 `v0.7.0`도 있다: 이 단계에서 `v0.7.0`을 따로 찍을지는 확인 필요)
+develop → main PR을 **merge commit**으로 합치고(squash 아님), main에 태그를 붙인 뒤 GitHub Release를 만든다. Release 노트에는 완료한 단계 목록, 주요 ADR, 알려진 한계를 쓴다([git-policy §7](../git-policy.md#7-릴리스와-태그). 같은 표에 Part 6 완료 `v0.6.0`도 있다: 이 단계에서 `v0.6.0`을 따로 찍을지는 확인 필요)
 
 **6) Stage 1.5 준비** (Claude 초안, 사용자 확정)
 
@@ -880,7 +863,7 @@ develop → main PR을 **merge commit**으로 합치고(squash 아님), main에 
    - 태그: `git tag -l v1.0.0` 출력이 `v1.0.0`, `git rev-parse v1.0.0^{commit}` = `git rev-parse origin/main`.
    - Release: `gh release view v1.0.0 --json tagName,body` → `tagName` = `v1.0.0`, `body`에 완료한 단계 목록, 주요 ADR, 알려진 한계 3개 절이 있다.
    - main의 CI: `gh run list --branch main --workflow CI --limit 1 --json conclusion` → `success`.
-   - 확인 필요: 이 단계에서 `v0.7.0`을 따로 찍을지.
+   - 확인 필요: 이 단계에서 `v0.6.0`을 따로 찍을지.
 6. **Stage 1.5 준비**: ADR-012에서 노드 수·상태 서비스 위치가 "제안"이 아니라 확정 값으로 적혀 있고, K-1~K-5 로드맵 문서가 `docs/03-roadmap/`에 있다(파일 이름은 확인 필요).
 
 **리뷰 때 물어볼 것**: 이력서 문장마다 근거(테스트, 문서, 수치)가 있는가?

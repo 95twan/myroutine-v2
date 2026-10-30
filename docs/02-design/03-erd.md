@@ -5,7 +5,7 @@
 > 2026-10-28: `settlement_item`에 `shop_order_id`·`product_name`·`quantity`를 더했다(로드맵 4-0)
 > 2026-10-17: `refund.reason_type`에서 `SYSTEM`을 뺐다(환불을 만드는 경로가 구매자 취소와 반품뿐이라 쓰는 곳이 없다, 로드맵 2-8)
 > 2026-10-15: 주문 만료 스윕 조건을 `expires_at <= now()`로 맞췄다(같은 시각도 만료, 결제 시작 CAS의 `expires_at > now`와 상보적, 로드맵 2-5)
-> 2026-10-15: `review_like`에 `created_at`을 더하고, 추천 캐시 키를 로드맵 6-4의 `rec:result:{memberId}`(추천 결과 캐시)로 맞췄다
+> 2026-10-15: `review_like`에 `created_at`을 더하고, 추천 캐시 키를 서브 SUB-5의 `rec:result:{memberId}`(추천 결과 캐시)로 맞췄다
 > 2026-10-13: `order_line(shop_order_id)` 인덱스를 인덱스 목록에 더했다(주문 상세의 품목 배치 로딩, 로드맵 2-2)
 > 2026-10-12: 장바구니와 주문은 연결하지 않는다 — 체크아웃은 장바구니를 건드리지 않고(주문 품목으로 복사), 결제 완료 때 주문 수량만큼 차감(로드맵 2-2·2-4)
 > 2026-10-09: 로드맵 4-x와 맞춤 — Redis 키 이름(`auth:email-code:{purpose}:{email}`, 쿨다운·시간당 키, OAuth 키, 세션 = family라 `familyId` 없음), `member.ban_reason`·`social_account.provider_email` 추가
@@ -401,7 +401,7 @@ erDiagram
     varchar status "ACTIVE, INACTIVE"
   }
 ```
-- 추천 결과 캐시: Redis `rec:result:{memberId}`(TTL 30분. 새 주문 결제·탈퇴 시 삭제, 로드맵 6-4).
+- 추천 결과 캐시: Redis `rec:result:{memberId}`(TTL 30분. 새 주문 결제·탈퇴 시 삭제, 서브 [취향 추천](../04-sub/recommendation.md) SUB-5).
 
 ## notification
 ```mermaid

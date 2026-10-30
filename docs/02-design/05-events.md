@@ -5,8 +5,8 @@
 > 2026-10-20 · 릴레이가 한 행의 발행 실패에서 그 호출을 멈추고 남은 행을 되돌린다(로드맵 3-1)
 > 2026-10-16 · 대사 호출 이름을 `queryOutcome`에서 `queryPgOutcome`으로 바꿨다(로드맵 2-6)
 > 2026-10-15 · `product-upserted`의 payload에 `subscribable`을 더했다(로드맵 3-3의 `ProductUpsertedEvent`와 맞춤)
-> 2026-10-12 · 로드맵 용어 정리에 맞춰 "6-5 제안"을 "6-5 추가 항목"으로 바꿨다
-> 2026-10-09 · 로드맵(3-x·5-4·6-x)과 consumer 목록을 맞춤: search·recommendation은 `product-discontinued`가 아니라 `product-upserted`의 status로 처리, `shop-closed`는 order(구독 종료)가 구독하고 notification은 구독하지 않음, `order-line-confirmed`는 settlement만(리뷰 자격은 `OrderApi` 동기 확인), `review-created`는 지금 구독자가 없다(6-5 제안용)
+> 2026-10-12 · 로드맵 용어 정리에 맞춰 "SUB-6 제안"을 "SUB-6 추가 항목"으로 바꿨다
+> 2026-10-09 · 로드맵(3-x·SUB-4·5-x)과 consumer 목록을 맞춤: search·recommendation은 `product-discontinued`가 아니라 `product-upserted`의 status로 처리, `shop-closed`는 order(구독 종료)가 구독하고 notification은 구독하지 않음, `order-line-confirmed`는 settlement만(리뷰 자격은 `OrderApi` 동기 확인), `review-created`는 지금 구독자가 없다(SUB-6 제안용)
 
 ## 1. 규칙
 | 항목 | 규칙 |
@@ -51,7 +51,7 @@
 | 토픽 | 발생 시점 | payload | consumer |
 |---|---|---|---|
 | `shop.shop-opened.v1` | 가게 개설 | shopId, memberId | member(SELLER 부여) |
-| `shop.shop-closed.v1` | 가게 폐업 | shopId, memberId | member(남은 가게 0이면 SELLER 회수), product(상품 DISCONTINUED), order(활성 구독 TERMINATED — 폐업 조건상 보통 0건, 5-4) |
+| `shop.shop-closed.v1` | 가게 폐업 | shopId, memberId | member(남은 가게 0이면 SELLER 회수), product(상품 DISCONTINUED), order(활성 구독 TERMINATED — 폐업 조건상 보통 0건, SUB-4) |
 
 - member는 처리 시점에 shop API로 **활성 가게 수를 재조회**해 SELLER 회수 여부를 판단한다(이벤트에 개수를 담지 않는다 — 순서·중복에 안전, As-Is SHOP-03 대응).
 
@@ -60,7 +60,7 @@
 |---|---|---|---|
 | `product.product-upserted.v1` | 상품 생성·수정·상태 변경 | productId, shopId, name, description, category, price, status, subscribable, version | search(색인), recommendation(본문 해시 변경 시 재임베딩) |
 | `product.product-price-changed.v1` | 가격 변경 | productId, oldPrice, newPrice, changedAt | order(구독 pending 가격 설정, POL-11 → `subscription-price-changed` 발행. 구독자 알림은 그 이벤트로) |
-| `product.product-discontinued.v1` | 단종 | productId, shopId, reason(`SELLER`, `SHOP_CLOSED`) | order(구독 TERMINATED). search·recommendation은 함께 발행되는 `product-upserted`(status DISCONTINUED)로 처리한다(6-2·6-4) |
+| `product.product-discontinued.v1` | 단종 | productId, shopId, reason(`SELLER`, `SHOP_CLOSED`) | order(구독 TERMINATED). search·recommendation은 함께 발행되는 `product-upserted`(status DISCONTINUED)로 처리한다(5-2·SUB-5) |
 | `product.stock-depleted.v1` | 가용재고 0 | productId | search(품절 표시) [C] |
 
 ### order
@@ -70,7 +70,7 @@
 | `order.order-expired.v1` | 주문 만료·결제 실패 | orderId, memberId, reason(`EXPIRED`, `PAYMENT_FAILED`) | notification |
 | `order.shop-order-shipped.v1` | 발송 | shopOrderId, orderId, memberId, carrier, trackingNumber | notification |
 | `order.shop-order-delivered.v1` | 배송완료 | shopOrderId, orderId, memberId | notification |
-| `order.order-line-confirmed.v1` | 구매확정 | orderLineId, orderId, shopId, productId, memberId, amount, confirmedAt, shopOrderId, productName, quantity | settlement(정산 대상 적재). 리뷰 작성 자격은 review가 `OrderApi.getConfirmedLine`으로 동기 확인한다(6-1) |
+| `order.order-line-confirmed.v1` | 구매확정 | orderLineId, orderId, shopId, productId, memberId, amount, confirmedAt, shopOrderId, productName, quantity | settlement(정산 대상 적재). 리뷰 작성 자격은 review가 `OrderApi.getConfirmedLine`으로 동기 확인한다(5-1) |
 | `order.order-line-refunded.v1` | 환불 완료 | refundId, orderLineId, orderId, memberId, amount | notification |
 | `order.subscription-status-changed.v1` | 구독 상태 변경 | subscriptionId, memberId, from, to, reason | notification |
 | `order.subscription-cycle-failed.v1` | 회차 결제 실패·건너뜀 | subscriptionId, cycleId, memberId, consecutiveFailures, reason | notification |
@@ -86,7 +86,7 @@
 | 토픽 | 발생 시점 | payload | consumer |
 |---|---|---|---|
 | `settlement.settlement-paid.v1` | 정산금 지급 | settlementId, shopId, netAmount, periodStart, periodEnd | notification |
-| `review.review-created.v1` | 리뷰 작성 | reviewId, productId, content | 없음 — 리뷰 임베딩(6-5 추가 항목)을 만들 때 쓴다 |
+| `review.review-created.v1` | 리뷰 작성 | reviewId, productId, content | 없음 — 리뷰 임베딩(SUB-6 추가 항목)을 만들 때 쓴다 |
 
 ## 3. consumer 요약 (모듈별 구독 토픽)
 | 모듈 | 구독 |

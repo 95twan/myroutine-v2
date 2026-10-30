@@ -50,4 +50,4 @@
 코드 작성·리뷰 기준은 [개발 가이드](../development-guide.md)를 따른다.
 
 ## 다음 단계
-Phase 3: [구현 로드맵](../03-roadmap/README.md) — 기능부터 만들고 도구는 필요해질 때 도입하는 Part 1~7. Git 규칙은 [Git 정책](../git-policy.md).
+Phase 3: [구현 로드맵](../03-roadmap/README.md) — 기능부터 만들고 도구는 필요해질 때 도입하는 Part 1~6. 로드맵에서 뺀 기능은 [서브](../04-sub/README.md). Git 규칙은 [Git 정책](../git-policy.md).

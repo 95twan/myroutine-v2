@@ -103,9 +103,9 @@
 | AOP | `spring-boot-starter-aspectj` (Boot 4에서 `-aop`에서 이름이 바뀜) | Boot BOM | 2-2 |
 | spring-kafka / kafka-clients | 4.1.1 / 4.2.1 (`spring-boot-starter-kafka`) · 브로커 이미지 `apache/kafka:4.2.2` | Boot BOM | 3-1 |
 | Spring Data Redis / Lettuce | `spring-boot-starter-data-redis` · Lettuce 7.5.2 · 이미지 `redis:7.4.11` | Boot BOM | 4-1 |
-| Spring Data Elasticsearch | 6.1.1 (ES 클라이언트 9.4.5) · 이미지 `elasticsearch:9.4.8` | Boot BOM (Spring Data 2026.0.1) | 6-2 |
-| Spring AI | 2.0.1 (`spring-ai-starter-model-openai`, Boot 4.1.1 스타터에 의존) | `spring-ai-bom` 직접 import | 6-4 |
-| logstash-logback-encoder | 9.0 (Jackson 3 `tools.jackson`, logback 1.5) | 버전 직접 지정 | 7-1 |
+| Spring Data Elasticsearch | 6.1.1 (ES 클라이언트 9.4.5) · 이미지 `elasticsearch:9.4.8` | Boot BOM (Spring Data 2026.0.1) | 5-2 |
+| Spring AI | 2.0.1 (`spring-ai-starter-model-openai`, Boot 4.1.1 스타터에 의존) | `spring-ai-bom` 직접 import | SUB-5 |
+| logstash-logback-encoder | 9.0 (Jackson 3 `tools.jackson`, logback 1.5) | 버전 직접 지정 | 6-1 |
 | Testcontainers 모듈 | `testcontainers-kafka`·`-elasticsearch` 모두 BOM 2.0.5에 있다 (`-minio`는 1-10에서 사용) | Boot가 import하는 Testcontainers BOM | 각 단계 |
 | springdoc-openapi | 확인 필요(Boot 4 호환 버전을 쓰는 단계가 아직 없다) | | - |
 

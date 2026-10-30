@@ -74,4 +74,5 @@ curl -s -X POST $BASE -H "Authorization: Bearer $TOKEN" -H 'Content-Type: applic
 | [development-guide](docs/development-guide.md) | 코딩 규칙과 리뷰 기준 |
 | [git-policy](docs/git-policy.md) | 브랜치·커밋·PR 규칙 |
 | [03-roadmap](docs/03-roadmap/README.md) | 단계별 구현 로드맵 |
+| [04-sub](docs/04-sub/README.md) | 서브: 로드맵에서 뺀 구독·취향 추천·월간 리뷰 요약 (Stage 1 뒤) |
 | [ops/vm-setup](docs/ops/vm-setup.md) | 운영 VM 준비와 자동 배포(GitHub Actions self-hosted runner) 절차 |
