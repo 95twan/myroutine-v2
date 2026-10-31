@@ -49,6 +49,23 @@ public class TestFixtures {
     private final StringRedisTemplate redisTemplate;
     private final SignupVerificationStore signupVerificationStore;
 
+    public TokenVersionSnapshot tokenVersionSnapshotOf(UUID memberId) {
+        int tokenVersion = jdbcTemplate.queryForObject("SELECT token_version FROM member.member WHERE id = ?", Integer.class, memberId);
+        String redisTokenVersionRow = redisTemplate.opsForValue().get("auth:token-version:" + memberId);
+        Integer redisTokenVersion = null;
+        if (redisTokenVersionRow != null) {
+            redisTokenVersion = Integer.parseInt(redisTokenVersionRow);
+        }
+        long redisTtlSeconds = redisTemplate.getExpire("auth:token-version:" + memberId);
+        return new TokenVersionSnapshot(tokenVersion, redisTokenVersion, redisTtlSeconds);
+    }
+
+    public String adminToken(String email) {
+        UUID memberId = signup(email);
+        changeRole(memberId, "ADMIN");
+        return login(email);
+    }
+
     public RedisHash redisHashOf(String key) {
         Map<Object, Object> map = redisTemplate.opsForHash().entries(key);
         Map<String, String> fields = map.entrySet().stream()
@@ -444,12 +461,13 @@ public class TestFixtures {
         );
 
         return jdbcTemplate.queryForObject("""
-                        SELECT nickname, name, phone, password_hash, role, status, email, withdrawn_at, created_at, updated_at
+                        SELECT nickname, name, phone, password_hash, role, status, email, withdrawn_at, ban_reason, banned_at, created_at, updated_at
                         FROM member.member
                         WHERE id = ?
                         """,
                 (rs, rowNum) -> {
                     Timestamp withdrawnAt = rs.getTimestamp("withdrawn_at");
+                    Timestamp bannedAt = rs.getTimestamp("banned_at");
                     return new MemberSnapshot(
                             rs.getString("nickname"),
                             rs.getString("name"),
@@ -461,7 +479,9 @@ public class TestFixtures {
                             withdrawnAt != null ? withdrawnAt.toInstant() : null,
                             rs.getTimestamp("created_at").toInstant(),
                             rs.getTimestamp("updated_at").toInstant(),
-                            addressStates
+                            addressStates,
+                            rs.getString("ban_reason"),
+                            bannedAt != null ? bannedAt.toInstant() : null
                     );
                 },
                 memberId);

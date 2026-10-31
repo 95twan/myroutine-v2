@@ -20,6 +20,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtProvider jwtProvider;
+    private final TokenVersionProvider tokenVersionProvider;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
@@ -32,8 +33,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String token = authorizationHeader.substring(BEARER_PREFIX.length());
 
         jwtProvider.parse(token).ifPresent(claims -> {
-            UsernamePasswordAuthenticationToken authenticatedToken = UsernamePasswordAuthenticationToken.authenticated(claims, null, List.of(new SimpleGrantedAuthority("ROLE_" + claims.role())));
-            SecurityContextHolder.getContext().setAuthentication(authenticatedToken);
+            if (claims.tokenVersion() == tokenVersionProvider.currentVersion(claims.memberId())) {
+                UsernamePasswordAuthenticationToken authenticatedToken = UsernamePasswordAuthenticationToken.authenticated(claims, null, List.of(new SimpleGrantedAuthority("ROLE_" + claims.role())));
+                SecurityContextHolder.getContext().setAuthentication(authenticatedToken);
+            }
         });
 
         filterChain.doFilter(request, response);

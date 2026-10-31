@@ -5,6 +5,7 @@ import java.util.UUID;
 public record AuthClaims(
         UUID sessionId,
         UUID memberId,
-        String role
+        String role,
+        int tokenVersion
 ) {
 }

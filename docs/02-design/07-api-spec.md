@@ -1,6 +1,7 @@
 # 07. API 명세 (Stage 1)
 
 > 엔드포인트 목록과 핵심 API의 요청·응답 계약. 필드 단위 상세는 구현 시 springdoc(OpenAPI)로 생성하고, 이 문서와 어긋나면 이 문서를 갱신한다.
+> 2026-10-31 · 로그인 실패 401 `LOGIN_FAILED`에 `details.remainingAttempts`, 5번째 실패부터 423 `ACCOUNT_LOCKED`, 관리자 회원 목록에 제재 시각 `bannedAt`(로드맵 4-4)
 > 2026-10-31 · 평점 통계 응답의 최신 요약(`latestSummary`)을 5-1에서 빼고 SUB-6(서브)에서 더하게 했다
 > 2026-10-30 · 제공자 로그인 화면 주소를 프론트가 만들어 `GET /api/auth/oauth/{provider}/authorize-url`을 지웠다(로드맵 4-3)
 > 2026-10-28 · 429 `RATE_LIMITED`에 `details.retryAfterSeconds`, `MEMBER_BANNED`에 `details.reason`, 내 정보에 `hasPassword`·`socialAccounts`, 관리자 회원 목록에 `banReason`(로드맵 4-2~4-4)
@@ -32,9 +33,9 @@
 | 404 | `NOT_FOUND` | 없는 경로 |
 | 405 | `METHOD_NOT_ALLOWED` | 지원하지 않는 HTTP 메서드 |
 | 401 | `UNAUTHORIZED`(토큰 없음·틀림·만료·폐기 모두), `REFRESH_REUSED` | 인증 |
-| 401 | `LOGIN_FAILED` | 이메일 또는 비밀번호 불일치 (어느 쪽이 틀렸는지 알려주지 않음) |
+| 401 | `LOGIN_FAILED` | 이메일 또는 비밀번호 불일치 (어느 쪽이 틀렸는지 알려주지 않음). `details.remainingAttempts`: 잠기기까지 남은 실패 횟수(4→1) |
 | 403 | `FORBIDDEN`, `MEMBER_BANNED` | 인가, 제재. `MEMBER_BANNED`는 사유가 있으면 `details.reason` |
-| 423 | `ACCOUNT_LOCKED` | 로그인 연속 실패로 잠김 (details.unlockAt) |
+| 423 | `ACCOUNT_LOCKED` | 로그인 연속 실패로 잠김. 5번째 실패부터 (details.unlockAt). 비밀번호 재설정을 확인하면 풀린다 |
 | 404 | `*_NOT_FOUND` | `MEMBER_NOT_FOUND`, `MEMBER_ADDRESS_NOT_FOUND`, `SHOP_NOT_FOUND`, `PRODUCT_NOT_FOUND` 등 |
 | 409 | `MEMBER_EMAIL_DUPLICATED`, `MEMBER_NICKNAME_DUPLICATED`, `SHOP_BUSINESS_NUMBER_DUPLICATED` | 중복 (서비스의 사전 조회) |
 | 409 | `DUPLICATE_RESOURCE` | 동시 요청 경합으로 DB unique 제약에 걸림 |
@@ -73,7 +74,7 @@
 | GET/POST/PATCH/DELETE | `/api/members/me/addresses[/{id}]` | U | 배송지 | FR-MEM-05 |
 | DELETE | `/api/members/me` | U | 탈퇴 (조건 검증) | FR-MEM-06 |
 | GET/POST | `/api/inquiries` | U | 문의 | FR-MEM-08 |
-| GET | `/admin/api/members` | A | 회원 검색. 항목에 제재 사유 `banReason`(BANNED가 아니면 null) | FR-MEM-07 |
+| GET | `/admin/api/members` | A | 회원 검색. 항목에 제재 사유 `banReason`과 제재 시각 `bannedAt`(BANNED가 아니면 null) | FR-MEM-07 |
 | POST | `/admin/api/members/{id}/ban`, `/unban` | A | 제재 | FR-MEM-07 |
 | POST | `/admin/api/inquiries/{id}/answer` | A | 답변 | FR-MEM-08 |
 

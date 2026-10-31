@@ -23,17 +23,17 @@ public class TokenIssuer {
         UUID sessionId = Ids.newId();
         RefreshToken refreshToken = RefreshToken.generate(sessionId);
         sessionStore.create(sessionId, member.getId(), refreshToken.secretHash(), properties.refreshTokenTtl());
-        String accessToken = jwtProvider.issue(member.getId(), member.getRole().name(), sessionId);
+        String accessToken = jwtProvider.issue(member.getId(), member.getRole().name(), sessionId, member.getTokenVersion());
         return new TokenResult(accessToken, jwtProvider.accessTokenTtl().getSeconds(), refreshToken.value(), properties.refreshTokenTtl().getSeconds());
     }
 
     public TokenResult reissue(Member member, UUID sessionId, RefreshToken refreshToken) {
-        String access = jwtProvider.issue(member.getId(), member.getRole().name(), sessionId);
+        String access = jwtProvider.issue(member.getId(), member.getRole().name(), sessionId, member.getTokenVersion());
         return new TokenResult(access, jwtProvider.accessTokenTtl().getSeconds(), refreshToken.value(), properties.refreshTokenTtl().getSeconds());
     }
 
     public TokenResult reissueAccess(Member member, UUID sessionId) {
-        String access = jwtProvider.issue(member.getId(), member.getRole().name(), sessionId);
+        String access = jwtProvider.issue(member.getId(), member.getRole().name(), sessionId, member.getTokenVersion());
         return new TokenResult(access, jwtProvider.accessTokenTtl().getSeconds(), null, 0);
     }
 }

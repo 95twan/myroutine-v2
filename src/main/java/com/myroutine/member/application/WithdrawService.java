@@ -27,6 +27,8 @@ public class WithdrawService {
     private final List<WithdrawalPrecondition> preconditions;
     private final OutboxPublisher publisher;
     private final Clock clock;
+    private final TokenVersionService tokenVersionService;
+    private final SessionStore sessionStore;
 
     @Transactional
     public void withdraw(UUID memberId) {
@@ -48,6 +50,8 @@ public class WithdrawService {
         memberAddressRepository.deleteAllByMemberId(memberId);
         socialAccountRepository.deleteAllByMemberId(memberId);
         member.withdraw(clock.instant());
+        tokenVersionService.bump(member);
+        sessionStore.deleteAllOf(memberId);
         publisher.publish(MemberTopics.MEMBER_WITHDRAWN, "MEMBER", memberId, new MemberWithdrawnEvent(memberId));
     }
 }

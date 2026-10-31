@@ -152,13 +152,13 @@ DB는 이 조합을 막지 않는다. `ck_orders_status`, `ck_shop_order_status`
 | 대상 | 가능한 값과 전이 | 지금 도달 가능한 값 | 확인 |
 |---|---|---|---|
 | `product.status` | `ON_SALE` ⇄ `HIDDEN`, 둘 다 → `DISCONTINUED`(종결) (`product/domain/ProductStatus.java:13-15`) | 모두. `PATCH .../status`로 전이 | 코드 |
-| `shop.status` | `ACTIVE` → `CLOSED` (`shop/domain/ShopStatus.java:13`) | `ACTIVE`뿐. `CLOSED`로 보내는 서비스가 없다(3-2에서 구현) | 코드 |
-| `member.status` | `ACTIVE` → `BANNED`/`WITHDRAWN`, `BANNED` → `ACTIVE` (`member/domain/MemberStatus.java:15-17`) | `ACTIVE`뿐. 제재(4-4)·탈퇴(3-6)가 미구현이다. 가입은 항상 `ACTIVE` + `USER` | 코드 |
-| `member.role` | `USER`, `SELLER`, `ADMIN` | `USER`뿐. 권한 판정에 role을 쓰는 곳이 없다 | 코드 |
+| `shop.status` | `ACTIVE` → `CLOSED` (`shop/domain/ShopStatus.java:13`) | 모두. `CloseShopService.close`로 `CLOSED` | 코드 |
+| `member.status` | `ACTIVE` → `BANNED`/`WITHDRAWN`, `BANNED` → `ACTIVE` (`member/domain/MemberStatus.java:15-17`) | `ACTIVE`, `WITHDRAWN`. 탈퇴(3-6, `WithdrawService`)는 구현됐고 제재(`BANNED`)는 4-4에서 구현한다. 가입은 항상 `ACTIVE` + `USER` | 코드 |
+| `member.role` | `USER`, `SELLER`, `ADMIN` | `USER`, `SELLER`(가게 개설 이벤트로 `MemberRoleService.grantSeller`, 활성 가게가 없어지면 회수), `ADMIN`(DB에서 직접 지정). `/admin/**`는 `hasRole("ADMIN")`이 막는다 | 코드 |
 | `member_address.is_default` | 회원당 0개 또는 1개(`uk_member_address_default` 부분 유니크) | 첫 주소는 자동 기본. 기본 주소를 삭제하거나 해제하면 0개 | 코드 |
 | `idempotency_key.status` | `PROCESSING` → `COMPLETED`. 2xx가 아니거나 예외면 행을 지운다 | 모두. 서버가 죽으면 `PROCESSING`이 만료(24시간)까지 남는다는 것은 추론 | 코드 |
 
-- 가게가 `CLOSED`가 되면 상품 등록·수정·재고조정·체크아웃은 막히지만(`Shop.verifyActive`), 이미 있는 `HELD` 예약과 `PAID` 주문은 그대로 진행된다. 현재는 도달할 수 없는 조합이다.
+- 가게가 `CLOSED`가 되면 상품 등록·수정·재고조정·체크아웃은 막히지만(`Shop.verifyActive`), 이미 있는 `HELD` 예약과 `PAID` 주문은 그대로 진행된다.
 
 ## 6. 설계 문서에만 있는 도메인
 

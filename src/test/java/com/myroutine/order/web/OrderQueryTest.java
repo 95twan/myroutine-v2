@@ -175,6 +175,11 @@ class OrderQueryTest extends IntegrationTestSupport {
         CheckoutResult checkout1 = testFixtures.checkout(buyerId, List.of(cartItemId1), addressId);
 
         // When & Then
+        // 웜 업 - token version 채우기
+        mockMvc.perform(get("/api/orders/{id}", checkout1.orderId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
         statistics.clear();
 
         mockMvc.perform(get("/api/orders/{id}", checkout1.orderId())

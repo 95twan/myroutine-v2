@@ -240,6 +240,10 @@ class SellerOrderControllerTest extends IntegrationTestSupport {
             testFixtures.createPaidOrder(buyerId, product1Id);
         }
 
+        mockMvc.perform(get("/api/shops/{shopId}/orders", shop1Id)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
         statistics.clear();
 
         // When & Then

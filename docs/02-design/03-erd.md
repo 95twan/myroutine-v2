@@ -1,5 +1,6 @@
 # 03. ERD (Stage 1)
 
+> 2026-10-31: `member.banned_at`(제재 시각)을 더했다(로드맵 4-4)
 > 2026-10-29: Redis `auth:signup-verified`·`auth:oauth-signup` 키에 토큰 원문 대신 SHA-256 해시를 넣는다(로드맵 Part 4 공통 규칙 T)
 > 2026-10-28: Redis `auth:session`의 기기 필드와 `auth:oauth-state` 키를 빼고 `auth:signup-verified:{token}`을 더했다. 가입 전에 이메일을 인증해 `member.email_verified_at`을 뺐다(로드맵 4-1·4-2·4-3)
 > 2026-10-28: `settlement_item`에 `shop_order_id`·`product_name`·`quantity`를 더했다(로드맵 4-0)
@@ -39,6 +40,7 @@ erDiagram
     varchar role "USER, SELLER, ADMIN (하나)"
     int token_version "토큰 즉시 무효화"
     varchar ban_reason "제재 사유 (4-4)"
+    timestamptz banned_at "제재 시각 (4-4)"
     timestamptz withdrawn_at
   }
   social_account {

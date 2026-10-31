@@ -23,6 +23,8 @@ public class PasswordService {
     private final EmailCodeStore emailCodeStore;
     private final MailSender mailSender;
     private final TokenIssuer tokenIssuer;
+    private final TokenVersionService tokenVersionService;
+    private final LoginAttemptStore loginAttemptStore;
 
     @Transactional
     public TokenResult change(UUID memberId, UUID sessionId, String current, String next) {
@@ -33,6 +35,7 @@ public class PasswordService {
             throw new BusinessException(MemberErrorCode.PASSWORD_MISMATCH);
         }
         member.changePassword(passwordEncoder.encode(next));
+        tokenVersionService.bump(member);
         sessionStore.deleteAllOfExcept(memberId, sessionId);
 
         return tokenIssuer.reissueAccess(member, sessionId);
@@ -64,6 +67,8 @@ public class PasswordService {
                 () -> new BusinessException(MemberErrorCode.EMAIL_CODE_INVALID)
         );
         member.changePassword(passwordEncoder.encode(newPassword));
+        tokenVersionService.bump(member);
         sessionStore.deleteAllOf(member.getId());
+        loginAttemptStore.reset(normalizedEmail);
     }
 }

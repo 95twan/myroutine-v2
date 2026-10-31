@@ -3,6 +3,7 @@ package com.myroutine.notification.infrastructure;
 import com.myroutine.common.inbox.InboxGuard;
 import com.myroutine.common.outbox.EventEnvelopes;
 import com.myroutine.common.outbox.TypedEnvelope;
+import com.myroutine.member.api.event.MemberBannedEvent;
 import com.myroutine.member.api.event.MemberRegisteredEvent;
 import com.myroutine.member.api.event.MemberTopics;
 import com.myroutine.notification.application.NotificationComposer;
@@ -83,6 +84,15 @@ public class NotificationEventConsumer {
     public void onSettlementPaid(String message) {
         TypedEnvelope<SettlementPaidEvent> typed = envelopes.parse(message, SettlementPaidEvent.class);
         inboxGuard.runOnce("notification.settlement-paid", typed.envelope(), () -> {
+            List<NotificationDraft> drafts = composer.compose(typed.payload());
+            notificationService.enqueue(typed.envelope().eventId(), drafts);
+        });
+    }
+
+    @KafkaListener(topics = MemberTopics.MEMBER_BANNED, groupId = "notification")
+    public void onMemberBanned(String message) {
+        TypedEnvelope<MemberBannedEvent> typed = envelopes.parse(message, MemberBannedEvent.class);
+        inboxGuard.runOnce("notification.member-banned", typed.envelope(), () -> {
             List<NotificationDraft> drafts = composer.compose(typed.payload());
             notificationService.enqueue(typed.envelope().eventId(), drafts);
         });
