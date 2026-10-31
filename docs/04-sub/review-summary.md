@@ -77,16 +77,20 @@
 
 #### `review/application/ReviewSummaryTest` (가짜 OpenAI 서버)
 
+**확인 표기**: 각 "확인"은 맨 앞에 읽는 곳을 쓴다. `응답(andExpect)`는 요청 호출 체인에 바로 거는 상태·헤더·`jsonPath` 단언, `응답 본문(andReturn 후)`는 `.andReturn()`으로 받은 `MvcResult`에서 꺼낸 상태·헤더·본문 값, `DB(헬퍼)`는 `TestFixtures` 등의 읽기 헬퍼, `Redis(헬퍼/키)`, `ES(헬퍼)`, `outbox(OutboxAssert.rows(토픽))`, `Kafka(TestKafka.messages)`, `메일(fakeMailSender.sent())`, `로그(output.getAll())`, `메트릭(registry)`, `가짜 서버 요청(가짜 서버의 요청 기록 호출)`, `반환값`은 서비스·도메인 테스트가 직접 받은 값, `예외`는 던져진 예외, `명령 출력`은 수동 확인의 명령 결과다. 한 줄에 읽는 곳이 둘이면 줄을 나눈다.
+
 **1. 잡을 두 번 돌려도 요약 1건, LLM 호출 1번** — 준비: 상품 `Pa`에 `ACTIVE` 리뷰 3개: 5점·`2026-09-01T00:00+09:00`, 4점·`2026-09-15T12:00+09:00`, 2점·`2026-09-30T23:59:59+09:00`. 동작: `summarizeMonth(YearMonth.of(2026, 9))`를 두 번 호출.
-- 반환값: 첫 호출 1, 둘째 호출 0.
-- `reviewSummariesOf(Pa)`: 1개.
-- `openAi.chatUserPrompts()` 정확히 1건.
+- 반환값: 첫 호출의 반환값 1, 둘째 호출의 반환값 0.
+- 둘째 호출 뒤 DB(reviewSummariesOf(Pa)): `.size()`가 1.
+- 둘째 호출 뒤 가짜 서버 요청(openAi.chatUserPrompts()): `.size()`가 정확히 1.
 
 **2. 전월에 새 리뷰가 없는 상품은 호출하지 않는다** — 준비: 상품 세 개.
 - `Pb`: `ACTIVE` 리뷰 1개, `2026-08-31T23:59:59+09:00`.
 - `Pc`: `ACTIVE` 리뷰 1개, `2026-10-01T00:00:00+09:00`.
 - `Pd`: `DELETED` 리뷰 1개, `2026-09-15T12:00+09:00`.
-- 동작: `summarizeMonth(YearMonth.of(2026, 9))`. 확인: 반환값 0, `chatUserPrompts()` 0건.
+- 동작: `summarizeMonth(YearMonth.of(2026, 9))`.
+- 반환값: 0.
+- 가짜 서버 요청(openAi.chatUserPrompts()): `.size()`가 0.
 
 **3. 리뷰 100개인 상품도 프롬프트는 40개 이하** — 준비: 상품 `Pe`에 `ACTIVE` 리뷰 100개. `i` = 1~100:
 - `content` = `"리뷰본문-" + 3자리 0패딩 i`(예: `리뷰본문-007`). 단 `i` = 100은 `"리뷰본문-100 " + "힣"×500`.
@@ -94,25 +98,41 @@
 - `like_count` = `i ≥ 71`이면 `i`, 아니면 0.
 - `created_at` = `2026-09-05T00:00+09:00`에 `i`분을 더한 값.
 - 동작: `summarizeMonth(YearMonth.of(2026, 9))`.
-- `chatUserPrompts()` 1건. 그 프롬프트에서 정규식 `리뷰본문-(\d{3})`로 찾은 매치를 리스트로 모으면 크기가 정확히 40이고, 그 집합은 `{001~010, 071~100}`이다.
+- 가짜 서버 요청(openAi.chatUserPrompts()): `.size()`가 1.
+- 가짜 서버 요청(openAi.chatUserPrompts().get(0)): `Pattern.compile("리뷰본문-(\\d{3})").matcher(chatUserPrompts().get(0))`를 `while (m.find())`로 돌며 `m.group(1)`을 모은 리스트(이하 `번호들`)의 `size()`가 정확히 40이다.
+- 가짜 서버 요청(openAi.chatUserPrompts().get(0)): `new HashSet<>(번호들)`가 3자리 문자열 `{001~010, 071~100}`과 같다.
 
-**4. 좋아요 상위와 별점 하위가 겹치면 한 번만 넣는다** (추가) — 준비: 상품 `Pf`에 `ACTIVE` 리뷰 12개, `i` = 1~12, `content` = `"리뷰본문-0" + 두 자리 i`(예: `리뷰본문-007`), `rating` = `i ≤ 5`이면 1, 아니면 5, `like_count` = `i`, `created_at` = 9월 안의 서로 다른 시각. 확인: `chatUserPrompts()` 1건, 그 프롬프트에서 같은 정규식 매치 리스트 크기가 정확히 12, 집합 `{001~012}`.
+**4. 좋아요 상위와 별점 하위가 겹치면 한 번만 넣는다** (추가) — 준비: 상품 `Pf`에 `ACTIVE` 리뷰 12개, `i` = 1~12, `content` = `"리뷰본문-0" + 두 자리 i`(예: `리뷰본문-007`), `rating` = `i ≤ 5`이면 1, 아니면 5, `like_count` = `i`, `created_at` = 9월 안의 서로 다른 시각. 동작: `summarizeMonth(YearMonth.of(2026, 9))`.
+- 가짜 서버 요청(openAi.chatUserPrompts()): `.size()`가 1.
+- 가짜 서버 요청(openAi.chatUserPrompts().get(0)): 3번과 같은 방법으로 모은 `번호들`의 `size()`가 정확히 12이다.
+- 가짜 서버 요청(openAi.chatUserPrompts().get(0)): `new HashSet<>(번호들)`이 `{001~012}`와 같다.
 
 **5. 한 상품이 실패해도 다른 상품은 요약된다** — 준비: 상품 `Pg`, `Ph`에 각각 9월 `ACTIVE` 리뷰 2개. `failed` = 두 ID 중 `UUID.toString()` 기준 작은 쪽, `ok` = 큰 쪽. `openAi.failNext("/v1/chat/completions", 1)`.
-- 동작: `summarizeMonth(YearMonth.of(2026, 9))`. 확인: 예외가 밖으로 나오지 않는다. 반환값 1. `reviewSummariesOf(ok)` 1개, `reviewSummariesOf(failed)` 빈 목록. `chatUserPrompts()` 2건.
+- 동작: `summarizeMonth(YearMonth.of(2026, 9))`.
+- 반환값: `summarizeMonth` 호출이 예외 없이 끝나고 반환값이 1.
+- DB(reviewSummariesOf(ok)): `.size()`가 1.
+- DB(reviewSummariesOf(failed)): `.isEmpty()`가 true.
+- 가짜 서버 요청(openAi.chatUserPrompts()): `.size()`가 2.
 
-**6. 최신 요약이 리뷰 통계 응답에 들어간다** (추가) — 준비: 상품 `Pa`(1번 케이스처럼 9월 요약 완료) + `insertReviewStat(Pa, 3, 11, 0, 1, 0, 1, 1)` + `insertReviewSummary(Pa, LocalDate.of(2026, 8, 31), "8월 요약")`. 동작: `GET /api/products/{Pa}/review-stats`(Authorization 없이).
-- 응답: 200, `$.latestSummary`의 요약 문장 = 가짜 서버의 고정 문장. `latestSummary`의 JSON 키 이름은 문서에 없다(확인 필요, 후보 `$.latestSummary.summary`·`$.latestSummary.periodEnd`).
-- 요약이 하나도 없는 상품: `$.latestSummary`는 `value(nullValue())`.
+**6. 최신 요약이 리뷰 통계 응답에 들어간다** (추가) — 준비: 상품 `Pa`(1번 준비의 리뷰 3개를 넣고 `summarizeMonth(YearMonth.of(2026, 9))`를 한 번 호출해 9월 요약을 만든다) + `insertReviewStat(Pa, 3, 11, 0, 1, 0, 1, 1)` + `insertReviewSummary(Pa, LocalDate.of(2026, 8, 31), "8월 요약")`. 동작: `GET /api/products/{Pa}/review-stats`(Authorization 없이).
+- 응답(andExpect): 상태 200.
+- 응답(andExpect): `jsonPath("$.latestSummary")`의 요약 문장 = `FakeOpenAiServer.SUMMARY`(8월 요약 `"8월 요약"`이 아니라 `period_end`가 가장 늦은 9월 요약). `latestSummary`의 JSON 키 이름은 문서에 없다(확인 필요, 후보 `$.latestSummary.summary`·`$.latestSummary.periodEnd`).
+- 요약이 하나도 없는 상품: `insertReviewStat`만 넣은 다른 상품 `Pz`로 같은 요청을 보낸다. 응답(andExpect): `jsonPath("$.latestSummary").value(nullValue())`.
 
-**7. 전월 리뷰로 요약 한 건이 저장된다** — 준비: 1번과 같은 준비. 동작: `summarizeMonth(YearMonth.of(2026, 9))`를 한 번 호출.
-- `reviewSummariesOf(Pa)`: `sourceReviewCount()` = 3, `summary()` = 가짜 서버의 고정 문장, `periodEnd()` = `2026-09-30`(말일 포함이 후보. 문서에 없다. 확인 필요), `model()` = 설정 `spring.ai.openai.chat.options.model` 값(문서에 없다. 확인 필요).
+**7. 전월 리뷰로 요약 한 건이 저장된다** — 준비: 1번과 같은 준비. 동작: `summarizeMonth(YearMonth.of(2026, 9))`를 한 번 호출. `r = reviewSummariesOf(Pa).get(0)`으로 읽는다.
+- DB(reviewSummariesOf(Pa)): `r.sourceReviewCount()` = 3.
+- DB(reviewSummariesOf(Pa)): `r.summary()` = `FakeOpenAiServer.SUMMARY`.
+- DB(reviewSummariesOf(Pa)): `r.periodEnd()` = `LocalDate.of(2026, 9, 30)`(말일 포함이 후보. 문서에 없다. 확인 필요).
+- DB(reviewSummariesOf(Pa)): `r.model()` = 설정 `spring.ai.openai.chat.options.model` 값(문서에 없다. 확인 필요).
 
 **8. 리뷰 본문은 200자까지만 프롬프트에 넣는다** — 준비: 3번과 같은 준비. 동작: `summarizeMonth(YearMonth.of(2026, 9))`.
-- 확인: `chatUserPrompts()`의 프롬프트에서 `힣` 글자가 정확히 191개(100번 리뷰의 본문은 200자까지만: 앞의 `"리뷰본문-100 "` 9자 + 191자).
+- 가짜 서버 요청(openAi.chatUserPrompts().get(0)): `.chars().filter(c -> c == '힣').count()`가 정확히 191(100번 리뷰의 본문은 200자까지만: 앞의 `"리뷰본문-100 "` 9자 + 191자).
 
 **9. 실패한 상품은 다시 돌리면 요약된다** — 준비: 5번의 준비와 동작(첫 호출까지). 동작: `summarizeMonth(YearMonth.of(2026, 9))`를 한 번 더 호출.
-- 확인: 반환값 1. `reviewSummariesOf(failed)` 1개, `reviewSummariesOf(ok)`는 그대로 1개. `chatUserPrompts()`는 총 3건.
+- 두 번째 호출의 반환값: 1.
+- 두 번째 호출 뒤 DB(reviewSummariesOf(failed)): `.size()`가 1(첫 호출 뒤에는 비어 있었다).
+- 두 번째 호출 뒤 DB(reviewSummariesOf(ok)): `.size()`가 그대로 1(첫 호출 뒤에도 1이었다).
+- 두 번째 호출 뒤 가짜 서버 요청(openAi.chatUserPrompts()): `.size()`가 첫 호출분 2건을 합쳐 총 3.
 
 **추가 항목**
 - 리뷰 임베딩(`review-created` 구독 → 리뷰 벡터 저장)으로 대표 리뷰 고르기: 리뷰 벡터의 평균(중심)에 가까운 리뷰를 고르면 "가장 흔한 의견"을 대표로 넣을 수 있다

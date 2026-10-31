@@ -262,107 +262,112 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 헬퍼를 쓰는 방법은 다음과 같다.
 - 응답: `jsonPath`. 에러 응답의 코드는 `$.code`. 리뷰 목록은 `$.items[i].id`·`.rating`·`.content`·`.likeCount`·`.createdAt`과 `$.nextCursor`(마지막 페이지는 `null`). 통계는 `$.reviewCount`, `$.average`, `$.distribution['1']`~`['5']`.
+- 응답에서 값을 따로 꺼낼 때(`$.reviewId`, `$.nextCursor`): 요청을 `.andReturn()`으로 받아 `getResponse().getContentAsString()`을 본문으로 하고 `JsonPath.read(본문, "$.reviewId")`(`String`)로 꺼낸다. 리뷰 ID는 `UUID.fromString(...)`으로 바꿔 `R1` 등에 담는다. 다음 쪽 요청의 `cursor`에는 꺼낸 `$.nextCursor` 문자열을 그대로 넣는다.
 
-**공통 준비**: 판매자 1명(`seller@test.com`), 가게 1개, 상품 `productA`(`registerProduct(sellerId, shopId, 10000, 100)`, 재고 100). 구매자는 필요한 만큼 `buyer1@test.com`, `buyer2@test.com`, …로 `signup` + `login`해 토큰을 받고, 각자 `createConfirmedLine(buyerId, sellerId, shopId, productA)`로 구매확정된 품목 하나씩을 가진다(`lineOf(buyerN)`이라 부른다). 작성 요청은 `POST /api/reviews`에 `Authorization: Bearer {구매자 토큰}`, 본문 `{"orderLineId":"{lineId}","rating":5,"content":"효과가 좋아요 정말 만족합니다"}`(본문 16자)다. 응답 `$.reviewId`로 리뷰 ID를 받는다.
+**준비 A**(17번을 뺀 모든 케이스와 `ReviewConcurrencyTest`가 쓴다): 판매자 1명(`seller@test.com`), 가게 1개, 상품 `productA`(`registerProduct(sellerId, shopId, 10000, 100)`, 재고 100). 구매자는 필요한 만큼 `buyer1@test.com`, `buyer2@test.com`, …로 `signup` + `login`해 토큰을 받고, 각자 `createConfirmedLine(buyerId, sellerId, shopId, productA)`로 구매확정된 품목 하나씩을 가진다(`lineOf(buyerN)`이라 부른다). 작성 요청은 `POST /api/reviews`에 `Authorization: Bearer {구매자 토큰}`, 본문 `{"orderLineId":"{lineId}","rating":5,"content":"효과가 좋아요 정말 만족합니다"}`(본문 16자)다. 응답 `$.reviewId`로 리뷰 ID를 받는다.
 
-**공통 준비 B (리뷰 3개)**: `buyer1`이 5점, `buyer2`가 4점, `buyer3`이 4점으로 `productA`에 순서대로 작성한다. 이 리뷰를 `R1`(5점), `R2`(4점), `R3`(4점)이라 부른다. 이때 통계는 `review_count` 3, `rating_sum` 13, `r4` 2, `r5` 1, 나머지 0이다.
+**준비 B (리뷰 3개)**: `buyer1`이 5점, `buyer2`가 4점, `buyer3`이 4점으로 `productA`에 순서대로 작성한다. 이 리뷰를 `R1`(5점), `R2`(4점), `R3`(4점)이라 부른다. 이때 통계는 `review_count` 3, `rating_sum` 13, `r4` 2, `r5` 1, 나머지 0이다.
 
 #### `review/domain/ReviewTest`
 
-공통 준비: `Review.write(new ConfirmedLineInfo(lineId, productId), memberId, 4, "열 글자가 넘는 리뷰 본문입니다")`(세 ID는 `Ids.newId()`). 영속 전이라 `createdAt`이 `null`이므로 `ReflectionTestUtils.setField(review, "createdAt", T0)`로 채운다. `T0` = `Instant.parse("2026-09-01T00:00:00Z")`.
+준비 A(`불변식 위반` 케이스는 쓰지 않는다): `Review.write(new ConfirmedLineInfo(lineId, productId), memberId, 4, "열 글자가 넘는 리뷰 본문입니다")`(세 ID는 `Ids.newId()`). 영속 전이라 `createdAt`이 `null`이므로 `ReflectionTestUtils.setField(review, "createdAt", T0)`로 채운다. `T0` = `Instant.parse("2026-09-01T00:00:00Z")`.
 
 | 케이스 | 동작 | 확인할 것 |
 |---|---|---|
-| 작성 | 공통 준비 직후 | `status` = `ACTIVE`, `likeCount` = 0, `rating` = 4, `content` = 넘긴 본문, `orderLineId`·`productId`·`memberId` = 넘긴 값, `id` ≠ null |
-| 불변식 위반 | `Review.write`를 `rating` 0 / `rating` 6 / 본문 `"가"×9` / 본문 `"가"×1001`로 각각 호출 | 네 번 모두 `IllegalArgumentException`. 경계인 `rating` 1·5, 본문 `"가"×10`·`"가"×1000`은 예외 없이 만들어진다 |
-| 30일 안 수정 | `edit(5, "수정한 본문입니다 열 글자 이상", T0.plus(29, DAYS))` | 반환값 4(바꾸기 전 별점), `rating` = 5, `content` = 새 본문 |
-| 30일 지난 수정 | `edit(5, "수정한 본문입니다 열 글자 이상", T0.plus(31, DAYS))` | `BusinessException`, `errorCode` = `REVIEW_EDIT_EXPIRED` / `rating` = 4, `content` = 원래 본문 그대로. 정확히 30일째 경계는 문서에 없다(확인 필요) |
-| 삭제 | `delete()` | `status` = `DELETED` |
+| 작성 | 준비 A 직후 | 반환값(review getter): `status` = `ACTIVE`, `likeCount` = 0, `rating` = 4, `content` = 넘긴 본문, `orderLineId`·`productId`·`memberId` = 넘긴 값, `id`가 `isNotNull()` |
+| 불변식 위반 | `Review.write`를 `rating` 0 / `rating` 6 / 본문 `"가"×9` / 본문 `"가"×1001`로 각각 호출 | 예외: 네 번 모두 `IllegalArgumentException`. 예외: 경계인 `rating` 1·5, 본문 `"가"×10`·`"가"×1000`은 예외 없이 만들어진다 |
+| 30일 안 수정 | `edit(5, "수정한 본문입니다 열 글자 이상", T0.plus(29, DAYS))` | 반환값: 4(바꾸기 전 별점). 반환값(review getter): `rating` = 5, `content` = 새 본문 |
+| 30일 지난 수정 | `edit(5, "수정한 본문입니다 열 글자 이상", T0.plus(31, DAYS))` | 예외: `BusinessException`, `errorCode` = `REVIEW_EDIT_EXPIRED`. 반환값(review getter): `rating` = 4, `content` = 원래 본문 그대로. 정확히 30일째 경계는 문서에 없다(확인 필요) |
+| 삭제 | `delete()` | 반환값(review getter): `status` = `DELETED` |
 
-#### `review/web/ReviewControllerTest` (MockMvc, 공통 준비 사용)
+#### `review/web/ReviewControllerTest` (MockMvc)
 
 **1. 구매확정 전 품목 거부** — 준비: `buyer1`이 `createDeliveredOrder(buyerId, sellerId, shopId, productA)` + `orderLineIdOf(orderId, productA)`까지만 한다. 동작: 그 품목으로 작성 요청.
-- 응답: 422, `$.code` = `REVIEW_NOT_ALLOWED`.
-- `reviewCountOf(productA)` = 0, `reviewStatOf(productA)` = `null`, `reviewCreatedEvents()`가 비어 있다.
+- 응답(andExpect): 상태 422, `$.code` = `REVIEW_NOT_ALLOWED`.
+- DB(reviewCountOf(productA)): 0. DB(reviewStatOf(productA)): `null`(`isNull()`). 반환값(reviewCreatedEvents()): 비어 있다(`isEmpty()`).
 
 **2. 남의 품목 거부** — 준비: `buyer1`의 구매확정 품목, `buyer2` 가입·로그인. 동작: `buyer2` 토큰으로 `buyer1`의 `lineId`를 담아 작성 요청.
-- 응답: 404, `$.code` = `ORDER_LINE_NOT_FOUND`.
-- `reviewCountOf(productA)` = 0, `reviewStatOf(productA)` = `null`.
+- 응답(andExpect): 상태 404, `$.code` = `ORDER_LINE_NOT_FOUND`.
+- DB(reviewCountOf(productA)): 0. DB(reviewStatOf(productA)): `null`(`isNull()`).
 
-**3. 작성하면 통계가 쌓인다** — 동작: 공통 준비 B를 실행한다.
-- 세 응답 모두 201, `$.reviewId`가 비어 있지 않다.
-- `reviewStatOf(productA)`: `reviewCount` 3, `ratingSum` 13, `rating(4)` 2, `rating(5)` 1, `rating(1)`~`rating(3)` 0.
-- `GET /api/products/{productA}/review-stats`(Authorization 없이): 200, `$.reviewCount` = 3, `$.average` = 4.3(13÷3=4.333…), `$.distribution['4']` = 2, `['5']` = 1, `['1']`·`['2']`·`['3']` = 0.
+**3. 작성하면 통계가 쌓인다** — 동작: 준비 B를 실행한다.
+- 응답(andExpect): 세 응답 모두 상태 201, `jsonPath("$.reviewId").isNotEmpty()`.
+- DB(reviewStatOf(productA)): `reviewCount` 3, `ratingSum` 13, `rating(4)` 2, `rating(5)` 1, `rating(1)`~`rating(3)` 0.
+- 응답(andExpect): `GET /api/products/{productA}/review-stats`(Authorization 없이) 상태 200, `$.reviewCount` = 3, `$.average` = 4.3(13÷3=4.333…), `$.distribution['4']` = 2, `['5']` = 1, `['1']`·`['2']`·`['3']` = 0.
 
-**4. 별점 수정으로 분포가 옮겨 간다** — 준비: 공통 준비 B. 동작: `buyer3`이 `PATCH /api/reviews/{R3}`에 `{"rating":2,"content":"수정한 본문입니다 열 글자 이상"}`.
-- 응답: 200, `$.id` = `R3`, `$.rating` = 2, `$.content` = 새 본문.
-- `reviewStatOf(productA)`: `reviewCount` 3, `ratingSum` 11, `rating(2)` 1, `rating(4)` 1, `rating(5)` 1.
-- review-stats: `$.average` = 3.7(11÷3=3.666…), `$.distribution['2']` = 1.
+**4. 별점 수정으로 분포가 옮겨 간다** — 준비: 준비 B. 동작: `buyer3`이 `PATCH /api/reviews/{R3}`에 `{"rating":2,"content":"수정한 본문입니다 열 글자 이상"}`.
+- 응답(andExpect): PATCH 응답 상태 200, `$.id` = `R3`, `$.rating` = 2, `$.content` = 새 본문.
+- DB(reviewStatOf(productA)): `reviewCount` 3, `ratingSum` 11, `rating(2)` 1, `rating(4)` 1, `rating(5)` 1.
+- 응답(andExpect): `GET /api/products/{productA}/review-stats`(Authorization 없이)의 `$.average` = 3.7(11÷3=3.666…), `$.distribution['2']` = 1.
 
-**5. 삭제하면 통계에서 빠진다** — 준비: 공통 준비 B. 동작: `buyer1`이 `R1`을 `DELETE /api/reviews/{R1}`.
-- 응답: 204.
-- `reviewSnapshotOf`: `R1` → `DELETED` / `R2`, `R3` → `ACTIVE`.
-- `reviewStatOf(productA)`: `reviewCount` 2, `ratingSum` 8, `rating(4)` 2, `rating(5)` 0.
-- review-stats: `$.average` = 4.0.
+**5. 삭제하면 통계에서 빠진다** — 준비: 준비 B. 동작: `buyer1`이 `R1`을 `DELETE /api/reviews/{R1}`.
+- 응답(andExpect): 상태 204.
+- DB(reviewSnapshotOf(Ri)): `status()` — `R1` → `DELETED` / `R2`, `R3` → `ACTIVE`.
+- DB(reviewStatOf(productA)): `reviewCount` 2, `ratingSum` 8, `rating(4)` 2, `rating(5)` 0.
+- 응답(andExpect): `GET /api/products/{productA}/review-stats`(Authorization 없이)의 `$.average` = 4.0.
 
-**6. 같은 리뷰에 좋아요 두 번은 1** — 준비: 공통 준비 B. 동작: `buyer2`가 `POST /api/reviews/{R1}/likes`를 두 번 보낸다.
-- 두 응답 모두 204.
-- `reviewSnapshotOf(R1)`: `likerIds()` = [`buyer2`], `likeCount` = 1.
+**6. 같은 리뷰에 좋아요 두 번은 1** — 준비: 준비 B. 동작: `buyer2`가 `POST /api/reviews/{R1}/likes`를 두 번 보낸다.
+- 응답(andExpect): 두 응답 모두 상태 204.
+- DB(reviewSnapshotOf(R1)): `likerIds()` = [`buyer2`의 회원 ID], `likeCount` = 1.
 
 **7. 입력 검증** — 준비: `buyer1`의 구매확정 품목. 동작: 아래 요청을 차례로 보낸다(`rating`·`content`는 따로 적은 것만 바꾼다).
-- `rating` 0 / `rating` 6 / `content` `"가"×9` / `content` `"가"×1001` / `orderLineId` 생략 → 다섯 번 모두 400, `$.code` = `INVALID_REQUEST`. `reviewCountOf(productA)` = 0.
-- `content` `"가"×10`, `rating` 1 → 201.
+- `rating` 0 / `rating` 6 / `content` `"가"×9` / `content` `"가"×1001` / `orderLineId` 생략 → 응답(andExpect): 다섯 번 모두 상태 400, `$.code` = `INVALID_REQUEST`. DB(reviewCountOf(productA)): 0.
+- `content` `"가"×10`, `rating` 1 → 응답(andExpect): 상태 201.
 
 **8. 목록: 최신순 커서** — 준비: `buyer1`~`buyer5`가 `productA`에 5점으로 순서대로 작성해 `R1`~`R5`를 만든다. `setReviewCreatedAt(Ri, 기준.plus(i, HOURS))`(`기준` = `Instant.now().minus(10, DAYS)`, `i`는 리뷰 번호)로 맞춘다. 좋아요(각자 자기 토큰으로 `POST .../likes`, 작성자 본인은 누르지 않는다): `R3`에 `buyer1`·`buyer2`·`buyer4`(3개), `R5`에 `buyer1`·`buyer2`(2개), `R1`에 `buyer2`(1개), `R2`·`R4`는 0개. 아래 `GET`은 모두 Authorization 없이 보낸다.
-- 최신순 1쪽 `?sort=latest&size=2`: 200, `$.items.length()` = 2, id 순서 `[R5, R4]`, `$.nextCursor` ≠ null. 각 항목에 `id`·`rating`(5)·`content`·`likeCount`·`createdAt`이 있고 `$.items[0].memberId`는 없다.
-- 2쪽 `?sort=latest&size=2&cursor={1쪽 nextCursor}`: id 순서 `[R3, R2]`, `$.nextCursor` ≠ null.
-- 3쪽 같은 방식: id `[R1]`, `$.nextCursor` = null.
+- 최신순 1쪽 `GET /api/products/{productA}/reviews?sort=latest&size=2`(`.andReturn()`으로 받아 본문에서 `$.nextCursor`를 꺼낸다) — 응답(andExpect): 상태 200, `$.items.length()` = 2, `$.items[0].id` = `R5`, `$.items[1].id` = `R4`, `jsonPath("$.nextCursor").value(notNullValue())`. `$.items[0]`과 `$.items[1]` 각각에 `id`·`rating`(5)·`content`·`likeCount`·`createdAt`이 있고, `jsonPath("$.items[0].memberId").doesNotExist()`.
+- 2쪽 `?sort=latest&size=2&cursor={1쪽 응답 본문(andReturn 후)에서 꺼낸 $.nextCursor}`(마찬가지로 `.andReturn()`으로 받는다) — 응답(andExpect): `$.items[0].id` = `R3`, `$.items[1].id` = `R2`, `jsonPath("$.nextCursor").value(notNullValue())`.
+- 3쪽 같은 방식(2쪽 응답 본문(andReturn 후)에서 꺼낸 `$.nextCursor`) — 응답(andExpect): `$.items.length()` = 1, `$.items[0].id` = `R1`, `jsonPath("$.nextCursor").value(nullValue())`.
 
-**9. 작성하면 `ReviewCreatedEvent`가 outbox에 쌓인다** — 3번의 동작(공통 준비 B)을 한다. 확인: `reviewCreatedEvents()` 3건. 각 이벤트의 `reviewId` = 해당 응답의 `reviewId`, `productId` = `productA`, `content` = 보낸 본문.
+**9. 작성하면 `ReviewCreatedEvent`가 outbox에 쌓인다** — 3번의 동작(준비 B)을 하되 세 작성 요청을 `.andReturn()`으로 받는다.
+- 반환값(reviewCreatedEvents()): 3건. 각 이벤트의 `productId()` = `productA`, `content()` = 보낸 본문.
+- 반환값(reviewCreatedEvents()): 각 이벤트의 `reviewId()` = 해당 요청의 응답 본문(andReturn 후)에서 `JsonPath.read(본문, "$.reviewId")`로 꺼낸 값.
 
-**10. 남의 리뷰는 수정할 수 없다** — 준비: 4번과 같은 준비와 수정(공통 준비 B 뒤 `buyer3`이 `R3`을 2점으로 수정). 동작: `buyer1`이 `R3`을 수정.
-- 응답: 404, `$.code` = `REVIEW_NOT_FOUND`. `reviewSnapshotOf(R3).rating()`은 2 그대로.
+**10. 남의 리뷰는 수정할 수 없다** — 준비: 4번과 같은 준비와 수정(준비 B 뒤 `buyer3`이 `R3`을 2점으로 수정). 동작: `buyer1`이 `R3`을 수정.
+- 응답(andExpect): 상태 404, `$.code` = `REVIEW_NOT_FOUND`. DB(reviewSnapshotOf(R3)): `rating()`은 2 그대로.
 
 **11. 30일이 지난 리뷰는 수정할 수 없다** — 준비: 4번과 같은 준비와 수정. `setReviewCreatedAt(R2, Instant.now().minus(31, DAYS))`. 동작: `buyer2`가 `R2`를 수정.
-- 응답: 409, `$.code` = `REVIEW_EDIT_EXPIRED`. `reviewSnapshotOf(R2).rating()` 4, `reviewStatOf(productA).ratingSum()` 11 그대로.
+- 응답(andExpect): 상태 409, `$.code` = `REVIEW_EDIT_EXPIRED`. DB(reviewSnapshotOf(R2)): `rating()` 4 그대로. DB(reviewStatOf(productA)): `ratingSum()` 11 그대로.
 
-**12. 남의 리뷰는 삭제할 수 없다** — 준비: 공통 준비 B. 동작: `buyer2`가 `R1`을 삭제 시도.
-- 응답: 404, `$.code` = `REVIEW_NOT_FOUND`. `reviewSnapshotOf(R1).status()`는 `ACTIVE` 그대로.
+**12. 남의 리뷰는 삭제할 수 없다** — 준비: 준비 B. 동작: `buyer2`가 `R1`을 삭제 시도.
+- 응답(andExpect): 상태 404, `$.code` = `REVIEW_NOT_FOUND`. DB(reviewSnapshotOf(R1)): `status()`는 `ACTIVE` 그대로.
 
-**13. 삭제한 리뷰는 목록에서 빠진다** — 준비: 5번의 삭제까지 마친 상태(공통 준비 B 뒤 `buyer1`이 `R1`을 삭제). 동작: `GET /api/products/{productA}/reviews?sort=latest`.
-- 응답: `$.items.length()` = 2, id는 `R2`·`R3`이고 `R1`은 없다.
+**13. 삭제한 리뷰는 목록에서 빠진다** — 준비: 5번의 삭제까지 마친 상태(준비 B 뒤 `buyer1`이 `R1`을 삭제). 동작: `GET /api/products/{productA}/reviews?sort=latest`.
+- 응답(andExpect): `$.items.length()` = 2, `$.items[*].id`가 `R2`·`R3`(`containsInAnyOrder`, 순서 무관)이고 `R1`은 없다(`jsonPath("$.items[*].id", not(hasItem(R1)))`).
 
 **14. 삭제한 품목에는 다시 쓸 수 없다** — 준비: 5번의 삭제까지 마친 상태. 동작: `buyer1`이 같은 `lineId`로 4점 리뷰를 다시 작성.
-- 응답: 409, `$.code` = `REVIEW_ALREADY_EXISTS`. `reviewCountOf(productA)` = 3, `reviewStatOf(productA)`는 5번의 값(`reviewCount` 2, `ratingSum` 8, `rating(4)` 2, `rating(5)` 0) 그대로.
+- 응답(andExpect): 상태 409, `$.code` = `REVIEW_ALREADY_EXISTS`. DB(reviewCountOf(productA)): 3. DB(reviewStatOf(productA)): 5번의 값(`reviewCount` 2, `ratingSum` 8, `rating(4)` 2, `rating(5)` 0) 그대로.
 
-**15. 좋아요 취소는 두 번 보내도 0 아래로 내려가지 않는다** — 준비: 공통 준비 B 뒤 `buyer2`가 `R1`에 좋아요를 한 번 누른다. 동작: `buyer2`가 `DELETE /api/reviews/{R1}/likes`를 두 번 보낸다.
-- 두 응답 모두 204. `reviewSnapshotOf(R1)`: `likerIds()`가 비어 있고 `likeCount` = 0.
+**15. 좋아요 취소는 두 번 보내도 0 아래로 내려가지 않는다** — 준비: 준비 B 뒤 `buyer2`가 `R1`에 좋아요를 한 번 누른다. 동작: `buyer2`가 `DELETE /api/reviews/{R1}/likes`를 두 번 보낸다.
+- 응답(andExpect): 두 응답 모두 상태 204. DB(reviewSnapshotOf(R1)): `likerIds()`가 비어 있고(`isEmpty()`) `likeCount` = 0.
 
 **16. 목록: 좋아요순** — 준비: 8번과 같은 준비. 동작: `?sort=likes`(size 생략, Authorization 없이).
-- 응답: 200, `$.items.length()` = 5, 앞 세 개 id `[R3, R5, R1]`와 `likeCount` `[3, 2, 1]`, 뒤 두 개는 `R2`·`R4`(순서 불문), `$.nextCursor` = null.
+- 응답(andExpect): 상태 200, `$.items.length()` = 5, `$.items[0..2].id` = `R3`, `R5`, `R1`이고 `$.items[0..2].likeCount` = 3, 2, 1, `$.items[3].id`·`$.items[4].id`는 `R2`·`R4`(순서 불문), `jsonPath("$.nextCursor").value(nullValue())`.
 
-**17. 목록: 리뷰가 없는 상품** — 동작: 리뷰가 없는 상품(`Ids.newId()`)의 `reviews`(Authorization 없이).
-- 응답: 200, `$.items.length()` = 0.
+**17. 목록: 리뷰가 없는 상품** — 동작: 리뷰가 없는 상품(`Ids.newId()`)의 `GET /api/products/{그 id}/reviews`(Authorization 없이).
+- 응답(andExpect): 상태 200, `jsonPath("$.items").value(hasSize(0))`.
 
-#### `review/application/ReviewConcurrencyTest` (공통 준비 사용)
+#### `review/application/ReviewConcurrencyTest` (준비 A 사용)
 
-동시 요청의 HTTP 상태 코드를 `Result.value()`로 읽는다. 같은 작업을 N번 돌릴 때는 `ConcurrencyRunner.run(int threads, Callable<T> task)`, 작업이 서로 다르면 `run(List<Callable<T>> tasks)`(`run(List.of(...))`)를 쓴다. 둘 다 스레드를 동시에 출발시키고 제출 순서대로 `List<Result<T>>`(`Result(T value, Throwable error)`)를 돌려준다.
+각 작업은 요청을 `.andReturn()`으로 받은 `MvcResult`를 반환한다. 상태 코드는 `Result.value().getResponse().getStatus()`, 본문 값은 `JsonPath.read(Result.value().getResponse().getContentAsString(), "$.code")`처럼 꺼낸다. 같은 작업을 N번 돌릴 때는 `ConcurrencyRunner.run(int threads, Callable<T> task)`, 작업이 서로 다르면 `run(List<Callable<T>> tasks)`(`run(List.of(...))`)를 쓴다. 둘 다 스레드를 동시에 출발시키고 제출 순서대로 `List<Result<T>>`(`Result(T value, Throwable error)`)를 돌려준다.
 
 **1. 같은 품목 동시 작성 2건** — 준비: `buyer1`의 구매확정 품목 하나. 동작: 같은 요청(5점)을 두 스레드가 동시에 보낸다.
-- 상태 코드: 201이 정확히 1개, 409가 정확히 1개. 409 쪽 `$.code`는 `DUPLICATE_RESOURCE` 또는 `REVIEW_ALREADY_EXISTS` 중 하나.
-- `reviewCountOf(productA)` = 1, 201 응답의 `$.reviewId`로 읽은 `reviewSnapshotOf(…).status()` = `ACTIVE`.
-- `reviewStatOf(productA)`: `reviewCount` 1, `ratingSum` 5, `rating(5)` 1.
-- `reviewCreatedEvents()` 1건.
+- 응답 본문(andReturn 후, 두 스레드가 모두 끝난 뒤): 두 결과의 상태 코드 — 201이 정확히 1개, 409가 정확히 1개.
+- 응답 본문(andReturn 후): 409 결과 본문의 `$.code`는 `DUPLICATE_RESOURCE` 또는 `REVIEW_ALREADY_EXISTS` 중 하나.
+- 아래 DB·이벤트 확인은 두 스레드가 모두 끝난 뒤에 읽는다. DB(reviewCountOf(productA)): 1.
+- DB(reviewSnapshotOf(reviewId)): `status()` = `ACTIVE`(`reviewId`는 201 결과의 응답 본문(andReturn 후)에서 `JsonPath.read(본문, "$.reviewId")`로 꺼낸다).
+- DB(reviewStatOf(productA)): `reviewCount` 1, `ratingSum` 5, `rating(5)` 1.
+- 반환값(reviewCreatedEvents()): 1건.
 
 **2. 서로 다른 회원 좋아요 동시 100건** — 준비: `buyer1`이 쓴 리뷰 `R1` 하나. 회원 100명(`token("liker" + i + "@test.com")`, i = 1~100)의 토큰을 미리 받아 둔다. 동작: 100명이 동시에 `POST /api/reviews/{R1}/likes`.
-- 상태 코드: 100개 모두 204.
-- `reviewSnapshotOf(R1)`: `likerIds().size()` = 100, `likeCount` = 100.
+- 응답 본문(andReturn 후, 100개 스레드가 모두 끝난 뒤): 100개 결과의 상태 코드가 모두 204.
+- DB(reviewSnapshotOf(R1), 100개 스레드가 모두 끝난 뒤): `likerIds().size()` = 100, `likeCount` = 100.
 
 **3. 서로 다른 품목 리뷰 동시 50건** — 준비: 구매자 50명(`signup` + `login`)이 각자 `createConfirmedLine`으로 `productA`의 구매확정 품목을 하나씩 가진다. 별점은 번호 `i`(0~49)에 따라 `i < 20` → 5점, `20 ≤ i < 35` → 4점, `35 ≤ i < 45` → 3점, `i ≥ 45` → 1점. 동작: 50명이 동시에 작성한다.
-- 상태 코드: 50개 모두 201.
-- `reviewCountOf(productA)` = 50, `reviewCreatedEvents()` 50건.
-- `reviewStatOf(productA)`: `reviewCount` 50, `ratingSum` 195(20×5 + 15×4 + 10×3 + 5×1), `rating(1)` 5, `rating(3)` 10, `rating(4)` 15, `rating(5)` 20.
-- review-stats: `$.average` = 3.9(195÷50).
+- 응답 본문(andReturn 후, 50개 스레드가 모두 끝난 뒤): 50개 결과의 상태 코드가 모두 201.
+- 아래 DB·이벤트·통계 확인은 50개 스레드가 모두 끝난 뒤에 읽는다. DB(reviewCountOf(productA)): 50. 반환값(reviewCreatedEvents()): 50건.
+- DB(reviewStatOf(productA)): `reviewCount` 50, `ratingSum` 195(20×5 + 15×4 + 10×3 + 5×1), `rating(1)` 5, `rating(3)` 10, `rating(4)` 15, `rating(5)` 20.
+- 응답(andExpect): `GET /api/products/{productA}/review-stats`(Authorization 없이)의 `$.average` = 3.9(195÷50).
 
 **리뷰 때 물어볼 것**
 - unique 위반을 트랜잭션 안에서 잡으면 왜 안 되나? (As-Is SUP-05)
@@ -483,21 +488,23 @@ ON CONFLICT (product_id) DO UPDATE SET
 - 응답: `jsonPath`. 검색은 `$.items[i].productId`·`.shopId`·`.name`·`.category`·`.price`와 `$.nextCursor`(마지막 페이지는 `null`). 자동완성은 응답이 배열이라 `$.length()`와 `$[i]`. 에러 코드는 `$.code`.
 - 색인 반영 대기: `Eventually.await(Duration.ofSeconds(10), …)`로 검색 결과를 기다린다(기본 refresh 주기 1초로 충분하다. 못 기다리면 `POST /products/_refresh`). "안 나온다"는 확인은 Eventually로 기다린 뒤 한 번 더 확인한다.
 
-**공통 준비**: 판매자 1명, 가게 1개. 상품은 이름·설명을 정해야 하므로 `TestFixtures.registerProduct`(이름이 `product`로 고정)가 아니라 테스트가 `RegisterProductService.register(sellerId, shopId, new RegisterProductCommand(이름, 설명, ProductCategory.X, 가격, 10, false))`로 만든다. 등록 뒤 `outboxRelay.relayOnce()`로 이벤트를 흘린다. ES 문서는 테스트가 끝나도 지워지지 않으므로(DB 초기화 대상이 아니다) 케이스마다 아래에 굵게 적은 **검색어**를 따로 쓰고, 다른 케이스의 상품 이름은 "루틴"으로 시작하지 않게 한다. 검색 요청은 `GET /api/search/products?q=…`(Authorization 없이)이다.
+**ProductSearchTest 공통 규칙**: ES 문서는 테스트가 끝나도 지워지지 않으므로(DB 초기화 대상이 아니다) 케이스마다 아래에 굵게 적은 **검색어**를 따로 쓰고, 다른 케이스의 상품 이름은 "루틴"으로 시작하지 않게 한다. 검색 요청은 `GET /api/search/products?q=…`(Authorization 없이)이다.
+
+**준비 A**(`ProductSearchTest` 1·2·3·3-1·6·7·8·9번이 쓴다. 4·5번은 쓰지 않는다): 판매자 1명, 가게 1개. 상품은 이름·설명을 정해야 하므로 `TestFixtures.registerProduct`(이름이 `product`로 고정)가 아니라 테스트가 `RegisterProductService.register(sellerId, shopId, new RegisterProductCommand(이름, 설명, ProductCategory.X, 가격, 10, false))`로 만든다(반환값이 상품 ID). 등록 뒤 `outboxRelay.relayOnce()`로 이벤트를 흘린다.
 
 #### `search/application/ProductSearchTest` (MockMvc로 공개 API를 부른다)
 
-**1. 등록 → 검색됨** (검색어 **마그네슘**, **근육이완**) — 준비: 상품 `P` = 이름 `"마그네슘 데일리 정"`, 설명 `"수면용 근육이완 보충제"`, `HEALTH`, 15000원. 동작: `relayOnce()` → Eventually로 `q=마그네슘` 조회.
-- 응답: 200, `$.items.length()` = 1, `$.items[0].productId` = `P`, `.shopId` = 가게 ID, `.name` = `"마그네슘 데일리 정"`, `.category` = `HEALTH`, `.price` = 15000, `$.nextCursor`는 `value(nullValue())`.
-- `q=근육이완` → `$.items.length()` = 1, `$.items[0].productId` = `P`.
+**1. 등록 → 검색됨** (검색어 **마그네슘**, **근육이완**) — 준비: 준비 A로 상품 `P` = 이름 `"마그네슘 데일리 정"`, 설명 `"수면용 근육이완 보충제"`, `HEALTH`, 15000원. 동작: `relayOnce()` → Eventually로 `q=마그네슘` 조회.
+- 응답(andExpect): 상태 200, `$.items.length()` = 1, `$.items[0].productId` = `P`, `.shopId` = 가게 ID, `.name` = `"마그네슘 데일리 정"`, `.category` = `HEALTH`, `.price` = 15000, `jsonPath("$.nextCursor").value(nullValue())`.
+- 위 `q=마그네슘`이 통과한 뒤 `q=근육이완` → 응답(andExpect): `$.items.length()` = 1, `$.items[0].productId` = `P`.
 
-**2. 숨김·단종은 검색에서 빠진다** (검색어 **오메가**) — 준비: 상품 `P` = 이름 `"오메가 쓰리 캡슐"`, 설명 `"혈행 개선 보충제"`, `HEALTH`, 22000원. 아래를 차례로 하고 매번 `relayOnce()` 후 Eventually로 `q=오메가`를 확인한다.
-- 등록 직후: `$.items.length()` = 1.
-- `updateProductService.changeStatus(sellerId, shopId, P, ProductStatus.HIDDEN)` 후: `$.items.length()` = 0.
-- `changeStatus(…, ON_SALE)` 후: `$.items.length()` = 1, `$.items[0].productId` = `P`.
-- `changeStatus(…, DISCONTINUED)` 후: `$.items.length()` = 0.
+**2. 숨김·단종은 검색에서 빠진다** (검색어 **오메가**) — 준비: 준비 A로 상품 `P` = 이름 `"오메가 쓰리 캡슐"`, 설명 `"혈행 개선 보충제"`, `HEALTH`, 22000원. 아래를 차례로 하고 매번 `relayOnce()` 후 Eventually로 `q=오메가`를 확인한다.
+- 등록 직후: 응답(andExpect): `$.items.length()` = 1.
+- `updateProductService.changeStatus(sellerId, shopId, P, ProductStatus.HIDDEN)` 후: 응답(andExpect): `jsonPath("$.items").value(hasSize(0))`.
+- `changeStatus(…, ON_SALE)` 후: 응답(andExpect): `$.items.length()` = 1, `$.items[0].productId` = `P`.
+- `changeStatus(…, DISCONTINUED)` 후: 응답(andExpect): `jsonPath("$.items").value(hasSize(0))`.
 
-**3. 자동완성** (검색어 **루틴**) — 준비: 상품 4개, 모두 `HEALTH`.
+**3. 자동완성** (검색어 **루틴**) — 준비: 준비 A로 상품 4개, 모두 `HEALTH`.
 
 | 상품 | 이름 | 상태 |
 |---|---|---|
@@ -507,35 +514,42 @@ ON CONFLICT (product_id) DO UPDATE SET
 | D | `"루틴 오일"` | 등록 후 `changeStatus(…, HIDDEN)` |
 
 동작: `relayOnce()` → Eventually로 `GET /api/search/autocomplete?q=루틴`.
-- 응답: 200, `$.length()` = 2, 내용은 `["루틴 비타민", "루틴 마스크팩"]`(순서 불문). C와 D는 없다.
+- 응답(andExpect): 상태 200, 응답 본문 배열의 `$.length()` = 2, `$[0]`·`$[1]`이 `"루틴 비타민"`·`"루틴 마스크팩"`(순서 불문). `"비타민 루틴"`(C)과 `"루틴 오일"`(D)은 배열에 없다(`jsonPath("$", not(hasItem("비타민 루틴")))`, `"루틴 오일"`도 같은 식).
 
-**3-1. 자동완성은 최대 10개** (검색어 **젤리맛**) — 준비: 이름 `"젤리맛 01"` ~ `"젤리맛 12"`인 `ON_SALE` 상품 12개. 동작: `GET /api/search/autocomplete?q=젤리맛`. 확인: 200, `$.length()` = 10, 모든 값이 `"젤리맛 "`으로 시작.
+**3-1. 자동완성은 최대 10개** (검색어 **젤리맛**) — 준비: 준비 A로 이름 `"젤리맛 01"` ~ `"젤리맛 12"`인 `ON_SALE` 상품 12개. 동작: `relayOnce()` → Eventually로 `GET /api/search/autocomplete?q=젤리맛`. 요청을 `.andReturn()`으로 받는다.
+- 응답(andExpect): 상태 200, 응답 본문 배열의 `$.length()` = 10.
+- 응답 본문(andReturn 후): `JsonPath.read(본문, "$")`로 꺼낸 `List<String>`의 모든 원소가 `startsWith("젤리맛 ")`.
 
-**4. 순서 역전: 오래된 버전이 늦게 와도 최신 유지** (검색어 **순서역전**) — 준비: 새 `productId` `X`와 가게 ID로 `ProductUpsertedEvent` 두 개를 직접 만든다(`category` = `"ETC"`, `status` = `"ON_SALE"`, `subscribable` = false).
+**4. 순서 역전: 오래된 버전이 늦게 와도 최신 유지** (검색어 **순서역전**) — 준비: 새 `productId` `X`와 임의의 `shopId`(`Ids.newId()`)로 `ProductUpsertedEvent` 두 개를 직접 만든다(`category` = `"ETC"`, `status` = `"ON_SALE"`, `subscribable` = false).
 - `v3` = 이름 `"순서역전 버전삼"`, 설명 `"세 번째 내용"`, 가격 3000, `version` 3.
 - `v2` = 이름 `"순서역전 버전이"`, 설명 `"두 번째 내용"`, 가격 2000, `version` 2.
 - 동작: `productIndexer.upsert(v3, "products")` → `productIndexer.upsert(v2, "products")`.
-- 확인: 두 번째 호출이 예외 없이 끝난다. `productSearchDocOf(X)` → `version()` = 3. Eventually로 `q=순서역전` → `$.items.length()` = 1, `$.items[0].name` = `"순서역전 버전삼"`.
+- 예외: 두 번째 `upsert` 호출이 예외 없이 끝난다(`assertThatCode(...).doesNotThrowAnyException()`).
+- ES(productSearchDocOf(X), 두 번째 `upsert`가 끝난 뒤): `version()` = 3.
+- 응답(andExpect): 두 번째 `upsert`가 끝난 뒤 Eventually(10초)로 `q=순서역전` → `$.items.length()` = 1, `$.items[0].name` = `"순서역전 버전삼"`.
 
-**5. 같은 이벤트 두 번** (검색어 **중복이벤트**) — 준비: `ProductUpsertedEvent` `Y` = 이름 `"중복이벤트 상품"`, 설명 `"같은 이벤트 검증"`, 가격 1000, `version` 1. 동작: `productIndexer.upsert(Y, "products")`를 두 번 호출.
-- 확인: 두 번째 호출도 예외가 없다. `productSearchDocOf(Y.productId())` → `version()` = 1. Eventually로 `q=중복이벤트` → `$.items.length()` = 1.
+**5. 같은 이벤트 두 번** (검색어 **중복이벤트**) — 준비: 임의의 `shopId`(`Ids.newId()`)로 `ProductUpsertedEvent` `Y`를 직접 만든다. `Y` = 이름 `"중복이벤트 상품"`, 설명 `"같은 이벤트 검증"`, 가격 1000, `version` 1. 동작: `productIndexer.upsert(Y, "products")`를 두 번 호출.
+- 예외: 두 번째 `upsert` 호출도 예외가 없다(`assertThatCode(...).doesNotThrowAnyException()`).
+- ES(productSearchDocOf(Y.productId()), 두 번째 `upsert`가 끝난 뒤): `version()` = 1.
+- 응답(andExpect): 두 번째 `upsert`가 끝난 뒤 Eventually(10초)로 `q=중복이벤트` → `$.items.length()` = 1.
 
 **6. 관련도 정렬과 페이지** (검색어 **프로폴리스**)
-- 준비: 상품 `A` = 이름 `"프로폴리스 스프레이"`, 설명 `"목 건강 케어"` / 상품 `B` = 이름 `"목 케어 스프레이"`, 설명 `"프로폴리스 함유"`(둘 다 `HEALTH`, `ON_SALE`).
-- `q=프로폴리스&size=20`: `$.items.length()` = 2, id 순서 `[A, B]`, `$.nextCursor` = null.
-- `q=프로폴리스&size=1`: `$.items.length()` = 1, id `[A]`, `$.nextCursor` ≠ null.
-- 위 `nextCursor`를 `cursor=`로 넘겨 `q=프로폴리스&size=1`: `$.items.length()` = 1, id `[B]`, `$.nextCursor` = null.
+- 준비: 준비 A로 상품 `A` = 이름 `"프로폴리스 스프레이"`, 설명 `"목 건강 케어"` / 상품 `B` = 이름 `"목 케어 스프레이"`, 설명 `"프로폴리스 함유"`(둘 다 `HEALTH`, `ON_SALE`).
+- `q=프로폴리스&size=20`(준비 A의 `relayOnce()` 뒤 Eventually(10초) 안에서 `$.items.length()` = 2가 될 때까지 기다린다) — 응답(andExpect): `$.items.length()` = 2, `$.items[0].productId` = `A`, `$.items[1].productId` = `B`, `jsonPath("$.nextCursor").value(nullValue())`.
+- `q=프로폴리스&size=1`(`.andReturn()`으로 받는다) — 응답(andExpect): `$.items.length()` = 1, `$.items[0].productId` = `A`, `jsonPath("$.nextCursor").value(notNullValue())`.
+- 위 `size=1` 응답 본문(andReturn 후)에서 `JsonPath.read(본문, "$.nextCursor")`로 꺼낸 값을 `cursor=`로 넘겨 `q=프로폴리스&size=1` — 응답(andExpect): `$.items.length()` = 1, `$.items[0].productId` = `B`, `jsonPath("$.nextCursor").value(nullValue())`.
 
-**7. 카테고리 필터** (검색어 **카테고리검증**) — 준비: `X1` = 이름 `"카테고리검증 영양제"`, `HEALTH` / `X2` = 이름 `"카테고리검증 크림"`, `BEAUTY`(둘 다 `ON_SALE`).
-- `q=카테고리검증&category=HEALTH`: `$.items.length()` = 1, `$.items[0].productId` = `X1`.
-- `q=카테고리검증`(`category` 생략): `$.items.length()` = 2, id 집합 `{X1, X2}`.
-- `q=카테고리검증&category=FOOD`: `$.items.length()` = 0.
+**7. 카테고리 필터** (검색어 **카테고리검증**) — 준비: 준비 A로 `X1` = 이름 `"카테고리검증 영양제"`, `HEALTH` / `X2` = 이름 `"카테고리검증 크림"`, `BEAUTY`(둘 다 `ON_SALE`).
+- `q=카테고리검증&category=HEALTH`(준비 A의 `relayOnce()` 뒤 Eventually(10초) 안에서 읽는다. 아래 두 조회는 이 조회가 통과한 뒤 읽는다) — 응답(andExpect): `$.items.length()` = 1, `$.items[0].productId` = `X1`.
+- `q=카테고리검증`(`category` 생략) — 응답(andExpect): `$.items.length()` = 2, `$.items[*].productId`가 `X1`·`X2`(`containsInAnyOrder`, 순서 무관).
+- `q=카테고리검증&category=FOOD` — 응답(andExpect): `jsonPath("$.items").value(hasSize(0))`.
 
-**8. 단종 상품의 ES 문서는 남는다** (검색어 없음) — 준비: 상품 `P` = 이름 `"단종문서 캡슐"`, 설명 `"혈행 개선 보충제"`, `HEALTH`, 22000원. 동작: `changeStatus(sellerId, shopId, P, ProductStatus.DISCONTINUED)` → `relayOnce()` → Eventually로 `productSearchDocOf(P)`를 기다린다.
-- 확인: `productSearchDocOf(P)` → `found()` = true, `status()` = `DISCONTINUED`.
+**8. 단종 상품의 ES 문서는 남는다** (검색어 없음) — 준비: 준비 A로 상품 `P` = 이름 `"단종문서 캡슐"`, 설명 `"혈행 개선 보충제"`, `HEALTH`, 22000원. 동작: `changeStatus(sellerId, shopId, P, ProductStatus.DISCONTINUED)` → `relayOnce()` → Eventually로 `productSearchDocOf(P).status()`가 `DISCONTINUED`가 될 때까지 기다린다.
+- ES(productSearchDocOf(P)): `found()` = true, `status()` = `DISCONTINUED`.
 
-**9. 동점은 `productId` 오름차순** (검색어 **동점검증**) — 준비: 이름 `"동점검증 세트"`, 설명 `"동일한 설명"`이 같은 상품 `C1`, `C2`. `lo`·`hi` = 두 `productId`를 문자열(`UUID.toString()`)로 오름차순 정렬한 앞·뒤.
-- `q=동점검증&size=1`: id `[lo]`, `$.nextCursor` ≠ null → 그 커서로 다음 쪽: id `[hi]`, `$.nextCursor` = null.
+**9. 동점은 `productId` 오름차순** (검색어 **동점검증**) — 준비: 준비 A로 이름 `"동점검증 세트"`, 설명 `"동일한 설명"`이 같은 상품 `C1`, `C2`. `lo`·`hi` = `Stream.of(C1.toString(), C2.toString()).sorted().toList()`의 첫째·둘째 원소.
+- `q=동점검증&size=1`(준비 A의 `relayOnce()` 뒤 Eventually(10초) 안에서 두 상품이 모두 색인될 때까지 기다린 뒤 `.andReturn()`으로 받는다) — 응답(andExpect): `$.items[0].productId` = `lo`, `jsonPath("$.nextCursor").value(notNullValue())`.
+- 그 응답 본문(andReturn 후)에서 `JsonPath.read(본문, "$.nextCursor")`로 꺼낸 값을 `cursor=`로 넘긴 다음 쪽 — 응답(andExpect): `$.items[0].productId` = `hi`, `jsonPath("$.nextCursor").value(nullValue())`.
 
 #### `search/web/SearchRequestTest` (추가)
 
@@ -543,19 +557,19 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 | 요청 | 확인할 것 |
 |---|---|
-| `/api/search/products?q=` / `q`가 `"가"×51` / `q=테스트&size=0` / `q=테스트&size=51` | 400, `$.code` = `INVALID_REQUEST` |
-| `q=테스트&cursor=not-a-cursor!!` / `q=테스트&cursor=YWJj` | 400, `$.code` = `INVALID_REQUEST` |
-| `q`가 `"가"×50`, `size=50` | 200 |
-| `/api/search/autocomplete?q=루` / `q`가 `"가"×21` | 400, `$.code` = `INVALID_REQUEST` |
-| `/api/search/autocomplete?q=루틴` | 200 |
+| `/api/search/products?q=` / `q`가 `"가"×51` / `q=테스트&size=0` / `q=테스트&size=51` | 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST` |
+| `q=테스트&cursor=not-a-cursor!!` / `q=테스트&cursor=YWJj` | 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST` |
+| `q`가 `"가"×50`, `size=50` | 응답(andExpect): 상태 200 |
+| `/api/search/autocomplete?q=루` / `q`가 `"가"×21` | 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST` |
+| `/api/search/autocomplete?q=루틴` | 응답(andExpect): 상태 200 |
 
 #### `search/web/SearchUnavailableTest`
 
-**ES가 멈춰도 검색만 실패한다** — 준비: 판매자·가게·`registerProduct(sellerId, shopId)`로 상품 `P` 하나. 동작: `es.getDockerClient().pauseContainerCmd(es.getContainerId()).exec()`로 ES 컨테이너를 멈추고, `finally`에서 반드시 `unpauseContainerCmd`로 되돌린다.
-- `GET /api/search/products?q=product`: 503, `$.code` = `SEARCH_UNAVAILABLE`. 응답이 10초 안에 돌아온다(`assertTimeout(Duration.ofSeconds(10), …)`).
-- `GET /api/search/autocomplete?q=pr`: 503, `$.code` = `SEARCH_UNAVAILABLE`.
-- `GET /api/products`(DB): 200, `$.items.length()` = 1, `$.items[0].id` = `P`.
-- 상품 등록 `POST /api/shops/{shopId}/products`(판매자 토큰, 새 `Idempotency-Key`, 본문은 `RegisterProductRequest`): 201.
+**ES가 멈춰도 검색만 실패한다** — 준비: 판매자·가게·`registerProduct(sellerId, shopId)`로 상품 `P` 하나. 동작: `es.getDockerClient().pauseContainerCmd(es.getContainerId()).exec()`로 ES 컨테이너를 멈추고, `finally`에서 반드시 `unpauseContainerCmd`로 되돌린다. 아래 네 요청은 모두 ES가 멈춘 동안(`unpause` 전에) 보낸다.
+- `GET /api/search/products?q=product` — 응답(andExpect): 상태 503, `$.code` = `SEARCH_UNAVAILABLE`. 반환값(Instant.now() 두 번의 차이): 요청 직전과 응답 직후에 재서 `Duration.between(직전, 직후)`가 10초보다 짧다.
+- `GET /api/search/autocomplete?q=pr` — 응답(andExpect): 상태 503, `$.code` = `SEARCH_UNAVAILABLE`.
+- `GET /api/products`(DB, Authorization 없이) — 응답(andExpect): 상태 200, `$.items.length()` = 1, `$.items[0].id` = `P`.
+- 상품 등록 `POST /api/shops/{shopId}/products`(판매자 토큰, 새 `Idempotency-Key`, 본문은 `RegisterProductRequest`) — 응답(andExpect): 상태 201.
 
 **리뷰 때 물어볼 것**
 - 검색 결과와 DB가 잠시 다를 수 있는데 괜찮은가?
@@ -642,33 +656,39 @@ ON CONFLICT (product_id) DO UPDATE SET
 이미 있는 헬퍼: 5-2 `productSearchDocOf`, `String adminToken(String email)`(4-4. `signup(email)` → `changeRole(memberId, "ADMIN")` → `login(email)`로 ADMIN 토큰을 돌려준다), `Eventually.await(Duration timeout, ThrowingRunnable assertion)`(통과할 때까지 100ms마다 단언을 다시 실행).
 
 헬퍼를 쓰는 방법은 다음과 같다.
-- DB: `SELECT version FROM product.product WHERE id = ?`(이 한 곳뿐이라 헬퍼 없이 쓴다).
+- DB: `jdbc.queryForObject("SELECT version FROM product.product WHERE id = ?", Long.class, id)`(이 한 곳뿐이라 헬퍼 없이 쓴다).
 - 검색: `GET /api/search/products?q=재색인상품&size=1`(Authorization 없이).
 
-**공통 준비**: 판매자 1명, 가게 1개. `RegisterProductService.register`로 상품 1,000개를 만든다: 이름 `"재색인상품 " + i`(i = 1~1000), 설명 `"재색인 검증용 상품"`, `ETC`, 1000원, 재고 1. 첫 상품을 `P1`이라 부른다. 옛 인덱스를 채운다: `productApi.findForIndexing(null, 1_000)`로 받은 이벤트 1,000건을 `productIndexer.upsert(e, "products")`로 색인하고 `POST /products/_refresh`. `oldIndex` = `searchIndexStateOf().aliasTargets()`의 유일한 원소. 재색인은 `reindexService.reindex()`를 별도 스레드(`ExecutorService`)에서 부르고 `Future`로 결과를 받는다(반환값 = 색인한 문서 수 1000).
+**준비 A**(4번을 뺀 모든 케이스가 쓴다): 판매자 1명, 가게 1개. `RegisterProductService.register`로 상품 1,000개를 만든다: 이름 `"재색인상품 " + i`(i = 1~1000), 설명 `"재색인 검증용 상품"`, `ETC`, 1000원, 재고 1. 첫 상품을 `P1`이라 부른다. 옛 인덱스를 채운다: `productApi.findForIndexing(null, 1_000)`로 받은 이벤트 1,000건을 `productIndexer.upsert(e, "products")`로 색인하고 `POST /products/_refresh`. `oldIndex` = `searchIndexStateOf().aliasTargets().get(0)`(원소가 하나뿐이다). 재색인은 `reindexService.reindex()`를 별도 스레드(`ExecutorService`)에서 부르고 `Future`로 결과를 받는다(반환값 = 색인한 문서 수 1000).
 
 #### `search/application/ReindexTest`
 
-**1. 재색인 도중에도 검색이 끊기지 않는다** — 동작: 스레드 A가 `reindex()`를 시작한다. 시작 직후부터 A가 끝날 때까지 스레드 B가 검색 요청을 10ms 간격으로 연달아 보내며 응답마다 상태 코드와 `$.items.length()`를 기록한다.
-- B가 기록한 모든 응답이 200이고 `$.items.length()` = 1.
-- B의 요청 횟수 ≥ 5.
+**1. 재색인 도중에도 검색이 끊기지 않는다** — 동작: 스레드 A가 `reindex()`를 시작한다. 시작 직후부터 A가 끝날 때까지 스레드 B가 검색 요청을 10ms 간격으로 연달아 보내며(`.andReturn()`으로 받는다) 응답마다 상태 코드와 본문의 `$.items.length()`를 기록한다.
+- 응답 본문(andReturn 후): B가 기록한 모든 응답의 상태가 200.
+- 응답 본문(andReturn 후): B가 기록한 모든 응답에서 `JsonPath.read(본문, "$.items.length()")` = 1.
+- 반환값(B 스레드 기록 목록): 응답 목록의 `size()` ≥ 5.
 
-**2. 재색인 도중 수정한 상품은 새 인덱스에 수정 내용으로 남는다** — 동작: ① 스레드 A가 `reindex()`를 시작한다. ② 테스트 스레드가 `Eventually.await(Duration.ofSeconds(5), …)`로 `searchIndexStateOf().reindexTarget()`이 `null`이 아닐 때까지 기다린다. ③ 값이 보이는 즉시 `updateProductService.update(sellerId, shopId, P1, new UpdateProductCommand("재색인상품 수정됨", null, null, null, null))` → `outboxRelay.relayOnce()`. ④ A가 끝날 때까지 기다린다.
-- ②에서 5초 안에 `reindexTarget()`에 값이 생기고, ③ 시점에 A가 아직 끝나지 않았다.
-- 끝난 뒤 Eventually(10초)로: `productSearchDocOf(P1)` → `name()` = `"재색인상품 수정됨"`, `version()` = `SELECT version FROM product.product WHERE id = P1` 값.
+**2. 재색인 도중 수정한 상품은 새 인덱스에 수정 내용으로 남는다** — 동작: ① 스레드 A가 `reindex()`를 시작한다. ② 테스트 스레드가 `Eventually.await(Duration.ofSeconds(5), …)`로 `searchIndexStateOf().reindexTarget()`이 `isNotNull()`일 때까지 기다린다. ③ 값이 보이는 즉시 `updateProductService.update(sellerId, shopId, P1, new UpdateProductCommand("재색인상품 수정됨", null, null, null, null))` → `outboxRelay.relayOnce()`. ④ A가 끝날 때까지 기다린다.
+- Redis(searchIndexStateOf().reindexTarget()): ②에서 5초 안에 값이 생긴다.
+- 반환값(A의 Future.isDone()): ③ 시점에 false다.
+- DB(JDBC): ③의 `update` 뒤(④ 전)에 위 쿼리로 `P1`의 `version`을 읽어 둔다(다음 확인의 기준 값).
+- ES(productSearchDocOf(P1)): ④에서 A가 끝난 뒤 Eventually(10초)로 `name()` = `"재색인상품 수정됨"`, `version()` = 위 DB 값.
 
-**3. 재색인이 실패하면 아무것도 바뀌지 않는다** (추가) — 준비: 공통 준비 + `@MockitoSpyBean ProductApi`에 `doThrow(new RuntimeException("test")).when(productApi).findForIndexing(any(), anyInt())`. 동작: `reindex()`를 `try/catch`로 감싸 호출한다(밖으로 예외가 나오는지는 문서에 없다. 확인 필요).
-- `searchIndexStateOf()`: `aliasTargets()` = [`oldIndex`] 그대로 / `indexNames()` = [`oldIndex`] / `reindexTarget()` = `null`.
-- 검색 `q=재색인상품&size=1`: 200, `$.items.length()` = 1.
+**3. 재색인이 실패하면 아무것도 바뀌지 않는다** (추가) — 준비: 준비 A + `@MockitoSpyBean ProductApi`에 `doThrow(new RuntimeException("test")).when(productApi).findForIndexing(any(), anyInt())`. 동작: `reindex()`를 `try/catch`로 감싸 호출한다(밖으로 예외가 나오는지는 문서에 없다. 확인 필요).
+- ES(searchIndexStateOf(), `reindex()` 호출이 끝난 직후): `aliasTargets()` = [`oldIndex`] 그대로 / `indexNames()` = [`oldIndex`].
+- Redis(searchIndexStateOf().reindexTarget(), `reindex()` 호출이 끝난 직후): `null`(`isNull()`).
+- 응답(andExpect): `reindex()` 호출이 끝난 뒤 검색 `q=재색인상품&size=1` 상태 200, `$.items.length()` = 1.
 
-**4. 재색인 API 권한** (추가) — 준비: 일반 회원 토큰, ADMIN 토큰(`adminToken("admin@test.com")`, 4-4). 동작: `POST /admin/api/search/reindex`.
-- ADMIN 토큰: 202. 이 케이스는 공통 준비의 1,000개 대신 상품 1개만 등록하고, 호출 전 `searchIndexStateOf().aliasTargets()`를 `before`로 적어 둔다. 응답 뒤 `Eventually.await(Duration.ofSeconds(30), …)`로 `aliasTargets()`가 `before`와 달라질 때까지 기다린 뒤 끝낸다.
-- 일반 회원 토큰: 403, `$.code` = `FORBIDDEN`.
-- 토큰 없음: 401, `$.code` = `UNAUTHORIZED`.
+**4. 재색인 API 권한** (추가) — 준비: 준비 A는 쓰지 않고 판매자 1명·가게 1개에 상품 1개만 등록한다. 일반 회원 토큰(`token("user@test.com")`), ADMIN 토큰(`adminToken("admin@test.com")`, 4-4). ADMIN 호출 전 `searchIndexStateOf().aliasTargets()`를 `before`로 적어 둔다. 동작: `POST /admin/api/search/reindex`.
+- ADMIN 토큰 — 응답(andExpect): 상태 202. ES(searchIndexStateOf().aliasTargets()): 응답 뒤 `Eventually.await(Duration.ofSeconds(30), …)`로 `before`와 달라질 때까지 기다린 뒤 끝낸다.
+- 일반 회원 토큰 — 응답(andExpect): 상태 403, `$.code` = `FORBIDDEN`.
+- 토큰 없음 — 응답(andExpect): 상태 401, `$.code` = `UNAUTHORIZED`.
 
-**5. 재색인이 끝나면 alias가 새 인덱스를 가리키고 정리된다** — 동작: 공통 준비 뒤 `reindex()`를 호출하고 끝나기를 기다린다.
-- `reindex()` 반환값 = 1000.
-- `searchIndexStateOf()`: `aliasTargets()`가 정확히 1개이고 그 이름이 `oldIndex`와 다르며 `products-\d{14}` 모양 / `indexNames()`에 `oldIndex`가 없다 / `docCount()` = 1000 / `reindexTarget()` = `null`. `productSearchDocOf(P1).found()` = true.
+**5. 재색인이 끝나면 alias가 새 인덱스를 가리키고 정리된다** — 동작: 준비 A 뒤 `reindex()`를 호출하고 끝나기를 기다린다.
+- 반환값: `reindex()` = 1000.
+- ES(searchIndexStateOf()): `aliasTargets()`가 정확히 1개이고 그 이름이 `oldIndex`와 다르며 `products-\d{14}` 모양 / `indexNames()`에 `oldIndex`가 없다(`doesNotContain(oldIndex)`) / `docCount()` = 1000.
+- Redis(searchIndexStateOf().reindexTarget()): `null`(`isNull()`).
+- ES(productSearchDocOf(P1)): `found()` = true.
 
 **리뷰 때 물어볼 것**: alias 없이 같은 인덱스를 지우고 다시 만들면 무엇이 문제인가?
 
@@ -743,41 +763,45 @@ ON CONFLICT (product_id) DO UPDATE SET
 헬퍼를 쓰는 방법은 다음과 같다.
 - 응답: `jsonPath`. 에러 코드는 `$.code`, 목록은 `$.items.length()`·`$.items[i].…`·`$.nextCursor`. 목록·상세의 항목 필드 이름은 문서에 없다(확인 필요: 5-4 `member.application` 절의 `InquiryResult`·`InquiryDetailResult`가 정한다. 아래는 `Inquiry` 컬럼에 맞춘 `id`·`title`·`status`·`createdAt`을 쓴다).
 
-**공통 준비**: 회원 `user1@test.com`, `user2@test.com`(`signup` + `login`으로 ID와 토큰). 관리자 `admin@test.com`: `adminId = signup("admin@test.com")` → `changeRole(adminId, "ADMIN")` → `login`으로 토큰을 다시 받는다(4-4의 `adminToken(email)`은 같은 순서를 밟지만 가입한 회원 ID를 돌려주지 않아 `admin_id` 확인에 쓸 수 없다). 문의 작성 요청은 `POST /api/inquiries`에 `Authorization: Bearer {user1 토큰}`, 본문 `{"title":"배송이 늦어요","content":"주문한 상품이 아직 도착하지 않았습니다."}`다. 응답 `$.inquiryId`로 문의 ID(`Q1`)를 받는다. 답변 요청은 `POST /admin/api/inquiries/{id}/answer`에 `Authorization: Bearer {admin 토큰}`, 본문 `{"content":"확인 후 오늘 중 안내드리겠습니다."}`다.
+**준비 A**(각 케이스는 필요한 계정만 쓴다): 회원 `user1@test.com`, `user2@test.com`(`signup` + `login`으로 ID와 토큰). 관리자 `admin@test.com`: `adminId = signup("admin@test.com")` → `changeRole(adminId, "ADMIN")` → `login`으로 토큰을 다시 받는다(4-4의 `adminToken(email)`은 같은 순서를 밟지만 가입한 회원 ID를 돌려주지 않아 `admin_id` 확인에 쓸 수 없다). 문의 작성 요청은 `POST /api/inquiries`에 `Authorization: Bearer {user1 토큰}`, 본문 `{"title":"배송이 늦어요","content":"주문한 상품이 아직 도착하지 않았습니다."}`다. 응답 `$.inquiryId`로 문의 ID(`Q1`)를 받는다. 답변 요청은 `POST /admin/api/inquiries/{id}/answer`에 `Authorization: Bearer {admin 토큰}`, 본문 `{"content":"확인 후 오늘 중 안내드리겠습니다."}`다.
 
 #### `member/web/InquiryTest`
 
 **1. 문의 작성** — 동작: `user1`이 작성 요청.
-- 응답: 201, `$.inquiryId`가 비어 있지 않다.
-- `inquiriesOf(user1)` 1개: `memberId()` = `user1`, `title()` = `"배송이 늦어요"`, `content()` = 보낸 본문, `status()` = `OPEN`.
+- 응답(andExpect): 상태 201, `jsonPath("$.inquiryId").isNotEmpty()`.
+- DB(inquiriesOf(user1)): 1개이고 `memberId()` = `user1`, `title()` = `"배송이 늦어요"`, `content()` = 보낸 본문, `status()` = `OPEN`.
 
 **2. 남의 문의는 보이지 않는다** — 준비: `user1`이 `Q1`을 작성. 동작·확인:
-- `user2` 토큰으로 `GET /api/inquiries/{Q1}` → 404, `$.code` = `INQUIRY_NOT_FOUND`.
-- `user2` 토큰으로 `GET /api/inquiries/{Ids.newId()}` → 404, `$.code` = `INQUIRY_NOT_FOUND`.
-- `user2` 토큰으로 `GET /api/inquiries` → 200, `$.items.length()` = 0, `$.nextCursor` = null.
-- 본인: `user1` 토큰으로 `GET /api/inquiries/{Q1}` → 200, `$.title` = `"배송이 늦어요"` / `GET /api/inquiries` → 200, `$.items.length()` = 1, `$.items[0].id` = `Q1`.
+- `user2` 토큰으로 `GET /api/inquiries/{Q1}` → 응답(andExpect): 상태 404, `$.code` = `INQUIRY_NOT_FOUND`.
+- `user2` 토큰으로 `GET /api/inquiries/{Ids.newId()}` → 응답(andExpect): 상태 404, `$.code` = `INQUIRY_NOT_FOUND`.
+- `user2` 토큰으로 `GET /api/inquiries` → 응답(andExpect): 상태 200, `jsonPath("$.items").value(hasSize(0))`, `jsonPath("$.nextCursor").value(nullValue())`.
+- 본인: `user1` 토큰으로 `GET /api/inquiries/{Q1}` → 응답(andExpect): 상태 200, `$.title` = `"배송이 늦어요"` / `GET /api/inquiries` → 응답(andExpect): 상태 200, `$.items.length()` = 1, `$.items[0].id` = `Q1`.
 
 **3. 답변하면 ANSWERED** — 준비: `user1`이 `Q1`을 작성. 동작: `admin`이 답변 요청.
-- 확인: 204. `inquiryOf(Q1)`: `status()` = `ANSWERED`, `answers()` 1개(`adminId()` = `adminId`, `content()` = `"확인 후 오늘 중 안내드리겠습니다."`). `user1` 토큰으로 `GET /api/inquiries/{Q1}` → 200, `$.status` = `ANSWERED`, 답변 내용이 위 `content`로 들어 있다(필드 이름은 확인 필요).
+- 응답(andExpect): 상태 204.
+- DB(inquiryOf(Q1)): `status()` = `ANSWERED`, `answers()` 1개(`adminId()` = `adminId`, `content()` = `"확인 후 오늘 중 안내드리겠습니다."`).
+- 응답(andExpect): `user1` 토큰으로 `GET /api/inquiries/{Q1}` → 상태 200, `$.status` = `ANSWERED`, 답변 내용이 위 `content`로 들어 있다(필드 이름은 확인 필요).
 
 **4. 관리자 목록은 상태로 거른다** (추가) — 준비: `user1`이 문의 3개(`Q1`, `Q2`, `Q3`)를 작성하고 `admin`이 `Q2`에 답변한다. 동작: `admin` 토큰으로 `GET /admin/api/inquiries?status=OPEN`.
-- 응답: 200, `$.items.length()` = 2, id 집합 `{Q1, Q3}`, `$.nextCursor` = null.
-- `?status=ANSWERED` → `$.items.length()` = 1, `$.items[0].id` = `Q2`.
+- 응답(andExpect): 상태 200, `$.items.length()` = 2, `$.items[*].id`의 집합이 `{Q1, Q3}`(`containsInAnyOrder`), `jsonPath("$.nextCursor").value(nullValue())`.
+- `?status=ANSWERED` → 응답(andExpect): `$.items.length()` = 1, `$.items[0].id` = `Q2`.
 
 **5. 문의 입력 검증** (추가) — 준비: `user1`이 1번의 문의 하나를 작성해 둔다. 동작: `title` 빈 문자열 / `title` `"가"×101` / `content` 빈 문자열 / `content` `"가"×2001`로 각각 요청.
-- 모두 400, `$.code` = `INVALID_REQUEST`, `inquiriesOf(user1).size()`는 1 그대로. `title` `"가"×100`·`content` `"가"×2000`은 201.
+- 응답(andExpect): 모두 상태 400, `$.code` = `INVALID_REQUEST`. DB(inquiriesOf(user1)): `.size()`는 1 그대로.
+- `title` `"가"×100`·`content` `"가"×2000` → 응답(andExpect): 상태 201.
 
 **6. 관리자 API는 일반 회원에게 막힌다** (추가) — 준비: `user1`이 `Q1`을 작성. 동작: `user1` 토큰으로 `GET /admin/api/inquiries?status=OPEN`과 `POST /admin/api/inquiries/{Q1}/answer`.
-- 두 요청 모두 403, `$.code` = `FORBIDDEN`.
+- 응답(andExpect): 두 요청 모두 상태 403, `$.code` = `FORBIDDEN`.
 
 **7. 두 번째 답변은 409** — 준비: 3번의 동작까지(`user1`이 `Q1` 작성, `admin`이 답변). 동작: `admin`이 본문 `{"content":"추가 안내입니다."}`로 같은 문의에 다시 답변.
-- 확인: 409, `$.code` = `INVALID_STATE_TRANSITION`. `inquiryOf(Q1)`: `answers()`는 여전히 1개이고 `content()`는 첫 답변 그대로, `status()` = `ANSWERED`.
+- 응답(andExpect): 상태 409, `$.code` = `INVALID_STATE_TRANSITION`.
+- DB(inquiryOf(Q1)): `answers()`는 여전히 1개이고 `content()`는 첫 답변 그대로, `status()` = `ANSWERED`.
 
 **8. 없는 문의에 답변하면 404** (추가) — 동작: `admin`이 없는 ID(`Ids.newId()`)에 답변.
-- 확인: 404, `$.code` = `INQUIRY_NOT_FOUND`.
+- 응답(andExpect): 상태 404, `$.code` = `INQUIRY_NOT_FOUND`.
 
 **9. 답변 입력 검증** (추가) — 준비: `user1`이 `Q1`을 작성. 동작: `admin`이 `content` 빈 문자열 또는 `"가"×2001`로 답변.
-- 확인: 400, `$.code` = `INVALID_REQUEST`.
+- 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`.
 
 **추가 항목**
 - 제재 회원도 문의 쓰기: 로그인은 허용하고 토큰에 `st: "BANNED"`를 넣어, 필터가 허용 목록(`/api/inquiries/**`, `GET /api/members/me`, 로그아웃·갱신) 외 요청을 403 `MEMBER_BANNED`로 막는다. 1-4·4-4의 "제재 → 로그인 403" 테스트가 "로그인 200 + 체크아웃 403"으로 바뀐다
