@@ -27,4 +27,14 @@ public class MemberTopicConfig {
     public NewTopic memberWithdrawnDltTopic() {
         return TopicBuilder.name(MemberTopics.MEMBER_WITHDRAWN + ".dlt").partitions(3).replicas(1).build();
     }
+
+    @Bean
+    public NewTopic memberBannedTopic() {
+        return TopicBuilder.name(MemberTopics.MEMBER_BANNED).partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    public NewTopic memberBannedDltTopic() {
+        return TopicBuilder.name(MemberTopics.MEMBER_BANNED + ".dlt").partitions(3).replicas(1).build();
+    }
 }

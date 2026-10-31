@@ -1,5 +1,6 @@
 package com.myroutine.notification.application;
 
+import com.myroutine.member.api.event.MemberBannedEvent;
 import com.myroutine.member.api.event.MemberRegisteredEvent;
 import com.myroutine.notification.domain.NotificationDraft;
 import com.myroutine.notification.domain.NotificationType;
@@ -64,6 +65,12 @@ public class NotificationComposer {
                 "%s~%s 정산금 %d원이 지급되었습니다".formatted(event.periodStart(), event.periodEnd(), event.netAmount()),
                 "정산 기간 %s~%s의 정산금 %d원이 지급되었습니다.".formatted(event.periodStart(), event.periodEnd(), event.netAmount())
         );
+        return List.of(draft);
+    }
+
+    public List<NotificationDraft> compose(MemberBannedEvent event) {
+        NotificationDraft draft = NotificationDraft.toMember(event.memberId(), NotificationType.BANNED, "계정 이용이 제한되었습니다",
+                "운영 정책에 따라 계정 이용이 제한되었습니다. 사유: %s".formatted(event.reason()));
         return List.of(draft);
     }
 }

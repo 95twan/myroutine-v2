@@ -10,6 +10,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 @Entity
@@ -52,6 +53,15 @@ public class Member extends BaseTimeEntity {
     @Column(name = "withdrawn_at")
     private Instant withdrawnAt;
 
+    @Column(name = "token_version", nullable = false)
+    private int tokenVersion;
+
+    @Column(name = "ban_reason")
+    private String banReason;
+
+    @Column(name = "banned_at")
+    private Instant bannedAt;
+
     public static String normalizeEmail(String raw) {
         return raw.strip().toLowerCase(Locale.ROOT);
     }
@@ -82,7 +92,10 @@ public class Member extends BaseTimeEntity {
 
     public void verifyCanLogin() {
         if (status == MemberStatus.BANNED) {
-            throw new BusinessException(MemberErrorCode.MEMBER_BANNED);
+            if (banReason == null) {
+                throw new BusinessException(MemberErrorCode.MEMBER_BANNED);
+            }
+            throw new BusinessException(MemberErrorCode.MEMBER_BANNED, Map.of("reason", banReason));
         } else if (status == MemberStatus.WITHDRAWN) {
             throw new BusinessException(MemberErrorCode.LOGIN_FAILED);
         }
@@ -124,5 +137,21 @@ public class Member extends BaseTimeEntity {
 
     public void changePassword(String encodedPassword) {
         this.passwordHash = encodedPassword;
+    }
+
+    public void increaseTokenVersion() {
+        this.tokenVersion++;
+    }
+
+    public void ban(String reason, Instant now) {
+        this.status = this.status.transitTo(MemberStatus.BANNED);
+        this.banReason = reason;
+        this.bannedAt = now;
+    }
+
+    public void unban() {
+        this.status = this.status.transitTo(MemberStatus.ACTIVE);
+        this.banReason = null;
+        this.bannedAt = null;
     }
 }

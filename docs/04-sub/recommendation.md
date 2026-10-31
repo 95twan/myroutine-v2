@@ -145,48 +145,71 @@
 
 헬퍼를 쓰는 방법은 다음과 같다.
 - 응답: `jsonPath`. 추천은 배열이라 `$.length()`와 `$[i].productId`·`.name`·`.price`·`.thumbnailUrl`.
-- 가짜 OpenAI 서버(`FakeOpenAiServer`): 메서드는 `FakePgServer`와 같은 모양을 권장안으로 한다: `static FakeOpenAiServer start()`(JDK `HttpServer`를 빈 포트로 띄운다), `String baseUrl()`, `void on(String pathPrefix, Behavior behavior)`(기존 `support/Behavior` record를 쓴다. 예: `Behavior.serverError()`는 500 응답), `List<RecordedRequest> requests(String pathPrefix)`(`RecordedRequest(method, path, headers, body)`), `void reset()`(설정과 기록을 비운다). `IntegrationTestSupport`의 `@AfterEach`에서 `reset()`을 부른다.
+- 가짜 서버 요청(`FakeOpenAiServer`): 메서드는 `FakePgServer`와 같은 모양을 권장안으로 한다: `static FakeOpenAiServer start()`(JDK `HttpServer`를 빈 포트로 띄운다), `String baseUrl()`, `void on(String pathPrefix, Behavior behavior)`(기존 `support/Behavior` record를 쓴다. 예: `Behavior.serverError()`는 500 응답), `List<RecordedRequest> requests(String pathPrefix)`(`RecordedRequest(method, path, headers, body)`), `void reset()`(설정과 기록을 비운다). `IntegrationTestSupport`의 `@AfterEach`에서 `reset()`을 부른다.
 - DLT: `TestKafka.readAll("product.product-upserted.v1.dlt")`(3-1). 레코드의 봉투 `eventId`는 `common.outbox_event`의 행 ID와 같다.
 
-**공통 준비**: 판매자 1명, 가게 1개. 상품은 `RegisterProductService.register(sellerId, shopId, new RegisterProductCommand(이름, "설명", 카테고리, 가격, 10, false))`로 만든다. 이벤트는 `outboxRelay.relayOnce()`로 흘리고 `Eventually.await(Duration.ofSeconds(10), …)`로 기다린다.
+**공통 준비**: 판매자 1명(`sellerId`), 가게 1개(`shopId`).
+
+**1~7번의 상품 만들기**: 상품은 `RegisterProductService.register(sellerId, shopId, new RegisterProductCommand(이름, "설명", 카테고리, 가격, 10, false))`로 만든다. 이벤트는 `outboxRelay.relayOnce()`로 흘리고 `Eventually.await(Duration.ofSeconds(10), …)`로 기다린다(8번은 이 방법을 쓰지 않는다).
 
 #### `recommendation/application/ProductEmbeddingTest` (가짜 OpenAI 서버)
 
-공통: 상품 `P` = 이름 `"비타민 C 1000"`, 설명 `"하루 한 알 비타민"`, `HEALTH`, 10000원. 임베딩 입력은 `expectedInput` = `"비타민 C 1000\nHEALTH\n하루 한 알 비타민"`, `expectedHash` = `expectedInput`의 UTF-8 SHA-256 16진수(테스트가 `MessageDigest`로 계산).
+상품 `P`(3·8번을 뺀 케이스가 쓴다) = 이름 `"비타민 C 1000"`, 설명 `"하루 한 알 비타민"`, `HEALTH`, 10000원. 임베딩 입력은 `expectedInput` = `"비타민 C 1000\nHEALTH\n하루 한 알 비타민"`, `expectedHash` = `expectedInput`의 UTF-8 SHA-256 16진수(테스트가 `MessageDigest`로 계산).
+
+**확인 표기**: 각 "확인"은 맨 앞에 읽는 곳을 쓴다. `응답(andExpect)`는 요청 호출 체인에 바로 거는 상태·헤더·`jsonPath` 단언, `응답 본문(andReturn 후)`는 `.andReturn()`으로 받은 `MvcResult`에서 꺼낸 상태·헤더·본문 값, `DB(헬퍼)`는 `TestFixtures` 등의 읽기 헬퍼, `Redis(헬퍼/키)`, `ES(헬퍼)`, `outbox(OutboxAssert.rows(토픽))`, `Kafka(TestKafka.messages)`, `메일(fakeMailSender.sent())`, `로그(output.getAll())`, `메트릭(registry)`, `가짜 서버 요청(가짜 서버의 요청 기록 호출)`, `반환값`은 서비스·도메인 테스트가 직접 받은 값, `예외`는 던져진 예외, `명령 출력`은 수동 확인의 명령 결과다. 한 줄에 읽는 곳이 둘이면 줄을 나눈다.
 
 **1. 같은 이벤트가 두 번 와도 임베딩 호출은 1번** — 동작 1: `P` 등록 → `relayOnce()` → Eventually로 `embeddingOf(P)`가 `null`이 아닐 때까지.
-- `embeddingOf(P).updatedAt()`을 읽어 둔다.
-- 동작 2: JDBC `UPDATE common.outbox_event SET status = 'READY', next_attempt_at = now() WHERE topic = 'product.product-upserted.v1'` → `relayOnce()` → 3초 대기.
-- 확인: `embeddingInputs()` 여전히 1건, `embeddingOf(P).updatedAt()`이 읽어 둔 값과 같다, `processedCountOf(…)` 여전히 1.
+- 읽어 둔다: DB(embeddingOf(P)): `.updatedAt()`을 `updatedBefore`로.
+- 동작 2: `JdbcTemplate.update("UPDATE common.outbox_event SET status = 'READY', next_attempt_at = now() WHERE topic = 'product.product-upserted.v1'")` → `relayOnce()` → `Thread.sleep(3000)`.
+- 확인(동작 2의 `relayOnce()`와 3초 대기 뒤):
+  - 가짜 서버 요청(openAi.embeddingInputs()): `.size()`가 여전히 1(동작 1 뒤에도 1이었다).
+  - DB(embeddingOf(P)): `.updatedAt()`이 `updatedBefore`와 같다.
+  - DB(processedCountOf("recommendation.product-upserted")): 여전히 1(동작 1 뒤에도 1이었다).
 
-**2. 가격만 바뀐 수정은 호출하지 않는다** — 준비: 1번 동작 1까지. 동작: `updateProductService.update(sellerId, shopId, P, new UpdateProductCommand(null, null, null, 12000L, null))` → `relayOnce()` → Eventually로 `processedCountOf(…)`가 2가 될 때까지.
-- 확인: `embeddingInputs()` 여전히 1건. `embeddingOf(P)`: `sourceHash` = `expectedHash`.
+**2. 가격만 바뀐 수정은 호출하지 않는다** — 준비: 1번 동작 1까지. 동작: `updateProductService.update(sellerId, shopId, P, new UpdateProductCommand(null, null, null, 12000L, null))` → `relayOnce()` → Eventually로 `processedCountOf("recommendation.product-upserted")`가 2가 될 때까지.
+- 확인:
+  - 가짜 서버 요청(openAi.embeddingInputs()): `.size()`가 여전히 1.
+  - DB(embeddingOf(P)): `.sourceHash()` = `expectedHash`.
 
-**3. 설명은 앞 1,000자만 쓴다** (추가) — 준비: 상품 이름 `"자르기 검증"`, 설명 `"가"×1500`, `HEALTH`. 동작: 등록 → `relayOnce()` → Eventually로 `embeddingInputs()`가 1건이 될 때까지. 확인: 그 입력 = `"자르기 검증\nHEALTH\n" + "가"×1000`. `embeddingOf(상품).sourceHash()`도 그 문자열의 SHA-256.
+**3. 설명은 앞 1,000자만 쓴다** (추가) — 준비: 상품 이름 `"자르기 검증"`, 설명 `"가"×1500`, `HEALTH`. 동작: 등록 → `relayOnce()` → Eventually로 `openAi.embeddingInputs()`가 1건이 될 때까지.
+- 확인:
+  - 가짜 서버 요청(openAi.embeddingInputs()): `.get(0)` = `"자르기 검증\nHEALTH\n" + "가"×1000`.
+  - DB(embeddingOf(그 상품 ID)): `.sourceHash()` = 위 문자열의 SHA-256(`expectedHash`와 같은 방법으로 계산).
 
 **4. 숨김·단종은 INACTIVE, 복귀는 ACTIVE (호출 없이)** — 준비: 1번 동작 1까지. 동작과 확인(매번 `relayOnce()` 후 Eventually로 `embeddingOf(P).status()`를 기다린다):
-- `changeStatus(sellerId, shopId, P, HIDDEN)` → `status` = `INACTIVE`.
-- `changeStatus(…, ON_SALE)` → `status` = `ACTIVE`.
-- `changeStatus(…, DISCONTINUED)` → `status` = `INACTIVE`.
-- 세 번의 변경 내내 `sourceHash`는 `expectedHash` 그대로, `embeddingInputs()`는 1건 그대로.
+- `changeStatus(sellerId, shopId, P, HIDDEN)` → DB(embeddingOf(P)): `.status()` = `INACTIVE`.
+- `changeStatus(…, ON_SALE)` → DB(embeddingOf(P)): `.status()` = `ACTIVE`.
+- `changeStatus(…, DISCONTINUED)` → DB(embeddingOf(P)): `.status()` = `INACTIVE`.
+- 세 번의 변경 내내(변경마다 위 `status` 확인을 읽을 때) DB(embeddingOf(P)): `.sourceHash()`는 `expectedHash` 그대로.
+- 세 번의 변경 내내(변경마다 위 `status` 확인을 읽을 때) 가짜 서버 요청(openAi.embeddingInputs()): `.size()`는 1 그대로(1번 동작 1 뒤의 값).
 
-**5. OpenAI 500이면 재시도 후 DLT** — 준비: `openAi.on("/v1/embeddings", Behavior.serverError())`. 동작: `P` 등록 → `relayOnce()`.
-- `Eventually.await(Duration.ofSeconds(30), …)`로 `TestKafka.readAll("product.product-upserted.v1.dlt")`에 `P`가 키인 레코드가 1개 올 때까지 기다린다. 그 레코드의 봉투 `eventId` = 이 상품의 `product.product-upserted.v1` outbox 행 ID.
-- `openAi.embeddingInputs()` 정확히 4건.
-- `embeddingOf(P)` = `null`, `processedCountOf("recommendation.product-upserted")` = 0.
+**5. OpenAI 500이면 재시도 후 DLT** — 준비: `openAi.on("/v1/embeddings", Behavior.serverError())`. 동작: `P` 등록 → `relayOnce()` → `Eventually.await(Duration.ofSeconds(30), …)`로 `TestKafka.readAll("product.product-upserted.v1.dlt")`에 `key()`가 `P.toString()`인 레코드가 1개 올 때까지 기다린다.
+- 확인:
+  - Kafka(TestKafka.readAll("product.product-upserted.v1.dlt")): 그 레코드 `value()`를 `objectMapper.readTree`로 읽은 `get("eventId").asText()`가 outbox 행 ID와 같다. outbox 행 ID는 outbox(OutboxAssert.rows("product.product-upserted.v1"))에서 `aggregateId()`가 `P`인 행의 `id().toString()`.
+  - 가짜 서버 요청(openAi.embeddingInputs()): `.size()`가 정확히 4.
+  - DB(embeddingOf(P)): 반환값이 `null`(`assertThat(...).isNull()`).
+  - DB(processedCountOf("recommendation.product-upserted")): 0.
 
 **6. 등록하면 임베딩이 저장된다** — 동작: 1번의 동작 1(`P` 등록 → `relayOnce()` → Eventually로 `embeddingOf(P)`가 `null`이 아닐 때까지).
-- 확인: `openAi.embeddingInputs()` = [`expectedInput`]. `embeddingOf(P)`: `status` = `ACTIVE`, `sourceHash` = `expectedHash`, `model` = `text-embedding-3-small`(저장하는 값은 문서에 없다. 확인 필요). `processedCountOf("recommendation.product-upserted")` = 1.
+- 확인:
+  - 가짜 서버 요청(openAi.embeddingInputs()): [`expectedInput`]과 같다.
+  - DB(embeddingOf(P)): `.status()` = `ACTIVE`, `.sourceHash()` = `expectedHash`, `.model()` = `text-embedding-3-small`(저장하는 값은 문서에 없다. 확인 필요).
+  - DB(processedCountOf("recommendation.product-upserted")): 1.
 
-**7. 본문이 바뀐 수정은 임베딩을 다시 만든다** — 준비: 1번 동작 1까지. 동작: `update(sellerId, shopId, P, new UpdateProductCommand("비타민 C 2000", null, null, null, null))` → `relayOnce()` → Eventually로 `embeddingInputs()`가 2건이 될 때까지.
-- 확인: 두 번째 입력 = `"비타민 C 2000\nHEALTH\n하루 한 알 비타민"`, `embeddingOf(P).sourceHash()` = 그 문자열의 SHA-256.
+**7. 본문이 바뀐 수정은 임베딩을 다시 만든다** — 준비: 1번 동작 1까지. 동작: `update(sellerId, shopId, P, new UpdateProductCommand("비타민 C 2000", null, null, null, null))` → `relayOnce()` → Eventually로 `openAi.embeddingInputs()`가 2건이 될 때까지.
+- 확인:
+  - 가짜 서버 요청(openAi.embeddingInputs()): `.get(1)` = `"비타민 C 2000\nHEALTH\n하루 한 알 비타민"`.
+  - DB(embeddingOf(P)): `.sourceHash()` = 위 문자열의 SHA-256(`expectedHash`와 같은 방법으로 계산).
 
-**8. OpenAI가 500이어도 상품 API는 정상** — 준비: `openAi.on("/v1/embeddings", Behavior.serverError())`. 동작: 상품 API `POST /api/shops/{shopId}/products`(판매자 토큰, 새 `Idempotency-Key`, 본문 `RegisterProductRequest`) → `GET /api/products/{id}`.
-- 확인: 등록 201, 조회 200, `$.id` = 새 상품 ID.
+**8. OpenAI가 500이어도 상품 API는 정상** — 준비: `openAi.on("/v1/embeddings", Behavior.serverError())`. 동작: 상품 API `POST /api/shops/{shopId}/products`(판매자 토큰, 새 `Idempotency-Key`, 본문 `RegisterProductRequest`) → `.andReturn()`으로 본문을 받아 `JsonPath.read(본문, "$.productId")`를 새 상품 ID `newId`로 둔다 → `GET /api/products/{newId}`.
+- 확인:
+  - 등록 요청의 응답(andExpect): 상태 201.
+  - `GET /api/products/{newId}`의 응답(andExpect): 상태 200.
+  - `GET /api/products/{newId}`의 응답(andExpect): `jsonPath("$.id")` = `newId`의 문자열.
 
 #### `recommendation/web/RecommendationTest` (가짜 OpenAI 서버)
 
-**공통 준비**: 구매자 `buyer`(`signup` + `login`). 상품 6개를 등록한다(모두 설명 `"설명"`).
+**준비(2번을 뺀 모든 케이스가 쓴다)**: 구매자 `buyer`(`signup` + `login` → `buyerId`, 토큰). 상품 6개를 등록한다(모두 설명 `"설명"`). 각 케이스의 "호출"은 `GET /api/recommendations/me`에 이 토큰의 `Bearer`를 붙인 요청이다.
 
 | 상품 | 이름 | 카테고리 | 가격 | 임베딩 `(x, y, z)` | 임베딩 `status` | 비고 |
 |---|---|---|---|---|---|---|
@@ -199,30 +222,49 @@
 
 준비 순서: ① 6개 등록 → `relayOnce()` → Eventually로 여섯 상품 모두 `embeddingOf(상품)`이 `null`이 아닐 때까지 ② 상품마다 `setEmbedding(상품, x, y, z, status)`로 위 표의 벡터·`status`로 덮어쓴다 ③ `hideProduct(F)` ④ `createPaidOrder(buyerId, A)` → `relayOnce()` → Eventually로 `purchasedProductIdsOf(buyerId)`가 {`A`}가 될 때까지.
 
-**1. 비슷한 상품이 앞에, 산 상품은 제외** — 동작: `GET /api/recommendations/me`(Bearer `buyer`).
-- 응답: 200, `$.length()` = 3.
-- 순서 `[B, C, D]`: `$[0].productId` = B, `$[1].productId` = C, `$[2].productId` = D. F·A·E는 없다.
-- `$[0].name` = `"비타민 D 2000"`, `.price` = 12000 / `$[1].name` = `"오메가 쓰리"`, `.price` = 20000 / `$[2].name` = `"고양이 사료"`, `.price` = 30000.
+**확인 표기**: 각 "확인"은 맨 앞에 읽는 곳을 쓴다. `응답(andExpect)`는 요청 호출 체인에 바로 거는 상태·헤더·`jsonPath` 단언, `응답 본문(andReturn 후)`는 `.andReturn()`으로 받은 `MvcResult`에서 꺼낸 상태·헤더·본문 값, `DB(헬퍼)`는 `TestFixtures` 등의 읽기 헬퍼, `Redis(헬퍼/키)`, `ES(헬퍼)`, `outbox(OutboxAssert.rows(토픽))`, `Kafka(TestKafka.messages)`, `메일(fakeMailSender.sent())`, `로그(output.getAll())`, `메트릭(registry)`, `가짜 서버 요청(가짜 서버의 요청 기록 호출)`, `반환값`은 서비스·도메인 테스트가 직접 받은 값, `예외`는 던져진 예외, `명령 출력`은 수동 확인의 명령 결과다. 한 줄에 읽는 곳이 둘이면 줄을 나눈다.
 
-**2. 구매 이력이 없으면 빈 목록** — 동작: 구매가 없는 회원 `buyer2`(`signup` + `login`)로 호출.
-- 응답: 200, `$.length()` = 0. `recommendationCacheOf(buyer2)` = `null`.
+**1. 비슷한 상품이 앞에, 산 상품은 제외** — 동작: 호출.
+- 응답(andExpect): 상태 200.
+- 응답(andExpect): `jsonPath("$.length()")` = 3.
+- 응답(andExpect): 순서 `[B, C, D]`: `jsonPath("$[0].productId")` = B, `$[1].productId` = C, `$[2].productId` = D(UUID는 `toString()` 문자열).
+- 응답(andExpect): F·A·E는 없다: `jsonPath("$[?(@.productId == '{F}')]").value(hasSize(0))`(A·E도 같다).
+- 응답(andExpect): `$[0].name` = `"비타민 D 2000"`, `$[0].price` = 12000.
+- 응답(andExpect): `$[1].name` = `"오메가 쓰리"`, `$[1].price` = 20000.
+- 응답(andExpect): `$[2].name` = `"고양이 사료"`, `$[2].price` = 30000.
 
-**3. 두 번째 호출은 캐시에서 나온다** — 준비: 첫 호출(1번과 같다)로 캐시를 만든다. 동작·확인:
-- `setEmbeddingStatus(B, "INACTIVE")` 후 두 번째 호출: 200, 응답이 첫 호출과 같다(`[B, C, D]`).
-- Redis 키 `rec:result:{buyer}`를 `delete`하고 세 번째 호출: 200, `$.length()` = 2, `[C, D]`.
+**2. 구매 이력이 없으면 빈 목록** — 준비: 구매가 없는 회원 `buyer2`(`signup` + `login` → `buyer2Id`, 토큰). 동작: 그 토큰으로 `GET /api/recommendations/me`.
+- 응답(andExpect): 상태 200.
+- 응답(andExpect): `jsonPath("$").value(hasSize(0))`.
+- Redis(recommendationCacheOf(buyer2Id)): 반환값이 `null`(`assertThat(...).isNull()`).
 
-**4. 새 결제가 캐시를 지운다** — 준비: 첫 호출로 캐시를 만든다. 동작: `createPaidOrder(buyerId, C)` → `relayOnce()` → Eventually(10초)로 아래를 기다린다.
-- `purchasedProductIdsOf(buyer)` = `{A, C}`.
-- `recommendationCacheOf(buyer)` = `null`.
+**3. 두 번째 호출은 캐시에서 나온다** — 준비: 첫 호출(1번과 같다)로 캐시를 만든다.
+- 동작 1: `setEmbeddingStatus(B, "INACTIVE")` 후 두 번째 호출.
+- 확인 1:
+  - 응답(andExpect): 상태 200, `jsonPath("$.length()")` = 3.
+  - 응답(andExpect): `$[0].productId`·`$[1].productId`·`$[2].productId`가 B, C, D(첫 호출과 같다).
+- 동작 2: `StringRedisTemplate`을 주입받아 `delete("rec:result:" + buyerId)`하고 세 번째 호출.
+- 확인 2:
+  - 응답(andExpect): 상태 200, `jsonPath("$.length()")` = 2.
+  - 응답(andExpect): `$[0].productId` = C, `$[1].productId` = D.
 
-**5. 90일이 지난 구매는 이력이 아니다** — 준비: 준비 ④까지 한 `buyer`의 구매 시각을 JDBC `UPDATE recommendation.member_purchase SET purchased_at = ? WHERE member_id = ?`(`Instant.now().minus(91, DAYS)`)로 바꾸고 Redis 키 `rec:result:{buyer}`를 지운다. 동작: 호출.
-- 응답: 200, `$.length()` = 0.
+**4. 새 결제가 캐시를 지운다** — 준비: 첫 호출로 캐시를 만든다. 동작: `createPaidOrder(buyerId, C)` → `relayOnce()` → Eventually(10초) 안에서 아래를 확인한다.
+- DB(purchasedProductIdsOf(buyerId)): `{A, C}`와 같다.
+- Redis(recommendationCacheOf(buyerId)): 반환값이 `null`(`assertThat(...).isNull()`).
 
-**6. 첫 호출은 결과를 캐시에 30분 저장한다** — 동작: 첫 호출(1번과 같다).
-- `recommendationCacheOf(buyer)`: `null`이 아니고 `productIds()` = `[B, C, D]`, `items().get(0)`에 `thumbnailKey` 필드가 있고 값은 `null`, `ttlSeconds()`는 1700 이상 1800 이하.
+**5. 90일이 지난 구매는 이력이 아니다** — 준비: 준비 ④까지 한 `buyer`의 구매 시각을 `JdbcTemplate.update("UPDATE recommendation.member_purchase SET purchased_at = ? WHERE member_id = ?", Timestamp.from(Instant.now().minus(91, DAYS)), buyerId)`로 바꾸고 `StringRedisTemplate.delete("rec:result:" + buyerId)`로 캐시를 지운다. 동작: 호출.
+- 응답(andExpect): 상태 200.
+- 응답(andExpect): `jsonPath("$").value(hasSize(0))`.
 
-**7. 구매 상품이 둘이면 취향은 두 임베딩의 평균** — 준비: 준비 ④까지. 동작: `createPaidOrder(buyerId, C)` → `relayOnce()` → Eventually(10초)로 `purchasedProductIdsOf(buyer)` = `{A, C}`가 될 때까지 기다린 뒤 호출.
-- 응답: 200, `$.length()` = 2, `[B, D]`.
+**6. 첫 호출은 결과를 캐시에 30분 저장한다** — 동작: 첫 호출(1번과 같다). `c = recommendationCacheOf(buyerId)`로 읽는다.
+- Redis(recommendationCacheOf(buyerId)): `c`가 `null`이 아니다.
+- Redis(recommendationCacheOf(buyerId)): `c.productIds()` = `[B, C, D]`.
+- Redis(recommendationCacheOf(buyerId)): `c.items().get(0).has("thumbnailKey")`가 true이고 `c.items().get(0).get("thumbnailKey").isNull()`이 true.
+- Redis(recommendationCacheOf(buyerId)): `c.ttlSeconds()`가 1700 이상 1800 이하.
+
+**7. 구매 상품이 둘이면 취향은 두 임베딩의 평균** — 준비: 준비 ④까지. 동작: `createPaidOrder(buyerId, C)` → `relayOnce()` → Eventually(10초)로 `purchasedProductIdsOf(buyerId)`가 `{A, C}`가 될 때까지 기다린 뒤 호출.
+- 응답(andExpect): 상태 200, `jsonPath("$.length()")` = 2.
+- 응답(andExpect): `$[0].productId` = B, `$[1].productId` = D.
 
 **리뷰 때 물어볼 것**
 - OpenAI 비용을 어떻게 관리했나?

@@ -98,7 +98,7 @@ class MemberControllerTest extends IntegrationTestSupport {
         // Given
         UUID memberId = testFixtures.signup("test@test.com");
         JwtProvider jwtProvider = new JwtProvider(jwtProperties, Clock.fixed(Instant.now().minusSeconds(7200), ZoneOffset.UTC));
-        String expiredToken = jwtProvider.issue(memberId, "USER", Ids.newId());
+        String expiredToken = jwtProvider.issue(memberId, "USER", Ids.newId(),0);
 
         // When & Then
         mockMvc.perform(get("/api/members/me")
