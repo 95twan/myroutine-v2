@@ -194,7 +194,7 @@ class AdminMemberTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("회원을 제재하면 로그인이 거부되고 해제하면 다시 로그인한다.")
+    @DisplayName("회원을 제재한 뒤 해제하면 다시 로그인한다.")
     void banThenUnban() throws Exception {
         // Given
         String adminToken = testFixtures.adminToken("admin@test.com");
@@ -302,7 +302,7 @@ class AdminMemberTest extends IntegrationTestSupport {
                         .header("Authorization", "Bearer " + adminToken)
                         .param("status", "BANNED"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items").value(hasSize(1)));
+                .andExpect(jsonPath("$.items[*].email").value(contains("bob@test.com")));
 
         mockMvc.perform(get("/admin/api/members")
                         .header("Authorization", "Bearer " + adminToken)

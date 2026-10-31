@@ -1658,7 +1658,7 @@ return count
 - 확인:
   - `응답 본문(andReturn 후):` 페이지마다 id 리스트의 크기가 2, 2, 1. 세 번째 본문의 `JsonPath.read(본문, "$.nextCursor")`가 null. `collected`가 5개이고 `containsExactlyInAnyOrderElementsOf(expectedIds)`(중복 없이 가입시킨 5명의 id와 같다).
 
-**4. 제재 → 로그인 거부 → 해제 → 로그인** — 준비: 관리자 `admin@test.com`(`adminToken`), `signup("alice@test.com")` → `aliceId`, `loginTokens("alice@test.com")`로 만든 세션의 id `sidA` = `sessionIdsOf(aliceId)`의 유일한 원소(`.iterator().next()`).
+**4. 제재 → 해제 → 로그인** — 준비: 관리자 `admin@test.com`(`adminToken`), `signup("alice@test.com")` → `aliceId`, `loginTokens("alice@test.com")`로 만든 세션의 id `sidA` = `sessionIdsOf(aliceId)`의 유일한 원소(`.iterator().next()`).
 - 동작 1: `POST /admin/api/members/{aliceId}/ban`, 본문 `{"reason":"운영정책 위반"}`.
 - 확인 1:
   - `응답(andExpect):` 상태 204.
