@@ -1,6 +1,7 @@
 # Part 5. 리뷰 · 검색 · 문의
 
-> 버전 0.27 · 2026-10-31 · SUB-5(취향 추천)·SUB-6(월간 리뷰 요약)를 로드맵에서 빼서 [서브](../04-sub/README.md)로 옮겼다. 5-1 평점 통계 응답에서 `latestSummary`를 빼고 SUB-6이 더하게 했다
+> 버전 0.28 · 2026-11-01 · 5-4 문의 목록 정렬(본인 최신순·관리자 오래된 순)과 상세 응답의 답변 필드(`answer.content`·`answer.createdAt`)를 확정했다
+> 0.27 · 2026-10-31 · SUB-5(취향 추천)·SUB-6(월간 리뷰 요약)를 로드맵에서 빼서 [서브](../04-sub/README.md)로 옮겼다. 5-1 평점 통계 응답에서 `latestSummary`를 빼고 SUB-6이 더하게 했다
 > 0.26 · 2026-10-27
 > 0.10 · 2026-10-16 · 쓰지 않는 요소를 걷어냈다. 5-1 `ConfirmedLineInfo`의 `shopId`·`confirmedAt`을 뺐다. 반환값을 아무도 읽지 않는 `ReviewStatRepository.add`·`remove`·`change`, `ReviewRepository.increaseLikeCount`·`decreaseLikeCount`의 "반영 행 수"를 "없음"으로 바꿨다. 5-2 ES 문서의 `updatedAt` 필드를 매핑과 `upsert` 본문에서 뺐다. 5-3 `ProductIndexSnapshot`을 없애고 `findForIndexing`이 `List<ProductUpsertedEvent>`를 돌려주게 했다. SUB-5 `recommendation/api/package-info.java`를 뺐다
 > 0.5 · 2026-10-09 · ES 이미지 `9.4.8`(Spring Data Elasticsearch: Boot BOM 6.1.1, 클라이언트 9.4.5), Spring AI `2.0.1`(Boot 4.1.1 스타터에 의존)과 OpenAI 설정 키를 확정했다. Spring AI 2.0의 OpenAI 클라이언트가 자체 재시도(기본 3회)를 하므로 테스트의 호출 횟수에 반영한다. pgvector `avg` 집계를 확인했다. 1-10 규칙에 따라 추천 응답의 `thumbnailKey`를 `thumbnailUrl`로 바꿨다
@@ -91,14 +92,14 @@ review는 주문을 모른다(허용 의존이 `order::api`뿐). "이 회원이 
 | 클래스 | 규격 |
 |---|---|
 | `OrderErrorCode` | 기존 enum에 `REVIEW_NOT_ALLOWED`를 추가한다(값·메시지는 위 Z 표). `ORDER_LINE_NOT_FOUND`는 2-8에서 만들었다. `getConfirmedLine`이 던진다 |
-| `OrderRepository` | 품목 조회 쿼리를 추가한다. `orderLineId`와 `memberId`로 품목을 찾는다. 품목 행에는 회원이 없고 `order_line → shop_order → orders.member_id`로 이어지므로 그 경로로 소유를 확인하며 품목을 읽는다. 이 조회 쿼리는 Part 2에 정의돼 있지 않다(확인 필요: `OrderRepository`에 더할 쿼리 모양과 반환 타입). `getConfirmedLine`이 가장 먼저 부른다 |
+| `OrderRepository` | 품목 조회 쿼리를 추가한다. `orderLineId`와 `memberId`로 품목을 찾는다. 품목 행에는 회원이 없고 `order_line → shop_order → orders(member_id)`로 이어지므로 그 경로로 소유를 확인하며 품목을 읽는다. `Optional<OrderLine> findLineByIdAndMemberId(UUID lineId, UUID memberId)` — JPQL로 `OrderLine`·`ShopOrder`(`ol.shopOrderId = so.id`)·`Order`(`so.orderId = o.id`)를 조인해 `ol.id = :lineId and o.memberId = :memberId`로 거른다(`JpaOrderRepository`에 구현). 없거나 남의 품목이면 빈 `Optional`이다. `getConfirmedLine`이 가장 먼저 부른다 |
 
 **3) order.api**
 
 | 클래스 | 규격 |
 |---|---|
 | `ConfirmedLineInfo` | `record (UUID orderLineId, UUID productId)`. `getConfirmedLine`이 반환하고 `ReviewService.write`가 쓴다 |
-| `OrderApi` | `interface { ConfirmedLineInfo getConfirmedLine(UUID memberId, UUID orderLineId); }` — 던지는 예외는 4) `getConfirmedLine` 순서. `order/api` 패키지는 3-3에서 처음 공개된다. `ReviewService.write`의 첫 단계에서 부른다 |
+| `OrderApi` | `interface { ConfirmedLineInfo getConfirmedLine(UUID memberId, UUID orderLineId); }` — 던지는 예외는 4) `getConfirmedLine` 순서. `order/api`에는 지금 `package-info.java`(`@NamedInterface("api")`)와 `event` 하위 패키지뿐이고, 이 두 클래스는 이 단계에서 `order.api`에 만든다. `ReviewService.write`의 첫 단계에서 부른다 |
 
 **4) order.application**
 
@@ -122,10 +123,11 @@ review는 주문을 모른다(허용 의존이 `order::api`뿐). "이 회원이 
 | `Review` | `@Entity @Table(name = "review", schema = "review")`, `extends BaseTimeEntity`, 필드는 위 `review.review` 컬럼과 1:1(`@Version Long version` 포함). 메서드(`write`·`edit`·`delete`)는 아래. `ReviewService`가 쓴다 |
 | `ReviewErrorCode` | `ErrorCode`를 구현하는 enum. `REVIEW_ALREADY_EXISTS`(409), `REVIEW_NOT_FOUND`(404), `REVIEW_EDIT_EXPIRED`(409) — 값·메시지는 위 Z 표. `ReviewService`와 `Review.edit`이 쓴다 |
 | `ReviewRepository` | 메서드는 아래 |
-| `ReviewLikeRepository` | native 쿼리만 쓴다. 메서드는 아래 |
-| `ReviewStatRepository` | native 쿼리만 쓴다. 메서드는 아래 |
+| `ReviewLikeRepository` | 인터페이스. 구현은 `review.infrastructure`의 `JdbcReviewLikeRepository`(`JdbcTemplate`). 메서드는 아래 |
+| `ReviewStatRepository` | 인터페이스. 구현은 `JdbcReviewStatRepository`(`JdbcTemplate`). 메서드는 아래 |
+| `ReviewStatRow` | `record (int reviewCount, long ratingSum, int r1, int r2, int r3, int r4, int r5)`. `ReviewStatRepository`의 읽기 결과 |
 
-- `review_like`·`product_review_stat` 매핑은 문서에 정해져 있지 않다(확인 필요): 엔티티를 만들어 Spring Data 리포지토리로 둘지 `JdbcTemplate`으로 쓸지 정해야 한다
+- `review_like`·`product_review_stat`은 엔티티 없이 `JdbcTemplate`으로 읽고 쓴다. 두 테이블은 SQL 한 문장 증감과 행 단위 읽기만 하고 엔티티로 읽어 바꾸는 경로가 없으며, `review_like`의 복합 PK를 매핑할 이유도 없기 때문이다. `JdbcTemplate`은 호출한 `@Transactional`의 같은 커넥션을 쓴다(`OutboxPublisher`도 같은 방식)
 
 `Review` 메서드
 - `static Review write(ConfirmedLineInfo line, UUID memberId, int rating, String content)` — 새 리뷰를 만든다. `id = Ids.newId()`, `ACTIVE`, `likeCount 0`. 별점·본문 불변식 위반은 `IllegalArgumentException`(요청 DTO가 먼저 막지만 도메인도 지킨다, 규칙 B)
@@ -146,7 +148,7 @@ review는 주문을 모른다(허용 의존이 `order::api`뿐). "이 회원이 
 - `void add(UUID productId, int rating, Instant now)` (native) — 통계에 리뷰 1개를 더한다. 행이 없으면 만든다(아래 SQL)
 - `void remove(UUID productId, int rating, Instant now)` — 통계에서 리뷰 1개를 뺀다. `add`의 반대 방향 `UPDATE`(`review_count - 1`, `rating_sum - :rating`, 그 별점 칸 -1). 행이 없어도 만들지 않는다
 - `void change(UUID productId, int oldRating, int newRating, Instant now)` — 별점 수정을 반영한다. `review_count`는 그대로, `rating_sum`은 `new - old`만큼, 옛 칸 -1·새 칸 +1
-- 읽기 메서드: `getStats`가 `product_id`로 통계 행(`review_count`, `rating_sum`, `r1`~`r5`)을 읽는다(문서에 메서드 이름이 없다. 같은 repository에 추가한다). `productId` → 행(없을 수 있음)
+- `Optional<ReviewStatRow> findByProductId(UUID productId)` — `product_id`로 통계 행(`review_count`, `rating_sum`, `r1`~`r5`)을 읽는다. 행이 없으면 빈 `Optional`. `ReviewQueryService.getStats`가 쓴다
 
 통계 `add` (평점별 칸을 한 문장에서 올린다)
 ```sql
@@ -164,13 +166,15 @@ ON CONFLICT (product_id) DO UPDATE SET
 | 클래스 | 규격 |
 |---|---|
 | `ReviewTopics`·`ReviewCreatedEvent` | `review.api.event` 패키지. `ReviewTopics.REVIEW_CREATED = "review.review-created.v1"`, `ReviewCreatedEvent(UUID reviewId, UUID productId, String content)`. `ReviewService.write`의 5번(아래 `write` 순서)에서 쓴다 |
-| `review/package-info.java`, `review/api/package-info.java` | 모듈 경계 검증. `@ApplicationModule(allowedDependencies = {"common", "order::api"})`(규칙 Y). `review.api`의 `package-info.java`는 `order/api/package-info.java`처럼 `@NamedInterface("api") package com.myroutine.review.api;` 한 줄이다 |
+| `review/package-info.java`, `review/api/package-info.java`, `review/api/event/package-info.java` | 모듈 경계 검증. `@ApplicationModule(allowedDependencies = {"common", "order::api"})`(규칙 Y). `review.api`와 `review.api.event`의 `package-info.java`는 `order/api/package-info.java`·`order/api/event/package-info.java`처럼 각각 `@NamedInterface("api") package com.myroutine.review.api;`·`...review.api.event;` 한 줄이다 |
 
 **7) review.infrastructure**
 
 | 클래스 | 규격 |
 |---|---|
-| `ReviewTopicConfig` | 기동 시 토픽을 만든다. `@Configuration` 클래스에 `@Bean NewTopic`을 둔다: `TopicBuilder.name(ReviewTopics.REVIEW_CREATED).partitions(3).replicas(1).build()`(`org.springframework.kafka.config.TopicBuilder`. `ShopTopicConfig`·`OrderTopicConfig`와 같은 방식). 구독자가 아직 없어 `REVIEW_CREATED + ".dlt"` 토픽(같은 설정)이 필요한지는 확인 필요 |
+| `ReviewTopicConfig` | 기동 시 토픽을 만든다. `@Configuration` 클래스에 `@Bean NewTopic`을 둔다: `TopicBuilder.name(ReviewTopics.REVIEW_CREATED).partitions(3).replicas(1).build()`(`org.springframework.kafka.config.TopicBuilder`. `ShopTopicConfig`·`OrderTopicConfig`와 같은 방식). 구독자가 아직 없어도 `REVIEW_CREATED + ".dlt"` 토픽(같은 설정)을 함께 만든다. 구독자가 없는 `product-discontinued`·`product-price-changed`도 `ProductTopicConfig`에서 `.dlt`를 같이 만들고 있다 |
+| `JpaReviewRepository` | `ReviewRepository`의 Spring Data 구현(`JpaRepository<Review, UUID>`). 좋아요 수 증감은 `@Modifying` native 쿼리 |
+| `JdbcReviewLikeRepository`·`JdbcReviewStatRepository` | `ReviewLikeRepository`·`ReviewStatRepository`의 `JdbcTemplate` 구현(5) 절) |
 
 **8) review.application**
 
@@ -193,7 +197,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 2. `reviewRepository.existsByOrderLineId(line.orderLineId())`면 409 `REVIEW_ALREADY_EXISTS`
 3. `Review.write(line, memberId, rating, content)` → `reviewRepository.save`
 4. `reviewStatRepository.add(line.productId(), rating, now)` — 리뷰와 통계가 같은 트랜잭션이라 하나만 반영되는 일이 없다
-5. `outboxPublisher.publish(ReviewTopics.REVIEW_CREATED, "REVIEW", review.getId(), new ReviewCreatedEvent(review.getId(), line.productId(), content))` — `OutboxPublisher.publish(String topic, String aggregateType, UUID aggregateId, Object event)`는 호출한 트랜잭션 안에서만 쓸 수 있어(없으면 예외) 상태 변경과 같은 트랜잭션에서 발행된다. `aggregateType`은 다른 이벤트처럼 대상 종류를 대문자로 쓴 값(`"SHOP"`, `"PRODUCT"`, `"ORDER"`)을 따라 `"REVIEW"`로 적었다(확인 필요)
+5. `outboxPublisher.publish(ReviewTopics.REVIEW_CREATED, "REVIEW", review.getId(), new ReviewCreatedEvent(review.getId(), line.productId(), content))` — `OutboxPublisher.publish(String topic, String aggregateType, UUID aggregateId, Object event)`는 호출한 트랜잭션 안에서만 쓸 수 있어(없으면 예외) 상태 변경과 같은 트랜잭션에서 발행된다. `aggregateType`은 다른 이벤트처럼 대상 종류를 대문자로 쓴 값(`"SHOP"`, `"PRODUCT"`, `"ORDER"`)을 따라 `"REVIEW"`로 적었다
 6. `review.getId()` 반환
 
 - 같은 품목 동시 작성은 둘 다 2번을 통과하고 커밋 시 `uk_review_order_line` 위반 → 409 `DUPLICATE_RESOURCE`다. 트랜잭션 안에서 잡지 않는다(As-Is SUP-05)
@@ -255,7 +259,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 | `reviewSnapshotOf(UUID reviewId)` → `ReviewSnapshot` | JDBC 쿼리 2개로 한 번에 읽는다: `review.review`의 `order_line_id`·`product_id`·`rating`·`content`·`like_count`·`status`, `review.review_like`의 `member_id`(해당 `review_id`, 생성 순). `ReviewSnapshot`은 `support/`의 record `(UUID orderLineId, UUID productId, String status, int rating, String content, int likeCount, List<UUID> likerIds)`. 리뷰 행이 없으면 `null`. 좋아요 행 수는 `likerIds().size()`로 센다 | `ReviewControllerTest`, `ReviewConcurrencyTest` |
 | `reviewStatOf(UUID productId)` → `ReviewStatSnapshot` | JDBC `SELECT review_count, rating_sum, r1, r2, r3, r4, r5 FROM review.product_review_stat WHERE product_id = ?`. `ReviewStatSnapshot`은 `support/`의 record `(int reviewCount, long ratingSum, int r1, int r2, int r3, int r4, int r5)`이고 `rating(int n)`이 `r1`~`r5` 중 n번째를 돌려준다. 행이 없으면 `null`(0행 확인은 `isNull()`) | `ReviewControllerTest`, `ReviewConcurrencyTest` |
 | `reviewCountOf(UUID productId)` → `long` | JDBC `SELECT count(*) FROM review.review WHERE product_id = ?`(`ACTIVE`·`DELETED` 모두 센다) | `ReviewControllerTest`, `ReviewConcurrencyTest` |
-| `reviewCreatedEvents()` → `List<ReviewCreatedEvent>` | `OutboxAssert.rows("review.review-created.v1")`(topic의 outbox 행을 생성 순 `List<OutboxSnapshot>`으로 읽는다)의 각 행 `payload()`(`OutboxSnapshot`의 `JsonNode`)를 `objectMapper.treeToValue(…, ReviewCreatedEvent.class)`로 풀어 생성 순으로 돌려준다. 건수는 `.size()`(확인 필요: Jackson 3 `treeToValue`의 시그니처) | `ReviewControllerTest`, `ReviewConcurrencyTest` |
+| `reviewCreatedEvents()` → `List<ReviewCreatedEvent>` | `OutboxAssert.rows("review.review-created.v1")`(topic의 outbox 행을 생성 순 `List<OutboxSnapshot>`으로 읽는다)의 각 행 `payload()`(`OutboxSnapshot`의 `JsonNode`)를 `objectMapper.treeToValue(…, ReviewCreatedEvent.class)`로 풀어 생성 순으로 돌려준다. 건수는 `.size()`. `treeToValue(JsonNode, Class)`는 검사 예외 없이 `T`를 돌려준다(`common.outbox.EventEnvelopes.parse`가 같은 호출을 쓴다) | `ReviewControllerTest`, `ReviewConcurrencyTest` |
 | `setReviewCreatedAt(UUID reviewId, Instant instant)` → `void` | JDBC `UPDATE review.review SET created_at = ? WHERE id = ?`(`Timestamp.from(instant)`) | `ReviewControllerTest` 8·11·16번 |
 
 이미 있는 헬퍼: `signup`, `login`, `token`, `openShop`, `registerProduct`, `createDeliveredOrder`, `orderLineIdOf`, `ConcurrencyRunner`, `OutboxAssert`.
@@ -401,13 +405,13 @@ ON CONFLICT (product_id) DO UPDATE SET
 **1) 인프라**
 - docker-compose: `docker.elastic.co/elasticsearch/elasticsearch:9.4.8`(클라이언트 9.4.5와 같은 9.4 줄의 최신 패치, 2026-10-09 레지스트리에서 태그 확인), `discovery.type=single-node`, `xpack.security.enabled=false`, `ES_JAVA_OPTS=-Xms512m -Xmx512m`, 포트 `127.0.0.1:9200`
 - 의존성: `implementation 'org.springframework.boot:spring-boot-starter-data-elasticsearch'`(Boot 4.1.1에 있다), 테스트 `testImplementation 'org.testcontainers:testcontainers-elasticsearch'`(Testcontainers BOM 2.0.5가 관리)
-- `IntegrationTestSupport`: `@ServiceConnection static final ElasticsearchContainer es = new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:9.4.8").withEnv("xpack.security.enabled", "false")`(8.x 이후 이미지는 기본으로 보안이 켜져 있어 끈다) → `Startables.deepStart(...)`에 추가
+- `IntegrationTestSupport`: `@ServiceConnection protected static final ElasticsearchContainer es = new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:9.4.8").withEnv("xpack.security.enabled", "false")`(8.x 이후 이미지는 기본으로 보안이 켜져 있어 끈다. `kafka`처럼 `protected`라서 같은 패키지의 `TestFixtures`와 다른 패키지의 하위 테스트가 모두 `es`를 읽는다) → `Startables.deepStart(...)`에 추가
 - `application.yaml`: `spring.elasticsearch.connection-timeout: 2s`, `spring.elasticsearch.socket-timeout: 2s`(공통 규칙 X의 ES 타임아웃 2초. Boot 4.1.1 기본값은 1s·30s, 키 이름은 jar 메타데이터로 확인)
 
 **2) search — 모듈 경계** (domain 생략, application + infrastructure, 개발 가이드 §3.3)
 
 - **역할**: search는 상품 원본(Postgres)을 부르지 않는다. product가 내보내는 `product-upserted` 이벤트를 받아 ES에 문서로 복제해 두고, 검색 요청은 그 ES만 읽는다.
-- **호출 수단(확인 필요)**: ES를 어떤 클라이언트로 부를지는 문서에 정해져 있지 않다. `spring-boot-starter-data-elasticsearch`가 공식 Java 클라이언트 `ElasticsearchClient`(요청이 ES REST API의 JSON과 1:1이다)와 Spring Data의 `ElasticsearchOperations`를 모두 빈으로 만든다. 아래는 클라이언트와 무관하게 **ES에 보내야 하는 요청의 모양**으로 적었다. external version·alias 교체·`search_after`·bulk를 각 클라이언트의 어떤 메서드가 맡는지는 쓸 클라이언트 jar에서 확인한다.
+- **호출 수단**: 공식 Java 클라이언트 `ElasticsearchClient`를 쓴다(`spring-boot-starter-data-elasticsearch`가 빈으로 만든다). 요청이 ES REST API의 JSON과 1:1이라 아래 요청 모양을 그대로 옮길 수 있고, Spring Data의 `ElasticsearchOperations`는 엔티티 매핑을 전제하는데 이 모듈은 domain을 두지 않는다. 아래는 **ES에 보내야 하는 요청의 모양**으로 적었다. external version·alias 교체·`search_after`·bulk를 클라이언트의 어떤 메서드가 맡는지는 클라이언트 jar에서 확인한다(확인 필요).
 
 | 클래스 | 규격 |
 |---|---|
@@ -417,7 +421,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 | 클래스 | 규격 |
 |---|---|
-| `ProductIndexDefinition` | 인덱스를 만들 때 쓰는 설정·매핑 JSON(`src/main/resources/search/products-index.json`)을 읽어 준다. `ensureIndex`와 5-3 재색인이 같은 JSON을 쓰므로 한 곳에 둔다. JSON 내용: 분석기 `autocomplete`(tokenizer `edge_ngram` min 1 max 20, filter `lowercase`), 필드 `productId keyword`, `shopId keyword`, `name text` + 하위 필드 `name.autocomplete`(분석기 autocomplete, 검색 분석기 standard), `description text`, `category keyword`, `price long`, `status keyword`. JSON 내용을 돌려주는 메서드 하나(이름은 구현이 정한다). 패키지는 문서에 정해져 있지 않다(확인 필요, 권장 `search.infrastructure`) |
+| `ProductIndexDefinition` | 인덱스를 만들 때 쓰는 설정·매핑 JSON(`src/main/resources/search/products-index.json`)을 읽어 준다. `ensureIndex`와 5-3 재색인이 같은 JSON을 쓰므로 한 곳에 둔다. JSON 내용: 분석기 `autocomplete`(tokenizer `edge_ngram` min 1 max 20, filter `lowercase`), 필드 `productId keyword`, `shopId keyword`, `name text` + 하위 필드 `name.autocomplete`(분석기 autocomplete, 검색 분석기 standard), `description text`, `category keyword`, `price long`, `status keyword`. JSON 내용을 돌려주는 메서드 하나(이름은 구현이 정한다). `search.infrastructure`에 둔다 |
 | `ProductIndexer` | `@Component`. 상품 문서를 ES에 쓰는 유일한 곳. consumer와 5-3 재색인이 같이 쓴다. `void ensureIndex()` — 앱 시작 때 한 번 / `void upsert(ProductUpsertedEvent e, String indexOrAlias)` — 문서 한 건 색인 |
 | `ProductEventConsumer` | consumer `search.product-upserted`. `product-upserted` 이벤트를 받아 `indexer.upsert`를 부른다. `void onProductUpserted(String message)` |
 
@@ -447,7 +451,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 | 클래스 | 규격 |
 |---|---|
-| `SearchErrorCode` | 검색 에러 코드. `ErrorCode`를 구현하는 enum. `SEARCH_UNAVAILABLE`(503) — 값·메시지는 위 Z 표. domain을 생략하므로 둘 패키지는 문서에 없다(확인 필요, 권장 `search.application`) |
+| `SearchErrorCode` | 검색 에러 코드. `ErrorCode`를 구현하는 enum. `SEARCH_UNAVAILABLE`(503) — 값·메시지는 위 Z 표. domain을 생략하므로 `search.application`에 둔다(`ProductSearchService`가 던진다) |
 | `ProductSearchResult` | 검색 결과 한 건. `record (productId, shopId, name, category, price)` — 응답 `ProductSearchResponse`(search.web 절)와 같은 필드 |
 | `ProductSearchService` | 검색·자동완성 요청을 ES 쿼리로 바꿔 실행한다. `CursorPage<ProductSearchResult> search(String q, String category, String cursor, int size)` / `List<String> autocomplete(String q)` |
 
@@ -481,7 +485,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `productSearchDocOf(UUID productId)` → `ProductSearchDoc` | ES REST `GET {es 주소}/products/_doc/{productId}`(alias로 읽는다)를 JDK `HttpClient`로 보내 응답 JSON에서 한 번에 읽는다(요청 코드는 테스트에 쓰지 않는다): `found`, `_version`(external version이 그대로 저장된다), `_source.name`·`.description`·`.category`·`.price`·`.status`. `ProductSearchDoc`은 `support/`의 record `(boolean found, Long version, String name, String description, String category, Long price, String status)`이고, 404면 `found` = `false`에 나머지는 `null`이다. ES 주소는 `IntegrationTestSupport`의 `es.getHttpHostAddress()`(확인 필요: `TestFixtures`가 `es`에 접근하는 방법. `es`가 package-private이면 노출이 필요하다) | `ProductSearchTest` 4·5·8번, 5-3 `ReindexTest` 2·5번 |
+| `productSearchDocOf(UUID productId)` → `ProductSearchDoc` | ES REST `GET {es 주소}/products/_doc/{productId}`(alias로 읽는다)를 JDK `HttpClient`로 보내 응답 JSON에서 한 번에 읽는다(요청 코드는 테스트에 쓰지 않는다): `found`, `_version`(external version이 그대로 저장된다), `_source.name`·`.description`·`.category`·`.price`·`.status`. `ProductSearchDoc`은 `support/`의 record `(boolean found, Long version, String name, String description, String category, Long price, String status)`이고, 404면 `found` = `false`에 나머지는 `null`이다. ES 주소는 `IntegrationTestSupport.es.getHttpHostAddress()`다(`es`는 `protected static`이고 `TestFixtures`는 같은 `support` 패키지라 그대로 읽는다) | `ProductSearchTest` 4·5·8번, 5-3 `ReindexTest` 2·5번 |
 
 이미 있는 헬퍼와 주입: `RegisterProductService`·`UpdateProductService`(주입), `outboxRelay.relayOnce()`(`int` 반환. `READY` outbox 행을 Kafka로 한 번 발행한다), `Eventually.await(Duration timeout, ThrowingRunnable assertion)`(단언을 100ms마다 다시 실행해 통과하면 끝나고, 시간이 다 되면 마지막 실패를 던진다), `ProductIndexer.upsert`(이 단계에서 만든다). `ProductUpsertedEvent` 필드 순서는 `(productId, shopId, name, description, category, price, status, subscribable, version)`(3-3)이다.
 헬퍼를 쓰는 방법은 다음과 같다.
@@ -595,31 +599,31 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 | 클래스 | 규격 |
 |---|---|
-| `ProductRepository` | 상품 keyset 쿼리를 추가한다. `id > :afterId ORDER BY id LIMIT :limit`, 상태를 가리지 않는다(단종·숨김 문서도 인덱스에 두고 `status`로 걸러내는 정책, 5-2). 비교는 DB가 하므로 자바 `UUID` 정렬과 달라도 문제없다. 메서드 이름은 문서에 없다(확인 필요). 첫 호출의 `afterId`에 `null`을 허용할지도 문서에 없다(확인 필요). `ProductApiImpl.findForIndexing`이 쓴다 |
+| `ProductRepository` | 상품 keyset 쿼리를 추가한다. 상태를 가리지 않는다(단종·숨김 문서도 인덱스에 두고 `status`로 걸러내는 정책, 5-2). 비교는 DB가 하므로 자바 `UUID` 정렬과 달라도 문제없다. 기존 `findPublicFirstPage`·`findPublicNextPage`처럼 첫 페이지와 다음 페이지 쿼리 둘로 나눠 `afterId`에 `null`을 넘기지 않는다. `List<Product> findAllFirstPage(Limit limit)`(`ORDER BY id`) / `List<Product> findAllNextPage(UUID afterId, Limit limit)`(`WHERE id > :afterId ORDER BY id`). `ProductApiImpl.findForIndexing`이 쓴다 |
 
 **2) product.infrastructure**
 
 | 클래스 | 규격 |
 |---|---|
-| `JpaProductRepository` | 위 keyset 쿼리의 Jpa 구현 |
+| `JpaProductRepository` | 위 keyset 쿼리의 Jpa 구현(JPQL, `Limit`) |
 
 **3) product.api**
 
 | 클래스 | 규격 |
 |---|---|
-| `ProductApi` | `List<ProductUpsertedEvent> findForIndexing(UUID afterId, int limit)` — 재색인이 상품 전체를 한 번에 읽지 않고 `limit`개씩 읽어 가는 keyset 조회다. 반환 타입은 `product-upserted` 이벤트 record(3-3)이고 현재 상품 상태에서 같은 조립 코드로 채운다(`version`은 DB의 `product.version`). 이벤트와 같은 필드의 별도 record를 두면 `ProductIndexer.upsert`에 넘길 때마다 변환해야 해서 새로 만들지 않는다. 다음 호출의 `afterId`는 받은 목록의 **마지막 `productId`**, 받은 개수가 `limit`보다 적으면 끝이다. `search` → `product::api` 의존(공통 규칙 Y). `ReindexService`가 쓴다 |
+| `ProductApi` | `List<ProductUpsertedEvent> findForIndexing(UUID afterId, int limit)` — 재색인이 상품 전체를 한 번에 읽지 않고 `limit`개씩 읽어 가는 keyset 조회다. 반환 타입은 `product-upserted` 이벤트 record(3-3)이고 현재 상품 상태에서 `ProductEventPublisher.upserted`와 같은 조립 코드로 채운다(`version`은 DB의 `product.version`). 조립 코드는 `ProductEventPublisher`에서 `ProductUpsertedEvent upsertedEventOf(Product)` 메서드로 빼서 `upserted`와 `ProductApiImpl`이 함께 쓴다(둘 다 `product.application`). 이벤트와 같은 필드의 별도 record를 두면 `ProductIndexer.upsert`에 넘길 때마다 변환해야 해서 새로 만들지 않는다. 다음 호출의 `afterId`는 받은 목록의 **마지막 `productId`**, 받은 개수가 `limit`보다 적으면 끝이다. `search` → `product::api` 의존(공통 규칙 Y). `ReindexService`가 쓴다 |
 
 **4) product.application**
 
 | 클래스 | 메서드 |
 |---|---|
-| `ProductApiImpl` | `List<ProductUpsertedEvent> findForIndexing(UUID afterId, int limit)` — `ProductApi` 구현 |
+| `ProductApiImpl` | `@Transactional(readOnly = true) List<ProductUpsertedEvent> findForIndexing(UUID afterId, int limit)` — `ProductApi` 구현. `afterId`가 `null`이면 `findAllFirstPage(Limit.of(limit))`, 아니면 `findAllNextPage(afterId, Limit.of(limit))`를 부르고 각 상품을 `upsertedEventOf`로 바꾼다 |
 
 **5) search.infrastructure**
 
 | 클래스 | 규격 |
 |---|---|
-| ES 쓰기 작업 | 새 인덱스 생성(`ProductIndexDefinition`의 JSON), bulk 색인(문서마다 external version), alias `products` 원자 교체(`_aliases` 한 요청), 새 인덱스 `refresh`, 인덱스 삭제, alias가 가리키는 현재 인덱스 이름 조회. 메서드 이름과 둘 클래스는 문서에 없다(확인 필요: `ProductIndexer`가 "상품 문서를 ES에 쓰는 유일한 곳"이므로 거기에 더하는 것이 자연스럽다). `ReindexService`가 쓴다 |
+| ES 쓰기 작업 | 새 인덱스 생성(`ProductIndexDefinition`의 JSON), bulk 색인(문서마다 external version), alias `products` 원자 교체(`_aliases` 한 요청), 새 인덱스 `refresh`, 인덱스 삭제, alias가 가리키는 현재 인덱스 이름 조회. `ProductIndexer`가 "상품 문서를 ES에 쓰는 유일한 곳"이므로 모두 `ProductIndexer`에 메서드로 더한다(메서드 이름은 구현이 정한다). `ReindexService`가 쓴다 |
 | `ProductEventConsumer` (5-2 수정) | 재색인 중 이중 쓰기: 5-2 consumer 순서 2번의 `indexer.upsert(typed.payload(), "products")` 뒤에, `StringRedisTemplate`로 Redis `search:reindex-target`을 읽어 값이 있으면 같은 문서를 `indexer.upsert(payload, target)`으로 그 인덱스에도 쓴다. 두 쓰기 사이에 실패해 같은 메시지가 다시 와도 이미 쓴 쪽은 409로 무시되고 못 쓴 쪽만 반영된다. Redis 의존성을 consumer에 더한다 |
 | 실행기 빈 | `Executors.newSingleThreadExecutor()` 빈(`@Async` 대신. MDC traceId는 `JobRunner`가 새로 만든다). 클래스 이름은 문서에 없다 |
 
@@ -656,7 +660,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 이미 있는 헬퍼: 5-2 `productSearchDocOf`, `String adminToken(String email)`(4-4. `signup(email)` → `changeRole(memberId, "ADMIN")` → `login(email)`로 ADMIN 토큰을 돌려준다), `Eventually.await(Duration timeout, ThrowingRunnable assertion)`(통과할 때까지 100ms마다 단언을 다시 실행).
 
 헬퍼를 쓰는 방법은 다음과 같다.
-- DB: `jdbc.queryForObject("SELECT version FROM product.product WHERE id = ?", Long.class, id)`(이 한 곳뿐이라 헬퍼 없이 쓴다).
+- DB: `jdbcTemplate.queryForObject("SELECT version FROM product.product WHERE id = ?", Long.class, id)`(이 한 곳뿐이라 헬퍼 없이 쓴다).
 - 검색: `GET /api/search/products?q=재색인상품&size=1`(Authorization 없이).
 
 **준비 A**(4번을 뺀 모든 케이스가 쓴다): 판매자 1명, 가게 1개. `RegisterProductService.register`로 상품 1,000개를 만든다: 이름 `"재색인상품 " + i`(i = 1~1000), 설명 `"재색인 검증용 상품"`, `ETC`, 1000원, 재고 1. 첫 상품을 `P1`이라 부른다. 옛 인덱스를 채운다: `productApi.findForIndexing(null, 1_000)`로 받은 이벤트 1,000건을 `productIndexer.upsert(e, "products")`로 색인하고 `POST /products/_refresh`. `oldIndex` = `searchIndexStateOf().aliasTargets().get(0)`(원소가 하나뿐이다). 재색인은 `reindexService.reindex()`를 별도 스레드(`ExecutorService`)에서 부르고 `Future`로 결과를 받는다(반환값 = 색인한 문서 수 1000).
@@ -713,28 +717,30 @@ ON CONFLICT (product_id) DO UPDATE SET
 | 클래스 | 규격 |
 |---|---|
 | `InquiryStatus` | `OPEN`, `ANSWERED`. `Inquiry`가 쓴다 |
-| `Inquiry` | entity. 위 `member.inquiry` 컬럼과 1:1(`@Version` 포함). `static Inquiry write(UUID memberId, String title, String content)` → `id = Ids.newId()`, `status = OPEN`. `void answer(UUID adminId, String content)` → 상태를 `OPEN → ANSWERED`로(`InquiryStatus`에 전이표 `Map<InquiryStatus, Set<InquiryStatus>>`(`OPEN`만 `ANSWERED`로 갈 수 있다)와 `transitTo(to)`를 두고 `answer`가 `status.transitTo(ANSWERED)`를 부른다. 허용되지 않은 전이는 `BusinessException(INVALID_STATE_TRANSITION)`이라 이미 `ANSWERED`면 409. Part 1 규칙 C). `InquiryService`가 쓴다 |
-| `InquiryAnswer` | entity. 위 `member.inquiry_answer`와 1:1. 답변 행을 `Inquiry`가 들고 만들지 `InquiryService`가 따로 저장할지는 문서에 정해져 있지 않다(확인 필요). 같은 문의에 동시에 두 답변이 오면 `uk_inquiry_answer_inquiry` 위반이 최후 방어선이다(규칙 D). `answer`가 쓴다 |
+| `Inquiry` | entity. 위 `member.inquiry` 컬럼과 1:1(`@Version` 포함). `static Inquiry write(UUID memberId, String title, String content)` → `id = Ids.newId()`, `status = OPEN`. `InquiryAnswer answer(UUID adminId, String content)` → 상태를 `OPEN → ANSWERED`로 바꾸고 `InquiryAnswer.write(id, adminId, content)`로 만든 답변을 반환한다(`InquiryStatus`에 전이표 `Map<InquiryStatus, Set<InquiryStatus>>`(`OPEN`만 `ANSWERED`로 갈 수 있다)와 `transitTo(to)`를 두고 `answer`가 `status.transitTo(ANSWERED)`를 부른다. 허용되지 않은 전이는 `BusinessException(INVALID_STATE_TRANSITION)`이라 이미 `ANSWERED`면 409. Part 1 규칙 C). `InquiryService`가 쓴다 |
+| `InquiryAnswer` | entity. 위 `member.inquiry_answer`와 1:1(수정이 없어 `BaseTimeEntity` 없이 `@CreatedDate Instant createdAt`만 둔다, Part 1 규칙 B). `static InquiryAnswer write(UUID inquiryId, UUID adminId, String content)` → `id = Ids.newId()`. `Inquiry`는 답변을 필드로 들지 않고(`@OneToMany`·`@OneToOne` 없이 UUID로만 참조) `answer`가 만들어 반환하며, `InquiryService.answer`가 `InquiryAnswerRepository.save`로 저장한다. 같은 문의에 동시에 두 답변이 오면 `uk_inquiry_answer_inquiry` 위반이 최후 방어선이다(규칙 D). `answer`가 쓴다 |
 | `MemberErrorCode` | 기존 enum에 `INQUIRY_NOT_FOUND`를 추가한다(값·메시지는 위 Z 표). `InquiryService`가 던진다 |
-| `InquiryRepository` | `Optional<Inquiry> findByIdAndMemberId(UUID id, UUID memberId)`, 본인 목록 keyset(`member_id`, `created_at desc, id desc`, 첫·다음 페이지), 관리자 목록 keyset(`status`, `created_at`). 이름·인자는 문서에 없다(권장: `OrderRepository.findByMemberFirstPage(UUID memberId, Limit limit)`·`findByMemberNextPage(UUID memberId, Instant cursorCreatedAt, UUID cursorId, Limit limit)`와 같은 모양). 답변을 읽는 쿼리(`inquiry_id`로)도 필요하다. 인덱스는 위 마이그레이션. `InquiryService`가 쓴다 |
+| `InquiryRepository` | `Optional<Inquiry> findByIdAndMemberId(UUID id, UUID memberId)`, 본인 목록 keyset(`member_id`, `created_at desc, id desc`, 첫·다음 페이지), 관리자 목록 keyset(`status`, `created_at`). 이름·인자는 권장안으로 `OrderRepository.findByMemberFirstPage(UUID memberId, Limit limit)`·`findByMemberNextPage(UUID memberId, Instant cursorCreatedAt, UUID cursorId, Limit limit)`와 같은 모양이다: `findByMemberFirstPage`·`findByMemberNextPage`(최신순), 관리자용 `findByStatusFirstPage(InquiryStatus status, Limit limit)`·`findByStatusNextPage(InquiryStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit)`(오래된 순). 인덱스는 위 마이그레이션. `InquiryService`가 쓴다 |
+| `InquiryAnswerRepository` | `InquiryAnswer save(InquiryAnswer answer)`, `Optional<InquiryAnswer> findByInquiryId(UUID inquiryId)`(상세 조회가 답변을 읽는다). `InquiryService`가 쓴다 |
 
 **3) member.infrastructure**
 
 | 클래스 | 규격 |
 |---|---|
-| `JpaInquiryRepository` | `InquiryRepository`의 Jpa 구현 |
+| `JpaInquiryRepository`·`JpaInquiryAnswerRepository` | `InquiryRepository`·`InquiryAnswerRepository`의 Jpa 구현 |
 
 **4) member.application**
 
 | 클래스 | 규격 |
 |---|---|
-| `InquiryResult`·`InquiryDetailResult` | 응답용 record. 필드는 문서에 없다(확인 필요: `Inquiry` 컬럼 기준 id·title·status·createdAt, 상세는 답변 `content`·`createdAt` 포함). `InquiryService`의 반환이다 |
+| `InquiryResult` | 목록 항목. `record (UUID id, String title, InquiryStatus status, Instant createdAt)`. `InquiryService`의 반환이다 |
+| `InquiryDetailResult` | 상세. `record (UUID id, String title, String content, InquiryStatus status, Instant createdAt, Answer answer)`. 중첩 `record Answer(String content, Instant createdAt)`이고 답변이 없으면 `answer`는 `null`이다(`adminId`는 내려주지 않는다). `InquiryService`의 반환이다 |
 
 | 클래스 | 메서드 |
 |---|---|
-| `InquiryService` | 메서드 이름은 권장안: `UUID write(UUID memberId, ...)`(→ `inquiryId`) / `CursorPage<InquiryResult> getMine(UUID memberId, String cursor, int size)` / `InquiryDetailResult getMine(UUID memberId, UUID inquiryId)`(답변 포함. `findByIdAndMemberId`, 남의 문의·없는 문의 모두 404 `INQUIRY_NOT_FOUND`) / `CursorPage<InquiryResult> getOpen(String status, String cursor, int size)`(관리자) / `@Transactional void answer(UUID adminId, UUID inquiryId, String content)`(문의가 없으면 404 `INQUIRY_NOT_FOUND`) |
+| `InquiryService` | 메서드 이름은 권장안: `UUID write(UUID memberId, ...)`(→ `inquiryId`) / `CursorPage<InquiryResult> getMine(UUID memberId, String cursor, int size)` / `InquiryDetailResult getMine(UUID memberId, UUID inquiryId)`(답변 포함. `findByIdAndMemberId`, 남의 문의·없는 문의 모두 404 `INQUIRY_NOT_FOUND`) / `CursorPage<InquiryResult> getOpen(String status, String cursor, int size)`(관리자) / `@Transactional void answer(UUID adminId, UUID inquiryId, String content)`(문의가 없으면 404 `INQUIRY_NOT_FOUND`. `inquiry.answer(adminId, content)`가 반환한 `InquiryAnswer`를 `InquiryAnswerRepository.save`로 저장한다) |
 
-- 목록 정렬은 문서에 없다. 인덱스가 `(member_id, created_at DESC, id DESC)`·`(status, created_at)`이라 본인 목록은 최신순(`Limit.of(size + 1)`로 읽어 `size`보다 많이 받으면 `size`번째 항목의 `new Cursor(createdAt, id).encode()`를 `nextCursor`로 하는 커서 페이징), 관리자 목록은 `created_at` 오름차순(오래된 문의가 먼저)으로 읽는 것이 인덱스에 맞는다(확인 필요)
+- 목록 정렬은 인덱스 `(member_id, created_at DESC, id DESC)`·`(status, created_at)`에 맞춘다. 본인 목록은 최신순(`ORDER BY created_at DESC, id DESC`). 관리자 목록은 오래된 문의가 먼저(`ORDER BY created_at, id`)이고 다음 페이지 조건은 `created_at > :cursorCreatedAt OR (created_at = :cursorCreatedAt AND id > :cursorId)`다. 둘 다 `Limit.of(size + 1)`로 읽어 `size`보다 많이 받으면 `size`번째 항목의 `new Cursor(createdAt, id).encode()`를 `nextCursor`로 하는 커서 페이징이다
 
 **5) member.web**
 
@@ -761,7 +767,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 이미 있는 헬퍼: `signup`, `login`, `void changeRole(UUID memberId, String role)`(JDBC로 `member.member.role`을 바꾼다).
 
 헬퍼를 쓰는 방법은 다음과 같다.
-- 응답: `jsonPath`. 에러 코드는 `$.code`, 목록은 `$.items.length()`·`$.items[i].…`·`$.nextCursor`. 목록·상세의 항목 필드 이름은 문서에 없다(확인 필요: 5-4 `member.application` 절의 `InquiryResult`·`InquiryDetailResult`가 정한다. 아래는 `Inquiry` 컬럼에 맞춘 `id`·`title`·`status`·`createdAt`을 쓴다).
+- 응답: `jsonPath`. 에러 코드는 `$.code`, 목록은 `$.items.length()`·`$.items[i].…`·`$.nextCursor`. 목록·상세의 항목 필드는 5-4 `member.application` 절의 `InquiryResult`·`InquiryDetailResult`와 같다(`id`·`title`·`status`·`createdAt`, 상세는 `content`와 `answer.content`·`answer.createdAt`).
 
 **준비 A**(각 케이스는 필요한 계정만 쓴다): 회원 `user1@test.com`, `user2@test.com`(`signup` + `login`으로 ID와 토큰). 관리자 `admin@test.com`: `adminId = signup("admin@test.com")` → `changeRole(adminId, "ADMIN")` → `login`으로 토큰을 다시 받는다(4-4의 `adminToken(email)`은 같은 순서를 밟지만 가입한 회원 ID를 돌려주지 않아 `admin_id` 확인에 쓸 수 없다). 문의 작성 요청은 `POST /api/inquiries`에 `Authorization: Bearer {user1 토큰}`, 본문 `{"title":"배송이 늦어요","content":"주문한 상품이 아직 도착하지 않았습니다."}`다. 응답 `$.inquiryId`로 문의 ID(`Q1`)를 받는다. 답변 요청은 `POST /admin/api/inquiries/{id}/answer`에 `Authorization: Bearer {admin 토큰}`, 본문 `{"content":"확인 후 오늘 중 안내드리겠습니다."}`다.
 
@@ -780,7 +786,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 **3. 답변하면 ANSWERED** — 준비: `user1`이 `Q1`을 작성. 동작: `admin`이 답변 요청.
 - 응답(andExpect): 상태 204.
 - DB(inquiryOf(Q1)): `status()` = `ANSWERED`, `answers()` 1개(`adminId()` = `adminId`, `content()` = `"확인 후 오늘 중 안내드리겠습니다."`).
-- 응답(andExpect): `user1` 토큰으로 `GET /api/inquiries/{Q1}` → 상태 200, `$.status` = `ANSWERED`, 답변 내용이 위 `content`로 들어 있다(필드 이름은 확인 필요).
+- 응답(andExpect): `user1` 토큰으로 `GET /api/inquiries/{Q1}` → 상태 200, `$.status` = `ANSWERED`, `$.answer.content`가 위 `content`다.
 
 **4. 관리자 목록은 상태로 거른다** (추가) — 준비: `user1`이 문의 3개(`Q1`, `Q2`, `Q3`)를 작성하고 `admin`이 `Q2`에 답변한다. 동작: `admin` 토큰으로 `GET /admin/api/inquiries?status=OPEN`.
 - 응답(andExpect): 상태 200, `$.items.length()` = 2, `$.items[*].id`의 집합이 `{Q1, Q3}`(`containsInAnyOrder`), `jsonPath("$.nextCursor").value(nullValue())`.

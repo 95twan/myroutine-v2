@@ -125,15 +125,10 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 | 5-1 | A | 평균 반올림 방식, 통계 행이 없거나 0건일 때 응답 | 5-1 review.application | 사용자 결정 |
 | 5-1 | A | `sort` 기본값·허용 밖 값 처리·좋아요순 동점 정렬 | 5-1 review.application, 완료 확인 | 사용자 결정 |
 | 5-1 | A | 수정 가능 기간 30일의 경계(30일째 포함 여부) | 5-1 완료 확인 `ReviewTest` | 사용자 결정 |
-| 5-1 | B | Jackson 3 `treeToValue` 시그니처 | 5-1 완료 확인 테스트 준비 | 사용 버전으로 확인 |
-| 5-1 | D | 품목 조회 쿼리 모양, `review_like`·`product_review_stat`을 `JdbcTemplate`으로, `ReviewTopicConfig` DLT, `aggregateType` `"REVIEW"` | 5-1 order.domain, review.domain, review.infrastructure, review.application | 확정 |
 | 5-2 | A | 기동 시 ES가 내려가 있으면 앱 기동을 막을지(경고만 권장) | 5-2 search.infrastructure | 사용자 결정 |
 | 5-2 | B | 없는 alias로 쓰면 ES가 일반 인덱스를 자동 생성하는지, `_id` 정렬이 막혀 `productId`(keyword)를 쓰는지 | 5-2 search.infrastructure, search.application | 로컬 ES로 실험 |
-| 5-2 | D | ES 클라이언트 선택(`ElasticsearchClient` vs `ElasticsearchOperations`), `SearchErrorCode` 패키지, `TestFixtures`의 `es` 접근 | 5-2 search 모듈 경계, search.application, 완료 확인 | 확정 |
 | 5-3 | A | 재색인 실패 시 `reindex()`가 예외를 던질지 | 5-3 search.application | 사용자 결정 |
 | 5-3 | B | alias 교체 전 `refresh`가 필요한지(기본 1초) | 5-3 search.application | ES 실험 |
-| 5-3 | D | 상품 keyset 쿼리 이름·첫 `afterId`, ES 쓰기 클래스(`ProductIndexer`) | 5-3 product.domain, search.infrastructure | 확정 |
-| 5-4 | D | `Inquiry.answer(adminId, content)`에서 `InquiryAnswer`를 누가 만드는지(생성 위치), `InquiryResult`·`InquiryDetailResult` 필드, 문의 목록 정렬(본인 최신순·관리자 오래된 순) | 5-4 member.domain, member.application, 완료 확인 | 확정 |
 
 ### Part 6
 
