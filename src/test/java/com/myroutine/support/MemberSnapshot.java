@@ -14,6 +14,8 @@ public record MemberSnapshot(
         Instant withdrawnAt,
         Instant createdAt,
         Instant updatedAt,
-        List<AddressState> addresses
+        List<AddressState> addresses,
+        String banReason,
+        Instant bannedAt
 ) {
 }

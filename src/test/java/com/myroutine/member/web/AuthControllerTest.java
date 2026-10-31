@@ -58,7 +58,7 @@ class AuthControllerTest extends IntegrationTestSupport {
     void signUp() throws Exception {
         // Given
         String password = "password123";
-        SignupRequest request = new SignupRequest("test@test.com", password, "nick", "name");
+        SignupRequest request = new SignupRequest("test@test.com", password, "nick", "name", testFixtures.verificationToken("test@test.com"));
 
         // When & Then
         MvcResult result = mockMvc.perform(post("/api/auth/signup")
@@ -80,13 +80,13 @@ class AuthControllerTest extends IntegrationTestSupport {
     @DisplayName("회원 가입을 실패한다. (이메일 중복)")
     void signUpWithDuplicateEmail() throws Exception {
         // Given
-        SignupRequest request1 = new SignupRequest("test@test.com", "1111aaaa", "nick1", "name1");
+        SignupRequest request1 = new SignupRequest("test@test.com", "1111aaaa", "nick1", "name1", testFixtures.verificationToken("test@test.com"));
         mockMvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request1)))
                 .andExpect(status().isCreated());
 
-        SignupRequest request2 = new SignupRequest("TEST@test.com", "2222bbbb", "nick2", "name2");
+        SignupRequest request2 = new SignupRequest("TEST@test.com", "2222bbbb", "nick2", "name2", testFixtures.verificationToken("TEST@test.com"));
 
         // When & Then
         mockMvc.perform(post("/api/auth/signup")
@@ -101,13 +101,13 @@ class AuthControllerTest extends IntegrationTestSupport {
     void signUpWithDuplicateNickname() throws Exception {
         // Given
         String nickname = "nick";
-        SignupRequest request1 = new SignupRequest("test1@test.com", "1111aaaa", nickname, "name1");
+        SignupRequest request1 = new SignupRequest("test1@test.com", "1111aaaa", nickname, "name1", testFixtures.verificationToken("test1@test.com"));
         mockMvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request1)))
                 .andExpect(status().isCreated());
 
-        SignupRequest request2 = new SignupRequest("test2@test.com", "2222bbbb", nickname, "name2");
+        SignupRequest request2 = new SignupRequest("test2@test.com", "2222bbbb", nickname, "name2", testFixtures.verificationToken("test2@test.com"));
 
         // When & Then
         mockMvc.perform(post("/api/auth/signup")
@@ -123,8 +123,8 @@ class AuthControllerTest extends IntegrationTestSupport {
         // Given
         String email = "test@test.com";
         SignupRequest[] requests = {
-                new SignupRequest(email, "1111aaaa", "nick1", "name1"),
-                new SignupRequest(email, "2222bbbb", "nick2", "name2")
+                new SignupRequest(email, "1111aaaa", "nick1", "name1", testFixtures.verificationToken(email)),
+                new SignupRequest(email, "2222bbbb", "nick2", "name2", testFixtures.verificationToken(email))
         };
         ExecutorService pool = Executors.newFixedThreadPool(2);
         CountDownLatch ready = new CountDownLatch(2);   // 둘 다 준비될 때까지
@@ -161,7 +161,7 @@ class AuthControllerTest extends IntegrationTestSupport {
     @DisplayName("회원 가입을 실패한다. (입력값이 유효하지 않음)")
     void signUpWithInvalidInput() throws Exception {
         // Given
-        SignupRequest request = new SignupRequest("test1testcom", "111aaa", "nick", "name");
+        SignupRequest request = new SignupRequest("test1testcom", "111aaa", "nick", "name", testFixtures.verificationToken("test1testcom"));
 
         // When & Then
         mockMvc.perform(post("/api/auth/signup")
@@ -221,11 +221,11 @@ class AuthControllerTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("회원 가입하면 accessToken, tokenType(Bearer), expiresIn(3600)을 응답한다.")
+    @DisplayName("회원 가입하면 accessToken, tokenType(Bearer), expiresIn(900)을 응답한다.")
     void signUpReturnsAccessToken() throws Exception {
         // Given
         String password = "password123";
-        SignupRequest request = new SignupRequest("test@test.com", password, "nick", "name");
+        SignupRequest request = new SignupRequest("test@test.com", password, "nick", "name", testFixtures.verificationToken("test@test.com"));
 
         // When & Then
         mockMvc.perform(post("/api/auth/signup")
@@ -235,7 +235,7 @@ class AuthControllerTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.memberId").exists())
                 .andExpect(jsonPath("$.accessToken").exists())
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
-                .andExpect(jsonPath("$.expiresIn").value(3600));
+                .andExpect(jsonPath("$.expiresIn").value(900));
     }
 
     @Test

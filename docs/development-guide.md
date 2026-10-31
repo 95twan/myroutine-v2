@@ -103,9 +103,9 @@
 | AOP | `spring-boot-starter-aspectj` (Boot 4에서 `-aop`에서 이름이 바뀜) | Boot BOM | 2-2 |
 | spring-kafka / kafka-clients | 4.1.1 / 4.2.1 (`spring-boot-starter-kafka`) · 브로커 이미지 `apache/kafka:4.2.2` | Boot BOM | 3-1 |
 | Spring Data Redis / Lettuce | `spring-boot-starter-data-redis` · Lettuce 7.5.2 · 이미지 `redis:7.4.11` | Boot BOM | 4-1 |
-| Spring Data Elasticsearch | 6.1.1 (ES 클라이언트 9.4.5) · 이미지 `elasticsearch:9.4.8` | Boot BOM (Spring Data 2026.0.1) | 6-2 |
-| Spring AI | 2.0.1 (`spring-ai-starter-model-openai`, Boot 4.1.1 스타터에 의존) | `spring-ai-bom` 직접 import | 6-4 |
-| logstash-logback-encoder | 9.0 (Jackson 3 `tools.jackson`, logback 1.5) | 버전 직접 지정 | 7-1 |
+| Spring Data Elasticsearch | 6.1.1 (ES 클라이언트 9.4.5) · 이미지 `elasticsearch:9.4.8` | Boot BOM (Spring Data 2026.0.1) | 5-2 |
+| Spring AI | 2.0.1 (`spring-ai-starter-model-openai`, Boot 4.1.1 스타터에 의존) | `spring-ai-bom` 직접 import | SUB-5 |
+| logstash-logback-encoder | 9.0 (Jackson 3 `tools.jackson`, logback 1.5) | 버전 직접 지정 | 6-1 |
 | Testcontainers 모듈 | `testcontainers-kafka`·`-elasticsearch` 모두 BOM 2.0.5에 있다 (`-minio`는 1-10에서 사용) | Boot가 import하는 Testcontainers BOM | 각 단계 |
 | springdoc-openapi | 확인 필요(Boot 4 호환 버전을 쓰는 단계가 아직 없다) | | - |
 
@@ -574,7 +574,7 @@ public record ErrorResponse(String code, String message, String traceId, Map<Str
 | 예외 | `BusinessException` + `{모듈}ErrorCode` | |
 | 테이블·컬럼 | snake_case, 테이블은 단수(예약어면 복수 `orders`) | `order_line` |
 | 제약·인덱스 | `pk_`, `uk_{table}_{cols}`, `ck_{table}_{rule}`, `idx_{table}_{cols}` | `uk_stock_movement_type_ref` |
-| 테스트 메서드 | 한글 `@DisplayName` + 영문 메서드명 | `@DisplayName("배송 중인 품목은 취소할 수 없다")` |
+| 테스트 메서드 | 한글 `@DisplayName` + 영문 camelCase 메서드명 | `@DisplayName("배송 중인 품목은 취소할 수 없다")` |
 
 ## 13. 테스트
 
@@ -592,7 +592,7 @@ public record ErrorResponse(String code, String message, String traceId, Map<Str
 ```java
 @Test
 @DisplayName("배송 중인 품목은 취소할 수 없다")
-void cancel_shipped_line_fails() {
+void cancelShippedLineFails() {
     OrderLine line = OrderLineFixture.shipped();
 
     assertThatThrownBy(line::cancel)
@@ -700,7 +700,7 @@ static void pgProperties(DynamicPropertyRegistry registry) {
 ```java
 @Test
 @DisplayName("PG 승인 응답이 타임아웃이면 결제는 UNKNOWN, 주문은 만료되지 않고, 대사 후 PAID가 된다")
-void confirm_timeout_then_reconcile() {
+void confirmTimeoutThenReconcile() {
     pg.on("/v1/payments/confirm", Behavior.delay(1_000));              // read-timeout 500ms 초과
     ConfirmResult result = confirm(orderId);
     assertThat(result.status()).isEqualTo(PAYMENT_IN_PROGRESS);

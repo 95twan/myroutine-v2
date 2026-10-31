@@ -14,7 +14,7 @@ class MemberTest {
 
     @Test
     @DisplayName("가입하면 이메일은 소문자로 정리되고 기본 역할 USER, 상태 ACTIVE로 만들어진다.")
-    void sign_up_creates_active_user() {
+    void signUpCreatesActiveUser() {
         // Given
         String email = " Buyer@Test.COM ";
 
@@ -30,7 +30,7 @@ class MemberTest {
 
     @Test
     @DisplayName("ACTIVE 회원은 로그인 검증을 통과한다.")
-    void verify_can_login_active_does_not_throw() {
+    void verifyCanLoginActiveDoesNotThrow() {
         // Given
         Member activeMember = Member.signUp("test@test.com", "pass1234", "test", "테스트");
 
@@ -40,7 +40,7 @@ class MemberTest {
 
     @Test
     @DisplayName("로그인 검증을 실패한다. (BANNED 회원, MEMBER_BANNED)")
-    void verify_can_login_banned_throws_member_banned() {
+    void verifyCanLoginBannedThrowsMemberBanned() {
         // Given
         Member bannedMember = Member.signUp("test@test.com", "pass1234", "test", "테스트");
         ReflectionTestUtils.setField(bannedMember, "status", MemberStatus.BANNED);
@@ -53,7 +53,7 @@ class MemberTest {
 
     @Test
     @DisplayName("로그인 검증을 실패한다. (WITHDRAWN 회원, LOGIN_FAILED)")
-    void verify_can_login_withdrawn_throws_login_failed() {
+    void verifyCanLoginWithdrawnThrowsLoginFailed() {
         // Given
         Member withdrawnMember = Member.signUp("test@test.com", "pass1234", "test", "테스트");
         ReflectionTestUtils.setField(withdrawnMember, "status", MemberStatus.WITHDRAWN);
@@ -66,7 +66,7 @@ class MemberTest {
 
     @Test
     @DisplayName("탈퇴하면 개인정보가 마스킹된다.")
-    void withdraw_masks_personal_information() {
+    void withdrawMasksPersonalInformation() {
         // Given
         Member member = Member.signUp("test@test.com", "pass1234", "test", "테스트");
         member.changeProfile("test", "테스트", "010-1234-5678");
@@ -88,7 +88,7 @@ class MemberTest {
 
     @Test
     @DisplayName("탈퇴를 실패한다. (BANNED 회원, INVALID_STATE_TRANSITION)")
-    void withdraw_banned_throws_invalid_state_transition() {
+    void withdrawBannedThrowsInvalidStateTransition() {
         // Given
         Member member = Member.signUp("test@test.com", "pass1234", "test", "테스트");
         member.changeProfile("test", "테스트", "010-1234-5678");
@@ -110,7 +110,7 @@ class MemberTest {
 
     @Test
     @DisplayName("탈퇴를 실패한다. (이미 탈퇴한 회원, INVALID_STATE_TRANSITION)")
-    void withdraw_already_withdrawn_throws_invalid_state_transition() {
+    void withdrawAlreadyWithdrawnThrowsInvalidStateTransition() {
         // Given
         Member member = Member.signUp("test@test.com", "pass1234", "test", "테스트");
         member.changeProfile("test", "테스트", "010-1234-5678");
@@ -128,7 +128,7 @@ class MemberTest {
 
     @Test
     @DisplayName("ID 앞쪽이 같은 두 회원이 탈퇴해도 닉네임은 서로 다르다.")
-    void withdraw_members_with_same_id_prefix_get_different_nicknames() {
+    void withdrawMembersWithSameIdPrefixGetDifferentNicknames() {
         // Given
         Member member1 = Member.signUp("test1@test.com", "pass1234", "test1", "테스트1");
         Member member2 = Member.signUp("test2@test.com", "pass1234", "test2", "테스트2");

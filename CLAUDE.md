@@ -15,19 +15,21 @@
 
 - **Claude는 `src/`, `build.gradle`, `docker/`, `.github/workflows/` 등 구현물을 직접 만들거나 고치지 않는다.** 사용자가 명시적으로 요청할 때만 예시 스니펫을 답변으로 보여준다.
 - **예외 — 테스트 골격(1-9부터, 2026-10-08 사용자 승인)**: 사용자가 단계 착수("N-M 진행할게")를 알리면, 로드맵 해당 단계 "완료 확인" 표의 케이스마다 **미구현 테스트 메서드**(`@Test` + `@DisplayName` + 메서드명, 본문은 `fail("구현 필요")` 한 줄)를 `src/test/`에 만들어 둔다. 본문을 비워 두면 통과로 기록되어 구현한 것으로 착각하기 쉬워서, 채우기 전까지 **실패로 기록되게** 한다(2026-10-14 사용자 요청). `fail`은 AssertJ(`org.assertj.core.api.Assertions.fail`)를 쓰고, 사용자는 이 줄을 지우고 본문을 쓴다. 클래스가 없으면 클래스 선언과 필요한 상속(`IntegrationTestSupport` 등)·`@ParameterizedTest` 여부까지만 잡는다. Given/When/Then 본문, 단언, 픽스처 호출은 쓰지 않는다(`fail` 한 줄만) — 사용자가 채운다. 메서드명·DisplayName은 기존 테스트 규칙(성공은 "~한다.", 실패는 "~를 실패한다. (사유)")을 따른다.
-- **단계 착수 순서(2026-10-19 사용자 요청)**: 사용자가 단계 착수("N-M 진행할게")를 알리면 테스트 골격보다 먼저 [pending-decisions](docs/03-roadmap/pending-decisions.md)의 그 단계 행(4절 "확인 필요"와 2절의 해당 단계)을 푼다. 종류 A(설계 결정)는 선택지와 권장안을 제시해 사용자 결정을 받고, B(외부 동작 확인)는 공식 문서·소스로 확인하되 외부 조회는 사용자에게 먼저 묻고, C·E(문서 어긋남·코드로 이미 정해짐)와 D(구현 방식 선택, 권장안 있음)는 Claude가 문서에 확정해 적는다. 푼 행은 그 단계 문서에 반영한 뒤 표에서 지우고, 풀지 못한 것은 무엇이 막혔는지 알린다. 그다음에 테스트 골격을 만든다.
+- **단계 착수 순서(2026-10-19 사용자 요청)**: 사용자가 단계 착수("N-M 진행할게")를 알리면 테스트 골격보다 먼저 [pending-decisions](docs/03-roadmap/pending-decisions.md)의 그 단계 행(4절 "확인 필요"와 2절의 해당 단계)을 푼다. 서브 단계(SUB-1~SUB-6)는 [서브 안내](docs/04-sub/README.md)의 "구현 때 정할 것"을 푼다. 종류 A(설계 결정)는 선택지와 권장안을 제시해 사용자 결정을 받고, B(외부 동작 확인)는 공식 문서·소스로 확인하되 외부 조회는 사용자에게 먼저 묻고, C·E(문서 어긋남·코드로 이미 정해짐)와 D(구현 방식 선택, 권장안 있음)는 Claude가 문서에 확정해 적는다. 푼 행은 그 단계 문서에 반영한 뒤 표에서 지우고, 풀지 못한 것은 무엇이 막혔는지 알린다. 그다음에 테스트 골격을 만든다.
 - **예외 — CD 워크플로(1-11, 2026-10-10 사용자 승인)**: 로드맵에 항목별 설명까지 적은 `.github/workflows/cd.yml`은 "따라 쓰기"에 가까워 학습 가치가 낮다는 이유로, 사용자가 **명시적으로 요청하면** Claude가 파일을 직접 작성한다. 이 예외는 `.github/workflows/`의 배포 워크플로에 한정하며, `src/`·`build.gradle`·`docker/`·`scripts/` 등 다른 구현물은 그대로 이 문서의 기본 규칙(사용자 작성, Claude는 리뷰)을 따른다. 작성한 뒤 커밋·푸시는 아래 문서 규칙대로 사용자가 요청할 때만 한다.
 - **예외 — 검증 메시지(2-1, 2026-10-12 사용자 승인)**: 요청 DTO(`web` 패키지의 Request record)의 Bean Validation 어노테이션에 한국어 `message`를 붙이는 일은 기계적이고 문구가 이미 정해져 있어([Part 1 공통 규칙 E](docs/03-roadmap/part1-foundation.md), [Part 2 공통 규칙 P-1](docs/03-roadmap/part2-order-money.md)), 사용자가 요청하지 않아도 Claude가 직접 넣는다(리뷰에서 누락을 찾았을 때 포함). `message` 속성만 고치며, 제약 값(`@Min`·`@Max`·`@Size`의 숫자)·로직·테스트 본문은 바꾸지 않는다. 고쳤으면 어느 파일을 바꿨는지 알려준다.
 - **예외 — CI 경로 필터(2026-10-20 사용자 요청)**: 문서만 바뀐 develop push에서 CI와 자동 배포를 건너뛰도록 `.github/workflows/ci.yml`의 `push` 트리거에 `paths-ignore`(`docs/**`, `**.md`)를 Claude가 넣었다. 이 변경에 한정하며, `ci.yml`의 빌드 단계는 그대로 사용자가 관리한다.
 - **예외 — 가짜 PG 서버(2-3, 2026-10-14 사용자 요청)**: `src/test/java/com/myroutine/support/FakePgServer.java`는 JDK `HttpServer` 사용법과 상태 관리가 많아 문서만 보고 짜기엔 부담이 커서, 사용자가 직접 요청해 Claude가 작성했다. 이 파일에 한정한다. `IntegrationTestSupport` 등록과 `TossClientTest` 본문은 그대로 사용자가 쓴다.
-- **예외 — 알림 본문 문구(3-5부터, 2026-10-26 사용자 요청)**: `NotificationComposer`가 만드는 알림의 `body` 문구는 로직이 아니라 문장이고 [로드맵 3-5 매핑 표](docs/03-roadmap/part3-events.md)의 "본문 예"에 정해져 있어, 사용자가 요청하면 Claude가 `NotificationComposer`에 직접 넣는다(Part 4·5에서 알림 종류가 늘 때 포함). `body` 인자 문구만 고치며, `compose` 메서드의 구조·제목·수신 대상·테스트는 사용자가 쓴다. 고쳤으면 어느 메서드를 바꿨는지 알려준다.
+- **예외 — 가짜 OAuth 제공자 서버(4-3, 2026-10-30 사용자 요청)**: `src/test/java/com/myroutine/support/FakeOAuthServer.java`는 `FakePgServer`와 같은 이유(JDK `HttpServer` 사용법, 제공자별 응답 모양)로 사용자가 요청해 Claude가 작성했다. 이 파일에 한정한다. `IntegrationTestSupport`의 `@DynamicPropertySource`(제공자별 `token-uri`·`user-info-uri`)는 사용자가 요청해 Claude가 넣었고, `@AfterEach` 등록과 `OAuthLoginTest`·`SocialLinkTest` 본문은 그대로 사용자가 쓴다.
+- **예외 — 알림 본문 문구(3-5부터, 2026-10-26 사용자 요청)**: `NotificationComposer`가 만드는 알림의 `body` 문구는 로직이 아니라 문장이고 [로드맵 3-5 매핑 표](docs/03-roadmap/part3-events.md)의 "본문 예"에 정해져 있어, 사용자가 요청하면 Claude가 `NotificationComposer`에 직접 넣는다(Part 4와 서브에서 알림 종류가 늘 때 포함). `body` 인자 문구만 고치며, `compose` 메서드의 구조·제목·수신 대상·테스트는 사용자가 쓴다. 고쳤으면 어느 메서드를 바꿨는지 알려준다.
+- **예외 — 환경변수 키 목록(2026-10-30 사용자 요청)**: 단계가 새 환경변수를 요구하면(예: 4-3의 `KAKAO_*`) `.env.example`·`.env.ops.example`·`.env.local`에 키를 더하는 일은 기계적이어서 Claude가 직접 한다. 키 이름과 운영 `*_REDIRECT_URI` 같은 정해진 값만 쓰고, `.env.local`에는 더미 값(`dummy`)을 넣는다. 실제 시크릿은 쓰지 않는다. 더했으면 어느 파일인지 알린다.
 - **예외 — 로그 메시지 문구(2026-10-27 사용자 요청)**: `log.warn`·`log.error` 호출의 메시지 문구는 사용자가 요청하면 Claude가 직접 넣는다. 메시지 문자열과 인자(식별자·예외)만 고치며, 호출을 넣을 위치·`try`/`catch` 구조·로직은 사용자가 쓴다. 기존 코드의 형식(`Failed to ... . id={}`, 마지막 인자는 예외)을 따르고, 고친 파일을 알린다.
 - **예외 — 상태 enum 전이 테스트(2026-10-27 사용자 요청)**: `*StatusTest`(상태 enum의 `transitTo` 허용·금지 쌍을 확인하는 테스트)는 enum마다 같은 모양의 반복이라, 앞으로 Claude가 직접 작성한다. 단계 착수("N-M 진행할게") 때 이런 테스트는 골격 대신 전체를 쓰고, 허용·금지 `@ParameterizedTest` 둘로 쓰고, 허용 쌍만 나열한 뒤 금지 쌍은 enum 값의 전 쌍(N×N)에서 허용 쌍을 뺀 것으로 만든다(`SettlementStatusTest`·`NotificationStatusTest`를 따른다. 기존 `MemberStatusTest`처럼 금지 쌍을 나열하지 않는다). 전이표가 문서에 정해져 있어야 하고, 쓴 뒤 실행해서 통과를 확인한다. 이미 `SettlementStatusTest`(3-4에서 빠뜨려 단계가 지난 뒤)와 `NotificationStatusTest`(3-5)를 이렇게 작성했다. `*StatusTest`가 아닌 테스트는 그대로 사용자가 쓴다.
 - **문서는 Claude가 직접 고친다**: `docs/`, `README.md`, `CLAUDE.md`, `.github/pull_request_template.md`. 리뷰 중 문서 반영이 필요하면 사용자의 feature 브랜치 작업 트리에 수정해 두고, 무엇을 바꿨는지 알려준다. **커밋·푸시·PR 생성은 기본적으로 사용자가 하고, 사용자가 명시적으로 요청하면 Claude가 한다**(2026-10-14 사용자 승인). 요청하지 않으면 하지 않는다. 요청받으면 [git-policy](docs/git-policy.md) 형식(커밋 메시지 3절, PR 제목·템플릿 4절)을 따르고, 관련 없는 변경은 커밋을 나누며, 요청한 범위(커밋만 / 푸시까지 / PR까지) 밖의 일은 하지 않는다. `main`·`develop`에는 직접 푸시하지 않고 force push는 하지 않는다.
 - 사용자가 직접 개발해서 면접에서 모든 코드를 설명할 수 있게 하는 것이 목적이다. "대신 짜주는" 방향으로 흐르지 않게 한다.
 
 ## 3. 기술 범위 제약
-- **새로 학습할 기술은 ELK, Prometheus/Grafana, k6로 한정한다.** Flyway, Spring Modulith(`verify()` 테스트만), Testcontainers는 학습 부담이 거의 없어 허용됐다. MinIO + AWS SDK S3(상품 이미지 presigned URL, 로드맵 1-10)는 2026-10-02, GitHub Actions self-hosted runner(Proxmox VM 자동 배포, 로드맵 1-11, [ADR-011](docs/adr/ADR-011-ops-practice-environment.md))는 2026-10-07 사용자가 승인했다. Cloudflare Tunnel·도메인은 2026-10-21 사용자가 도메인(`myroutine.dev`)을 구입해 승인했다([ADR-011](docs/adr/ADR-011-ops-practice-environment.md) "외부 접속"). 앱 쪽 설정은 로드맵 3-0이고 코드는 사용자가 쓴다. **최종 목표로 Kubernetes(k3s) 무중단 배포**를 사용자가 밝혔다(2026-10-07). 시기는 **Stage 1 완료 후 Stage 2 시작 전**(Stage 1.5, [ADR-012](docs/adr/ADR-012-kubernetes-zero-downtime.md))으로 정했다. 세부는 착수 전에 확정하며, 그 전에는 새 도구로 취급해 학습 비용과 대안을 제시한다.
+- **새로 학습할 기술은 ELK, Prometheus/Grafana, k6로 한정한다.** Flyway, Spring Modulith(`verify()` 테스트만), Testcontainers는 학습 부담이 거의 없어 허용됐다. MinIO + AWS SDK S3(상품 이미지 presigned URL, 로드맵 1-10)는 2026-10-02, GitHub Actions self-hosted runner(Proxmox VM 자동 배포, 로드맵 1-11, [ADR-011](docs/adr/ADR-011-ops-practice-environment.md))는 2026-10-07 사용자가 승인했다. Cloudflare Tunnel·도메인은 2026-10-21 사용자가 도메인(`myroutine.dev`)을 구입해 승인했다([ADR-011](docs/adr/ADR-011-ops-practice-environment.md) "외부 접속"). 앱 쪽 설정은 로드맵 3-0이고 코드는 사용자가 쓴다. `spring-boot-starter-mail` + Gmail SMTP(운영 메일 발송, 로드맵 4-2)는 2026-10-29 사용자가 승인했다. **최종 목표로 Kubernetes(k3s) 무중단 배포**를 사용자가 밝혔다(2026-10-07). 시기는 **Stage 1 완료 후 Stage 2 시작 전**(Stage 1.5, [ADR-012](docs/adr/ADR-012-kubernetes-zero-downtime.md))으로 정했다. 세부는 착수 전에 확정하며, 그 전에는 새 도구로 취급해 학습 비용과 대안을 제시한다.
 - 그 외 도구는 사용자가 아는 방식으로 대체했다: 분산 트레이싱 → traceId + MDC + ELK, ShedLock → Postgres 세션 advisory lock, WireMock → JDK HttpServer 가짜 서버, ArchUnit → 코드 리뷰.
 - 새 라이브러리·도구가 필요해 보이면 **학습 비용과 이미 아는 대안을 함께 제시**하고 사용자 결정을 받는다.
 - 스택: Java 25, Spring Boot 4.x 최신 GA, Gradle(Groovy), PostgreSQL 17 + pgvector, Redis, Kafka, Elasticsearch, MinIO(S3 호환), Toss Payments. 예치금(지갑)은 2026-10-02에 제거했다(결제는 Toss 단일 수단).
@@ -41,14 +43,15 @@
 | `docs/adr/` | 설계 결정 기록 ADR-001~012 |
 | `docs/development-guide.md` | 코딩 규칙 + **리뷰 기준(§18 체크리스트, §19 금지 패턴)** |
 | `docs/git-policy.md` | Git Flow, 커밋·PR 규칙 |
-| `docs/03-roadmap/` | Part 1~7 단계별 구현 로드맵, 미결 정책 OPEN-xx |
+| `docs/03-roadmap/` | Part 1~6 단계별 구현 로드맵, 미결 정책 OPEN-xx |
+| `docs/04-sub/` | 서브: 로드맵에서 뺀 구독(SUB-1~SUB-4)·취향 추천(SUB-5)·월간 리뷰 요약(SUB-6). Stage 1 뒤에 한다 |
 | `docs/references/` | 원 프로젝트에서 가져온 본인 노트·실험·Saga 설계 (수정하지 않음) |
 
 ADR·설계와 어긋나는 제안을 하기 전에 해당 문서를 먼저 확인한다. 설계를 바꿔야 하면 **코드보다 문서를 먼저** 고친다.
 
 ## 5. 리뷰 절차
 사용자가 "2-2 리뷰해줘" + 브랜치명(또는 PR 번호)을 주면:
-1. 로드맵의 해당 단계(`docs/03-roadmap/partN-*.md`)에서 **목표·할 일·완료 확인·리뷰 때 물어볼 것**을 읽는다.
+1. 로드맵의 해당 단계(`docs/03-roadmap/partN-*.md`, 서브 단계는 `docs/04-sub/`)에서 **목표·할 일·완료 확인·리뷰 때 물어볼 것**을 읽는다.
 2. `git diff develop...{브랜치}`로 변경을 본다(필요하면 관련 파일 전체를 읽는다).
 3. [개발 가이드 §18](docs/development-guide.md) 순서로 검토한다: 정합성 → 트랜잭션 경계 → 동시성 → 멱등성 → 실패 시나리오 → 보안·인가 → 모듈 경계 → 도메인 모델 → 테스트 → 성능 → 관측 → 가독성.
 4. 결과 형식
@@ -65,12 +68,13 @@ ADR·설계와 어긋나는 제안을 하기 전에 해당 문서를 먼저 확�
 ## 6. 문서 작성 규칙
 - 한국어. 표·Mermaid 다이어그램 사용. 문서 간 상대 링크.
 - 상태명·필드명·에러 코드는 ERD ↔ 상태머신 ↔ 이벤트 ↔ API 명세 간에 일치시킨다. 하나를 바꾸면 나머지도 확인한다.
-- 버전 표기(`> 버전 0.x · 날짜`)와 변경 이유를 문서 머리에 갱신한다.
+- 문서 머리의 버전 줄(`> 버전 0.x · 날짜 · 변경 요약`)에는 **동작이나 기능이 바뀐 변경만** 적는다(2026-10-28 사용자 요청). 대상은 규격·정책·API·데이터 모델·상태 전이·에러 코드처럼 구현 결과가 달라지는 변경이다. 표현·구조·순서 정리, 설명 보강, 오타, 테스트 헬퍼 시그니처·완료 확인 케이스를 다듬는 변경, "규격·동작 변경 없음"인 수정은 줄을 더하거나 버전을 올리지 않는다(이력은 git에 있다). 요약은 한두 문장으로 쓴다.
 - 추측을 사실처럼 쓰지 않는다. 확인하지 못한 라이브러리 버전·API 동작은 "확인 필요"로 표시한다.
 - 제목·굵은 글씨에 "(이 순서대로)", "(체크리스트)", "(핵심)" 같은 꾸밈말을 붙이지 않는다(2026-10-16 사용자 지적). 제목은 대상 이름만 쓰고, 순서·용도는 본문 문장으로 쓴다. 같은 내용을 설명하는 문장을 두 번 쓰지 않는다.
 - 본문에 결정 날짜·경위·"사용자 결정" 같은 이력 메모를 적지 않는다(2026-10-16 사용자 지적). 규격만 쓴다. 결정 이력은 문서 머리의 버전 줄에만 적는다. 이름이 권장안이라는 말은 표 위 문장에 한 번만 쓰고 행마다 반복하지 않는다.
 - 로드맵 "완료 확인"의 확인 항목은 [로드맵 README 4.1](docs/03-roadmap/README.md)의 기준으로 고르고 고친다(2026-10-20 사용자 요청). 바꾸지 않는 값은 실패·부분 처리·동시성·돈이 나가는 분기의 거부·문서 정책일 때만 적고, 준비 재단언·동작이 건드리지 않는 값·앞 단계가 확인한 세부·중복은 적지 않는다. 애매하면 사용자에게 묻기 전에 4.1의 표로 먼저 판단한다. 케이스 하나는 동작 하나와 결론 하나만 확인한다(2026-10-27 사용자 지적). 서로 다른 이유로 실패할 수 있는 확인은 케이스를 나눈다(4.1의 5번).
 
 ## 7. 진행 상황
-- 설계 문서(Phase 0~3) 완료. **Part 1(1-1~1-11) 구현과 최종 리뷰를 마쳤다**(2026-10-10). develop → main 릴리스 `v0.1.0`도 마쳤다(2026-10-10). **Part 2(2-1~2-10) 구현과 리뷰를 마쳤다**(2026-10-20, PR #37까지). develop → main 릴리스 `v0.2.0`도 마쳤다(2026-10-20, #40). Part 3(이벤트)는 3-3까지 구현했다(3-3은 PR #45 대기). 다음은 3-4(정산).
+- 설계 문서(Phase 0~3) 완료. **Part 1(1-1~1-11) 구현과 최종 리뷰를 마쳤다**(2026-10-10). develop → main 릴리스 `v0.1.0`도 마쳤다(2026-10-10). **Part 2(2-1~2-10) 구현과 리뷰를 마쳤다**(2026-10-20, PR #37까지). develop → main 릴리스 `v0.2.0`도 마쳤다(2026-10-20, #40). Part 3(이벤트)는 3-0~3-6 구현과 리뷰를 마쳤다(2026-10-28, 3-6은 PR #49). 다음은 develop → main 릴리스 `v0.3.0`과 Part 4 시작. Part 4는 프론트가 기다리는 정산 조회 보완(4-0)부터 한다.
+- 구독·취향 추천·월간 리뷰 요약은 로드맵에서 빼서 `docs/04-sub/`(단계 ID SUB-1~SUB-6)로 옮기고, 로드맵의 Part 6·7을 Part 5·6으로 당겼다(2026-10-31). 로드맵은 Part 1~6(`v1.0.0`)이고, 서브는 Stage 1 뒤 여유가 있을 때 한다.
 - 미결 정책(OPEN-01~07)은 권장안으로 진행하고, 해당 단계 시작 전에 변경 여부를 확인한다.

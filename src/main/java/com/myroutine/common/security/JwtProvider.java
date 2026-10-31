@@ -29,11 +29,13 @@ public class JwtProvider {
         this.clock = clock;
     }
 
-    public String issue(UUID memberId, String role) {
+    public String issue(UUID memberId, String role, UUID sessionId, int tokenVersion) {
         Instant now = clock.instant();
         return Jwts.builder()
                 .subject(memberId.toString())
                 .claim("role", role)
+                .claim("sid", sessionId.toString())
+                .claim("tv", tokenVersion)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plus(jwtProperties.accessTokenTtl())))
                 .signWith(key)
@@ -49,10 +51,12 @@ public class JwtProvider {
             Claims claims = parser.parseSignedClaims(token).getPayload();
             String subject = claims.getSubject();
             String role = claims.get("role", String.class);
-            if (subject == null || role == null) {
+            String sessionId = claims.get("sid", String.class);
+            Integer tokenVersion = claims.get("tv", Integer.class);
+            if (subject == null || role == null || sessionId == null || tokenVersion == null) {
                 return Optional.empty();
             }
-            return Optional.of(new AuthClaims(UUID.fromString(subject), role));
+            return Optional.of(new AuthClaims(UUID.fromString(sessionId), UUID.fromString(subject), role, tokenVersion));
         } catch (JwtException | IllegalArgumentException e) {
             return Optional.empty();
         }

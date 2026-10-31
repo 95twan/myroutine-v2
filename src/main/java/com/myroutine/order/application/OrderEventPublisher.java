@@ -100,7 +100,10 @@ public class OrderEventPublisher {
                 orderLine.getProductId(),
                 order.getMemberId(),
                 orderLine.confirmedAmount().amount(),
-                orderLine.getConfirmedAt()
+                orderLine.getConfirmedAt(),
+                shopOrder.getId(),
+                orderLine.getProductName(),
+                orderLine.getQuantity()
         );
         outboxPublisher.publish(OrderTopics.ORDER_LINE_CONFIRMED, "ORDER", orderId, event);
     }

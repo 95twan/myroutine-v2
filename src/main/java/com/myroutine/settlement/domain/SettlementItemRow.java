@@ -11,4 +11,7 @@ public interface SettlementItemRow {
     long getAmount();
     Instant getConfirmedAt();
     Instant getCreatedAt();
+    UUID getShopOrderId();
+    String getProductName();
+    int getQuantity();
 }

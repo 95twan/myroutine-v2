@@ -1,66 +1,170 @@
-# Part 5. 구독
+# 서브: 구독
 
-> 버전 0.29 · 2026-10-27 · **서로 다른 확인이 섞인 케이스를 나눴다**(4.1의 5번: 케이스 하나는 동작 하나와 결론 하나): 5-1 `AesGcmEncryptorTest` 왕복에서 암호문 형식(표 마지막 행), `BillingKeyControllerTest` 1번에서 목록 조회의 비밀 값 미노출(6번)·4번에서 삭제 뒤 목록(7번), 5-2 `SubscriptionControllerTest` 7번에서 남의 구독이 목록에 안 나옴(11번), 5-3 `SubscriptionCycleServiceTest` 5번에서 정지된 구독은 실행하지 않음(12번)·`SubscriptionCycleControllerTest` 1번에서 커서 페이지 이동(3번), 5-4 `SubscriptionEventTest` 1번에서 가격 인상 알림(5번)·4번에서 남의 가게 403(6번)·빈 목록(7번)·상태 필터(8번). 확인 항목·규격 변경 없음
-> 0.28 · 2026-10-27 · **같은 내용을 두 번 적은 곳을 한 곳으로 합쳤다**(중복 점검): 5-1 `TossClient` 분류·응답 본문·멱등키 헤더·`PaymentApi` 구현 위치(5-3 포함)·삭제 조건 구현 이름·탈퇴 consumer의 검사 생략, 5-2 `ACTIVE_LIKE`·세 `Precondition` 설명·재개 날짜·상태 전이 409·신청 응답·페이지 크기, 5-3 `OrderPlacer` 이유·빌링 `payment_key` 자리 값·건너뛴 회차 INSERT 설명·대사 변환·`runDue` 반환값 정의·"다음 날 실행" 헬퍼 설명·알림 수신 대상, 5-4 오래된 이벤트 무시 설명·토픽 발행 위치·consumer 처리 표 머리·`member-withdrawn` 장바구니 문구·판매자 현황 설명과 각 단계 "헬퍼를 쓰는 방법"의 표 되풀이. 규격·동작 변경 없음
-> 0.27 · 2026-10-26 · **'할 일'을 Part 1·2처럼 계층별 절(`N) 모듈.계층`)과 `클래스 | 규격` 표로 통일했다**(사용자 지적: 로드맵 1·2와 모양이 달랐다). 규격·동작 변경 없음
-> 0.26 · 2026-10-26 · **다른 곳을 열어야 이해되던 참조를 그 자리에서 읽히게 풀고, 같은 규격이 두 곳에 있던 것을 한 곳으로 모았다**: "2-3과 같다"·"2-1 `CartRepository`와 같은 구조"·"3-1 `MemberShopEventConsumer`와 같은 모양"·"2-5 `expireBatch`와 같다"·"5-3과 같다" 같은 앞 단계 가리킴, "Part 1~2에서 만든 헬퍼를 그대로 쓴다"(쓰는 헬퍼의 시그니처로), "위 3번 표 6"·"5-3 본문의 확인 필요 항목" 같은 가리킴을 그 자리의 내용으로 바꿨다. 5-3 `markPaymentInProgress`가 CAS를 거치지 않는 이유는 표 한 곳에 모으고, `orderRowsOf`·`cyclesOf` 필드 나열은 표만 남겼다. 규격·동작 변경 없음
-> 0.25 · 2026-10-23 · **다른 단계를 열어야 이해되던 참조를 그 자리에서 읽히게 풀어 썼다**(사용자 지적): "2-3과 같다"(헤더·`PgResult`·불확실 코드·로그 포맷), "2-2와 같은 방식"의 keyset 페이징, `Started`·`CheckoutLine`·`setOrderUpdatedAt`, 5-3·5-4의 토픽 빈과 알림 매핑 세 곳, `member-withdrawn` consumer의 필드. 규격·동작 변경 없음
-> 0.24 · 2026-10-23 · **테스트 준비 헬퍼 표의 시그니처를 타입까지 적었다**(사용자 지적: 어떤 메서드를 만드는지 안 보인다): 5-1~5-3 표의 첫 칸을 `이름(타입 인자…)` → `반환타입` 형태로 고쳤다(매개변수 타입, 반환 타입 `UUID`, 반환값 없음은 `void`). 규격·동작 변경 없음
-> 0.23 · 2026-10-23 · **완료 확인의 "테스트 준비"를 테스트 클래스 앞으로 옮겼다**(사용자 지적: 헬퍼 설명이 테스트보다 뒤에 있다): 5-1~5-4 모두 "확인 값을 읽는 방법"과 맨 끝 "테스트 준비"를 `### 완료 확인` 바로 아래로 합쳤다. 헬퍼 표와 "이미 있는 헬퍼" 다음에 "헬퍼를 쓰는 방법"을 두고, 표 행에 있는 필드 나열은 표로 흡수했다. 규격·동작 변경 없음
-> 0.22 · 2026-10-20 · **4.1 기준 점검에서 '하' 후보를 권장안대로 정리했다**(사용자 요청): 5-1 발급 요청의 `idempotency-key` 부재, 5-3 7번의 구독 `status`, 5-4 `SubscriptionEventTest` 1번의 `pendingEffectiveDate`·`unitPrice`(5-4 `SubscriptionPriceTest`가 확인). 규격 외 변경 없음
-> 0.21 · 2026-10-20 · **4.1 기준 점검에서 '중' 후보를 뺐다**(사용자 요청): 5-1 `AesGcmEncryptorTest`의 `encrypted` ≠ `plain`·빌링키 등록의 `status`·`deletedAt`·암호문 비교, 5-3 1번의 합계·품목 상태·결제 `status`·재고, 5번 표의 `orderRowsOf`·빌링 요청 누계 열, 6번의 주문·재고·이벤트, 7번의 재호출, 9번의 재고·같은 날 재실행·구독 상태, 10번의 반환값·재고·`status`, 11번의 합계 중복, 5-4의 5일·3일 전 행과 알림 `recipient`·`status`. 규격 외 변경 없음
-> 0.20 · 2026-10-20 · **4.1 기준 점검에서 확신 '상'을 뺐다**(사용자 요청): 5-1 `TossBillingClientTest` 4번의 `reject`·`serverError` 행(2-3 `classify`가 확인), 5-3 4번의 주문 실패 상태·결제 `FAILED`·재고·예약(2-4 `fail` 경로가 확인), 5-3 9번 확인 3의 `PAID`·`APPROVED`·재고(2-6 대사 1번이 확인). 규격 외 변경 없음
-> 0.19 · 2026-10-20 · **5-1·5-2·5-3 완료 확인에서 '하' 후보를 뺐다**(사용자 요청): 5-2 신청 성공의 초기값, 5-1 `AesGcmEncryptorTest`의 변조 전 복호화, 5-3 1번의 `confirm` 요청 0건. 규격 외 변경 없음
-> 0.18 · 2026-10-20 · **5-1·5-3·5-4 완료 확인에서 '중' 후보를 뺐다**(사용자 요청): 5-1 `TossBillingClientTest` 3번의 조회 확인, 5-3 1번의 장바구니 수량 3과 구독 상태, 2번의 구독 상태, 10번의 첫 `runDue()` 직후 확인, 5-4의 `nextRunDate`. 5-1 `BillingKeyControllerTest` 4번의 "Toss 삭제 API를 부르지 않는다"는 정책(5-1 정책 절)이라 남겼다. 규격 외 변경 없음
-> 0.17 · 2026-10-20 · **5-3 `SubscriptionCycleServiceTest` 1번에서 공통 준비가 만든 구독 상태 확인을 뺐다**(사용자 지적: 하지도 않는 동작을 검증한다). 규격 외 변경 없음
-> 0.16 · 2026-10-18 · **읽기 헬퍼 중복을 걷어냈다**: 5-4의 `notificationRowsOf` 정의를 지우고 3-5의 정의를 쓴다. outbox 행은 3-1의 `OutboxSnapshot`(`payload()`는 `JsonNode`)으로 읽는다. 5-2·5-3 표에서 빈 줄로 끊긴 행을 이었다. 규격 변경 없음
-> 0.15 · 2026-10-18 · **확인 값을 읽는 코드를 읽기 헬퍼 한 번으로 줄였다**(지적 "확인할 값마다 쿼리·`Map` 변환 코드를 짜야 해서 비효율"): 빌링키는 `billingKeyOf`·`billingKeysOf`(5-1), 구독은 `subscriptionSnapshotOf`·`subscriptionIdsOf`(5-2), 회차·회차 주문·결제는 `cyclesOf`·`orderRowsOf`(5-3, 가게주문·품목 상태는 2-8a의 `snapshotOf(orderId)`), 알림은 `notificationRowsOf`(5-4)로 읽고 단언은 `s.status()`처럼 한 줄로 쓴다. 각 단계의 "이 단계에서 추가하는 헬퍼" 표에 읽는 테이블·컬럼과 반환 필드를 적었다. 같은 클래스 안에서 같은 값을 여러 케이스가 되풀이하던 확인(5-3 8번의 회차 `SKIPPED` 재확인 등)을 그 값이 목적인 케이스에만 남겼다. 규격·동작은 0.14와 같다
-> 0.14 · 2026-10-18 · **완료 확인을 케이스별 준비·동작·확인 값으로 풀어 썼다**(지적 "뭘 확인해야 하는지 애매모호하다"): 단계마다 "확인 값을 읽는 방법"(응답 jsonPath, JDBC 테이블·컬럼, 가짜 PG 요청, outbox 이벤트)과 공통 준비를 적고, 케이스마다 준비·호출·확인할 값(응답 코드, DB 컬럼, 가짜 PG 요청 횟수·헤더·본문, 건수 0인 부정 확인)을 숫자로 적었다. 5-3은 기준 날짜(`today`, `nextMonday`)를 만드는 법과 같은 잡을 몇 번 돌렸을 때 각 값이 몇이 되는지를 표로 적었다. 추가한 확인: 5-1 발급 실패의 무저장·삭제 성공·목록·탈퇴 후 타인 키 유지, 5-2 해지 뒤 폐업·탈퇴·빌링키 삭제 통과, 5-3 정지된 구독 미실행·건너뜀 사유별 행·건너뛴 회차의 가격 승격 취소·대사로 닫히는 실패·회차 이력 API, 5-4 경계(정확히 3일 전)·판매자 현황 개인정보 비노출. 5-3 테스트 헬퍼 `setCycleDate`는 회차가 둘 이상이면 unique에 걸려 `moveCyclesToPast`로 바꿨다. 규격·동작은 0.13과 같다
-> 0.13 · 2026-10-16 · **쓰지 않는 요소와 재사용하려고 억지로 맞춘 경로를 걷어냈다**(구현 전 점검): ① `PaymentApi.getActiveBillingKey`가 돌려주던 `BillingKeyInfo`를 호출자가 쓰지 않아 반환 없는 `verifyActiveBillingKey`로 바꾸고 record를 지웠다. ② `TossBillingResponse.customerKey`(발급 응답에서 읽지 않는 값)를 뺐다. ③ 호출이 없던 `Subscription.isActiveLike()`를 지웠다. ④ SKIPPED 회차는 `insertIfAbsent`에 `failureReason` 인자를 더해 한 번의 INSERT로 만들고 `recordSkipReason`·추가 조회·UPDATE를 없앴다(같은 날 다른 실행이 먼저 만든 경우의 종료도 적었다). ⑤ 구독 회차 주문의 결제 시작은 방금 만든(커밋 전) 주문에 2-4 `startPayment` CAS를 거는 대신 `Order.markPaymentInProgress()`로 바꿔, 항상 성공하는 UPDATE와 문서에 없던 0행 처리를 없앴다(`SubscriptionCycleService`의 `OrderRepository` 의존 제거, 완료 확인에 `OrderTest` 추가). 외부에서 보이는 동작·계약은 0.12와 같다
-> 0.12 · 2026-10-16 · **구현물이 단계 설명 안에 숨어 있던 곳을 표로 올렸다**(구현 중 지적 "리포지토리·엔티티 작업이 설명에 흩어져 있다"): 5-1 `TossClient`·payment·order 구현물, 5-2 `SubscriptionRepository` 메서드와 application 구현물, 5-3 payment 변경(`StartPayment`·`Payment.begin`·`PgOutcome`·`markApproved`)과 order 구현물(`findDueIds`·`Subscription` 회차 반영 메서드·이벤트), 5-4 이벤트·서비스·consumer·판매자 조회 구현물을 "대상 · 규격 · 쓰이는 곳" 표로 옮기고 단계마다 구현 순서 줄을 더했다. 단계마다 `TestFixtures` 헬퍼("테스트 준비")를 적고 5-2 컨트롤러 테스트에 `cycle.value` 범위 케이스를 더했다. 5-3에서 `queryOutcome`의 `PgResult → PgOutcome` 변환도 `paymentKey`를 채우는 곳으로 적었다(자리 값 덮어쓰기 규칙이 대사 경로에서도 지켜지게, 규칙은 그대로). 중복 문장(`type == NORMAL` 조건, 자리 값 설명, `allowedDependencies` 확인 필요 등)을 줄이고 표의 "단위 테스트 핵심"을 지웠다. 규격·동작은 0.11과 같다
-> 0.11 · 2026-10-15 · **구독 신청 응답·주기 범위 검증·payment 의존 결정 반영**(리뷰 결정): 신청 응답은 `SubscriptionIdResponse(subscriptionId)`로 확정(API 명세 §3.5 맞춤), 주기 범위 위반은 서비스가 400 `INVALID_REQUEST`로 바꾸고, payment `allowedDependencies`에 `member::api`를 더했다. 그 밖의 규격은 0.10과 같다
-> 0.10 · 2026-10-15 · **빌링 결제의 `payment_key` 처리를 정했다**(리뷰 결정): `begin`은 자리 값 `"BILLING-" + orderId`, 승인 뒤 `PgOutcome.paymentKey`로 덮어쓴다(5-3에서 `PgOutcome`·`markApproved` 변경). 그 밖의 규격은 0.9와 같다
-> 0.9 · 2026-10-15 · **Part 5 클래스·메서드 설명을 풀어 썼다**(구현 중 "뭔지 모르겠다" 지적): 한 줄 표로만 적혀 있던 클래스·메서드마다 목적·호출 위치·입력/반환·예외·함정을 적었다(`AesGcmEncryptor`, `TossClient` 빌링 메서드, `BillingKeyService`, `SubscriptionSchedule`·`Subscription`, `subscribe`, `OrderPlacer`, `runDue`·`onOrderClosed`, 5-4 consumer·`applyPriceChange`). 문서에 없어 구현이 막히던 부분(카드 등록창 `customerKey` 출처, 빌링 결제의 `payment_key`, 주기 범위 위반 응답, 구독 이벤트 reason 등)은 "(확인 필요)"로 표시했다. 규격·동작은 직전 버전과 같다
-> 0.8 · 2026-10-14 · **표현·구조 정리**(설계·동작 변경 없음): 5-1 `TossClient` 추가의 참조를 2-3의 `classify`로 맞추고(2-3에서 분류표를 흐름으로 합쳤다), 빌링 결제의 2xx 해석을 적었다. 5-1 삭제 순서·5-2 `subscribe` 순서를 번호 목록으로 풀었다
-> 0.7 · 2026-10-12 · 참조 문구를 Part 2의 "추가 항목" 용어에 맞췄다
-> 0.6 · 2026-10-09 · **사실 확인·정합**: Toss 빌링 API(발급·승인·삭제 엔드포인트와 응답 필드)를 개발자센터 문서와 대조해 확정, Part 2에서 제안으로 옮긴 `pg_call_log` 잔재를 로그 확인으로 바꿨다
-> 0.5 · 2026-10-02 · **덜어내기**: 회차 선점(PROCESSING 리스·재시도 회차·시도 수) 제거 — 회차 INSERT와 주문 생성을 한 트랜잭션으로
-> 0.4 · 2026-10-02 · 예치금 제거: 구독의 "예치금 우선 사용" 옵션 삭제, 회차 결제는 항상 빌링
-> 0.3 · 이 문서만 보고 개발할 수 있게 구체화(빌링·구독·회차의 구현 규격과 테스트 케이스)
+> 버전 0.31 · 2026-10-31 · 로드맵의 옛 Part 5를 서브로 옮겼다(파일은 `03-roadmap/part5-subscription.md`에서 이동, 단계 ID는 5-1~5-4에서 SUB-1~SUB-4로): Stage 1 뒤에 하고 `v1.x.0`으로 릴리스한다. Part 6에서 뺀 구독 점검(로그 점검, 빌링 호출 지표, INV-08, E2E S5·S7)을 "Part 6에 더할 것"으로 옮겼다
+> 0.30 · 2026-10-28 · SUB-2 구독 신청에서 이메일 인증 확인(`@RequireVerifiedEmail`)을 뺐다. 4-2부터 가입 전에 이메일을 인증해 모든 회원이 인증된 이메일을 가진다
+> 0.29 · 2026-10-27
+> 0.13 · 2026-10-16 · 쓰지 않는 요소와 억지 재사용 경로를 걷어냈다. `PaymentApi.getActiveBillingKey`(반환 `BillingKeyInfo`)를 반환 없는 `verifyActiveBillingKey`로 바꾸고 record를 지웠다. `TossBillingResponse.customerKey`와 `Subscription.isActiveLike()`를 뺐다. SKIPPED 회차는 `insertIfAbsent`에 `failureReason` 인자를 더해 한 번의 INSERT로 만들고 `recordSkipReason`·추가 조회·UPDATE를 없앴다(같은 날 다른 실행이 먼저 만든 경우의 종료도 적었다). 구독 회차 주문의 결제 시작은 2-4 `startPayment` CAS 대신 `Order.markPaymentInProgress()`로 바꿨다(`SubscriptionCycleService`의 `OrderRepository` 의존 제거)
+> 0.12 · 2026-10-16 · SUB-3 `queryOutcome`의 `PgResult → PgOutcome` 변환도 `paymentKey`를 채우는 곳으로 적었다(자리 값 덮어쓰기 규칙이 대사 경로에서도 지켜지게)
+> 0.11 · 2026-10-15 · 구독 신청 응답을 `SubscriptionIdResponse(subscriptionId)`로 확정(API 명세 §3.5)했다. 주기 범위 위반은 서비스가 400 `INVALID_REQUEST`로 바꾸고, payment `allowedDependencies`에 `member::api`를 더했다
+> 0.10 · 2026-10-15 · 빌링 결제의 `payment_key`: `begin`은 자리 값 `"BILLING-" + orderId`, 승인 뒤 `PgOutcome.paymentKey`로 덮어쓴다(SUB-3에서 `PgOutcome`·`markApproved` 변경)
+> 0.6 · 2026-10-09 · Toss 빌링 API(발급·승인·삭제 엔드포인트와 응답 필드)를 개발자센터 문서와 대조해 확정했고, `pg_call_log` 잔재를 로그 확인으로 바꿨다
+> 0.5 · 2026-10-02 · 회차 선점(PROCESSING 리스·재시도 회차·시도 수)을 제거하고 회차 INSERT와 주문 생성을 한 트랜잭션으로 했다
+> 0.4 · 2026-10-02 · 예치금 제거: 구독의 "예치금 우선 사용" 옵션을 삭제하고 회차 결제는 항상 빌링으로 했다
 
 > **끝나면**: 구매자가 상품을 정기 구독하고, 매 회차 빌링키로 자동 결제되어 주문이 생긴다. 같은 날 잡이 두 번 돌아도 결제는 한 번이다.
 > **인프라 추가**: 없음 (Toss 빌링 API, 테스트는 가짜 PG 서버)
-> **릴리스**: `v0.5.0`
+> **서브**: 로드맵(Part 1~6)에서 뺀 기능이다. Stage 1 뒤에 하고, Part 6의 점검에 구독을 더한다(아래 "Part 6에 더할 것", [서브 안내](README.md)).
+> **릴리스**: Stage 1 뒤에 하므로 `v1.x.0`
 
 | 단계 | 제목 | 크기 |
 |---|---|---|
-| 5-1 | 빌링키 등록 · 조회 · 삭제 | M |
-| 5-2 | 구독 신청 · 관리 | M |
-| 5-3 | 구독 회차 실행 잡 | L |
-| 5-4 | 가격 변경 · 종료 이벤트 반영 | M |
+| SUB-1 | 빌링키 등록 · 조회 · 삭제 | M |
+| SUB-2 | 구독 신청 · 관리 | M |
+| SUB-3 | 구독 회차 실행 잡 | L |
+| SUB-4 | 가격 변경 · 종료 이벤트 반영 | M |
 
 ---
 
-## Part 5 공통 규칙 (Part 1~4 공통 규칙에 더해서)
+## Part 6에 더할 것
+
+구독은 Part 6 뒤에 하므로, Part 6이 만든 로그 점검·지표·E2E 시나리오·불변식 점검에 구독을 더한다. 아래 단계를 마칠 때 해당 항목을 함께 반영한다.
+
+| 단계 | 더할 곳 | 항목 |
+|---|---|---|
+| SUB-1 | 6-1 `LogSafetyTest` | 1 |
+| SUB-1·SUB-3 | 6-2 `pg_call_seconds` | 2 |
+| SUB-3 | 6-4 `InvariantChecker`·`InvariantCheckerTest`, 잡 표 | 3 |
+| SUB-3 | 6-4 시나리오 S5 | 4 |
+| SUB-4 | 6-4 시나리오 S7 | 5 |
+
+**1) 6-1 `LogSafetyTest`** — 준비 표에서 주문 만들기(`createPendingOrder`) 앞에 아래 행을 넣고 뒤 행의 번호를 하나씩 민다(결제 요청의 "6번 값"·"6번 totalAmount"도 7번으로). 확인 목록의 `paymentKey` 앞에 `authKey`와 빌링키 평문을 더한다.
+
+| 순서 | 요청 | 모아 둘 값 |
+|---|---|---|
+| 6 | `POST /api/billing-keys` 본문 `{"authKey":"auth_logsafe_0001"}` → 201 | `authKey` = `auth_logsafe_0001`, 빌링키 평문 = JDBC `SELECT billing_key_encrypted FROM payment.billing_key WHERE member_id = ?`을 `AesGcmEncryptor.decrypt`로 푼 값 |
+
+**2) 6-2 `pg_call_seconds`** — SUB-1이 더한 `issueBillingKey`와 SUB-3이 더한 `billingCharge`(로그의 작업 이름 `BILLING_ISSUE`·`BILLING`)에도 같은 Timer를 걸지, `operation` 값을 무엇으로 할지는 문서에 없다(확인 필요).
+
+**3) 6-4 불변식 점검과 잡 표**
+
+`InvariantChecker`에 메서드를 더하고 `checkAll()`의 INV 칸을 INV-01~08로 바꾼다.
+
+| 메서드 | SQL 요지 | INV |
+|---|---|---|
+| `subscriptionCycles()` | `subscription_cycle`에서 `(subscription_id, cycle_date)`마다 행이 1개이고, `status = 'PAID'`인 회차의 `order_id` 주문이 `PAID`이며 한 주문이 두 회차에 연결되지 않는다 | INV-08 |
+
+`InvariantCheckerTest` 표에 행을 더한다.
+
+| 메서드 | 정상 데이터 | 깨뜨리는 JDBC | 메시지에 담긴 id |
+|---|---|---|---|
+| `subscriptionCycles()` | 구독 1건의 회차를 `runDue()`로 성공(회차 `PAID`, 주문 `PAID`) | `UPDATE orders.orders SET status = 'PAYMENT_FAILED' WHERE id = {회차의 order_id}` | 회차 ID |
+
+잡 표에 행을 더하고, 시나리오 클래스의 주입에 `SubscriptionCycleService`를 더한다.
+
+| 단계 | 호출 | 정의 |
+|---|---|---|
+| 구독 회차 | `subscriptionCycleService.runDue()` → `int`(회차를 만든 구독 수) | SUB-3 |
+
+**4) 6-4 시나리오 S5** — 시나리오 표에 행을 더한다.
+
+| ID | 클래스 | 흐름 |
+|---|---|---|
+| S5 | `SubscriptionE2ETest` | 빌링키 등록 → 구독 → 회차 잡(성공) → 다음 회차 거절 3번 → SUSPENDED → 재개 |
+
+완료 확인에 더할 것:
+- "이미 있는 헬퍼"에 `registerSubscribableProduct`·`registerBillingKey`·`createSubscription`(SUB-2), `subscriptionSnapshotOf`(SUB-2)·`cyclesOf`·`setSubscriptionNextRunDate`·`moveCyclesToPast`(SUB-3)를 더한다.
+- "확인 값을 읽는 방법"에 아래 두 줄을 더한다.
+  - 구독: `subscriptionSnapshotOf(subscriptionId)`(SUB-2)의 `status()`·`consecutiveFailures()`·`nextRunDate()`·`endReason()`, 회차 목록은 `cyclesOf(subscriptionId)`(SUB-3) → `CycleRow`의 `cycleDate()`·`status()`·`orderId()`·`appliedUnitPrice()`.
+  - 한 곳에서만 쓰는 값(S5 1번의 구독 주문 `orders.orders.type`·`total_amount`)은 JDBC 한 줄로 읽는다.
+- S4와 S6 사이에 아래 시나리오를 더한다.
+
+### 시나리오 S5: `e2e/SubscriptionE2ETest`
+
+**준비**: 판매자, 가게, 구독 상품 `registerSubscribableProduct(sellerId, shopId, 10000, 20)`, 구매자, `billingKeyId = registerBillingKey(구매자 ID)`, `subscriptionId = createSubscription(구매자 ID, 상품 ID, billingKeyId)`(주기 WEEKLY 1 = 월요일, 수량 1). 아래 "다시 실행"은 `moveCyclesToPast(subscriptionId)` 뒤에 `setSubscriptionNextRunDate(subscriptionId, today)`를 부르는 것이다(회차가 둘 이상일 때 `cycle_date - 1`은 unique에 걸려 쓰지 않는다, SUB-3).
+
+**확인 표기**: 각 "확인"은 맨 앞에 읽는 곳을 쓴다. `응답(andExpect)`는 요청 호출 체인에 바로 거는 상태·헤더·`jsonPath` 단언, `응답 본문(andReturn 후)`는 `.andReturn()`으로 받은 `MvcResult`에서 꺼낸 상태·헤더·본문 값, `DB(헬퍼)`는 `TestFixtures` 등의 읽기 헬퍼, `Redis(헬퍼/키)`, `ES(헬퍼)`, `outbox(OutboxAssert.rows(토픽))`, `Kafka(TestKafka.messages)`, `메일(fakeMailSender.sent())`, `로그(output.getAll())`, `메트릭(registry)`, `가짜 서버 요청(가짜 서버의 요청 기록 호출)`, `반환값`은 서비스·도메인 테스트가 직접 받은 값, `예외`는 던져진 예외, `명령 출력`은 수동 확인의 명령 결과다. 한 줄에 읽는 곳이 둘이면 줄을 나눈다.
+
+1. **성공 회차** — `setSubscriptionNextRunDate(subscriptionId, today)` → `subscriptionCycleService.runDue()`.
+   - 반환값: 1.
+   - DB(cyclesOf(subscriptionId)): `.size()`가 1. 그 `get(0)`의 `cycleDate()` = `today`, `status()` = `PAID`, `appliedUnitPrice()` = 10000, `orderId()` = 구독 주문 ID(`subOrderId`로 둔다).
+   - DB(snapshotOf(subOrderId)): `status()` = `PAID`.
+   - DB(subscriptionSnapshotOf(subscriptionId)): `consecutiveFailures()` = 0.
+   - DB(subscriptionSnapshotOf(subscriptionId)): `nextRunDate()`가 `today`보다 크고 `today.plusDays(7)` 이하이며 `getDayOfWeek()` = `MONDAY`.
+2. **거절 1회** — `pg.on("/v1/billing/bk_", Behavior.reject("REJECT_CARD_COMPANY"))` → 다시 실행 → `runDue()`.
+   - 반환값: 1.
+   - DB(cyclesOf(subscriptionId)): 마지막 원소의 `status()` = `FAILED`.
+   - DB(snapshotOf(마지막 회차의 orderId())): `status()` = `PAYMENT_FAILED`.
+   - DB(subscriptionSnapshotOf(subscriptionId)): `consecutiveFailures()` = 1, `nextRunDate()` = `today.plusDays(1)`.
+   - outbox(OutboxAssert.rows("order.subscription-cycle-failed.v1")): `.size()`가 1이고 그 행 `payload().get("consecutiveFailures").asText()` = `"1"`.
+3. **거절 2회** — 다시 실행 → `runDue()`.
+   - 반환값: 1.
+   - DB(subscriptionSnapshotOf(subscriptionId)): `consecutiveFailures()` = 2.
+   - outbox(OutboxAssert.rows("order.subscription-cycle-failed.v1")): `.size()`가 누적 2.
+4. **거절 3회** — 다시 실행 → `runDue()`.
+   - 반환값: 1.
+   - DB(subscriptionSnapshotOf(subscriptionId)): `status()` = `SUSPENDED`, `consecutiveFailures()` = 3.
+   - DB(cyclesOf(subscriptionId)): 각 원소의 `status()`를 생성 순으로 모은 목록 = [`PAID`, `FAILED`, `FAILED`, `FAILED`].
+   - outbox(OutboxAssert.rows("order.subscription-status-changed.v1")): `.size()`가 1이고 그 행 `payload().get("from").asText()` = `ACTIVE`, `payload().get("to").asText()` = `SUSPENDED`.
+   - outbox(OutboxAssert.rows("order.subscription-cycle-failed.v1")): `.size()`는 2 그대로.
+5. **정지 중에는 실행되지 않음** — 다시 실행 → `runDue()`.
+   - 반환값: 0.
+   - DB(cyclesOf(subscriptionId)): `status()` 목록이 4번과 같다.
+6. **재개** — 구매자 토큰으로 `POST /api/subscriptions/{subscriptionId}/resume`.
+   - 응답(andExpect): 상태 200.
+   - DB(subscriptionSnapshotOf(subscriptionId)): `status()` = `ACTIVE`, `consecutiveFailures()` = 0, `nextRunDate()`가 `today`보다 크다.
+7. `checkAll()`.
+
+**5) 6-4 시나리오 S7** — 구독 상품을 함께 둔 흐름으로 바꾼다. 시나리오 표의 흐름은 "진행 중 주문이 있는 가게 폐업 거부 → 주문 종결 → 구독 상품 단종 → 폐업 → 상품 단종·SELLER 회수"이고, 완료 확인의 S7은 아래로 바꾼다.
+
+### 시나리오 S7: `e2e/ShopCloseE2ETest`
+
+**준비**: 판매자 1명, 가게 1개(이 판매자의 유일한 가게), 일반 상품 `product1` 10,000원, 구독 상품 `product2`(`registerSubscribableProduct(sellerId, shopId, 10000, 10)`), 구매자 1명. `orderId = createPaidOrder(구매자 ID, product1)`(가게주문 `PAID`), `createSubscription(구매자 ID, product2, registerBillingKey(구매자 ID))`(`ACTIVE`).
+**확인 표기**: 각 "확인"은 맨 앞에 읽는 곳을 쓴다. `응답(andExpect)`는 요청 호출 체인에 바로 거는 상태·헤더·`jsonPath` 단언, `응답 본문(andReturn 후)`는 `.andReturn()`으로 받은 `MvcResult`에서 꺼낸 상태·헤더·본문 값, `DB(헬퍼)`는 `TestFixtures` 등의 읽기 헬퍼, `Redis(헬퍼/키)`, `ES(헬퍼)`, `outbox(OutboxAssert.rows(토픽))`, `Kafka(TestKafka.messages)`, `메일(fakeMailSender.sent())`, `로그(output.getAll())`, `메트릭(registry)`, `가짜 서버 요청(가짜 서버의 요청 기록 호출)`, `반환값`은 서비스·도메인 테스트가 직접 받은 값, `예외`는 던져진 예외, `명령 출력`은 수동 확인의 명령 결과다. 한 줄에 읽는 곳이 둘이면 줄을 나눈다.
+
+1. **진행 중 주문** — 판매자 토큰으로 `DELETE /api/shops/{shopId}`.
+   - 응답(andExpect): 상태 422, `jsonPath("$.code")` = `SHOP_HAS_ACTIVE_ORDERS`.
+   - DB(shopSnapshotOf(shopId)): `status()` = `ACTIVE`, `closedAt()`이 null(`assertThat(...).isNull()`).
+   - outbox(OutboxAssert.rows("shop.shop-closed.v1")): `.size()`가 0.
+   - DB(memberSnapshotOf(판매자 ID)): `role()` = `SELLER`.
+   - DB(productSnapshotOf(product1)): `status()` = `ON_SALE`. DB(productSnapshotOf(product2)): `status()` = `ON_SALE`.
+2. **주문 종결** — `product1` 주문(`orderId`)을 발송·배송완료 API와 구매자의 구매확정 API로 끝낸 뒤 판매자 토큰으로 `DELETE /api/shops/{shopId}`.
+   - DB(snapshotOf(orderId)): `shopOrderStatus()` = `COMPLETED`.
+   - 응답(andExpect): 상태 422, `jsonPath("$.code")` = `SHOP_HAS_ACTIVE_ORDERS`, `jsonPath("$.details.reason")` = `ACTIVE_SUBSCRIPTION`.
+   - DB(shopSnapshotOf(shopId)): `status()` = `ACTIVE` 그대로.
+3. **구독 상품 단종** — `PATCH /api/shops/{shopId}/products/{product2}/status` 본문 `{"status":"DISCONTINUED"}`.
+   - 응답(andExpect): 상태 200.
+   - outbox(OutboxAssert.rows("product.product-discontinued.v1")): `.size()`가 1이고 그 행 `payload().get("reason").asText()` = `SELLER`.
+   - `outboxRelay.relayOnce()` 뒤 `Eventually` 안에서 DB(subscriptionSnapshotOf(subscriptionId)): `status()` = `TERMINATED`, `endReason()` = `PRODUCT_DISCONTINUED`.
+4. **폐업** — 판매자 토큰으로 `DELETE /api/shops/{shopId}`.
+   - 응답(andExpect): 상태 204.
+   - DB(shopSnapshotOf(shopId)): `status()` = `CLOSED`, `closedAt()`이 null이 아니다(`isNotNull()`).
+   - outbox(OutboxAssert.rows("shop.shop-closed.v1")): `.size()`가 1.
+   - `outboxRelay.relayOnce()` 뒤 `Eventually` 안에서 DB(productSnapshotOf(product1)): `status()` = `DISCONTINUED`. DB(productSnapshotOf(product2)): `status()` = `DISCONTINUED`. DB(memberSnapshotOf(판매자 ID)): `role()` = `USER`.
+   - outbox(OutboxAssert.rows("product.product-discontinued.v1")): `.size()`가 총 2이고 각 행 `payload().get("reason").asText()`가 `SELLER`(`product2`), `SHOP_CLOSED`(`product1`).
+5. `checkAll()`.
+
+---
+
+## 구독 공통 규칙 (로드맵 Part 1~6 공통 규칙에 더해서)
 
 ### V. 구독 날짜 규칙
 - 날짜는 모두 **업무 날짜**(`LocalDate`, Asia/Seoul)다. "오늘" = `LocalDate.now(clock.withZone(businessZone))`. `businessZone`은 3-4a가 만든 `BusinessProperties.businessZone()`(`myroutine.business-zone`)이고, `Clock`과 함께 주입받아 쓴다.
 - 주기: `WEEKLY` + 요일 1~7(월=1, `DayOfWeek.getValue()`), `MONTHLY` + 일 1~28(29~31일은 달마다 없을 수 있어 막는다).
 - 날짜 계산은 `SubscriptionSchedule` 값 객체 한 곳에서만 한다(서비스·잡에 날짜 계산 코드 금지).
 
-### W. Part 5 에러 코드
+### W. 구독 에러 코드
 
 | 코드 | HTTP | 메시지 | 정의 위치 | 단계 |
 |---|---|---|---|---|
-| `BILLING_KEY_NOT_FOUND` | 404 | 결제수단을 찾을 수 없습니다. | `PaymentErrorCode` | 5-1 |
-| `BILLING_KEY_ISSUE_FAILED` | 422 | 카드 등록에 실패했습니다. | `PaymentErrorCode` | 5-1 |
-| `BILLING_KEY_IN_USE` | 409 | 사용 중인 구독이 있어 삭제할 수 없습니다. | `OrderErrorCode` | 5-1 |
-| `SUBSCRIPTION_NOT_FOUND` | 404 | 구독을 찾을 수 없습니다. | `OrderErrorCode` | 5-2 |
-| `PRODUCT_NOT_SUBSCRIBABLE` | 422 | 구독할 수 없는 상품입니다. | `OrderErrorCode` | 5-2 |
+| `BILLING_KEY_NOT_FOUND` | 404 | 결제수단을 찾을 수 없습니다. | `PaymentErrorCode` | SUB-1 |
+| `BILLING_KEY_ISSUE_FAILED` | 422 | 카드 등록에 실패했습니다. | `PaymentErrorCode` | SUB-1 |
+| `BILLING_KEY_IN_USE` | 409 | 사용 중인 구독이 있어 삭제할 수 없습니다. | `OrderErrorCode` | SUB-1 |
+| `SUBSCRIPTION_NOT_FOUND` | 404 | 구독을 찾을 수 없습니다. | `OrderErrorCode` | SUB-2 |
+| `PRODUCT_NOT_SUBSCRIBABLE` | 422 | 구독할 수 없는 상품입니다. | `OrderErrorCode` | SUB-2 |
 
 ---
 
-## 5-1. 빌링키 등록 · 조회 · 삭제 (M)
+## SUB-1. 빌링키 등록 · 조회 · 삭제 (M)
 
 **목표**: 카드를 빌링키로 등록해 두고 구독 결제에 쓴다.
 
@@ -108,7 +212,7 @@
 
 **2) common.crypto**
 `AesGcmEncryptor` (`@Component`) — **빌링키 같은 비밀 문자열을 DB에 넣기 전에 암호화하고, 꺼낼 때 복호화하는 도구**
-- **왜**: 빌링키는 알면 결제를 일으킬 수 있는 비밀이라, DB가 유출돼도 원문이 보이지 않게 한다. 암호화는 `BillingKeyService.register`(5-1), 복호화는 `PaymentApiImpl.callBillingCharge`(5-3)가 한다.
+- **왜**: 빌링키는 알면 결제를 일으킬 수 있는 비밀이라, DB가 유출돼도 원문이 보이지 않게 한다. 암호화는 `BillingKeyService.register`(SUB-1), 복호화는 `PaymentApiImpl.callBillingCharge`(SUB-3)가 한다.
 - **키**: `myroutine.crypto.billing-key-secret`(환경변수 `BILLING_KEY_SECRET`, Base64 32바이트, 생성 `openssl rand -base64 32`). 시작할 때 `Base64.getDecoder().decode(값)`으로 `byte[]`를 만들고 `new SecretKeySpec(bytes, "AES")`를 필드로 들고 있는다. 32바이트가 아니면 기동 때 거절하는 편이 안전하다(잘못된 길이의 키로 조용히 도는 것을 막는다). 설정은 `TossProperties`처럼 `@ConfigurationProperties` record로 받는다(이름은 자유).
 - **필수 설정이라 머지 전에 운영 VM `.env`와 `.env.ops.example`에 키를 먼저 넣는다**: 필수 프로퍼티(`@NotBlank`)가 VM `.env`에 없으면 develop 머지 뒤 자동 배포가 기동에 실패해 롤백된다. 테스트 프로필에는 테스트 전용 키를 적는다.
 
@@ -137,7 +241,7 @@
 | `PaymentErrorCode` | payment 전용 에러 코드. `ErrorCode`를 구현하는 enum(구조는 `OrderErrorCode`와 같다). `BILLING_KEY_NOT_FOUND`(404), `BILLING_KEY_ISSUE_FAILED`(422) — 값·메시지는 위 W 표. 2-4에서는 만들지 않았고 여기서 처음 만든다. `BillingKeyService`와 `PaymentApi.verifyActiveBillingKey`가 던진다 |
 | `BillingKeyStatus` | `ACTIVE`, `DELETED` |
 | `BillingKey` (entity) | `@Entity @Table(name = "billing_key", schema = "payment")`, `extends BaseTimeEntity`, 필드는 1) 마이그레이션의 컬럼과 1:1(`@Version Long version` 포함). `static BillingKey register(UUID memberId, String customerKey, String encryptedKey, String cardSummary)` → `id = Ids.newId()`, ACTIVE. `encryptedKey`는 **이미 암호화된** 문자열이다(엔티티는 암호화를 모른다). `void delete(Instant now)` → DELETED, `deletedAt = now` |
-| `BillingKeyRepository` | `BillingKey save(BillingKey)`, `Optional<BillingKey> findById(UUID id)`, `Optional<BillingKey> findByIdAndMemberId(UUID id, UUID memberId)`, `List<BillingKey> findAllByMemberIdAndStatus(UUID memberId, BillingKeyStatus status)`(이름은 예. 인덱스 `idx_billing_key_member_id`가 받친다). `save`는 `register`, `findByIdAndMemberId`는 `delete`·`verifyActiveBillingKey`, `findAllByMemberIdAndStatus`는 `list`·탈퇴 삭제, `findById`는 5-3 `callBillingCharge`가 쓴다 |
+| `BillingKeyRepository` | `BillingKey save(BillingKey)`, `Optional<BillingKey> findById(UUID id)`, `Optional<BillingKey> findByIdAndMemberId(UUID id, UUID memberId)`, `List<BillingKey> findAllByMemberIdAndStatus(UUID memberId, BillingKeyStatus status)`(이름은 예. 인덱스 `idx_billing_key_member_id`가 받친다). `save`는 `register`, `findByIdAndMemberId`는 `delete`·`verifyActiveBillingKey`, `findAllByMemberIdAndStatus`는 `list`·탈퇴 삭제, `findById`는 SUB-3 `callBillingCharge`가 쓴다 |
 | `BillingIssueResult` | `sealed interface { Issued(String billingKey, String cardSummary); Rejected(String code); Unknown(String reason) }`. `PgResult`(`Approved`·`Rejected(String code, String message)`·`Unknown(String reason)`)처럼 payment.domain에 sealed interface와 중첩 record로 둔다. `TossClient.issueBillingKey`가 반환하고 `BillingKeyService.register`가 분기한다 |
 
 **4) payment.api**
@@ -145,7 +249,7 @@
 | 클래스 | 규격 |
 |---|---|
 | `BillingKeyDeletionPrecondition` | `interface { void check(UUID billingKeyId); }` — 삭제해도 되는지 검사하고 안 되면 `BusinessException`을 던진다. 구독은 order 데이터라 payment가 직접 볼 수 없어서 payment가 인터페이스를 정의하고 order가 구현한다(의존 역전). `BillingKeyService.delete`가 부른다 |
-| `PaymentApi` (기존 인터페이스에 추가) | `void verifyActiveBillingKey(UUID memberId, UUID billingKeyId)` — order(5-2 구독 신청·수정, `SubscriptionService.subscribe`·`change`)가 "이 빌링키가 내 것이고 살아 있는가"를 확인하는 데 쓴다. 반환값은 없다(호출자가 빌링키 내용을 쓰지 않는다). 없거나 남의 것·DELETED면 `BILLING_KEY_NOT_FOUND`(404) |
+| `PaymentApi` (기존 인터페이스에 추가) | `void verifyActiveBillingKey(UUID memberId, UUID billingKeyId)` — order(SUB-2 구독 신청·수정, `SubscriptionService.subscribe`·`change`)가 "이 빌링키가 내 것이고 살아 있는가"를 확인하는 데 쓴다. 반환값은 없다(호출자가 빌링키 내용을 쓰지 않는다). 없거나 남의 것·DELETED면 `BILLING_KEY_NOT_FOUND`(404) |
 
 **5) payment.package-info**
 
@@ -163,7 +267,7 @@
 | `TossBillingResponse` | `record (String billingKey, String cardCompany, String cardNumber)` + `@JsonIgnoreProperties(ignoreUnknown = true)`. Toss는 `customerKey`(우리가 보낸 값)와 `card` 객체 등 더 많은 필드를 주지만 이 세 개만 받는다. `issueBillingKey`의 응답 본문이다 |
 | `TossClient.classify` 일반화 (기존 메서드 수정) | 지금은 본문 타입이 `TossPaymentResponse`, 결과가 `PgResult`로 고정돼 발급에 그대로 쓸 수 없다. 4xx·5xx 처리는 같으므로 본문 타입과 성공 변환을 파라미터로 받게 일반화하거나 발급용 분류를 따로 둔다(방식은 구현 재량). 기존 `confirm`·`cancel`·`queryByOrderId`의 동작은 그대로다. `issueBillingKey`가 쓴다 |
 | `TossClient.issueBillingKey` | `BillingIssueResult issueBillingKey(String authKey, String customerKey)` — 카드 등록창이 돌려준 `authKey`를 빌링키로 바꾼다. 돈은 오가지 않는다. 요청·분류는 아래. `BillingKeyService.register`가 부른다 |
-| `TossClient.billingCharge` | `PgResult billingCharge(UUID paymentId, String billingKey, String customerKey, String pgOrderId, Money amount, String orderName)` — 저장해 둔 빌링키로 결제를 요청한다. 요청·응답은 아래. 5-3 `PaymentApiImpl.callBillingCharge`가 부른다 |
+| `TossClient.billingCharge` | `PgResult billingCharge(UUID paymentId, String billingKey, String customerKey, String pgOrderId, Money amount, String orderName)` — 저장해 둔 빌링키로 결제를 요청한다. 요청·응답은 아래. SUB-3 `PaymentApiImpl.callBillingCharge`가 부른다 |
 
 `issueBillingKey`
 - 요청: `POST /v1/billing/authorizations/issue`, 바디 `Map.of("authKey", authKey, "customerKey", customerKey)`. 위 API 표에 `Idempotency-Key`가 없으므로 붙이지 않는다.
@@ -186,7 +290,7 @@
 
 | 클래스 | 규격 |
 |---|---|
-| `FakePgServer` (2-3, 기본 동작 추가) | 발급(`/v1/billing/authorizations/issue`)은 `{billingKey: "bk_" + 랜덤, cardCompany: "신한", cardNumber: "1234****5678"}`를 돌려준다. 결제(`/v1/billing/{billingKey}`)는 승인 경로와 같은 방식(바디의 `orderId`·`amount`로 `approved`에 기록, 멱등 키로 첫 응답 저장)이고, 바디에 `paymentKey`가 없으므로 가짜 서버가 만든다(예: `"pay_" + 랜덤`). 기록해 두면 `/v1/payments/orders/{orderId}` 조회가 되어 5-3의 대사 테스트가 된다. 경로 접두어가 `/v1/billing/`로 겹치므로 `handle`의 `defaultHandling` 분기에서 발급 경로를 먼저 판별한다. 테스트에서 결제에만 동작을 걸려면 접두어를 `/v1/billing/bk_`처럼 길게 쓴다(가장 긴 접두어가 이긴다). `TossBillingClientTest`, 5-1 `registerBillingKey`, 5-3 이후 구독 테스트가 쓴다 |
+| `FakePgServer` (2-3, 기본 동작 추가) | 발급(`/v1/billing/authorizations/issue`)은 `{billingKey: "bk_" + 랜덤, cardCompany: "신한", cardNumber: "1234****5678"}`를 돌려준다. 결제(`/v1/billing/{billingKey}`)는 승인 경로와 같은 방식(바디의 `orderId`·`amount`로 `approved`에 기록, 멱등 키로 첫 응답 저장)이고, 바디에 `paymentKey`가 없으므로 가짜 서버가 만든다(예: `"pay_" + 랜덤`). 기록해 두면 `/v1/payments/orders/{orderId}` 조회가 되어 SUB-3의 대사 테스트가 된다. 경로 접두어가 `/v1/billing/`로 겹치므로 `handle`의 `defaultHandling` 분기에서 발급 경로를 먼저 판별한다. 테스트에서 결제에만 동작을 걸려면 접두어를 `/v1/billing/bk_`처럼 길게 쓴다(가장 긴 접두어가 이긴다). `TossBillingClientTest`, SUB-1 `registerBillingKey`, SUB-3 이후 구독 테스트가 쓴다 |
 
 **8) order.domain**
 
@@ -198,7 +302,7 @@
 
 | 클래스 | 규격 |
 |---|---|
-| `OrderBillingKeyDeletionPrecondition` (`@Component`, `implements BillingKeyDeletionPrecondition`) | `check(billingKeyId)`: 이 빌링키를 쓰는 ACTIVE·PAUSED·SUSPENDED 구독이 있으면 `BusinessException(BILLING_KEY_IN_USE)`(409). 5-1 시점에는 구독 테이블이 없으므로 클래스만 두고 `check`는 비워 둔다. 5-2에서 `existsByBillingKeyIdAndStatusIn`을 채운다. 구현이 하나도 없으면 `BillingKeyService`의 `List<BillingKeyDeletionPrecondition>` 주입이 실패하므로 5-1에서 먼저 만들어 둔다. `BillingKeyService.delete`가 부른다 |
+| `OrderBillingKeyDeletionPrecondition` (`@Component`, `implements BillingKeyDeletionPrecondition`) | `check(billingKeyId)`: 이 빌링키를 쓰는 ACTIVE·PAUSED·SUSPENDED 구독이 있으면 `BusinessException(BILLING_KEY_IN_USE)`(409). SUB-1 시점에는 구독 테이블이 없으므로 클래스만 두고 `check`는 비워 둔다. SUB-2에서 `existsByBillingKeyIdAndStatusIn`을 채운다. 구현이 하나도 없으면 `BillingKeyService`의 `List<BillingKeyDeletionPrecondition>` 주입이 실패하므로 SUB-1에서 먼저 만들어 둔다. `BillingKeyService.delete`가 부른다 |
 
 **10) payment.application**
 
@@ -212,7 +316,7 @@
 - `register`: 카드를 등록한다. `authKey` → 저장된 빌링키 요약. 순서는 아래
 - `list`: 내 ACTIVE 빌링키 목록(정렬 기준은 문서에 없다 — 확인 필요) → 목록
 - `delete`: 빌링키를 삭제(상태만 DELETED)한다 → 없음. 순서는 아래
-- `deleteAllByMember`: 회원의 ACTIVE 빌링키를 모두 DELETED로 바꾼다. 삭제 조건 검사는 거치지 않는다(탈퇴는 활성 구독이 없을 때만 통과한다, 3-6·5-2). 회원 ID → 없음
+- `deleteAllByMember`: 회원의 ACTIVE 빌링키를 모두 DELETED로 바꾼다. 삭제 조건 검사는 거치지 않는다(탈퇴는 활성 구독이 없을 때만 통과한다, 3-6·SUB-2). 회원 ID → 없음
 
 `register` 순서
 1. `String customerKey = UUID.randomUUID().toString()` — 정책의 "추측할 수 없는 랜덤 UUID". 시각이 들어 있는 `Ids.newId()`(UUIDv7)는 쓰지 않는다
@@ -244,20 +348,20 @@
 
 ### 완료 확인
 
-**테스트 준비** ([Part 2 공통 규칙 N-1](part2-order-money.md#n-1-단계별-testfixtures-추가)과 같은 방식)
+**테스트 준비** ([Part 2 공통 규칙 N-1](../03-roadmap/part2-order-money.md#n-1-단계별-testfixtures-추가)과 같은 방식)
 
 아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `registerBillingKey(UUID memberId)` → `UUID` | `billingKeyService.register(memberId, "auth_" + UUID)`를 직접 호출하고 `BillingKeyResult.id()`를 돌려준다. 가짜 PG의 발급 기본 동작(`bk_` + 랜덤 빌링키)이 빌링키를 만든다. `TestFixtures`가 `BillingKeyService`를 주입받는다 | `BillingKeyControllerTest`(남의 빌링키 삭제), 5-2 이후 구독 테스트 |
-| `billingKeyOf(UUID billingKeyId)` → `BillingKeyRow` | JDBC `SELECT id, member_id, customer_key, billing_key_encrypted, card_summary, status, deleted_at FROM payment.billing_key WHERE id = ?` 한 행을 `support/`의 record로 돌려준다. 필드: `id`(UUID), `memberId`(UUID), `customerKey`(String), `billingKeyEncrypted`(String), `billingKey`(String. `aesGcmEncryptor.decrypt(billingKeyEncrypted)`한 원문, `TestFixtures`가 `AesGcmEncryptor`를 주입받는다), `cardSummary`(String), `status`(String), `deletedAt`(`Instant`, 없으면 null). 행이 없으면 예외 | `BillingKeyControllerTest`(등록·삭제 확인), 5-2 빌링키 삭제 거부, 5-3 빌링키 원문·`customerKey` |
+| `registerBillingKey(UUID memberId)` → `UUID` | `billingKeyService.register(memberId, "auth_" + UUID)`를 직접 호출하고 `BillingKeyResult.id()`를 돌려준다. 가짜 PG의 발급 기본 동작(`bk_` + 랜덤 빌링키)이 빌링키를 만든다. `TestFixtures`가 `BillingKeyService`를 주입받는다 | `BillingKeyControllerTest`(남의 빌링키 삭제), SUB-2 이후 구독 테스트 |
+| `billingKeyOf(UUID billingKeyId)` → `BillingKeyRow` | JDBC `SELECT id, member_id, customer_key, billing_key_encrypted, card_summary, status, deleted_at FROM payment.billing_key WHERE id = ?` 한 행을 `support/`의 record로 돌려준다. 필드: `id`(UUID), `memberId`(UUID), `customerKey`(String), `billingKeyEncrypted`(String), `billingKey`(String. `aesGcmEncryptor.decrypt(billingKeyEncrypted)`한 원문, `TestFixtures`가 `AesGcmEncryptor`를 주입받는다), `cardSummary`(String), `status`(String), `deletedAt`(`Instant`, 없으면 null). 행이 없으면 예외 | `BillingKeyControllerTest`(등록·삭제 확인), SUB-2 빌링키 삭제 거부, SUB-3 빌링키 원문·`customerKey` |
 | `billingKeysOf(UUID memberId)` → `List<BillingKeyRow>` | 위와 같은 컬럼을 `WHERE member_id = ? ORDER BY created_at, id`로 읽는다(삭제된 행 포함, 없으면 빈 목록) | `BillingKeyControllerTest`(등록 1건·실패 시 0건) |
 
 이미 있는 헬퍼(`TestFixtures`): `UUID signup(String email)`(비밀번호 `pass1234`로 가입한 회원 ID), `String login(String email)`(`pass1234`로 로그인한 access 토큰). 회원 탈퇴 이벤트를 확인하는 케이스는 `outboxRelay.relayOnce()`(outbox의 READY 행을 Kafka로 한 번 내보낸다)와 `Eventually.await(Duration timeout, ThrowingRunnable assertion)`(확인 코드가 예외 없이 끝날 때까지 100ms 간격으로 되풀이하고, 제한 시간이 지나면 마지막 실패를 던진다)를 쓴다.
 
 헬퍼를 쓰는 방법은 다음과 같다.
-- 응답: `jsonPath`. 에러 응답의 코드는 `$.code`. 목록 응답은 최상위가 배열이라 `$[0].id`처럼 읽는다.
+- 응답: `jsonPath`. 에러 응답의 코드는 `$.code`. 목록 응답은 최상위가 배열이라 `$[0].id`처럼 읽는다. 응답 값을 뒤 단계에서 쓸 때는 `.andReturn().getResponse().getContentAsString()`로 받은 본문에서 `JsonPath.read(본문, "$.id")`로 꺼낸다(UUID는 `UUID.fromString(...)`, 문자열 비교는 `toString()`). "없다"는 `jsonPath("$.billingKey").doesNotExist()`, 빈 목록은 `jsonPath("$").value(hasSize(0))`로 적는다.
 - 빌링키: `BillingKeyRow k = testFixtures.billingKeyOf(billingKeyId)` 한 번으로 읽고 `k.memberId()`처럼 접근자로 비교한다(필드는 위 표). 쿼리·복호화를 테스트에 쓰지 않는다.
 - 가짜 PG가 받은 요청: 발급은 `pg.requests("/v1/billing/authorizations/issue")`, 결제는 `pg.requests("/v1/billing/bk_")`. `RecordedRequest`의 `method()`, `path()`, `headers().get("idempotency-key")`(헤더 키는 소문자)를 읽고, `body()`는 `ObjectMapper.readTree`로 읽는다(금액은 `asLong()`으로 비교한다).
 - 발급되는 빌링키를 테스트가 알아야 할 때는 응답을 고정한다: `pg.on("/v1/billing/authorizations/issue", new Behavior(200, "{\"billingKey\":\"bk_test_secret_1\",\"cardCompany\":\"신한\",\"cardNumber\":\"1234****5678\"}", 0, false, false))`. 고정하지 않으면 빌링키는 `bk_` + 랜덤이다. `Behavior`의 인자 순서는 `(int status, String body, long delayMillis, boolean dropConnection, boolean defaultHandling)`이라, `0, false, false`는 지연·끊김 없이 `body`를 그대로 돌려준다는 뜻이다(`defaultHandling = true`면 본문을 무시하고 가짜 서버의 기본 동작을 쓴다).
@@ -268,81 +372,93 @@
 
 | 케이스 | 동작 | 확인할 것 |
 |---|---|---|
-| 왕복 | `encrypted = encrypt(plain)` → `decrypt(encrypted)` | `decrypt` 결과 = `plain` |
-| 호출마다 다른 IV | `a = encrypt(plain)`, `b = encrypt(plain)` | `a` ≠ `b` / `decrypt(a)` = `decrypt(b)` = `plain` / 디코드한 바이트의 앞 12바이트(iv)가 서로 다르다 |
-| 한 글자 변조 | `encrypt(plain)`을 Base64 디코드 → 마지막 바이트 하나를 `^ 0x01`로 바꿈 → 다시 Base64 인코드 → `decrypt` | 예외가 난다(감싸는 타입은 위 `decrypt` 설명의 확인 필요라 `assertThatThrownBy`로 예외 발생만 본다) |
-| 암호문 형식 | `encrypted = encrypt(plain)` | `Base64.getDecoder().decode(encrypted).length` = 12 + `plain`의 UTF-8 바이트 수 + 16(iv + 암호문 + 인증 태그) |
+| 왕복 | `encrypted = encrypt(plain)` → `decrypt(encrypted)` | 반환값: `decrypt` 결과 = `plain` |
+| 호출마다 다른 IV | `a = encrypt(plain)`, `b = encrypt(plain)` | 반환값: `a` ≠ `b` / 반환값: `decrypt(a)` = `decrypt(b)` = `plain` / 반환값: `Base64.getDecoder().decode(…)`한 바이트의 앞 12바이트(`Arrays.copyOfRange(바이트, 0, 12)`)가 `a`와 `b`에서 서로 다르다 |
+| 한 글자 변조 | `encrypt(plain)`을 Base64 디코드 → 마지막 바이트 하나를 `^ 0x01`로 바꿈 → 다시 Base64 인코드 → `decrypt` | 예외: `decrypt` 호출이 예외를 던진다(`assertThatThrownBy`) |
+| 암호문 형식 | `encrypted = encrypt(plain)` | 반환값: `Base64.getDecoder().decode(encrypted).length` = 12 + `plain`의 UTF-8 바이트 수 + 16 |
 
 #### `payment/infrastructure/TossBillingClientTest` (`extends IntegrationTestSupport`, `TossClient` 주입)
 
-결과 타입은 `BillingIssueResult`(`Issued`/`Rejected`/`Unknown`), 결제는 `PgResult`다. 결제 호출 인자: `billingCharge(paymentId, "bk_test_1", "cust_1", "ORD-test-1", Money.of(10000), "상품 정기구독")`(`paymentId`는 `Ids.newId()`).
+결과 타입은 `BillingIssueResult`(`Issued`/`Rejected`/`Unknown`), 결제는 `PgResult`다. 결제 호출 인자: `billingCharge(paymentId, "bk_test_1", "cust_1", "ORD-test-1", Money.of(10000), "상품 정기구독")`(`paymentId`는 `Ids.newId()`). 확인 줄의 `반환값:`은 `issueBillingKey`·`billingCharge`·`queryByOrderId`가 돌려준 결과 객체, `가짜 서버 요청(pg.requests(접두어)):`는 가짜 PG가 받은 요청 기록이다.
 
 **1. 발급 성공** — 동작: `issueBillingKey("auth_1", "cust_1")`.
-- `Issued`이고 `billingKey()`가 `bk_`로 시작하며 `cardSummary()` = `신한 1234****5678`.
-- 가짜 PG 발급 요청 1건: `method()` = `POST`, 본문 `authKey` = `auth_1`, `customerKey` = `cust_1`.
+- 반환값: `Issued`이고 `billingKey()`가 `bk_`로 시작하며 `cardSummary()` = `신한 1234****5678`.
+- 가짜 서버 요청(pg.requests("/v1/billing/authorizations/issue")): `.size()`가 1이고 `get(0)`의 `method()` = `POST`.
+- 가짜 서버 요청(pg.requests("/v1/billing/authorizations/issue")): `get(0).body()`를 `readTree`한 `get("authKey").asText()` = `auth_1`, `get("customerKey").asText()` = `cust_1`.
 
-**2. 발급 실패 분류** — 동작: 가짜 PG 동작을 바꾸고 `issueBillingKey("auth_1", "cust_1")`를 부른다.
+**2. 발급 실패 분류** — 동작: 가짜 PG 동작을 바꾸고 `issueBillingKey("auth_1", "cust_1")`를 부른다. 확인은 모두 반환값이다.
 
-| 가짜 PG 동작 | 결과 |
+| 가짜 PG 동작 | 반환값 |
 |---|---|
 | `Behavior.reject("REJECT_CARD_COMPANY")` | `Rejected`, `code()` = `REJECT_CARD_COMPANY` |
-| `Behavior.reject("ALREADY_PROCESSED_PAYMENT")`(불확실 코드) | `Unknown`, `reason()` = `ALREADY_PROCESSED_PAYMENT` |
-| `Behavior.delay(1000)`(테스트 read-timeout 500ms보다 길다) | `Unknown` |
+| `Behavior.reject("ALREADY_PROCESSED_PAYMENT")` | `Unknown`, `reason()` = `ALREADY_PROCESSED_PAYMENT` |
+| `Behavior.delay(1000)` | `Unknown` |
 | `Behavior.serverError()` | `Unknown` |
 | `Behavior.drop()` | `Unknown` |
-| 상태 200, 본문 `{"cardCompany":"신한","cardNumber":"1234****5678"}`(`billingKey` 없음)을 주는 `new Behavior(200, 본문, 0, false, false)` | `Unknown`, `reason()` = `INVALID_BODY` |
+| 상태 200, 본문 `{"cardCompany":"신한","cardNumber":"1234****5678"}`을 주는 `new Behavior(200, 본문, 0, false, false)` | `Unknown`, `reason()` = `INVALID_BODY` |
 
 **3. 빌링 결제 승인** — 동작: `billingCharge(...)`.
-- `PgResult.Approved`: `totalAmount()` = 10000, `paymentKey()`는 비어 있지 않다(가짜 서버가 만든 값이라 정확한 문자열은 모른다).
-- 가짜 PG 요청 1건: `path()` = `/v1/billing/bk_test_1`, 헤더 `idempotency-key` = `paymentId.toString()`, 본문 `customerKey` = `cust_1`, `amount` = 10000, `orderId` = `ORD-test-1`, `orderName` = `상품 정기구독`.
+- 반환값: `PgResult.Approved`이고 `totalAmount()` = 10000, `paymentKey()`가 `isNotBlank()`.
+- 가짜 서버 요청(pg.requests("/v1/billing/bk_")): `.size()`가 1.
+- 가짜 서버 요청(pg.requests("/v1/billing/bk_")): `get(0)`의 `path()` = `/v1/billing/bk_test_1`, `headers().get("idempotency-key")` = `paymentId.toString()`.
+- 가짜 서버 요청(pg.requests("/v1/billing/bk_")): `get(0).body()`를 `readTree`한 `get("customerKey").asText()` = `cust_1`, `get("amount").asLong()` = 10000, `get("orderId").asText()` = `ORD-test-1`, `get("orderName").asText()` = `상품 정기구독`.
 
-**4. 빌링 결제 실패 분류** — 동작: 가짜 PG 동작을 `pg.on("/v1/billing/bk_", ...)`로 바꾸고 `billingCharge(...)`.
+**4. 빌링 결제 실패 분류** — 동작: 가짜 PG 동작을 `pg.on("/v1/billing/bk_", ...)`로 바꾸고 `billingCharge(...)`. 확인은 모두 반환값이다.
 
-| 가짜 PG 동작 | 결과 |
+| 가짜 PG 동작 | 반환값 |
 |---|---|
-| `Behavior.delay(1000)` | `Unknown`. 이어서 `queryByOrderId(Ids.newId(), "ORD-test-1")` → `Approved`(PG는 승인했고 응답만 늦었다) |
-| `Behavior.drop()` | `Unknown`. 이어서 `queryByOrderId(...)` → `Rejected`, `code()` = `NOT_FOUND_PAYMENT`(승인 기록이 없다) |
+| `Behavior.delay(1000)` | `Unknown`. 이어서 `queryByOrderId(Ids.newId(), "ORD-test-1")` → `Approved` |
+| `Behavior.drop()` | `Unknown`. 이어서 `queryByOrderId(...)` → `Rejected`, `code()` = `NOT_FOUND_PAYMENT` |
 
 **5. 로그에 비밀이 없다** — `@ExtendWith(OutputCaptureExtension.class)`, 테스트 메서드 인자 `CapturedOutput output`. 동작: `issueBillingKey("auth_secret_AAA", "cust_secret_BBB")`(`Issued`의 `billingKey()`를 `issuedKey`로 둔다) → 거절 동작으로 바꿔 `issueBillingKey("auth_secret_AAA", "cust_secret_BBB")` 한 번 더 → `billingCharge(Ids.newId(), issuedKey, "cust_secret_BBB", "ORD-test-2", Money.of(10000), "상품 정기구독")` → 거절 동작으로 바꿔 한 번 더.
-- `output.getAll()`에 `pg BILLING_ISSUE`와 `pg BILLING paymentId=`가 있다(호출마다 남기는 로그 한 줄의 앞부분이다. 로그가 아예 안 남아서 통과하는 것을 막는다).
-- `output.getAll()`에 `auth_secret_AAA`, `cust_secret_BBB`, `issuedKey`가 없다(`doesNotContain`. 없음을 증명하는 단언이라 이 비교가 맞다).
+- 로그(output.getAll()): `pg BILLING_ISSUE`와 `pg BILLING paymentId=`가 있다(`contains`).
+- 로그(output.getAll()): `auth_secret_AAA`, `cust_secret_BBB`, `issuedKey`의 값이 없다(`assertThat(output.getAll()).doesNotContain(…)`).
 
 #### `payment/web/BillingKeyControllerTest` (`@AutoConfigureMockMvc`, 가짜 PG)
 
-공통 준비: 구매자 `buyer@test.com`(`signup` → `buyerId`, `login` → 토큰). 가짜 PG 발급 응답을 `bk_test_secret_1`로 고정한다. 등록 요청은 `POST /api/billing-keys`, `Authorization: Bearer {토큰}`, 본문 `{"authKey":"auth_test_1"}`(`Idempotency-Key` 불필요).
+공통 준비: 구매자 `buyer@test.com`(`signup` → `buyerId`, `login` → 토큰).
 
-**1. 카드 등록** — 동작: 등록 요청.
-- 응답: 201, `$.id`는 DB 행의 `id`와 같고, `$.cardSummary` = `신한 1234****5678`, `$.createdAt` 존재. `$.billingKey`, `$.customerKey`는 없다(`doesNotExist()`).
-- `billingKeysOf(buyerId)`가 1건이고 그 `id()`가 `$.id`와 같다. `k = billingKeyOf($.id)`: `memberId()` = `buyerId`, `cardSummary()` = `신한 1234****5678`.
-- `k.billingKey()` = `bk_test_secret_1`.
-- `k.customerKey()`는 `UUID.fromString`이 예외 없이 읽는 문자열이다.
-- 가짜 PG 발급 요청 1건: 본문 `authKey` = `auth_test_1`, 본문 `customerKey` = `k.customerKey()`.
+등록 요청(1·2·6번): `POST /api/billing-keys`, `Authorization: Bearer {토큰}`, 본문 `{"authKey":"auth_test_1"}`(`Idempotency-Key` 불필요).
 
-**2. 등록 실패는 아무것도 저장하지 않는다** — 동작: 가짜 PG 동작을 바꾸고 등록 요청.
+**1. 카드 등록** — 준비: 가짜 PG 발급 응답을 `bk_test_secret_1`로 고정한다. 동작: 등록 요청. `.andReturn()`으로 받은 본문에서 `JsonPath.read(본문, "$.id")`를 `respId`로 둔다.
+- 응답(andExpect): 상태 201.
+- 응답(andExpect): `jsonPath("$.cardSummary")` = `신한 1234****5678`, `jsonPath("$.createdAt").exists()`.
+- 응답(andExpect): `jsonPath("$.billingKey").doesNotExist()`, `jsonPath("$.customerKey").doesNotExist()`.
+- DB(billingKeysOf(buyerId)): `.size()`가 1이고 `get(0).id().toString()` = `respId`.
+- `k = billingKeyOf(UUID.fromString(respId))`로 읽는다. DB(billingKeyOf): `k.memberId()` = `buyerId`, `k.cardSummary()` = `신한 1234****5678`.
+- DB(billingKeyOf): `k.billingKey()` = `bk_test_secret_1`.
+- DB(billingKeyOf): `UUID.fromString(k.customerKey())`가 예외 없이 끝난다.
+- 가짜 서버 요청(pg.requests("/v1/billing/authorizations/issue")): `.size()`가 1이고 `get(0).body()`를 `readTree`한 `get("authKey").asText()` = `auth_test_1`, `get("customerKey").asText()` = `k.customerKey()`.
 
-| 가짜 PG 동작 | 응답 | 공통 확인 |
+**2. 등록 실패는 아무것도 저장하지 않는다** — 동작: 아래 표대로 가짜 PG 동작을 바꾸고 등록 요청. 각 행의 "응답"은 응답(andExpect)의 상태와 `jsonPath("$.code")`, "공통 확인"은 DB(billingKeysOf)다.
+
+| 가짜 PG 동작 | 응답(andExpect) | 공통 확인 |
 |---|---|---|
-| `pg.on("/v1/billing/authorizations/issue", Behavior.reject("REJECT_CARD_COMPANY"))` | 422, `$.code` = `BILLING_KEY_ISSUE_FAILED` | `billingKeysOf(buyerId)`가 비어 있다 |
-| `pg.on("/v1/billing/authorizations/issue", Behavior.delay(1000))` | 502, `$.code` = `PG_ERROR` | `billingKeysOf(buyerId)`가 비어 있다 |
+| `pg.on("/v1/billing/authorizations/issue", Behavior.reject("REJECT_CARD_COMPANY"))` | 422, `$.code` = `BILLING_KEY_ISSUE_FAILED` | DB(billingKeysOf(buyerId)): `.isEmpty()`가 true |
+| `pg.on("/v1/billing/authorizations/issue", Behavior.delay(1000))` | 502, `$.code` = `PG_ERROR` | DB(billingKeysOf(buyerId)): `.isEmpty()`가 true |
 
 **3. 남의 빌링키 삭제 거부** — 준비: 다른 회원 `owner@test.com` 가입 + `ownerKeyId = registerBillingKey(ownerId)`. 동작: `buyer` 토큰으로 `DELETE /api/billing-keys/{ownerKeyId}`.
-- 응답: 404, `$.code` = `BILLING_KEY_NOT_FOUND`.
-- `billingKeyOf(ownerKeyId)`: `status()` = `ACTIVE`, `deletedAt()` = null.
+- 응답(andExpect): 상태 404, `jsonPath("$.code")` = `BILLING_KEY_NOT_FOUND`.
+- DB(billingKeyOf(ownerKeyId)): `status()` = `ACTIVE`, `deletedAt()`이 null(`assertThat(...).isNull()`).
 
 **4. 내 빌링키 삭제** — 준비: `keyId = registerBillingKey(buyerId)`. 동작: `buyer` 토큰으로 `DELETE /api/billing-keys/{keyId}`.
-- 응답: 204.
-- `billingKeyOf(keyId)`: `status()` = `DELETED`, `deletedAt()`은 null이 아니다.
-- Toss 삭제 API를 부르지 않는다: `pg.requests("/v1/billing/")` 중 `method()` = `DELETE`인 것이 0건(`registerBillingKey`의 발급 요청은 `POST`라 걸리지 않는다).
+- 응답(andExpect): 상태 204.
+- DB(billingKeyOf(keyId)): `status()` = `DELETED`, `deletedAt()`이 null이 아니다(`isNotNull()`).
+- 가짜 서버 요청(pg.requests("/v1/billing/")): Toss 삭제 API를 부르지 않는다: `method()`가 `DELETE`인 요청의 수(`stream().filter(r -> r.method().equals("DELETE")).count()`)가 0.
 
-**5. 회원 탈퇴 이벤트로 빌링키 삭제** — 준비: `registerBillingKey(buyerId)` 두 번(`keyA`, `keyB`), `owner@test.com`의 `ownerKeyId`. 동작: `buyer` 토큰으로 `DELETE /api/members/me`(3-6) → 204 → `outboxRelay.relayOnce()` → `Eventually.await(Duration.ofSeconds(5), ...)` 안에서 확인.
-- `billingKeyOf(keyA)`, `billingKeyOf(keyB)`: `status()` = `DELETED`, `deletedAt()`은 null이 아니다.
-- `billingKeyOf(ownerKeyId)`: `status()` = `ACTIVE`, `deletedAt()` = null(다른 회원의 키는 건드리지 않는다).
+**5. 회원 탈퇴 이벤트로 빌링키 삭제** — 준비: `registerBillingKey(buyerId)` 두 번(`keyA`, `keyB`), `owner@test.com`의 `ownerKeyId`. 동작: `buyer` 토큰으로 `DELETE /api/members/me`(3-6) → `outboxRelay.relayOnce()` → `Eventually.await(Duration.ofSeconds(5), ...)` 안에서 아래 DB 확인.
+- 응답(andExpect): 탈퇴 요청의 상태 204.
+- `relayOnce()` 뒤 `Eventually` 안에서 DB(billingKeyOf(keyA)), DB(billingKeyOf(keyB)): 각각 `status()` = `DELETED`, `deletedAt()`이 null이 아니다(`isNotNull()`).
+- `relayOnce()` 뒤 `Eventually` 안에서 DB(billingKeyOf(ownerKeyId)): `status()` = `ACTIVE`, `deletedAt()`이 null(`assertThat(...).isNull()`).
 
-**6. 카드 목록은 비밀 값을 내려주지 않는다** — 준비: 1번과 같은 등록 요청 한 번. 동작: `GET /api/billing-keys`.
-- 응답: 200, `$.length()` = 1, `$[0].id` = 등록 응답의 `$.id`, `$[0].billingKey`·`$[0].customerKey` 없음.
+**6. 카드 목록은 비밀 값을 내려주지 않는다** — 준비: 1번과 같은 준비(가짜 PG 고정)로 등록 요청 한 번, 그 본문에서 `JsonPath.read(본문, "$.id")`를 `respId`로 둔다. 동작: `GET /api/billing-keys`.
+- 응답(andExpect): 상태 200, `jsonPath("$.length()")` = 1.
+- 응답(andExpect): `jsonPath("$[0].id")` = `respId`.
+- 응답(andExpect): `jsonPath("$[0].billingKey").doesNotExist()`, `jsonPath("$[0].customerKey").doesNotExist()`.
 
 **7. 삭제한 빌링키는 목록에서 빠진다** — 준비: 4번과 같은 준비, `buyer` 토큰으로 `DELETE /api/billing-keys/{keyId}` → 204. 동작: `GET /api/billing-keys`.
-- 응답: 200, `$.length()` = 0.
+- 응답(andExpect): 상태 200.
+- 응답(andExpect): `jsonPath("$").value(hasSize(0))`.
 
 **리뷰 때 물어볼 것**
 - 암호화 키는 어디서 관리하나? 운영이라면?
@@ -350,17 +466,17 @@
 
 ---
 
-## 5-2. 구독 신청 · 관리 (M)
+## SUB-2. 구독 신청 · 관리 (M)
 
 **목표**: 구독 신청(수량, 매주 N요일 / 매월 N일, 배송지, 빌링키), 조회·수정·일시정지·재개·해지. **본인 구독만** 다룰 수 있다.
 
 **정책 (이 단계에서 정함)**
 - 시작일은 **내일 이후**. 첫 회차는 시작일 이후 주기에 맞는 첫 날.
 - 신청 시점의 상품 가격을 구독 가격(`unit_price`)으로 저장한다.
-- 구독 가능(`subscribable`)·판매 중 상품만, 자기 가게 상품 불가, 이메일 인증 필요.
+- 구독 가능(`subscribable`)·판매 중 상품만, 자기 가게 상품 불가.
 - 재개(PAUSED·SUSPENDED → ACTIVE) 시 다음 실행일은 **내일 이후** 첫 주기 날짜로 다시 계산하고 연속 실패 수를 0으로.
 - 해지(CANCELLED)·종료(TERMINATED)된 구독은 수정·재개 불가.
-- 폐업·탈퇴 조건: 활성 구독(ACTIVE·PAUSED·SUSPENDED)이 있으면 가게 폐업(POL-15)·회원 탈퇴(POL-16) 불가. 판매자는 구독 상품을 **단종**하면 구독이 종료되므로(5-4), 폐업 전에 상품을 단종하면 된다.
+- 폐업·탈퇴 조건: 활성 구독(ACTIVE·PAUSED·SUSPENDED)이 있으면 가게 폐업(POL-15)·회원 탈퇴(POL-16) 불가. 판매자는 구독 상품을 **단종**하면 구독이 종료되므로(SUB-4), 폐업 전에 상품을 단종하면 된다.
 
 ### 할 일
 
@@ -378,9 +494,9 @@
 | shipping_address | jsonb | X | 스냅샷 |
 | billing_key_id | uuid | X | |
 | unit_price | bigint | X | `> 0` |
-| pending_unit_price | bigint | O | 인상 예정가 (5-4) |
+| pending_unit_price | bigint | O | 인상 예정가 (SUB-4) |
 | pending_effective_date | date | O | |
-| price_changed_at | timestamptz | O | 마지막으로 반영한 가격 이벤트 시각 (5-4) |
+| price_changed_at | timestamptz | O | 마지막으로 반영한 가격 이벤트 시각 (SUB-4) |
 | status | varchar(20) | X | `ck_subscription_status`: `IN ('ACTIVE','PAUSED','SUSPENDED','CANCELLED','TERMINATED')` |
 | next_run_date | date | X | |
 | consecutive_failures | int | X | DEFAULT 0 |
@@ -414,11 +530,11 @@
 
 | 메서드 | 한 줄 설명 | 입력 → 결과·예외 |
 |---|---|---|
-| `static Subscription subscribe(UUID memberId, UUID shopId, UUID productId, int quantity, SubscriptionSchedule schedule, ShippingAddress address, UUID billingKeyId, Money unitPrice, LocalDate startDate)` | 새 구독을 만든다. `unitPrice`는 **신청 시점 상품 가격**(5-2 정책)이다 | → ACTIVE, `id = Ids.newId()`, `nextRunDate = schedule.firstOnOrAfter(startDate)`, `consecutiveFailures = 0` |
+| `static Subscription subscribe(UUID memberId, UUID shopId, UUID productId, int quantity, SubscriptionSchedule schedule, ShippingAddress address, UUID billingKeyId, Money unitPrice, LocalDate startDate)` | 새 구독을 만든다. `unitPrice`는 **신청 시점 상품 가격**(SUB-2 정책)이다 | → ACTIVE, `id = Ids.newId()`, `nextRunDate = schedule.firstOnOrAfter(startDate)`, `consecutiveFailures = 0` |
 | `void pause()` | 일시정지 | ACTIVE → PAUSED. 그 밖의 상태는 409 |
 | `void resume(LocalDate today)` | 재개. 일시정지·정지(SUSPENDED)를 되돌린다 | PAUSED·SUSPENDED → ACTIVE, `nextRunDate = schedule.firstOnOrAfter(today.plusDays(1))`, `consecutiveFailures = 0`. 그 밖의 상태는 409 |
 | `void cancel()` | 구매자가 해지 | → CANCELLED, `endReason = "USER_CANCEL"` |
-| `void terminate(String reason)` | 시스템이 종료(단종·폐업·탈퇴, 5-4). `reason`은 `endReason`에 저장 | → TERMINATED. **이미 CANCELLED·TERMINATED면 전이 검사 전에 아무것도 하지 않고 돌아온다**(멱등 — 같은 이벤트가 두 번 와도 안전) |
+| `void terminate(String reason)` | 시스템이 종료(단종·폐업·탈퇴, SUB-4). `reason`은 `endReason`에 저장 | → TERMINATED. **이미 CANCELLED·TERMINATED면 전이 검사 전에 아무것도 하지 않고 돌아온다**(멱등 — 같은 이벤트가 두 번 와도 안전) |
 | `void change(Integer quantity, ShippingAddress address, UUID billingKeyId)` | 수량·배송지·결제수단 수정. `null`인 인자는 바꾸지 않는다 | CANCELLED·TERMINATED면 409 `INVALID_STATE_TRANSITION`(상태 전이가 아니라 직접 검사). ACTIVE·PAUSED·SUSPENDED에서는 허용 |
 
 `SubscriptionRepository` (`domain` 인터페이스) 메서드. 이름·인자는 권장안이다. `StatusIn`의 상태 인자에는 `SubscriptionStatus.ACTIVE_LIKE`를 넘긴다.
@@ -426,17 +542,17 @@
 | 메서드 | 쿼리·동작 | 쓰이는 곳 |
 |---|---|---|
 | `Subscription save(Subscription)` | | `subscribe` |
-| `Optional<Subscription> findById(UUID id)` | | 5-3 `runDue`·`onOrderClosed` |
-| `Optional<Subscription> findByIdAndMemberId(UUID id, UUID memberId)` | 남의 것이면 비어 있다 | `getOne`·`change`·`pause`·`resume`·`cancel`, 5-3 회차 이력 |
+| `Optional<Subscription> findById(UUID id)` | | SUB-3 `runDue`·`onOrderClosed` |
+| `Optional<Subscription> findByIdAndMemberId(UUID id, UUID memberId)` | 남의 것이면 비어 있다 | `getOne`·`change`·`pause`·`resume`·`cancel`, SUB-3 회차 이력 |
 | `boolean existsByBillingKeyIdAndStatusIn(UUID billingKeyId, Collection<SubscriptionStatus> statuses)` | 활성 구독 존재 확인 | `OrderBillingKeyDeletionPrecondition`(빌링키 삭제) |
 | `boolean existsByShopIdAndStatusIn(UUID shopId, Collection<SubscriptionStatus> statuses)` | 같음 | `OrderShopClosePrecondition`(가게 폐업) |
 | `boolean existsByMemberIdAndStatusIn(UUID memberId, Collection<SubscriptionStatus> statuses)` | 같음 | `OrderWithdrawalPrecondition`(회원 탈퇴) |
-| `List<Subscription> findAllByProductIdAndStatusIn(UUID productId, Collection<SubscriptionStatus> statuses)` | 활성 구독 목록. 인덱스 `idx_subscription_product_id_status` | 5-4 가격 변경·단종 이벤트 |
-| `List<Subscription> findAllByShopIdAndStatusIn(UUID shopId, Collection<SubscriptionStatus> statuses)` | 인덱스 `idx_subscription_shop_id_status` | 5-4 폐업 이벤트 |
-| `List<Subscription> findAllByMemberIdAndStatusIn(UUID memberId, Collection<SubscriptionStatus> statuses)` | | 5-4 탈퇴 이벤트 |
+| `List<Subscription> findAllByProductIdAndStatusIn(UUID productId, Collection<SubscriptionStatus> statuses)` | 활성 구독 목록. 인덱스 `idx_subscription_product_id_status` | SUB-4 가격 변경·단종 이벤트 |
+| `List<Subscription> findAllByShopIdAndStatusIn(UUID shopId, Collection<SubscriptionStatus> statuses)` | 인덱스 `idx_subscription_shop_id_status` | SUB-4 폐업 이벤트 |
+| `List<Subscription> findAllByMemberIdAndStatusIn(UUID memberId, Collection<SubscriptionStatus> statuses)` | | SUB-4 탈퇴 이벤트 |
 | `List<Subscription> findByMemberFirstPage(UUID memberId, Limit limit)` · `findByMemberNextPage(UUID memberId, Instant cursorCreatedAt, UUID cursorId, Limit limit)` | `member_id = :memberId`, `order by created_at desc, id desc`, 다음 페이지는 `(created_at, id)`가 커서보다 작은 행. 인덱스 `idx_subscription_member_id_created_at` | `getMine` |
 
-5-3의 "오늘 실행 대상" 조회와 5-4의 판매자 목록 조회는 그 단계에서 더한다.
+SUB-3의 "오늘 실행 대상" 조회와 SUB-4의 판매자 목록 조회는 그 단계에서 더한다.
 
 **3) order.infrastructure**
 
@@ -454,7 +570,7 @@
 | `SubscriptionResult` | `record (UUID id, UUID productId, UUID shopId, int quantity, CycleType cycleType, int cycleValue, ShippingAddress shippingAddress, UUID billingKeyId, long unitPrice, Long pendingUnitPrice, LocalDate pendingEffectiveDate, SubscriptionStatus status, LocalDate nextRunDate, int consecutiveFailures, Instant createdAt)` — 엔티티를 밖으로 내보내지 않으려고 값만 옮긴 record(`unitPrice`는 `Money.amount()`). (확인 필요: 2-2는 web이 domain을 import하지 않게 `ShippingAddressResult`를 쓰는데 여기는 도메인 `ShippingAddress` 타입이다.) `getMine`·`getOne`·`change`·`pause`·`resume`·`cancel`의 반환이고 `SubscriptionResponse.from`이 쓴다 |
 | `OrderShopClosePrecondition` (3-2, 기존 클래스에 추가) | `shop.api.ShopClosePrecondition.check(shopId)`: `existsByShopIdAndStatusIn(shopId, ACTIVE_LIKE)`가 true면 `BusinessException(SHOP_HAS_ACTIVE_ORDERS, Map.of("reason", "ACTIVE_SUBSCRIPTION"))`. 가게 폐업(3-2)이 부른다 |
 | `OrderWithdrawalPrecondition` (3-6, 기존 클래스에 추가) | `member.api.WithdrawalPrecondition.violations(memberId)`: `existsByMemberIdAndStatusIn`이 true면 돌려주는 목록에 `"ACTIVE_SUBSCRIPTION"`을 더한다(탈퇴 서비스가 `details.reasons`에 모은다). 회원 탈퇴(3-6)가 부른다 |
-| `OrderBillingKeyDeletionPrecondition` (5-1에서 만든 빈 클래스) | `payment.api.BillingKeyDeletionPrecondition.check(billingKeyId)`의 본문을 채운다: `existsByBillingKeyIdAndStatusIn`이 true면 `BILLING_KEY_IN_USE`. `BillingKeyService.delete`(5-1)가 부른다 |
+| `OrderBillingKeyDeletionPrecondition` (SUB-1에서 만든 빈 클래스) | `payment.api.BillingKeyDeletionPrecondition.check(billingKeyId)`의 본문을 채운다: `existsByBillingKeyIdAndStatusIn`이 true면 `BILLING_KEY_IN_USE`. `BillingKeyService.delete`(SUB-1)가 부른다 |
 
 `SubscriptionService` (`@Service`) — **구독 신청·조회·수정·일시정지·재개·해지의 유스케이스**. 호출하는 쪽은 `SubscriptionController`(`order.web`)이고, 메서드 하나가 API 하나·트랜잭션 하나다. 외부(Toss) 호출이 없어 전부 `@Transactional`이다. 의존성: `SubscriptionRepository`, `ProductApi`, `ShopApi`, `MemberApi`, `PaymentApi`, `Clock`, `BusinessProperties`(오늘 날짜용)
 - `subscribe`: 구독을 신청한다. 새 구독 ID를 돌려준다. 순서는 아래
@@ -478,7 +594,7 @@
 
 | API | 요청 | 응답 |
 |---|---|---|
-| `POST /api/subscriptions` `@Idempotent` `@RequireVerifiedEmail` | `SubscribeRequest(@NotNull productId, @Min(1) @Max(99) quantity, @Valid cycle {@NotNull type, @NotNull value}, @NotNull addressId, @NotNull billingKeyId, @NotNull @Future LocalDate startDate)` — [API 명세 §3.5](../02-design/07-api-spec.md) | 201 `SubscriptionIdResponse(subscriptionId)` |
+| `POST /api/subscriptions` `@Idempotent` | `SubscribeRequest(@NotNull productId, @Min(1) @Max(99) quantity, @Valid cycle {@NotNull type, @NotNull value}, @NotNull addressId, @NotNull billingKeyId, @NotNull @Future LocalDate startDate)` — [API 명세 §3.5](../02-design/07-api-spec.md) | 201 `SubscriptionIdResponse(subscriptionId)` |
 | `GET /api/subscriptions?cursor=&size=` | | 200 `CursorPage<SubscriptionResponse>` |
 | `GET /api/subscriptions/{id}` | | 200 `SubscriptionResponse` |
 | `PATCH /api/subscriptions/{id}` | `ChangeSubscriptionRequest(@Min(1) @Max(99) Integer quantity, UUID addressId, UUID billingKeyId)` | 200 |
@@ -491,39 +607,41 @@
 
 ### 완료 확인
 
-**테스트 준비** ([Part 2 공통 규칙 N-1](part2-order-money.md#n-1-단계별-testfixtures-추가)과 같은 방식)
+**테스트 준비** ([Part 2 공통 규칙 N-1](../03-roadmap/part2-order-money.md#n-1-단계별-testfixtures-추가)과 같은 방식)
 
 아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `registerSubscribableProduct(UUID memberId, UUID shopId, long price, int initialStock)` → `UUID` | `registerProductService.register(memberId, shopId, new RegisterProductCommand("product", "description", ProductCategory.ETC, price, initialStock, true))`. 기존 `registerProduct` 오버로드는 모두 `subscribable = false`로 고정이라 새 이름으로 둔다 | `SubscriptionControllerTest`, 5-3·5-4 |
-| `createSubscription(UUID memberId, UUID productId, UUID billingKeyId)` → `UUID` | `subscriptionService.subscribe(memberId, new SubscribeCommand(productId, 1, CycleType.WEEKLY, 1, address(memberId), billingKeyId, 오늘 + 1일))`. 오늘은 업무 날짜(`LocalDate.now(clock.withZone(businessZone))`)다 | 5-2 폐업·탈퇴·빌링키 삭제 케이스, 5-3·5-4 |
-| `subscriptionSnapshotOf(UUID subscriptionId)` → `SubscriptionSnapshot` | JDBC `SELECT * FROM orders.subscription WHERE id = ?` 한 행을 `support/`의 record로 돌려준다(행이 없으면 예외). 필드: `id`·`memberId`·`shopId`·`productId`·`billingKeyId`(UUID), `quantity`·`cycleValue`·`consecutiveFailures`(int), `cycleType`·`status`·`endReason`(String, `endReason`은 없으면 null), `unitPrice`(long), `pendingUnitPrice`(`Long`, 없으면 null), `pendingEffectiveDate`·`nextRunDate`(`LocalDate`, 앞은 없으면 null), `priceChangedAt`(`Instant`, 없으면 null), `shippingAddress`(`Map<String, String>`: `shipping_address` jsonb를 `ObjectMapper.readValue`로 읽은 `recipient`·`phone`·`zipcode`·`address1`·`address2` 키). 회차는 5-3 테이블이 생긴 뒤 `cyclesOf`로 읽는다 | 5-2 컨트롤러 테스트(신청·접근 거부 확인), 5-3 `SubscriptionCycleServiceTest`, 5-4 `SubscriptionEventTest` |
-| `subscriptionIdsOf(UUID memberId)` → `List<UUID>` | JDBC `SELECT id FROM orders.subscription WHERE member_id = ? ORDER BY created_at, id` | 5-2 신청 거부 케이스의 "구독이 만들어지지 않았다"(빈 목록), 신청 성공의 1건 확인 |
+| `registerSubscribableProduct(UUID memberId, UUID shopId, long price, int initialStock)` → `UUID` | `registerProductService.register(memberId, shopId, new RegisterProductCommand("product", "description", ProductCategory.ETC, price, initialStock, true))`. 기존 `registerProduct` 오버로드는 모두 `subscribable = false`로 고정이라 새 이름으로 둔다 | `SubscriptionControllerTest`, SUB-3·SUB-4 |
+| `createSubscription(UUID memberId, UUID productId, UUID billingKeyId)` → `UUID` | `subscriptionService.subscribe(memberId, new SubscribeCommand(productId, 1, CycleType.WEEKLY, 1, address(memberId), billingKeyId, 오늘 + 1일))`. 오늘은 업무 날짜(`LocalDate.now(clock.withZone(businessZone))`)다 | SUB-2 폐업·탈퇴·빌링키 삭제 케이스, SUB-3·SUB-4 |
+| `subscriptionSnapshotOf(UUID subscriptionId)` → `SubscriptionSnapshot` | JDBC `SELECT * FROM orders.subscription WHERE id = ?` 한 행을 `support/`의 record로 돌려준다(행이 없으면 예외). 필드: `id`·`memberId`·`shopId`·`productId`·`billingKeyId`(UUID), `quantity`·`cycleValue`·`consecutiveFailures`(int), `cycleType`·`status`·`endReason`(String, `endReason`은 없으면 null), `unitPrice`(long), `pendingUnitPrice`(`Long`, 없으면 null), `pendingEffectiveDate`·`nextRunDate`(`LocalDate`, 앞은 없으면 null), `priceChangedAt`(`Instant`, 없으면 null), `shippingAddress`(`Map<String, String>`: `shipping_address` jsonb를 `ObjectMapper.readValue`로 읽은 `recipient`·`phone`·`zipcode`·`address1`·`address2` 키). 회차는 SUB-3 테이블이 생긴 뒤 `cyclesOf`로 읽는다 | SUB-2 컨트롤러 테스트(신청·접근 거부 확인), SUB-3 `SubscriptionCycleServiceTest`, SUB-4 `SubscriptionEventTest` |
+| `subscriptionIdsOf(UUID memberId)` → `List<UUID>` | JDBC `SELECT id FROM orders.subscription WHERE member_id = ? ORDER BY created_at, id` | SUB-2 신청 거부 케이스의 "구독이 만들어지지 않았다"(빈 목록), 신청 성공의 1건 확인 |
 
-이미 있는 헬퍼(`TestFixtures`): `UUID signup(String email)`(비밀번호 `pass1234`로 가입한 회원 ID), `String login(String email)`(`pass1234`로 로그인한 access 토큰), `UUID openShop(UUID memberId, String businessNumber)`(가게를 개설하고 가게 ID), `UUID registerProduct(UUID memberId, UUID shopId, long price, int initialStock)`(`subscribable = false`인 상품을 등록하고 상품 ID), `UUID address(UUID memberId)`(배송지를 등록하고 배송지 ID). 빌링키는 5-1의 `registerBillingKey`로 만든다.
+이미 있는 헬퍼(`TestFixtures`): `UUID signup(String email)`(비밀번호 `pass1234`로 가입한 회원 ID), `String login(String email)`(`pass1234`로 로그인한 access 토큰), `UUID openShop(UUID memberId, String businessNumber)`(가게를 개설하고 가게 ID), `UUID registerProduct(UUID memberId, UUID shopId, long price, int initialStock)`(`subscribable = false`인 상품을 등록하고 상품 ID), `UUID address(UUID memberId)`(배송지를 등록하고 배송지 ID). 빌링키는 SUB-1의 `registerBillingKey`로 만든다.
 
 헬퍼를 쓰는 방법은 다음과 같다.
-- 응답: `jsonPath`. 에러 응답의 코드는 `$.code`, 상세는 `$.details`.
+- 응답: `jsonPath`. 에러 응답의 코드는 `$.code`, 상세는 `$.details`. 응답 본문에서 값을 꺼내 쓰는 방법, "없다"·"빈 목록"을 적는 형태는 SUB-1과 같다(`JsonPath.read(본문, "$.subscriptionId")` 등).
 - 구독: `SubscriptionSnapshot s = testFixtures.subscriptionSnapshotOf(subscriptionId)` 한 번으로 읽고 `s.status()`처럼 접근자로 비교한다(필드는 위 표). 쿼리를 테스트에 쓰지 않는다.
 - 오늘 날짜: 테스트 클래스에 `Clock`, `BusinessProperties`를 주입하고 `LocalDate today = LocalDate.now(clock.withZone(businessProperties.businessZone()))`. 기대 날짜는 `SubscriptionSchedule`을 쓰지 않고 JDK로 직접 계산한다(구현을 구현으로 검증하지 않는다): 월요일 주기의 "이 날 포함 첫 날" = `날짜.with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY))`, "이 날 제외 다음 날" = `날짜.with(TemporalAdjusters.next(DayOfWeek.MONDAY))`.
-- 가게 상태: JDBC `shop.shop.status`. 회원 상태: JDBC `member.member.status`(각각 한 케이스만 쓰는 값 하나라 한 줄로 읽는다). 빌링키: 5-1의 `billingKeyOf(billingKeyId)`.
+- 가게 상태: `shopSnapshotOf(shopId).status()`. 회원 상태: `memberSnapshotOf(memberId).status()`. 빌링키: SUB-1의 `billingKeyOf(billingKeyId)`.
 
 #### `order/domain/SubscriptionScheduleTest` (단위 테스트)
+
+단위 테스트의 `반환값:`은 호출이 돌려준 값이나 그 뒤 객체의 getter로 읽은 값, `예외:`는 던져진 예외(`assertThatThrownBy`)다.
 
 기준 날짜: 2026-10-05는 월요일, 2026-10-06은 화요일이다.
 
 | 케이스 | 동작 | 확인할 것 |
 |---|---|---|
-| WEEKLY 월(1), 그날 포함 | `new SubscriptionSchedule(WEEKLY, 1).firstOnOrAfter(2026-10-05)` | 2026-10-05 |
-| WEEKLY 월(1), 화요일부터 | `firstOnOrAfter(2026-10-06)` | 2026-10-12 |
-| WEEKLY 월(1), 그날 제외 | `nextAfter(2026-10-05)` | 2026-10-12 |
-| MONTHLY 28, 1월 28일 다음 | `new SubscriptionSchedule(MONTHLY, 28).nextAfter(2026-01-28)` | 2026-02-28 |
-| MONTHLY 1, 12월 1일 다음 | `new SubscriptionSchedule(MONTHLY, 1).nextAfter(2026-12-01)` | 2027-01-01 |
-| MONTHLY 10, 그날 포함 | `new SubscriptionSchedule(MONTHLY, 10)`의 `firstOnOrAfter(2026-10-10)` / `firstOnOrAfter(2026-10-11)` | 2026-10-10 / 2026-11-10 |
-| 범위 밖 | `@ParameterizedTest`: `(WEEKLY, 0)`, `(WEEKLY, 8)`, `(MONTHLY, 0)`, `(MONTHLY, 29)`로 생성 | `IllegalArgumentException` |
-| 범위 경계는 통과 | `(WEEKLY, 1)`, `(WEEKLY, 7)`, `(MONTHLY, 1)`, `(MONTHLY, 28)`로 생성 | 예외 없음 |
+| WEEKLY 월(1), 그날 포함 | `new SubscriptionSchedule(WEEKLY, 1).firstOnOrAfter(2026-10-05)` | 반환값: 2026-10-05 |
+| WEEKLY 월(1), 화요일부터 | `firstOnOrAfter(2026-10-06)` | 반환값: 2026-10-12 |
+| WEEKLY 월(1), 그날 제외 | `nextAfter(2026-10-05)` | 반환값: 2026-10-12 |
+| MONTHLY 28, 1월 28일 다음 | `new SubscriptionSchedule(MONTHLY, 28).nextAfter(2026-01-28)` | 반환값: 2026-02-28 |
+| MONTHLY 1, 12월 1일 다음 | `new SubscriptionSchedule(MONTHLY, 1).nextAfter(2026-12-01)` | 반환값: 2027-01-01 |
+| MONTHLY 10, 그날 포함 | `new SubscriptionSchedule(MONTHLY, 10)`의 `firstOnOrAfter(2026-10-10)` / `firstOnOrAfter(2026-10-11)` | 반환값: 2026-10-10 / 반환값: 2026-11-10 |
+| 범위 밖 | `@ParameterizedTest`: `(WEEKLY, 0)`, `(WEEKLY, 8)`, `(MONTHLY, 0)`, `(MONTHLY, 29)`로 생성 | 예외: `IllegalArgumentException` |
+| 범위 경계는 통과 | `(WEEKLY, 1)`, `(WEEKLY, 7)`, `(MONTHLY, 1)`, `(MONTHLY, 28)`로 생성 | 예외: 던져지지 않는다 |
 
 #### `order/domain/SubscriptionStatusTest` (단위 테스트)
 
@@ -531,8 +649,8 @@
 
 | 케이스 | 확인할 것 |
 |---|---|
-| 허용된 전이 10쌍 | `ACTIVE→PAUSED`, `ACTIVE→SUSPENDED`, `ACTIVE→CANCELLED`, `ACTIVE→TERMINATED`, `PAUSED→ACTIVE`, `PAUSED→CANCELLED`, `PAUSED→TERMINATED`, `SUSPENDED→ACTIVE`, `SUSPENDED→CANCELLED`, `SUSPENDED→TERMINATED`는 `transitTo`가 예외 없이 도착 상태를 돌려준다 |
-| 허용되지 않은 전이 15쌍 | 나머지 15쌍(자기 자신 5쌍, `CANCELLED`·`TERMINATED`에서 다른 상태로 나가는 4쌍씩 8쌍, `PAUSED→SUSPENDED`·`SUSPENDED→PAUSED` 2쌍)은 `BusinessException`이고 `errorCode`가 `INVALID_STATE_TRANSITION`이다 |
+| 허용된 전이 10쌍 | 반환값: `ACTIVE→PAUSED`, `ACTIVE→SUSPENDED`, `ACTIVE→CANCELLED`, `ACTIVE→TERMINATED`, `PAUSED→ACTIVE`, `PAUSED→CANCELLED`, `PAUSED→TERMINATED`, `SUSPENDED→ACTIVE`, `SUSPENDED→CANCELLED`, `SUSPENDED→TERMINATED`는 `transitTo`가 예외 없이 도착 상태를 돌려준다 |
+| 허용되지 않은 전이 15쌍 | 예외: 나머지 15쌍(자기 자신 5쌍, `CANCELLED`·`TERMINATED`에서 다른 상태로 나가는 4쌍씩 8쌍, `PAUSED→SUSPENDED`·`SUSPENDED→PAUSED` 2쌍)은 `BusinessException`이고 `errorCode`가 `INVALID_STATE_TRANSITION`이다 |
 
 #### `order/domain/SubscriptionTest` (단위 테스트)
 
@@ -540,69 +658,81 @@
 
 | 케이스 | 준비 | 동작 | 확인할 것 |
 |---|---|---|---|
-| 재개 후 다음 실행일 재계산 | `status` = `SUSPENDED`, `consecutiveFailures` = 3, `nextRunDate` = 2026-10-05 | `resume(LocalDate.of(2026, 10, 7))`(수) | `status` = `ACTIVE`, `nextRunDate` = 2026-10-12(내일 10-08(목) 이후 첫 월요일), `consecutiveFailures` = 0 |
-| 재개: 내일이 주기 날이면 내일 | `status` = `PAUSED`, `consecutiveFailures` = 1 | `resume(LocalDate.of(2026, 10, 11))`(일) | `status` = `ACTIVE`, `nextRunDate` = 2026-10-12(내일 자체가 월요일이라 포함), `consecutiveFailures` = 0 |
-| ACTIVE 재개 거부 | 기본(ACTIVE) | `resume(LocalDate.of(2026, 10, 7))` | `BusinessException`, `errorCode` = `INVALID_STATE_TRANSITION` / `nextRunDate` 그대로 2026-10-12 |
-| 종료 두 번 | 기본(ACTIVE) | `terminate("PRODUCT_DISCONTINUED")` → `terminate("SHOP_CLOSED")` | 첫 호출 뒤 `status` = `TERMINATED`, `endReason` = `PRODUCT_DISCONTINUED` / 두 번째는 예외 없이 끝나고 `status` = `TERMINATED`, `endReason`은 그대로 `PRODUCT_DISCONTINUED` |
-| 해지된 구독의 종료 | 기본 → `cancel()` | `terminate("PRODUCT_DISCONTINUED")` | 예외 없음, `status` = `CANCELLED`, `endReason` = `USER_CANCEL` 그대로 |
-| 해지·종료 뒤 수정 거부 | `cancel()`한 구독 / `terminate("SHOP_CLOSED")`한 구독 | `change(5, null, null)` | 둘 다 `BusinessException`, `errorCode` = `INVALID_STATE_TRANSITION` / `quantity` 그대로 2 |
-| 수정: null은 유지 | 기본(ACTIVE) | `change(5, null, null)` | `quantity` = 5, 배송지 필드와 `billingKeyId`는 준비 때 값 그대로 |
+| 재개 후 다음 실행일 재계산 | `status` = `SUSPENDED`, `consecutiveFailures` = 3, `nextRunDate` = 2026-10-05 | `resume(LocalDate.of(2026, 10, 7))`(수) | 반환값: `status` = `ACTIVE`, `nextRunDate` = 2026-10-12, `consecutiveFailures` = 0 |
+| 재개: 내일이 주기 날이면 내일 | `status` = `PAUSED`, `consecutiveFailures` = 1 | `resume(LocalDate.of(2026, 10, 11))`(일) | 반환값: `status` = `ACTIVE`, `nextRunDate` = 2026-10-12, `consecutiveFailures` = 0 |
+| ACTIVE 재개 거부 | 기본(ACTIVE) | `resume(LocalDate.of(2026, 10, 7))` | 예외: `BusinessException`, `errorCode` = `INVALID_STATE_TRANSITION` / 반환값: `nextRunDate` 그대로 2026-10-12 |
+| 종료 두 번 | 기본(ACTIVE) | `terminate("PRODUCT_DISCONTINUED")` → `terminate("SHOP_CLOSED")` | 반환값: 첫 호출 뒤 `status` = `TERMINATED`, `endReason` = `PRODUCT_DISCONTINUED` / 반환값: 두 번째는 예외 없이 끝나고 `status` = `TERMINATED`, `endReason`은 그대로 `PRODUCT_DISCONTINUED` |
+| 해지된 구독의 종료 | 기본 → `cancel()` | `terminate("PRODUCT_DISCONTINUED")` | 예외: 던져지지 않는다 / 반환값: `status` = `CANCELLED`, `endReason` = `USER_CANCEL` 그대로 |
+| 해지·종료 뒤 수정 거부 | `cancel()`한 구독 / `terminate("SHOP_CLOSED")`한 구독 | `change(5, null, null)` | 예외: 둘 다 `BusinessException`, `errorCode` = `INVALID_STATE_TRANSITION` / 반환값: `quantity` 그대로 2 |
+| 수정: null은 유지 | 기본(ACTIVE) | `change(5, null, null)` | 반환값: `quantity` = 5, 배송지 필드와 `billingKeyId`는 준비 때 값 그대로 |
 
 #### `order/web/SubscriptionControllerTest` (`@AutoConfigureMockMvc`)
 
-공통 준비
-- 판매자 `seller@test.com`(`signup` → `sellerId`, `login` → 판매자 토큰), `shopId = openShop(sellerId, "1111111111")`, `productId = registerSubscribableProduct(sellerId, shopId, 12000, 10)`.
-- 구매자 `buyer@test.com`(`signup` → `buyerId`, `login` → 토큰), `addressId = address(buyerId)`, `billingKeyId = registerBillingKey(buyerId)`.
-- 신청 요청: `POST /api/subscriptions`, `Authorization: Bearer {구매자 토큰}`, `Idempotency-Key`(새 UUID), 본문 `{"productId": productId, "quantity": 2, "cycle": {"type": "WEEKLY", "value": 1}, "addressId": addressId, "billingKeyId": billingKeyId, "startDate": 내일}`. 케이스가 바꾸는 값만 아래에 적는다.
-- 이메일 인증: Part 4의 `signup`·`login`이 인증을 마친 회원을 만든다(4-2에서 `TestFixtures`를 그렇게 바꿨다).
+공통 준비: 판매자 `seller@test.com`(`signup` → `sellerId`, `login` → 판매자 토큰), `shopId = openShop(sellerId, "1111111111")`, `productId = registerSubscribableProduct(sellerId, shopId, 12000, 10)`.
 
-**1. 신청 성공** — 동작: 위 신청 요청 그대로.
-- 응답: 201, `$.subscriptionId` 존재(UUID).
-- `subscriptionIdsOf(buyerId)`가 `$.subscriptionId` 한 건이다. `s = subscriptionSnapshotOf($.subscriptionId)`: `memberId()` = `buyerId`, `shopId()` = `shopId`, `productId()` = `productId`, `quantity()` = 2, `cycleType()` = `WEEKLY`, `cycleValue()` = 1, `billingKeyId()` = `billingKeyId`, `unitPrice()` = 12000(신청 시점 상품 가격), `status()` = `ACTIVE`.
-- `nextRunDate()` = `내일.with(nextOrSame(MONDAY))`.
-- `shippingAddress().get("recipient")` = `recipient`, `.get("address1")` = `address1`(`address(buyerId)`가 만든 배송지의 스냅샷).
+구매자 준비(3번을 뺀 모든 케이스가 쓴다): 구매자 `buyer@test.com`(`signup` → `buyerId`, `login` → 토큰), `addressId = address(buyerId)`, `billingKeyId = registerBillingKey(buyerId)`.
+
+신청 요청(1~6번): `POST /api/subscriptions`, `Authorization: Bearer {구매자 토큰}`, `Idempotency-Key`(새 UUID), 본문 `{"productId": productId, "quantity": 2, "cycle": {"type": "WEEKLY", "value": 1}, "addressId": addressId, "billingKeyId": billingKeyId, "startDate": 내일}`(`내일` = `today.plusDays(1)`). 케이스가 바꾸는 값만 아래에 적는다.
+
+**확인 표기**: 각 "확인"은 맨 앞에 읽는 곳을 쓴다. `응답(andExpect)`는 요청 호출 체인에 바로 거는 상태·헤더·`jsonPath` 단언, `응답 본문(andReturn 후)`는 `.andReturn()`으로 받은 `MvcResult`에서 꺼낸 상태·헤더·본문 값, `DB(헬퍼)`는 `TestFixtures` 등의 읽기 헬퍼, `Redis(헬퍼/키)`, `ES(헬퍼)`, `outbox(OutboxAssert.rows(토픽))`, `Kafka(TestKafka.messages)`, `메일(fakeMailSender.sent())`, `로그(output.getAll())`, `메트릭(registry)`, `가짜 서버 요청(가짜 서버의 요청 기록 호출)`, `반환값`은 서비스·도메인 테스트가 직접 받은 값, `예외`는 던져진 예외, `명령 출력`은 수동 확인의 명령 결과다. 한 줄에 읽는 곳이 둘이면 줄을 나눈다.
+
+**1. 신청 성공** — 동작: 위 신청 요청 그대로. `.andReturn()`으로 받은 본문에서 `JsonPath.read(본문, "$.subscriptionId")`를 `newId`로 둔다.
+- 응답(andExpect): 상태 201, `jsonPath("$.subscriptionId").exists()`.
+- DB(subscriptionIdsOf(buyerId)): `.size()`가 1이고 `get(0).toString()` = `newId`(응답 본문(andReturn 후)에서 꺼낸 값).
+- `s = subscriptionSnapshotOf(UUID.fromString(newId))`로 읽는다.
+- DB(subscriptionSnapshotOf): `s.memberId()` = `buyerId`, `s.shopId()` = `shopId`, `s.productId()` = `productId`.
+- DB(subscriptionSnapshotOf): `s.quantity()` = 2, `s.cycleType()` = `WEEKLY`, `s.cycleValue()` = 1, `s.billingKeyId()` = `billingKeyId`.
+- DB(subscriptionSnapshotOf): `s.unitPrice()` = 12000, `s.status()` = `ACTIVE`.
+- DB(subscriptionSnapshotOf): `s.nextRunDate()` = `today.plusDays(1).with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY))`.
+- DB(subscriptionSnapshotOf): `s.shippingAddress().get("recipient")` = `recipient`, `s.shippingAddress().get("address1")` = `address1`.
 
 **2. 구독 불가 상품 거부** — 준비: `registerProduct(sellerId, shopId, 12000, 10)`(`subscribable = false`)로 만든 `plainProductId`. 동작: `productId` 자리에 `plainProductId`.
-- 응답: 422, `$.code` = `PRODUCT_NOT_SUBSCRIBABLE`.
-- `subscriptionIdsOf(buyerId)`가 비어 있다.
+- 응답(andExpect): 상태 422, `jsonPath("$.code")` = `PRODUCT_NOT_SUBSCRIBABLE`.
+- DB(subscriptionIdsOf(buyerId)): `.isEmpty()`가 true.
 
 **3. 자기 가게 상품 거부** — 준비: `address(sellerId)`, `registerBillingKey(sellerId)`. 동작: 판매자 토큰으로, `addressId`·`billingKeyId` 자리에 판매자 것을 넣어 신청.
-- 응답: 422, `$.code` = `OWN_SHOP_PRODUCT`.
-- `subscriptionIdsOf(sellerId)`가 비어 있다.
+- 응답(andExpect): 상태 422, `jsonPath("$.code")` = `OWN_SHOP_PRODUCT`.
+- DB(subscriptionIdsOf(sellerId)): `.isEmpty()`가 true.
 
-**4. 오늘 시작 거부** — 동작: `startDate` = 오늘.
-- 응답: 400, `$.code` = `INVALID_REQUEST`.
-- `subscriptionIdsOf(buyerId)`가 비어 있다.
+**4. 오늘 시작 거부** — 동작: `startDate` = `today`.
+- 응답(andExpect): 상태 400, `jsonPath("$.code")` = `INVALID_REQUEST`.
+- DB(subscriptionIdsOf(buyerId)): `.isEmpty()`가 true.
 
 **5. 주기 값 범위 밖 거부** — `@ParameterizedTest`. 동작: `cycle`을 `{"type":"WEEKLY","value":8}` / `{"type":"MONTHLY","value":29}`로 바꿔 신청.
-- 응답: 400, `$.code` = `INVALID_REQUEST`(두 행 모두).
-- `subscriptionIdsOf(buyerId)`가 비어 있다.
+- 응답(andExpect): 상태 400, `jsonPath("$.code")` = `INVALID_REQUEST`.
+- DB(subscriptionIdsOf(buyerId)): `.isEmpty()`가 true.
 
 **6. 남의 빌링키로 신청 거부** — 준비: `owner@test.com` 가입 + `ownerKeyId = registerBillingKey(ownerId)`. 동작: `billingKeyId` 자리에 `ownerKeyId`.
-- 응답: 404, `$.code` = `BILLING_KEY_NOT_FOUND`.
-- `subscriptionIdsOf(buyerId)`가 비어 있다.
+- 응답(andExpect): 상태 404, `jsonPath("$.code")` = `BILLING_KEY_NOT_FOUND`.
+- DB(subscriptionIdsOf(buyerId)): `.isEmpty()`가 true.
 
 **7. 남의 구독 접근 거부** — 준비: `subscriptionId = createSubscription(buyerId, productId, billingKeyId)`, 다른 회원 `other@test.com` 가입·로그인(`otherToken`). 동작: `otherToken`으로 `GET /api/subscriptions/{subscriptionId}`, `POST /api/subscriptions/{subscriptionId}/pause`, `POST /api/subscriptions/{subscriptionId}/cancel`을 차례로 보낸다.
-- 세 요청 모두 응답 404, `$.code` = `SUBSCRIPTION_NOT_FOUND`.
-- `subscriptionSnapshotOf(subscriptionId)`: `status()` = `ACTIVE`, `endReason()` = null(바뀌지 않았다).
+- 응답(andExpect): 세 요청 모두 상태 404, `jsonPath("$.code")` = `SUBSCRIPTION_NOT_FOUND`.
+- 세 요청을 모두 보낸 뒤 DB(subscriptionSnapshotOf(subscriptionId)): `status()` = `ACTIVE`.
+- 세 요청을 모두 보낸 뒤 DB(subscriptionSnapshotOf(subscriptionId)): `endReason()`이 null(`assertThat(...).isNull()`).
 
 **8. 활성 구독이 있으면 가게 폐업 거부** — 준비: `subscriptionId = createSubscription(buyerId, productId, billingKeyId)`. 동작: 판매자 토큰으로 `DELETE /api/shops/{shopId}`.
-- 응답: 422, `$.code` = `SHOP_HAS_ACTIVE_ORDERS`, `$.details.reason` = `ACTIVE_SUBSCRIPTION`.
-- `shop.shop.status` = `ACTIVE`(폐업되지 않았다).
-- 이어서 구매자 토큰으로 `POST /api/subscriptions/{subscriptionId}/cancel` → 200 → 판매자 토큰으로 다시 `DELETE /api/shops/{shopId}` → 204(해지된 구독은 막지 않는다).
+- 응답(andExpect): 상태 422, `jsonPath("$.code")` = `SHOP_HAS_ACTIVE_ORDERS`, `jsonPath("$.details.reason")` = `ACTIVE_SUBSCRIPTION`.
+- 첫 폐업 요청 직후 DB(shopSnapshotOf(shopId)): `status()` = `ACTIVE`.
+- 이어서 구매자 토큰으로 `POST /api/subscriptions/{subscriptionId}/cancel`, 판매자 토큰으로 다시 `DELETE /api/shops/{shopId}`.
+- 응답(andExpect): 취소 요청은 상태 200, 폐업 요청은 상태 204.
 
 **9. 활성 구독이 있으면 회원 탈퇴 거부** — 준비: `createSubscription(buyerId, productId, billingKeyId)`. 동작: 구매자 토큰으로 `DELETE /api/members/me`.
-- 응답: 422, `$.code` = `MEMBER_HAS_ACTIVE_RESOURCES`, `$.details.reasons` = `["ACTIVE_SUBSCRIPTION"]`.
-- `member.member.status` = `ACTIVE`(그 구매자).
-- 이어서 `POST /api/subscriptions/{subscriptionId}/cancel` → 200 → 다시 `DELETE /api/members/me` → 204.
+- 응답(andExpect): 상태 422, `jsonPath("$.code")` = `MEMBER_HAS_ACTIVE_RESOURCES`, `jsonPath("$.details.reasons")` = `["ACTIVE_SUBSCRIPTION"]`.
+- 첫 탈퇴 요청 직후 DB(memberSnapshotOf(buyerId)): `status()` = `ACTIVE`.
+- 이어서 `POST /api/subscriptions/{subscriptionId}/cancel`, 다시 `DELETE /api/members/me`.
+- 응답(andExpect): 취소 요청은 상태 200, 탈퇴 요청은 상태 204.
 
 **10. 쓰는 빌링키 삭제 거부** — 준비: `subscriptionId = createSubscription(buyerId, productId, billingKeyId)`. 동작: 구매자 토큰으로 `DELETE /api/billing-keys/{billingKeyId}`.
-- 응답: 409, `$.code` = `BILLING_KEY_IN_USE`.
-- `billingKeyOf(billingKeyId)`: `status()` = `ACTIVE`, `deletedAt()` = null.
-- 이어서 `POST /api/subscriptions/{subscriptionId}/cancel` → 200 → 다시 `DELETE /api/billing-keys/{billingKeyId}` → 204.
+- 응답(andExpect): 상태 409, `jsonPath("$.code")` = `BILLING_KEY_IN_USE`.
+- 첫 삭제 요청 직후 DB(billingKeyOf(billingKeyId)): `status()` = `ACTIVE`.
+- 첫 삭제 요청 직후 DB(billingKeyOf(billingKeyId)): `deletedAt()`이 null(`assertThat(...).isNull()`).
+- 이어서 `POST /api/subscriptions/{subscriptionId}/cancel`, 다시 `DELETE /api/billing-keys/{billingKeyId}`.
+- 응답(andExpect): 취소 요청은 상태 200, 삭제 요청은 상태 204.
 
 **11. 구독 목록에는 내 구독만 나온다** — 준비: 7번과 같은 준비. 동작: `otherToken`으로 `GET /api/subscriptions`.
-- 응답: 200, `$.items.length()` = 0.
+- 응답(andExpect): 상태 200.
+- 응답(andExpect): `jsonPath("$.items").value(hasSize(0))`.
 
 **리뷰 때 물어볼 것**
 - 날짜 계산을 어디에 두었나? 매월 29~31일을 막은 이유는?
@@ -610,7 +740,7 @@
 
 ---
 
-## 5-3. 구독 회차 실행 잡 (L)
+## SUB-3. 구독 회차 실행 잡 (L)
 
 **목표**: 매일 06:00 실행일이 된 구독마다 주문을 만들고 빌링키로 결제한다. 실패하면 다음 날 재시도, 3회 연속 실패하면 일시정지(SUSPENDED). 재고가 없으면 건너뛴다.
 
@@ -683,9 +813,9 @@
 
 | 클래스 | 규격 |
 |---|---|
-| `StartPayment` (기존 record 수정) | 마지막 컴포넌트로 `UUID billingKeyId`를 더한다(일반 결제는 `null`). 어느 빌링키로 결제했는지 payment가 기억해 두는 용도다. 기존 `new StartPayment(...)` 호출(`ConfirmPaymentService`, `PaymentApiImplTest`)에 `null`을 더한다. `PaymentApiImpl.begin`과 5-3 `SubscriptionCycleService` 트랜잭션 1이 쓴다 |
+| `StartPayment` (기존 record 수정) | 마지막 컴포넌트로 `UUID billingKeyId`를 더한다(일반 결제는 `null`). 어느 빌링키로 결제했는지 payment가 기억해 두는 용도다. 기존 `new StartPayment(...)` 호출(`ConfirmPaymentService`, `PaymentApiImplTest`)에 `null`을 더한다. `PaymentApiImpl.begin`과 SUB-3 `SubscriptionCycleService` 트랜잭션 1이 쓴다 |
 | `PgOutcome` (기존 record 수정) | 마지막 컴포넌트로 `String paymentKey`를 더한다(`APPROVED`일 때만 값이 있고 아니면 `null`). 기존 `new PgOutcome(...)` 호출 전부(`PaymentApiImpl`의 `callConfirm`·`queryPgOutcome`, `PaymentApiImplTest`)의 인자가 하나 늘어난다. `markApproved`와 `PgResult` → `PgOutcome` 변환이 쓴다 |
-| `PaymentApi.callBillingCharge` (기존 인터페이스에 추가) | `PgOutcome callBillingCharge(UUID paymentId, String orderName)` — `callConfirm`의 빌링 버전. **트랜잭션 밖 전용**이고 payment 상태는 바꾸지 않는다(결과는 호출자가 `applyOutcome`/`OrderPaymentApplier`로 반영). `orderName`은 Toss 결제 내역에 보일 이름이다. 5-3 `SubscriptionCycleService` 2가 부른다 |
+| `PaymentApi.callBillingCharge` (기존 인터페이스에 추가) | `PgOutcome callBillingCharge(UUID paymentId, String orderName)` — `callConfirm`의 빌링 버전. **트랜잭션 밖 전용**이고 payment 상태는 바꾸지 않는다(결과는 호출자가 `applyOutcome`/`OrderPaymentApplier`로 반영). `orderName`은 Toss 결제 내역에 보일 이름이다. SUB-3 `SubscriptionCycleService` 2가 부른다 |
 
 **5) payment.domain**
 
@@ -727,7 +857,7 @@
 | `CycleStatus` | 회차 상태 `ORDERED, PAID, FAILED, SKIPPED`. 전이: `ORDERED → {PAID, FAILED}` (SKIPPED는 처음부터 SKIPPED로 만든다) |
 | `SubscriptionCycle` (entity) | **"이 구독의 이 날짜 회차를 처리했다"는 기록 한 줄.** `@Entity @Table(name = "subscription_cycle", schema = "orders")`, `extends BaseTimeEntity`, 필드는 1) 마이그레이션의 컬럼과 1:1(`@Version Long version` 포함). 도메인 메서드: `void linkOrder(UUID orderId, Money appliedUnitPrice)`(주문 연결), `void markPaid()`(`ORDERED → PAID`), `void markFailed(String failureReason)`(`ORDERED → FAILED`). `runDue`, `onOrderClosed`가 쓴다 |
 | `SubscriptionCycleRepository` | `int insertIfAbsent(UUID id, UUID subscriptionId, LocalDate cycleDate, String status, String failureReason, Instant now)`(native. 동작은 `order.infrastructure`의 `JpaSubscriptionCycleRepository`), `Optional<SubscriptionCycle> findById(UUID id)`, `Optional<SubscriptionCycle> findByOrderId(UUID orderId)`, 회차 이력 API(`order.web`)의 keyset 조회(`subscription_id = :id`, `cycle_date` 내림차순, `size + 1`건. 인자·커서 기준은 문서에 없다 — 확인 필요). `runDue`, `onOrderClosed`, 회차 이력 API가 쓴다 |
-| `SubscriptionRepository.findDueIds` (5-2 인터페이스에 추가) | `List<UUID> findDueIds(LocalDate today, UUID lastId, Limit limit)` — `status = ACTIVE AND next_run_date <= :today AND id > :lastId ORDER BY id`. `=`가 아니라 `<=`인 이유는 서버가 멈춰 있던 날의 구독도 다음 실행에서 처리하기 위해서다. 인덱스 `idx_subscription_status_next_run_date`가 받친다. 첫 페이지의 `lastId`를 어떻게 줄지는 문서에 없다(확인 필요: 첫 페이지 메서드를 따로 두거나 `new UUID(0, 0)`을 넘긴다). `runDue`가 쓴다 |
+| `SubscriptionRepository.findDueIds` (SUB-2 인터페이스에 추가) | `List<UUID> findDueIds(LocalDate today, UUID lastId, Limit limit)` — `status = ACTIVE AND next_run_date <= :today AND id > :lastId ORDER BY id`. `=`가 아니라 `<=`인 이유는 서버가 멈춰 있던 날의 구독도 다음 실행에서 처리하기 위해서다. 인덱스 `idx_subscription_status_next_run_date`가 받친다. 첫 페이지의 `lastId`를 어떻게 줄지는 문서에 없다(확인 필요: 첫 페이지 메서드를 따로 두거나 `new UUID(0, 0)`을 넘긴다). `runDue`가 쓴다 |
 | `Subscription.applyPendingPrice` | `Money applyPendingPrice(LocalDate today)` — `pendingEffectiveDate != null && !pendingEffectiveDate.isAfter(today)`이면 `unitPrice = pendingUnitPrice`, pending 두 칸을 null로 승격하고 승격한 가격을 돌려준다(POL-03·11). 아니면 `unitPrice`를 돌려준다. 트랜잭션 1이 롤백되면 승격도 함께 사라진다. `runDue` 트랜잭션 1의 3이 부른다 |
 | `Subscription.skipCycle` | `void skipCycle(LocalDate today)` — `nextRunDate = schedule.nextAfter(today)`. `consecutiveFailures`는 그대로(결제 실패가 아니다). `runDue`의 건너뛰기가 부른다 |
 | `Subscription.recordCyclePaid` | `void recordCyclePaid(LocalDate cycleDate)` — `consecutiveFailures = 0`, `nextRunDate = schedule.nextAfter(cycleDate)`. `onOrderClosed` 2가 부른다 |
@@ -737,7 +867,7 @@
 
 | 클래스 | 규격 |
 |---|---|
-| `OrderTopics.SUBSCRIPTION_STATUS_CHANGED` + `SubscriptionStatusChangedEvent` | 토픽 `"order.subscription-status-changed.v1"`, `record (UUID subscriptionId, UUID memberId, String from, String to, String reason)` — `from`·`to`는 `SubscriptionStatus.name()`. 이 문서에서 발행하는 곳은 SUSPENDED(5-3)와 TERMINATED(5-4)뿐이다. 구매자의 일시정지·재개·해지(5-2)에서도 내는지는 문서에 없다(확인 필요). `onOrderClosed` 3, 5-4가 발행한다 |
+| `OrderTopics.SUBSCRIPTION_STATUS_CHANGED` + `SubscriptionStatusChangedEvent` | 토픽 `"order.subscription-status-changed.v1"`, `record (UUID subscriptionId, UUID memberId, String from, String to, String reason)` — `from`·`to`는 `SubscriptionStatus.name()`. 이 문서에서 발행하는 곳은 SUSPENDED(SUB-3)와 TERMINATED(SUB-4)뿐이다. 구매자의 일시정지·재개·해지(SUB-2)에서도 내는지는 문서에 없다(확인 필요). `onOrderClosed` 3, SUB-4가 발행한다 |
 | `OrderTopics.SUBSCRIPTION_CYCLE_FAILED` + `SubscriptionCycleFailedEvent` | 토픽 `"order.subscription-cycle-failed.v1"`, `record (UUID subscriptionId, UUID cycleId, UUID memberId, int consecutiveFailures, String reason)`. `runDue` 건너뛰기, `onOrderClosed` 3이 발행한다 |
 
 이벤트는 상태 변경과 **같은 트랜잭션**에서 `outboxPublisher.publish(topic, "SUBSCRIPTION", subscriptionId, event)`로 낸다(Kafka 키 = 구독 ID라 같은 구독의 이벤트 순서가 지켜진다. `aggregateType`·키는 문서에 명시가 없어 3-3 규칙(키 = 집계 ID)에서 유추한 값이다 — 확인 필요).
@@ -806,27 +936,27 @@
 
 ### 완료 확인
 
-**테스트 준비** ([Part 2 공통 규칙 N-1](part2-order-money.md#n-1-단계별-testfixtures-추가)과 같은 방식)
+**테스트 준비** ([Part 2 공통 규칙 N-1](../03-roadmap/part2-order-money.md#n-1-단계별-testfixtures-추가)과 같은 방식)
 
 아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `setSubscriptionNextRunDate(UUID subscriptionId, LocalDate nextRunDate)` → `void` | JDBC `UPDATE orders.subscription SET next_run_date = ? WHERE id = ?` | `SubscriptionCycleServiceTest`·`SubscriptionCycleControllerTest`(구독을 오늘 실행 대상으로 당긴다), 5-4 `SubscriptionEventTest`(다음 실행일을 오늘 + 5일로 옮긴다) |
+| `setSubscriptionNextRunDate(UUID subscriptionId, LocalDate nextRunDate)` → `void` | JDBC `UPDATE orders.subscription SET next_run_date = ? WHERE id = ?` | `SubscriptionCycleServiceTest`·`SubscriptionCycleControllerTest`(구독을 오늘 실행 대상으로 당긴다), SUB-4 `SubscriptionEventTest`(다음 실행일을 오늘 + 5일로 옮긴다) |
 | `moveCyclesToPast(UUID subscriptionId)` → `void` | JDBC `UPDATE orders.subscription_cycle c SET cycle_date = DATE '2000-01-01' + r.n FROM (SELECT id, (ROW_NUMBER() OVER (ORDER BY created_at, id))::int AS n FROM orders.subscription_cycle WHERE subscription_id = ?) r WHERE c.id = r.id` — 그 구독의 회차마다 서로 다른 먼 과거 날짜를 준다. 날짜를 한꺼번에 하루씩 당기는 식(`cycle_date - 1`)은 회차가 둘 이상일 때 갱신 순서에 따라 `(subscription_id, cycle_date)` unique에 걸려 쓰지 않는다 | `SubscriptionCycleServiceTest`("다음 날" 재실행), `SubscriptionCycleControllerTest` |
-| `cyclesOf(UUID subscriptionId)` → `List<CycleRow>` | JDBC `SELECT id, cycle_date, status, order_id, applied_unit_price, failure_reason FROM orders.subscription_cycle WHERE subscription_id = ? ORDER BY created_at, id`. `CycleRow`(`support/`의 record) 필드: `id`(UUID), `cycleDate`(`LocalDate`), `status`(String), `orderId`(UUID, SKIPPED면 null), `appliedUnitPrice`(`Long`, SKIPPED면 null), `failureReason`(String, 없으면 null). 회차 테이블이 5-3에서 생기므로 5-2의 `subscriptionSnapshotOf`에 넣지 않고 따로 둔다 | `SubscriptionCycleServiceTest` 모든 케이스 |
+| `cyclesOf(UUID subscriptionId)` → `List<CycleRow>` | JDBC `SELECT id, cycle_date, status, order_id, applied_unit_price, failure_reason FROM orders.subscription_cycle WHERE subscription_id = ? ORDER BY created_at, id`. `CycleRow`(`support/`의 record) 필드: `id`(UUID), `cycleDate`(`LocalDate`), `status`(String), `orderId`(UUID, SKIPPED면 null), `appliedUnitPrice`(`Long`, SKIPPED면 null), `failureReason`(String, 없으면 null). 회차 테이블이 SUB-3에서 생기므로 SUB-2의 `subscriptionSnapshotOf`에 넣지 않고 따로 둔다 | `SubscriptionCycleServiceTest` 모든 케이스 |
 | `orderRowsOf(UUID memberId)` → `List<OrderRow>` | JDBC로 `orders.orders`(`id`, `type`, `status`, `total_amount`, `failure_reason`)에 `orders.shop_order`·`orders.order_line`(`unit_price`, `quantity`, `line_amount`)과 `payment.payment`(`id`, `status`, `amount`, `billing_key_id`, `payment_key`, `pg_order_id`, `failure_code`, `LEFT JOIN`으로 `order_id` 기준)를 붙여 `WHERE orders.member_id = ? ORDER BY orders.created_at, orders.id`로 읽는다. `OrderRow` 필드: `id`(UUID), `type`·`status`·`failureReason`(String), `totalAmount`·`lineUnitPrice`·`lineAmount`(long), `lineQuantity`(int), `payment`(`PaymentRow`, 결제가 없으면 null). `PaymentRow` 필드: `id`·`billingKeyId`(UUID), `status`·`paymentKey`·`pgOrderId`·`failureCode`(String), `amount`(long). 구독 회차 주문은 가게주문·품목이 하나라서 조인 결과가 주문당 한 행이다. 가게주문·품목 상태는 담지 않는다(2-8a의 `testFixtures.snapshotOf(orderId)`로 읽는다: `s.shopOrderStatus()`, `s.line(productId).status()`) | `SubscriptionCycleServiceTest`, `SubscriptionCycleControllerTest`(결제 성공 주문의 id) |
 
-이미 있는 헬퍼: 구독은 5-2의 `registerSubscribableProduct`·`createSubscription`, 빌링키는 5-1의 `registerBillingKey`로 만든다. `reconcileBatch()` 케이스의 `setOrderUpdatedAt(UUID orderId, Instant updatedAt)`은 2-6의 헬퍼로, JDBC로 `orders.orders.updated_at`을 바꾼다(`reconcileBatch()`는 30초 넘게 `PAYMENT_IN_PROGRESS`인 주문만 집어 가므로 시각을 60초 전으로 옮겨 쓴다).
+이미 있는 헬퍼: 구독은 SUB-2의 `registerSubscribableProduct`·`createSubscription`, 빌링키는 SUB-1의 `registerBillingKey`로 만든다. `reconcileBatch()` 케이스의 `setOrderUpdatedAt(UUID orderId, Instant updatedAt)`은 2-6의 헬퍼로, JDBC로 `orders.orders.updated_at`을 바꾼다(`reconcileBatch()`는 30초 넘게 `PAYMENT_IN_PROGRESS`인 주문만 집어 가므로 시각을 60초 전으로 옮겨 쓴다).
 
 헬퍼를 쓰는 방법은 다음과 같다.
 - 응답: `jsonPath`. 에러 코드는 `$.code`.
-- 구독: 5-2의 `s = testFixtures.subscriptionSnapshotOf(subscriptionId)`. 이 단계에서 읽는 값은 `s.status()`, `s.nextRunDate()`, `s.consecutiveFailures()`, `s.unitPrice()`, `s.pendingUnitPrice()`, `s.pendingEffectiveDate()`.
+- 구독: SUB-2의 `s = testFixtures.subscriptionSnapshotOf(subscriptionId)`. 이 단계에서 읽는 값은 `s.status()`, `s.nextRunDate()`, `s.consecutiveFailures()`, `s.unitPrice()`, `s.pendingUnitPrice()`, `s.pendingEffectiveDate()`.
 - 재고: `testFixtures.stockOf(productId)` → `available`, `reserved`, `sold`. 예약(`product.stock_reservation.status`, `WHERE order_id = ?`)과 장바구니 수량(`SELECT ci.quantity FROM orders.cart_item ci JOIN orders.cart c ON c.id = ci.cart_id WHERE c.member_id = ? AND ci.product_id = ?`)은 각각 한 케이스만 쓰는 값 하나라 한 줄로 읽는다.
-- 이벤트: `OutboxAssert.rows("order.subscription-cycle-failed.v1")` 등. 각 행은 `OutboxSnapshot`이고, `payload()`(`JsonNode`)의 필드로 비교한다(UUID는 문자열, 숫자는 `asLong()`/`asInt()`).
-- 가짜 PG가 받은 빌링 결제 요청: `pg.requests("/v1/billing/bk_")`(발급 요청 `/v1/billing/authorizations/issue`는 걸리지 않는다). `path()`, `headers().get("idempotency-key")`(소문자), `body()`를 `readTree`로 읽는다(금액은 `asLong()`). 빌링키 원문과 `customerKey`: 5-1의 `billingKeyOf(billingKeyId).billingKey()`·`.customerKey()`. 일반 승인 요청은 `pg.requests("/v1/payments/confirm")`.
+- 이벤트: `OutboxAssert.rows("order.subscription-cycle-failed.v1")` 등. 각 행은 `OutboxSnapshot`이고, `payload()`(`JsonNode`)의 필드로 비교한다(`payload().get("필드")`에 UUID는 `asText()`, 숫자는 `asLong()`/`asInt()`). 아래 "이벤트 N건"은 `OutboxAssert.rows(토픽).size()`이고 "이벤트 0건"도 같은 식이 0이라는 뜻이다.
+- 가짜 PG가 받은 빌링 결제 요청: `pg.requests("/v1/billing/bk_")`(발급 요청 `/v1/billing/authorizations/issue`는 걸리지 않는다). `path()`, `headers().get("idempotency-key")`(소문자), `body()`를 `readTree`로 읽는다(금액은 `asLong()`). 빌링키 원문과 `customerKey`: SUB-1의 `billingKeyOf(billingKeyId).billingKey()`·`.customerKey()`. 일반 승인 요청은 `pg.requests("/v1/payments/confirm")`.
 - 오늘 날짜: 테스트 클래스에 `Clock`, `BusinessProperties`를 주입하고 `LocalDate today = LocalDate.now(clock.withZone(businessProperties.businessZone()))`. 기대 날짜는 `SubscriptionSchedule`을 쓰지 않고 JDK로 계산한다: `nextMonday = today.with(TemporalAdjusters.next(DayOfWeek.MONDAY))`(오늘이 월요일이면 7일 뒤).
-- 시간 흉내: `Clock`을 바꾸지 않고 JDBC로 날짜를 옮긴다([Part 2 공통 규칙 M](part2-order-money.md#m-시간-흉내-내기)). "오늘 실행 대상"은 `setSubscriptionNextRunDate(subscriptionId, today)`, "다음 날 실행"은 `moveCyclesToPast(subscriptionId)` 뒤에 `setSubscriptionNextRunDate(subscriptionId, today)`. 사이의 하루는 건너뛰고 오늘 그대로 다시 돌리는 것이 "다음 날 실행"이다.
+- 시간 흉내: `Clock`을 바꾸지 않고 JDBC로 날짜를 옮긴다([Part 2 공통 규칙 M](../03-roadmap/part2-order-money.md#m-시간-흉내-내기)). "오늘 실행 대상"은 `setSubscriptionNextRunDate(subscriptionId, today)`, "다음 날 실행"은 `moveCyclesToPast(subscriptionId)` 뒤에 `setSubscriptionNextRunDate(subscriptionId, today)`. 사이의 하루는 건너뛰고 오늘 그대로 다시 돌리는 것이 "다음 날 실행"이다.
 - `runDue()` 반환값의 정의가 달라지면 아래 반환값만 고친다.
 - 빌링 결제 동작 바꾸기: 빌링 결제에만 동작을 건다(`pg.on("/v1/billing/bk_", ...)`). 거절 `pg.on("/v1/billing/bk_", Behavior.reject("REJECT_CARD_COMPANY"))`, 타임아웃 `Behavior.delay(1000)`(테스트 read-timeout 500ms보다 길다), 끊김 `Behavior.drop()`, 정상으로 되돌리기 `Behavior.approve()`.
 
@@ -834,8 +964,12 @@
 
 리팩터링(`OrderType`, `Order.checkout` 인자, `OrderPlacer`, `StartPayment`·`PgOutcome`·`markApproved` 인자)만 하고 동작은 바꾸지 않았으므로 기존 테스트가 그대로 통과해야 한다.
 - 동작: `./gradlew test --tests 'com.myroutine.order.*' --tests 'com.myroutine.payment.*'`.
-- 확인: 실패 0건. 기존 테스트 코드의 수정은 호출 인자 추가뿐이다(`Order.checkout(..., OrderType.NORMAL, ...)`, `new StartPayment(..., null)`, `new PgOutcome(..., paymentKey)`, `markApproved(..., paymentKey)`).
-- 추가 확인: 일반 체크아웃으로 만든 주문의 `orders.type` = `NORMAL`, 결제 승인 뒤 장바구니에서 주문한 수량이 빠지는 기존 단언(`PaymentConfirmTest`)이 그대로 통과한다.
+- 확인:
+  - 명령 출력(Gradle): `BUILD SUCCESSFUL`이고 실패한 테스트가 0건이다.
+  - 소스(git diff): 기존 테스트 코드의 수정은 호출 인자 추가뿐이다(`Order.checkout(..., OrderType.NORMAL, ...)`, `new StartPayment(..., null)`, `new PgOutcome(..., paymentKey)`, `markApproved(..., paymentKey)`).
+- 추가 확인:
+  - DB(orderRowsOf(memberId)): 일반 체크아웃으로 만든 주문의 `type()` = `NORMAL`.
+  - 명령 출력(Gradle): 결제 승인 뒤 장바구니에서 주문한 수량이 빠지는 기존 단언(`PaymentConfirmTest`)이 그대로 통과한다.
 
 #### `order/domain/OrderTest` (2-2에 추가)
 
@@ -843,9 +977,9 @@
 
 | 케이스 | 준비 | 동작 | 확인할 것 |
 |---|---|---|---|
-| 체크아웃 유형 기록 | | 같은 인자로 `type`만 `NORMAL`로 바꿔 한 번 더 `checkout` | 두 주문의 `getType()`이 각각 `SUBSCRIPTION`, `NORMAL` |
-| 결제 시작 | 방금 만든 주문(`PENDING_PAYMENT`) | `markPaymentInProgress()` | `getStatus()` = `PAYMENT_IN_PROGRESS` |
-| 결제 시작 거부 | `@ParameterizedTest`: `ReflectionTestUtils`로 상태를 `PAYMENT_IN_PROGRESS` / `PAID` / `CANCELLED` / `PAYMENT_FAILED` / `EXPIRED`로 만든다 | `markPaymentInProgress()` | `BusinessException`, `errorCode` = `INVALID_STATE_TRANSITION` / 상태는 준비한 값 그대로 |
+| 체크아웃 유형 기록 | | 같은 인자로 `type`만 `NORMAL`로 바꿔 한 번 더 `checkout` | 반환값: 두 주문의 `getType()`이 각각 `SUBSCRIPTION`, `NORMAL` |
+| 결제 시작 | 방금 만든 주문(`PENDING_PAYMENT`) | `markPaymentInProgress()` | 반환값: `getStatus()` = `PAYMENT_IN_PROGRESS` |
+| 결제 시작 거부 | `@ParameterizedTest`: `ReflectionTestUtils`로 상태를 `PAYMENT_IN_PROGRESS` / `PAID` / `CANCELLED` / `PAYMENT_FAILED` / `EXPIRED`로 만든다 | `markPaymentInProgress()` | 예외: `BusinessException`, `errorCode` = `INVALID_STATE_TRANSITION` / 반환값: 상태는 준비한 값 그대로 |
 
 #### `order/domain/CycleStatusTest` (단위 테스트)
 
@@ -853,116 +987,159 @@
 
 | 케이스 | 확인할 것 |
 |---|---|
-| 허용된 전이 2쌍 | `ORDERED→PAID`, `ORDERED→FAILED`는 `transitTo`가 예외 없이 도착 상태를 돌려준다 |
-| 허용되지 않은 전이 14쌍 | 나머지 14쌍(`ORDERED→ORDERED`, `ORDERED→SKIPPED`, `PAID`·`FAILED`·`SKIPPED`에서 나가는 전이 전부)은 `BusinessException`이고 `errorCode`가 `INVALID_STATE_TRANSITION`이다 |
+| 허용된 전이 2쌍 | 반환값: `ORDERED→PAID`, `ORDERED→FAILED`는 `transitTo`가 예외 없이 도착 상태를 돌려준다 |
+| 허용되지 않은 전이 14쌍 | 예외: 나머지 14쌍(`ORDERED→ORDERED`, `ORDERED→SKIPPED`, `PAID`·`FAILED`·`SKIPPED`에서 나가는 전이 전부)은 `BusinessException`이고 `errorCode`가 `INVALID_STATE_TRANSITION`이다 |
 
 #### `order/application/SubscriptionCycleServiceTest` (가짜 PG, `runDue()` 직접 호출)
 
 공통 준비
 - 판매자 `seller@test.com`, `shopId = openShop(sellerId, "1111111111")`, `productId = registerSubscribableProduct(sellerId, shopId, 10000, 10)`(상품명 `product`), 구매자 `buyer@test.com`(`buyerId`), `billingKeyId = registerBillingKey(buyerId)`.
 - `subscriptionId = createSubscription(buyerId, productId, billingKeyId)`(수량 1, 매주 월요일) → `setSubscriptionNextRunDate(subscriptionId, today)`.
-- 이때 구독은 `ACTIVE`, `unit_price` 10000, `consecutive_failures` 0, `pending_unit_price` null이고 주문·회차·결제는 0건, 재고는 `available` 10·`reserved` 0·`sold` 0이다.
+- 이때 `subscriptionSnapshotOf(subscriptionId)`는 `status()` = `ACTIVE`, `unitPrice()` = 10000, `consecutiveFailures()` = 0, `pendingUnitPrice()`가 null이고, `orderRowsOf(buyerId)`·`cyclesOf(subscriptionId)`가 둘 다 비어 있고(결제도 주문에 붙어 있으므로 0건), `stockOf(productId)`는 `available` 10·`reserved` 0·`sold` 0이다.
+
+**확인 표기**: 각 "확인"은 맨 앞에 읽는 곳을 쓴다. `응답(andExpect)`는 요청 호출 체인에 바로 거는 상태·헤더·`jsonPath` 단언, `응답 본문(andReturn 후)`는 `.andReturn()`으로 받은 `MvcResult`에서 꺼낸 상태·헤더·본문 값, `DB(헬퍼)`는 `TestFixtures` 등의 읽기 헬퍼, `Redis(헬퍼/키)`, `ES(헬퍼)`, `outbox(OutboxAssert.rows(토픽))`, `Kafka(TestKafka.messages)`, `메일(fakeMailSender.sent())`, `로그(output.getAll())`, `메트릭(registry)`, `가짜 서버 요청(가짜 서버의 요청 기록 호출)`, `반환값`은 서비스·도메인 테스트가 직접 받은 값, `예외`는 던져진 예외, `명령 출력`은 수동 확인의 명령 결과다. 한 줄에 읽는 곳이 둘이면 줄을 나눈다. 아래 `o`·`c`·`s`는 해당 헬퍼가 돌려준 값을 담은 변수다.
 
 **1. 정상 회차** — 동작: `runDue()` 한 번.
-- 반환값 1.
-- `orderRowsOf(buyerId)`가 1건, 그 주문 `o`: `type()` = `SUBSCRIPTION`, `status()` = `PAID`, `lineUnitPrice()` = 10000, `lineQuantity()` = 1.
-- `cyclesOf(subscriptionId)`가 1건: `cycleDate()` = `today`, `status()` = `PAID`, `orderId()` = `o.id()`, `appliedUnitPrice()` = 10000, `failureReason()` = null.
-- 구독 `s`: `nextRunDate()` = `nextMonday`.
-- 결제 `p = o.payment()`: `amount()` = 10000, `billingKeyId()` = `billingKeyId`. `paymentKey()`는 `BILLING-` + `o.id()`가 아니고(승인 뒤 Toss 값으로 덮어썼다) 가짜 서버가 만든 `pay_`로 시작한다(가짜 서버가 `pay_` + 랜덤으로 만들므로 정확한 문자열은 모른다).
-- 가짜 PG 빌링 요청 1건: `path()` = `/v1/billing/` + `billingKeyOf(billingKeyId).billingKey()`, 헤더 `idempotency-key` = `p.id()`, 본문 `customerKey` = `billingKeyOf(billingKeyId).customerKey()`, `amount` = 10000, `orderId` = `p.pgOrderId()`, `orderName` = `product 정기구독`.
+- 반환값: 1.
+- DB(orderRowsOf(buyerId)): `.size()`가 1. 그 주문 `o = get(0)`.
+- DB(orderRowsOf(buyerId)): `o.type()` = `SUBSCRIPTION`, `o.status()` = `PAID`, `o.lineUnitPrice()` = 10000, `o.lineQuantity()` = 1.
+- DB(cyclesOf(subscriptionId)): `.size()`가 1. 그 회차의 `cycleDate()` = `today`, `status()` = `PAID`, `orderId()` = `o.id()`, `appliedUnitPrice()` = 10000.
+- DB(cyclesOf(subscriptionId)): 그 회차의 `failureReason()`이 null(`assertThat(...).isNull()`).
+- DB(subscriptionSnapshotOf(subscriptionId)): `nextRunDate()` = `nextMonday`.
+- DB(orderRowsOf(buyerId)): 결제 `p = o.payment()`의 `p.amount()` = 10000, `p.billingKeyId()` = `billingKeyId`.
+- DB(orderRowsOf(buyerId)): `p.paymentKey()`는 `BILLING-` + `o.id()`와 다르고 `pay_`로 시작한다.
+- 가짜 서버 요청(pg.requests("/v1/billing/bk_")): `.size()`가 1.
+- 가짜 서버 요청(pg.requests("/v1/billing/bk_")): `get(0)`의 `path()` = `/v1/billing/` + `billingKeyOf(billingKeyId).billingKey()`, `headers().get("idempotency-key")` = `p.id().toString()`.
+- 가짜 서버 요청(pg.requests("/v1/billing/bk_")): `get(0).body()`를 `readTree`한 `get("customerKey").asText()` = `billingKeyOf(billingKeyId).customerKey()`, `get("amount").asLong()` = 10000, `get("orderId").asText()` = `p.pgOrderId()`, `get("orderName").asText()` = `product 정기구독`.
 
 **2. 같은 날 `runDue()`를 다시 돌려도 결제는 한 번** (INV-08) — 동작을 순서대로.
-1. `runDue()` → 반환 1.
-2. 바로 `runDue()` → 반환 0(이미 `next_run_date`가 `nextMonday`로 넘어가 대상이 아니다).
-3. `setSubscriptionNextRunDate(subscriptionId, today)`(같은 날 대상으로 다시 올림) → `runDue()` → 반환 0(대상으로 읽혔지만 오늘 회차가 이미 있어 멈춘다).
-- 세 번 뒤 확인: `orderRowsOf(buyerId)` 1건(결제 있음), `cyclesOf` 1건(`PAID`), 가짜 PG 빌링 요청 1건, 재고 `available` 9·`sold` 1.
-- 구독: `nextRunDate()` = `today`(3번 실행이 아무것도 바꾸지 않았다).
+1. `runDue()`.
+2. 바로 `runDue()`.
+3. `setSubscriptionNextRunDate(subscriptionId, today)` → `runDue()`.
+- 반환값: 1번째 1, 2번째 0, 3번째 0.
+- 세 번 뒤 DB(orderRowsOf(buyerId)): `.size()`가 1이고 `get(0).payment()`가 null이 아니다.
+- 세 번 뒤 DB(cyclesOf(subscriptionId)): `.size()`가 1이고 `get(0).status()` = `PAID`.
+- 세 번 뒤 가짜 서버 요청(pg.requests("/v1/billing/bk_")): `.size()`가 1.
+- 세 번 뒤 DB(stockOf(productId)): `available` 9, `sold` 1.
+- 세 번 뒤 DB(subscriptionSnapshotOf(subscriptionId)): `nextRunDate()` = `today`.
 
 **3. 두 스레드가 동시에 `runDue()`** — 동작: `ConcurrencyRunner.run(2, () -> subscriptionCycleService.runDue())`.
-- 두 결과 모두 `ok()`(예외 없음), `value()`의 합이 1(한쪽은 회차를 만들고 다른 쪽은 Postgres가 같은 `(subscription_id, cycle_date)` INSERT를 앞 트랜잭션이 끝날 때까지 기다리게 했다가 0을 받는다).
-- `orderRowsOf(buyerId)` 1건(결제 있음), `cyclesOf` 1건, 가짜 PG 빌링 요청 1건, 재고 `available` 9·`reserved` 0·`sold` 1.
+- 반환값: 두 결과 모두 `ok()`, `value()`의 합이 1.
+- DB(orderRowsOf(buyerId)): `.size()`가 1이고 `get(0).payment()`가 null이 아니다.
+- DB(cyclesOf(subscriptionId)): `.size()`가 1.
+- 가짜 서버 요청(pg.requests("/v1/billing/bk_")): `.size()`가 1.
+- DB(stockOf(productId)): `available` 9, `reserved` 0, `sold` 1.
 
 **4. 결제 거절 한 번** — 준비: 공통 준비 + 빌링 결제를 `Behavior.reject("REJECT_CARD_COMPANY")`로. 동작: `runDue()`.
-- 반환값 1.
-- `orderRowsOf(buyerId)` 1건 `o`: `type()` = `SUBSCRIPTION`.
-- `cyclesOf(subscriptionId)` 1건: `cycleDate()` = `today`, `status()` = `FAILED`, `orderId()` = `o.id()`, `failureReason()` = `PG 거절: REJECT_CARD_COMPANY`.
-- 구독: `status()` = `ACTIVE`, `consecutiveFailures()` = 1, `nextRunDate()` = `today.plusDays(1)`.
-- 가짜 PG 빌링 요청 1건.
-- `order.subscription-cycle-failed.v1` 1건: `subscriptionId`, `cycleId` = 위 회차의 `id`, `memberId` = `buyerId`, `consecutiveFailures` = 1, `reason` = `PG 거절: REJECT_CARD_COMPANY`. `order.subscription-status-changed.v1`은 0건.
+- 반환값: 1.
+- DB(orderRowsOf(buyerId)): `.size()`가 1. 그 주문 `o = get(0)`의 `o.type()` = `SUBSCRIPTION`.
+- DB(cyclesOf(subscriptionId)): `.size()`가 1. 그 회차의 `cycleDate()` = `today`, `status()` = `FAILED`, `orderId()` = `o.id()`, `failureReason()` = `PG 거절: REJECT_CARD_COMPANY`.
+- DB(subscriptionSnapshotOf(subscriptionId)): `status()` = `ACTIVE`, `consecutiveFailures()` = 1, `nextRunDate()` = `today.plusDays(1)`.
+- 가짜 서버 요청(pg.requests("/v1/billing/bk_")): `.size()`가 1.
+- outbox(OutboxAssert.rows("order.subscription-cycle-failed.v1")): `.size()`가 1.
+- outbox(OutboxAssert.rows("order.subscription-cycle-failed.v1")): 그 행 `payload()`의 `subscriptionId`, `cycleId` = 위 회차의 `id()`, `memberId` = `buyerId`, `consecutiveFailures` = 1, `reason` = `PG 거절: REJECT_CARD_COMPANY`(각각 `payload().get("필드").asText()`/`asInt()`).
+- outbox(OutboxAssert.rows("order.subscription-status-changed.v1")): `.size()`가 0.
 
 **5. 3회 연속 거절이면 정지** — 준비: 공통 준비 + 빌링 결제를 `Behavior.reject("REJECT_CARD_COMPANY")`로(끝까지 유지). 동작: `runDue()`를 세 번, 두 번째부터는 실행 전에 `moveCyclesToPast(subscriptionId)` → `setSubscriptionNextRunDate(subscriptionId, today)`.
 
-| 실행 | `runDue()` 반환 | 구독 `consecutiveFailures()` / `status()` / `nextRunDate()` | `cyclesOf` 크기(모두 `FAILED`) | `cycle-failed` 이벤트 누계 | `status-changed` 이벤트 누계 |
+| 실행 | `runDue()` 반환값 | DB(subscriptionSnapshotOf) `consecutiveFailures()` / `status()` / `nextRunDate()` | DB(cyclesOf) 크기(모두 `FAILED`) | outbox(`order.subscription-cycle-failed.v1`) `.size()` 누계 | outbox(`order.subscription-status-changed.v1`) `.size()` 누계 |
 |---|---|---|---|---|---|
 | 1 | 1 | 1 / `ACTIVE` / `today + 1` | 1 | 1 | 0 |
 | 2 | 1 | 2 / `ACTIVE` / `today + 1` | 2 | 2 | 0 |
 | 3 | 1 | 3 / `SUSPENDED` / `today` | 3 | 2 | 1 |
 
-- 3번째 실행의 `nextRunDate()`가 `today`인 것은 정지가 날짜를 바꾸지 않아서다(실행 전에 `today`로 맞춰 둔 값 그대로).
-- 3번째에 나간 `status-changed` 1건: `subscriptionId`, `memberId` = `buyerId`, `from` = `ACTIVE`, `to` = `SUSPENDED`(`reason`에 무엇을 넣는지는 문서에 없다, 확인 필요). 이 실행에서는 `cycle-failed`가 나가지 않는다(누계 2 그대로).
+- outbox(OutboxAssert.rows("order.subscription-status-changed.v1")): 3번째에 나간 1건의 `payload()`: `subscriptionId`, `memberId` = `buyerId`, `from` = `ACTIVE`, `to` = `SUSPENDED`.
 
 **6. 거절 두 번 뒤 성공하면 실패 수가 0으로** — 준비: 공통 준비 + 빌링 결제 거절 상태에서 `runDue()`를 두 번 실행해(두 번째 실행 전에 `moveCyclesToPast(subscriptionId)` → `setSubscriptionNextRunDate(subscriptionId, today)`) `consecutive_failures`를 2로 만든다. 동작: 빌링 결제를 `Behavior.approve()`로 되돌린다 → `moveCyclesToPast(subscriptionId)` → `setSubscriptionNextRunDate(subscriptionId, today)` → `runDue()`.
-- 반환값 1.
-- `cyclesOf` 3건, 만든 순서대로 `status()`가 `FAILED`, `FAILED`, `PAID`.
-- 구독: `consecutiveFailures()` = 0, `status()` = `ACTIVE`, `nextRunDate()` = `nextMonday`.
-- 재고: `available` 9, `reserved` 0, `sold` 1.
+- 반환값: 1.
+- DB(cyclesOf(subscriptionId)): `.size()`가 3이고 각 `status()`를 만든 순서대로 모으면 `FAILED`, `FAILED`, `PAID`.
+- DB(subscriptionSnapshotOf(subscriptionId)): `consecutiveFailures()` = 0, `status()` = `ACTIVE`, `nextRunDate()` = `nextMonday`.
+- DB(stockOf(productId)): `available` 9, `reserved` 0, `sold` 1.
 
-**7. 재고 부족·판매 중지·가게 운영 중지는 건너뛴다** — `@ParameterizedTest`. 준비: 공통 준비 + JDBC `UPDATE orders.subscription SET consecutive_failures = 2 WHERE id = ?`(실패 수가 0이라서 통과하는 것을 막는다) + 행마다 다음을 만든다. 동작: `runDue()`.
+**7. 재고 부족·판매 중지·가게 운영 중지는 건너뛴다** — `@ParameterizedTest`. 준비: 공통 준비 + `JdbcTemplate.update("UPDATE orders.subscription SET consecutive_failures = 2 WHERE id = ?", subscriptionId)` + 행마다 다음을 만든다. 동작: `runDue()`.
 
-| 행 | 추가 준비 | 재고 확인 |
+| 행 | 추가 준비 | DB(stockOf(productId)) 재고 확인 |
 |---|---|---|
-| 재고 부족 | 공통 준비의 상품 대신 `registerSubscribableProduct(sellerId, shopId, 10000, 0)`(재고 0)으로 상품을 만들고 구독도 그 상품으로 만든다 | `available` 0, `reserved` 0, `sold` 0 |
+| 재고 부족 | 공통 준비의 상품·구독 대신 `registerSubscribableProduct(sellerId, shopId, 10000, 0)`으로 상품을 만들고 구독도 그 상품으로 만든다(`createSubscription` 뒤 `setSubscriptionNextRunDate(…, today)`, 위 `consecutive_failures = 2` UPDATE는 이 구독에 건다) | `available` 0, `reserved` 0, `sold` 0 |
 | 판매 중지 | `hideProduct(productId)` | `available` 10, `reserved` 0, `sold` 0 |
 | 가게 운영 중지 | `closeShop(shopId)` | `available` 10, `reserved` 0, `sold` 0 |
 
-- 반환값 1.
-- `cyclesOf` 1건 `c`: `cycleDate()` = `today`, `status()` = `SKIPPED`, `orderId()` = null, `appliedUnitPrice()` = null, `failureReason()`은 구현이 정한 사유 문자열이다(정확한 문자열은 문서에 없다, 확인 필요. 이벤트 `reason` 예시 `SKIPPED_OUT_OF_STOCK`와 같은 값으로 두고, 정해진 문자열을 `isEqualTo`로 비교한다).
-- `orderRowsOf(buyerId)`가 비어 있다(주문·결제 0건). 예약 0건, 가짜 PG 빌링 요청 0건.
-- 구독: `consecutiveFailures()` = 2(그대로), `nextRunDate()` = `nextMonday`.
-- `cycle-failed` 이벤트 1건: `subscriptionId`, `cycleId` = 위 회차의 `id`, `memberId` = `buyerId`, `reason` = `c.failureReason()`과 같은 값(`consecutiveFailures`에 무엇을 넣는지는 문서에 없다 — 확인 필요). `status-changed`는 0건.
+- 반환값: 1.
+- DB(cyclesOf(subscriptionId)): `.size()`가 1. 그 회차 `c`의 `c.cycleDate()` = `today`, `c.status()` = `SKIPPED`.
+- DB(cyclesOf(subscriptionId)): `c.orderId()`가 null, `c.appliedUnitPrice()`가 null(둘 다 `assertThat(...).isNull()`).
+- DB(cyclesOf(subscriptionId)): `c.failureReason()`은 구현이 정한 사유 문자열이다(정확한 문자열은 문서에 없다, 확인 필요. 이벤트 `reason` 예시 `SKIPPED_OUT_OF_STOCK`와 같은 값으로 두고, 정해진 문자열을 `isEqualTo`로 비교한다).
+- DB(orderRowsOf(buyerId)): `.isEmpty()`가 true.
+- DB(JDBC): 예약 0건: `JdbcTemplate.queryForObject("SELECT count(*) FROM product.stock_reservation WHERE product_id = ?", Integer.class, productId)`가 0(재고 부족 행은 그 행에서 만든 상품의 ID).
+- 가짜 서버 요청(pg.requests("/v1/billing/bk_")): `.size()`가 0.
+- DB(subscriptionSnapshotOf(subscriptionId)): `consecutiveFailures()` = 2, `nextRunDate()` = `nextMonday`.
+- outbox(OutboxAssert.rows("order.subscription-cycle-failed.v1")): `.size()`가 1. 그 행 `payload()`의 `subscriptionId`, `cycleId` = `c.id()`, `memberId` = `buyerId`, `reason` = `c.failureReason()`과 같은 값.
+- outbox(OutboxAssert.rows("order.subscription-status-changed.v1")): `.size()`가 0.
 
-**8. 건너뛴 회차는 가격 승격을 취소한다** — 준비: 재고 0 상품(`registerSubscribableProduct(sellerId, shopId, 10000, 0)`)으로 만든 구독 + JDBC `UPDATE orders.subscription SET pending_unit_price = 12000, pending_effective_date = ? WHERE id = ?`(`today`). 동작: `runDue()`.
-- 구독: `unitPrice()` = 10000(승격이 롤백됐다), `pendingUnitPrice()` = 12000, `pendingEffectiveDate()` = `today`.
+**8. 건너뛴 회차는 가격 승격을 취소한다** — 준비: 공통 준비의 상품·구독 대신 재고 0 상품(`registerSubscribableProduct(sellerId, shopId, 10000, 0)`)으로 만든 구독(`createSubscription` 뒤 `setSubscriptionNextRunDate(…, today)`) + `JdbcTemplate.update("UPDATE orders.subscription SET pending_unit_price = 12000, pending_effective_date = ? WHERE id = ?", today, 그 구독 ID)`. 동작: `runDue()`.
+- DB(subscriptionSnapshotOf(그 구독 ID)): `unitPrice()` = 10000, `pendingUnitPrice()` = 12000, `pendingEffectiveDate()` = `today`.
 
-**9. 빌링 타임아웃은 대사가 닫는다** — 준비: 공통 준비 + 빌링 결제를 `Behavior.delay(1000)`로. 
+**9. 빌링 타임아웃은 대사가 닫는다** — 준비: 공통 준비 + 빌링 결제를 `Behavior.delay(1000)`로.
 - 동작 1: `runDue()`.
-- 확인 1: 반환값 1 / `orderRowsOf(buyerId)` 1건 `o`, `status()` = `PAYMENT_IN_PROGRESS`, `payment().status()` = `UNKNOWN` / `cyclesOf` 1건 `ORDERED`(`orderId()` = `o.id()`, `appliedUnitPrice()` = 10000) / 구독 `consecutiveFailures()` 0, `nextRunDate()` = `today`(아직 닫히지 않아 그대로) / 가짜 PG 빌링 요청 1건 / `cycle-failed`·`status-changed` 이벤트 0건.
-- 동작 3: `setOrderUpdatedAt(orderId, Instant.now().minusSeconds(60))` → `orderReconcileService.reconcileBatch()`(2-6).
-- 확인 3: `orderRowsOf` 첫 주문 `payment().paymentKey()`가 `BILLING-` + 주문 `id()`가 아니고 `pay_`로 시작 / `cyclesOf` 첫 회차 `PAID` / 구독 `nextRunDate()` = `nextMonday` / 가짜 PG 빌링 요청은 그대로 1건 / `pg.requests("/v1/payments/orders/")` 1건이고 `path()` = `/v1/payments/orders/` + `payment().pgOrderId()`.
+- 확인 1:
+  - 반환값: 1.
+  - DB(orderRowsOf(buyerId)): `.size()`가 1. 그 주문 `o = get(0)`의 `o.status()` = `PAYMENT_IN_PROGRESS`, `o.payment().status()` = `UNKNOWN`.
+  - DB(cyclesOf(subscriptionId)): `.size()`가 1이고 `get(0)`의 `status()` = `ORDERED`, `orderId()` = `o.id()`, `appliedUnitPrice()` = 10000.
+  - DB(subscriptionSnapshotOf(subscriptionId)): `consecutiveFailures()` = 0, `nextRunDate()` = `today`.
+  - 가짜 서버 요청(pg.requests("/v1/billing/bk_")): `.size()`가 1.
+  - outbox(OutboxAssert.rows("order.subscription-cycle-failed.v1")): `.size()`가 0. outbox(OutboxAssert.rows("order.subscription-status-changed.v1")): `.size()`가 0.
+- 동작 2: `setOrderUpdatedAt(o.id(), Instant.now().minusSeconds(60))` → `orderReconcileService.reconcileBatch()`(2-6).
+- 확인 2: 대사 뒤에 `orderRowsOf(buyerId)`·`cyclesOf(subscriptionId)`·`subscriptionSnapshotOf(subscriptionId)`를 다시 읽는다.
+  - DB(orderRowsOf(buyerId)): 첫 주문 `payment().paymentKey()`가 `BILLING-` + 주문 `id()`와 다르고 `pay_`로 시작한다.
+  - DB(cyclesOf(subscriptionId)): 첫 회차 `status()` = `PAID`.
+  - DB(subscriptionSnapshotOf(subscriptionId)): `nextRunDate()` = `nextMonday`.
+  - 가짜 서버 요청(pg.requests("/v1/billing/bk_")): `.size()`는 그대로 1.
+  - 가짜 서버 요청(pg.requests("/v1/payments/orders/")): `.size()`가 1이고 `get(0).path()` = `/v1/payments/orders/` + `payment().pgOrderId()`(DB(orderRowsOf(buyerId))의 첫 주문 결제 값).
 
-**10. 빌링 끊김은 대사가 실패로 닫는다** — 준비: 공통 준비 + 빌링 결제를 `Behavior.drop()`으로(가짜 서버에 승인 기록이 남지 않는다). 동작: `runDue()` → `setOrderUpdatedAt(orderId, Instant.now().minusSeconds(60))` → `reconcileBatch()`.
-- 주문 `o`의 `status()` = `PAYMENT_FAILED`. 회차 `c`의 `status()` = `FAILED`이고 `c.failureReason()`이 `o.failureReason()`과 같은 문자열(null이 아니다).
-- 구독: `consecutiveFailures()` = 1, `nextRunDate()` = `today.plusDays(1)`.
-- `cycle-failed` 이벤트 1건: `cycleId` = `c.id()`, `consecutiveFailures` = 1, `reason` = `c.failureReason()`.
+**10. 빌링 끊김은 대사가 실패로 닫는다** — 준비: 공통 준비 + 빌링 결제를 `Behavior.drop()`으로. 동작: `runDue()` → `orderRowsOf(buyerId)`의 첫 주문 `o`의 `id()`로 `setOrderUpdatedAt(o.id(), Instant.now().minusSeconds(60))` → `orderReconcileService.reconcileBatch()`. 확인은 모두 `reconcileBatch()`가 끝난 뒤에 읽는다: `orderRowsOf(buyerId)`·`cyclesOf(subscriptionId)`·`subscriptionSnapshotOf(subscriptionId)`를 다시 읽어 `o`(첫 주문)·`c`(첫 회차)에 담는다(`runDue()` 직후 값과 비교하지 않는다).
+- DB(orderRowsOf(buyerId)): `o.status()` = `PAYMENT_FAILED`.
+- DB(cyclesOf(subscriptionId)): `c.status()` = `FAILED`.
+- DB(cyclesOf(subscriptionId)): `c.failureReason()`이 null이 아니고(`isNotNull()`) `o.failureReason()`과 같은 문자열이다.
+- DB(subscriptionSnapshotOf(subscriptionId)): `consecutiveFailures()` = 1, `nextRunDate()` = `today.plusDays(1)`.
+- outbox(OutboxAssert.rows("order.subscription-cycle-failed.v1")): `.size()`가 1. 그 행 `payload()`의 `cycleId` = `c.id()`, `consecutiveFailures` = 1, `reason` = `c.failureReason()`.
 
-**11. 인상 예정가의 적용일에 따라 가격이 달라진다** — `@ParameterizedTest`. 준비: 공통 준비 + JDBC `UPDATE orders.subscription SET pending_unit_price = 12000, pending_effective_date = ? WHERE id = ?`. 동작: `runDue()`.
+**11. 인상 예정가의 적용일에 따라 가격이 달라진다** — `@ParameterizedTest`. 준비: 공통 준비 + `JdbcTemplate.update("UPDATE orders.subscription SET pending_unit_price = 12000, pending_effective_date = ? WHERE id = ?", 적용일, subscriptionId)`. 동작: `runDue()`.
 
-| 행 | `pending_effective_date` | 주문·결제·회차 가격 | 구독 `unitPrice()` / `pendingUnitPrice()` / `pendingEffectiveDate()` |
+| 행 | `pending_effective_date` | 주문·결제·회차 가격 | DB(subscriptionSnapshotOf) `unitPrice()` / `pendingUnitPrice()` / `pendingEffectiveDate()` |
 |---|---|---|---|
 | 적용일이 오늘 | `today` | 12000 | 12000 / null / null |
 | 적용일이 내일 | `today.plusDays(1)` | 10000 | 10000 / 12000 / `today.plusDays(1)` |
 
-- "주문 가격"은 `orderRowsOf(buyerId)` 첫 주문의 `lineUnitPrice()`·`payment().amount()`, `cyclesOf` 첫 회차의 `appliedUnitPrice()`, 가짜 PG 빌링 요청 본문 `amount`가 모두 같은 값이라는 뜻이다.
+- "주문 가격"은 DB(orderRowsOf(buyerId))의 첫 주문 `lineUnitPrice()`·`payment().amount()`, DB(cyclesOf(subscriptionId))의 첫 회차 `appliedUnitPrice()`, 가짜 서버 요청(pg.requests("/v1/billing/bk_"))의 `get(0).body()`를 `readTree`한 `get("amount").asLong()`이 모두 표의 같은 값이라는 뜻이다. 표의 구독 열에서 null은 `assertThat(...).isNull()`이다.
 
-**12. 정지된 구독은 실행하지 않는다** — 준비: 5번과 같은 준비로 `runDue()`를 세 번 실행해 구독을 `SUSPENDED`로 만든다(3번째 실행 뒤 `nextRunDate()` = `today`). 동작: `moveCyclesToPast(subscriptionId)` → `setSubscriptionNextRunDate(subscriptionId, today)` → `runDue()`(`SUSPENDED`인데 `next_run_date`가 오늘).
-- 반환값 0(대상이 아니라 아무것도 일어나지 않는다).
-- 구독: `consecutiveFailures()` = 3, `status()` = `SUSPENDED`, `nextRunDate()` = `today`. `cyclesOf` 3건(모두 `FAILED`), `cycle-failed` 이벤트 누계 2, `status-changed` 이벤트 누계 1(5번 표의 3번째 실행 숫자 그대로).
+**12. 정지된 구독은 실행하지 않는다** — 준비: 5번과 같은 준비로 `runDue()`를 세 번 실행해 구독을 `SUSPENDED`로 만든다. 동작: `moveCyclesToPast(subscriptionId)` → `setSubscriptionNextRunDate(subscriptionId, today)` → `runDue()`.
+- 반환값: 0.
+- DB(subscriptionSnapshotOf(subscriptionId)): `consecutiveFailures()` = 3, `status()` = `SUSPENDED`, `nextRunDate()` = `today`.
+- DB(cyclesOf(subscriptionId)): `.size()`가 3이고 모두 `status()` = `FAILED`.
+- outbox(OutboxAssert.rows("order.subscription-cycle-failed.v1")): `.size()`가 누계 2.
+- outbox(OutboxAssert.rows("order.subscription-status-changed.v1")): `.size()`가 누계 1.
 
 #### `order/web/SubscriptionCycleControllerTest` (`@AutoConfigureMockMvc`, 회차 이력 API)
 
-공통 준비: 판매자 `seller@test.com`, `shopId = openShop(sellerId, "1111111111")`, `productId = registerSubscribableProduct(sellerId, shopId, 10000, 10)`, 구매자 `buyer@test.com`(`buyerId`), `billingKeyId = registerBillingKey(buyerId)`, `subscriptionId = createSubscription(buyerId, productId, billingKeyId)` → `setSubscriptionNextRunDate(subscriptionId, today)`. 회차 두 개를 만든다: 빌링 결제 거절 → `runDue()` → 빌링 결제를 `Behavior.approve()`로 → `moveCyclesToPast(subscriptionId)` → `setSubscriptionNextRunDate(subscriptionId, today)` → `runDue()`. 결과: 회차 2건(과거 `FAILED`, 오늘 `PAID`). 구매자 토큰은 `login("buyer@test.com")`.
+공통 준비: 판매자 `seller@test.com`, `shopId = openShop(sellerId, "1111111111")`, `productId = registerSubscribableProduct(sellerId, shopId, 10000, 10)`, 구매자 `buyer@test.com`(`buyerId`), `billingKeyId = registerBillingKey(buyerId)`, `subscriptionId = createSubscription(buyerId, productId, billingKeyId)`.
 
-**1. 내 회차 이력** — 동작: 구매자 토큰으로 `GET /api/subscriptions/{subscriptionId}/cycles?size=10`.
-- 응답: 200, `$.items.length()` = 2, `$.nextCursor` = null.
-- `$.items[0]`(최신): `cycleDate` = `today.toString()`, `status` = `PAID`, `orderId` = `orderRowsOf(buyerId)` 중 `status()` = `PAID`인 주문의 `id()`, `appliedUnitPrice` = 10000, `failureReason` = null.
-- `$.items[1]`: `status` = `FAILED`, `failureReason` = `PG 거절: REJECT_CARD_COMPANY`.
+**확인 표기**: 각 "확인"은 맨 앞에 읽는 곳을 쓴다. `응답(andExpect)`는 요청 호출 체인에 바로 거는 상태·헤더·`jsonPath` 단언, `응답 본문(andReturn 후)`는 `.andReturn()`으로 받은 `MvcResult`에서 꺼낸 상태·헤더·본문 값, `DB(헬퍼)`는 `TestFixtures` 등의 읽기 헬퍼, `Redis(헬퍼/키)`, `ES(헬퍼)`, `outbox(OutboxAssert.rows(토픽))`, `Kafka(TestKafka.messages)`, `메일(fakeMailSender.sent())`, `로그(output.getAll())`, `메트릭(registry)`, `가짜 서버 요청(가짜 서버의 요청 기록 호출)`, `반환값`은 서비스·도메인 테스트가 직접 받은 값, `예외`는 던져진 예외, `명령 출력`은 수동 확인의 명령 결과다. 한 줄에 읽는 곳이 둘이면 줄을 나눈다.
+
+**1. 내 회차 이력** — 준비: 구매자 토큰 `login("buyer@test.com")`, `setSubscriptionNextRunDate(subscriptionId, today)`, 회차 두 개를 만든다: 빌링 결제 거절(`pg.on("/v1/billing/bk_", Behavior.reject("REJECT_CARD_COMPANY"))`) → `runDue()` → 빌링 결제를 `Behavior.approve()`로 → `moveCyclesToPast(subscriptionId)` → `setSubscriptionNextRunDate(subscriptionId, today)` → `runDue()`. 결과: `cyclesOf(subscriptionId)` 2건(과거 `FAILED`, 오늘 `PAID`). 동작: 구매자 토큰으로 `GET /api/subscriptions/{subscriptionId}/cycles?size=10`.
+- 응답(andExpect): 상태 200, `jsonPath("$.items.length()")` = 2.
+- 응답(andExpect): `jsonPath("$.nextCursor").value(nullValue())`.
+- 응답(andExpect): `$.items[0].cycleDate` = `today.toString()`, `$.items[0].status` = `PAID`, `$.items[0].appliedUnitPrice` = 10000.
+- 응답(andExpect): `$.items[0].orderId` = DB(orderRowsOf(buyerId))에서 `status()`가 `PAID`인 행의 `id().toString()`.
+- 응답(andExpect): `jsonPath("$.items[0].failureReason").value(nullValue())`.
+- 응답(andExpect): `$.items[1].status` = `FAILED`, `$.items[1].failureReason` = `PG 거절: REJECT_CARD_COMPANY`.
 
 **2. 남의 구독 회차 이력 거부** — 준비: 다른 회원 `other@test.com` 가입·로그인. 동작: 그 토큰으로 `GET /api/subscriptions/{subscriptionId}/cycles`.
-- 응답: 404, `$.code` = `SUBSCRIPTION_NOT_FOUND`.
+- 응답(andExpect): 상태 404, `jsonPath("$.code")` = `SUBSCRIPTION_NOT_FOUND`.
 
-**3. 회차 이력은 커서로 나눠 읽는다** — 동작: 1번과 같은 준비에서 구매자 토큰으로 `GET /api/subscriptions/{subscriptionId}/cycles?size=1` → `?size=1&cursor={nextCursor}`.
-- 첫 요청: `$.items.length()` = 1(`PAID` 회차), `$.nextCursor`는 null이 아니다.
-- 둘째 요청: `$.items.length()` = 1(`FAILED` 회차), `$.nextCursor` = null.
+**3. 회차 이력은 커서로 나눠 읽는다** — 준비: 1번과 같은 준비. 동작 1: 구매자 토큰으로 `GET /api/subscriptions/{subscriptionId}/cycles?size=1`, `.andReturn()`으로 받은 본문에서 `JsonPath.read(본문, "$.nextCursor")`를 `cursor`로 둔다. 동작 2: `?size=1&cursor={cursor}`.
+- 동작 1의 응답(andExpect): `$.items.length()` = 1, `$.items[0].status` = `PAID`.
+- 동작 1의 응답 본문(andReturn 후): `cursor`가 null이 아니다(`isNotNull()`).
+- 동작 2의 응답(andExpect): `$.items.length()` = 1, `$.items[0].status` = `FAILED`.
+- 동작 2의 응답(andExpect): `jsonPath("$.nextCursor").value(nullValue())`.
 
 **리뷰 때 물어볼 것**
 - 구독 결제가 중복으로 나가지 않게 어떻게 했나? (회차 unique + 결제 unique + PG 멱등키)
@@ -971,7 +1148,7 @@
 
 ---
 
-## 5-4. 가격 변경 · 종료 이벤트 반영 (M)
+## SUB-4. 가격 변경 · 종료 이벤트 반영 (M)
 
 **목표**: 상품 가격이 오르면 구독자에게 알리고 유예 후 적용, 내리면 바로 적용(OPEN-05). 상품 단종·가게 폐업·회원 탈퇴 시 구독 종료.
 
@@ -990,12 +1167,12 @@
 | 클래스 | 규격 |
 |---|---|
 | `Subscription.applyPriceChange` | `boolean applyPriceChange(Money newPrice, Instant changedAt, LocalDate today)` — **상품 가격 변경 이벤트 하나를 이 구독에 반영한다.** 부르는 쪽은 아래 `SubscriptionEventService`의 가격 변경 처리이고(`today`는 `LocalDate.now(clock.withZone(businessZone))`, `changedAt`은 이벤트의 `changedAt`), 반환 `boolean`은 "반영했는가"(true면 호출자가 `SUBSCRIPTION_PRICE_CHANGED`를 낸다). 순서는 아래 |
-| `SubscriptionRepository` 판매자 목록 쿼리 (5-2 인터페이스에 추가) | `shop_id = :shopId`(와 `status`가 있을 때 `status = :status`)로 거른 keyset 조회. `status`가 있는 경우와 없는 경우 × 첫 페이지·다음 페이지가 필요하다(메서드 이름은 문서에 없다. 인자는 5-2 `findByMemberFirstPage(UUID memberId, Limit limit)`·`findByMemberNextPage(UUID memberId, Instant cursorCreatedAt, UUID cursorId, Limit limit)`의 `memberId` 자리에 `shopId`를 두고, `status`가 있는 쪽은 그 바로 뒤에 `SubscriptionStatus status`를 더한 모양). `Limit.of(size + 1)`로 읽는다. 인덱스 `idx_subscription_shop_id_status`는 가게·상태 필터를 받친다. `Cursor(createdAt, id)` 기준 정렬을 쓸지는 정해져 있지 않다(확인 필요). 판매자 구독 현황 서비스 메서드가 쓴다 |
+| `SubscriptionRepository` 판매자 목록 쿼리 (SUB-2 인터페이스에 추가) | `shop_id = :shopId`(와 `status`가 있을 때 `status = :status`)로 거른 keyset 조회. `status`가 있는 경우와 없는 경우 × 첫 페이지·다음 페이지가 필요하다(메서드 이름은 문서에 없다. 인자는 SUB-2 `findByMemberFirstPage(UUID memberId, Limit limit)`·`findByMemberNextPage(UUID memberId, Instant cursorCreatedAt, UUID cursorId, Limit limit)`의 `memberId` 자리에 `shopId`를 두고, `status`가 있는 쪽은 그 바로 뒤에 `SubscriptionStatus status`를 더한 모양). `Limit.of(size + 1)`로 읽는다. 인덱스 `idx_subscription_shop_id_status`는 가게·상태 필터를 받친다. `Cursor(createdAt, id)` 기준 정렬을 쓸지는 정해져 있지 않다(확인 필요). 판매자 구독 현황 서비스 메서드가 쓴다 |
 
 `applyPriceChange` 순서
 1. **오래된 이벤트 무시**: `priceChangedAt != null && !changedAt.isAfter(priceChangedAt)`면 아무것도 바꾸지 않고 false
 2. `priceChangedAt = changedAt`
-3. **인상**(`newPrice.isGreaterThan(unitPrice)`): `pendingUnitPrice = newPrice`, `pendingEffectiveDate`는 `ChronoUnit.DAYS.between(today, nextRunDate) >= 3`이면 `nextRunDate`, 아니면 `schedule.nextAfter(nextRunDate)`(다음 회차로 미룬다. POL-11: 다음 회차 3일 전까지 알림을 보내야 해서, 3일이 안 남았으면 이번 회차는 기존가로 결제한다). `unitPrice`는 그대로다. 실제 승격은 5-3 회차 실행 때 한다
+3. **인상**(`newPrice.isGreaterThan(unitPrice)`): `pendingUnitPrice = newPrice`, `pendingEffectiveDate`는 `ChronoUnit.DAYS.between(today, nextRunDate) >= 3`이면 `nextRunDate`, 아니면 `schedule.nextAfter(nextRunDate)`(다음 회차로 미룬다. POL-11: 다음 회차 3일 전까지 알림을 보내야 해서, 3일이 안 남았으면 이번 회차는 기존가로 결제한다). `unitPrice`는 그대로다. 실제 승격은 SUB-3 회차 실행 때 한다
 4. **인하·동일**: `unitPrice = newPrice`, `pendingUnitPrice`·`pendingEffectiveDate`를 null로(예정 인상 취소)
 5. true
 
@@ -1066,11 +1243,11 @@
 
 이 단계에서 추가하는 헬퍼는 없다.
 
-이미 있는 헬퍼: 구독은 5-2의 `registerSubscribableProduct`·`createSubscription`·`subscriptionSnapshotOf`로 만들고 읽으며, 다음 실행일은 5-3의 `setSubscriptionNextRunDate`로 옮긴다. 가격 인상·단종은 판매자 상품 API를 MockMvc로 부르고(`PATCH /api/shops/{shopId}/products/{productId}`의 `price`, `PATCH .../status`의 `DISCONTINUED`).
+이미 있는 헬퍼: 구독은 SUB-2의 `registerSubscribableProduct`·`createSubscription`·`subscriptionSnapshotOf`로 만들고 읽으며, 다음 실행일은 SUB-3의 `setSubscriptionNextRunDate`로 옮긴다. 가격 인상·단종은 판매자 상품 API를 MockMvc로 부르고(`PATCH /api/shops/{shopId}/products/{productId}`의 `price`, `PATCH .../status`의 `DISCONTINUED`).
 
 헬퍼를 쓰는 방법은 다음과 같다.
 - 응답: `jsonPath`. 에러 코드는 `$.code`.
-- 구독: 5-2의 `s = testFixtures.subscriptionSnapshotOf(subscriptionId)`. 이 단계에서 읽는 값은 `s.status()`, `s.endReason()`, `s.unitPrice()`, `s.pendingUnitPrice()`, `s.pendingEffectiveDate()`, `s.priceChangedAt()`, `s.nextRunDate()`.
+- 구독: SUB-2의 `s = testFixtures.subscriptionSnapshotOf(subscriptionId)`. 이 단계에서 읽는 값은 `s.status()`, `s.endReason()`, `s.unitPrice()`, `s.pendingUnitPrice()`, `s.pendingEffectiveDate()`, `s.priceChangedAt()`, `s.nextRunDate()`.
 - 이벤트: `OutboxAssert.rows("order.subscription-price-changed.v1")` 등(3-1). 각 행은 `OutboxSnapshot`이고, `payload()`(`JsonNode`)의 필드로 비교한다(UUID는 문자열, 금액은 `asLong()`, 날짜는 `LocalDate.toString()`과 비교).
 - 알림: `notificationRowsOf(memberId)`(3-5가 `TestFixtures`에 추가한 헬퍼. 만든 순서). 한 건은 `NotificationRow`로 `type()`, `recipient()`, `status()`. 이 단계는 `type()`만 읽는다.
 - 비동기 반영: `outboxRelay.relayOnce()` 뒤 `Eventually.await(Duration.ofSeconds(5), () -> { 단언 })` 안에서 확인한다.
@@ -1082,49 +1259,71 @@
 
 | 케이스 | 준비 | 동작 | 확인할 것 |
 |---|---|---|---|
-| 다음 회차 2일 전 인상 | | `applyPriceChange(Money.of(12000), changedAt, LocalDate.of(2026, 10, 10))` | 반환 `true` / `pendingUnitPrice` = `Money.of(12000)` / `pendingEffectiveDate` = 2026-10-19(그다음 회차) / `unitPrice` = `Money.of(10000)`(이번 회차는 기존가) / `priceChangedAt` = `changedAt` |
-| 5일 전 인상 | | `applyPriceChange(Money.of(12000), changedAt, LocalDate.of(2026, 10, 7))` | `pendingEffectiveDate` = 2026-10-12(다음 회차) |
-| 정확히 3일 전 인상 | | `applyPriceChange(Money.of(12000), changedAt, LocalDate.of(2026, 10, 9))` | `pendingEffectiveDate` = 2026-10-12(3일 이상이면 다음 회차) |
-| 인하·동일가는 즉시 | 먼저 `pendingUnitPrice` = `Money.of(12000)`, `pendingEffectiveDate` = 2026-10-12를 `ReflectionTestUtils`로 넣는다. `@ParameterizedTest`: 새 가격 8000 / 10000 | `applyPriceChange(Money.of(새 가격), changedAt, LocalDate.of(2026, 10, 7))` | 반환 `true` / `unitPrice` = 새 가격 / `pendingUnitPrice` = null, `pendingEffectiveDate` = null(예정 인상 취소) |
-| 오래된 이벤트 무시 | 먼저 `applyPriceChange(Money.of(8000), changedAt, LocalDate.of(2026, 10, 7))`가 `true` | `@ParameterizedTest`: 두 번째 이벤트의 시각 `changedAt.minusSeconds(1)` / `changedAt`(같은 시각)으로 `applyPriceChange(Money.of(15000), 그 시각, LocalDate.of(2026, 10, 7))` | 반환 `false` / `unitPrice` = `Money.of(8000)`(최신 가격 유지) / `pendingUnitPrice` = null / `priceChangedAt` = `changedAt` 그대로 |
+| 다음 회차 2일 전 인상 | | `applyPriceChange(Money.of(12000), changedAt, LocalDate.of(2026, 10, 10))` | 반환값: 반환 `true` / 반환값: `pendingUnitPrice` = `Money.of(12000)` / 반환값: `pendingEffectiveDate` = 2026-10-19 / 반환값: `unitPrice` = `Money.of(10000)` / 반환값: `priceChangedAt` = `changedAt` |
+| 5일 전 인상 | | `applyPriceChange(Money.of(12000), changedAt, LocalDate.of(2026, 10, 7))` | 반환값: `pendingEffectiveDate` = 2026-10-12 |
+| 정확히 3일 전 인상 | | `applyPriceChange(Money.of(12000), changedAt, LocalDate.of(2026, 10, 9))` | 반환값: `pendingEffectiveDate` = 2026-10-12 |
+| 인하·동일가는 즉시 | 먼저 `pendingUnitPrice` = `Money.of(12000)`, `pendingEffectiveDate` = 2026-10-12를 `ReflectionTestUtils`로 넣는다. `@ParameterizedTest`: 새 가격 8000 / 10000 | `applyPriceChange(Money.of(새 가격), changedAt, LocalDate.of(2026, 10, 7))` | 반환값: 반환 `true` / 반환값: `unitPrice` = 새 가격 / 반환값: `pendingUnitPrice` = null, `pendingEffectiveDate` = null |
+| 오래된 이벤트 무시 | 먼저 `applyPriceChange(Money.of(8000), changedAt, LocalDate.of(2026, 10, 7))`가 `true` | `@ParameterizedTest`: 두 번째 이벤트의 시각 `changedAt.minusSeconds(1)` / `changedAt`으로 `applyPriceChange(Money.of(15000), 그 시각, LocalDate.of(2026, 10, 7))` | 반환값: 반환 `false` / 반환값: `unitPrice` = `Money.of(8000)` / 반환값: `pendingUnitPrice` = null / 반환값: `priceChangedAt` = `changedAt` 그대로 |
 
 #### `order/application/SubscriptionEventTest` (`@AutoConfigureMockMvc`, 가짜 PG 불필요)
 
-공통 준비: 판매자 `seller@test.com`(`sellerId`, 토큰 `sellerToken = login`), `shopId = openShop(sellerId, "1111111111")`, `productId = registerSubscribableProduct(sellerId, shopId, 10000, 10)`, 구매자 `buyer@test.com`(`buyerId`), `billingKeyId = registerBillingKey(buyerId)`, `subscriptionId = createSubscription(buyerId, productId, billingKeyId)`, `setSubscriptionNextRunDate(subscriptionId, today.plusDays(5))`. 이때 구독은 `ACTIVE`, `unit_price` 10000, `pending_unit_price` null, `end_reason` null이다.
+공통 준비: 판매자 `seller@test.com`(`signup` → `sellerId`), `shopId = openShop(sellerId, "1111111111")`, `productId = registerSubscribableProduct(sellerId, shopId, 10000, 10)`.
 
-**1. 상품 가격 인상이 구독에 반영된다** — 동작: `sellerToken`으로 `PATCH /api/shops/{shopId}/products/{productId}`, 본문 `{"price":12000}` → 200 → `outboxRelay.relayOnce()`.
-- 확인(`Eventually`): 구독 `pendingUnitPrice()` = 12000, `priceChangedAt()`은 null이 아니다.
-- `order.subscription-price-changed.v1` 정확히 1건: `subscriptionId`, `memberId` = `buyerId`, `oldPrice` = 10000, `newPrice` = 12000, `effectiveDate` = `today.plusDays(5)`(`oldPrice`·`effectiveDate`를 채우는 값은 문서에 없어(확인 필요) 여기서는 변경 전 `unitPrice`와 `pendingEffectiveDate`로 가정했다).
+구독 준비(6·7번을 뺀 모든 케이스가 쓴다): 구매자 `buyer@test.com`(`buyerId`), `billingKeyId = registerBillingKey(buyerId)`, `subscriptionId = createSubscription(buyerId, productId, billingKeyId)`. 이때 구독은 `ACTIVE`, `unit_price` 10000, `pending_unit_price` null, `end_reason` null이다.
 
-**2. 단종 이벤트를 두 번 받아도 종료는 한 번** — 동작 1: `sellerToken`으로 `PATCH /api/shops/{shopId}/products/{productId}/status`, 본문 `{"status":"DISCONTINUED"}` → 200 → `outboxRelay.relayOnce()`.
-- 확인 1(`Eventually`): 구독 `status()` = `TERMINATED`, `endReason()` = `PRODUCT_DISCONTINUED`.
-- `order.subscription-status-changed.v1` 1건: `subscriptionId`, `memberId` = `buyerId`, `from` = `ACTIVE`, `to` = `TERMINATED`, `reason` = `PRODUCT_DISCONTINUED`(`reason` 값은 문서에 없어(확인 필요) `endReason`과 같은 문자열로 가정했다).
-- 동작 2: 같은 이벤트를 한 번 더 처리한다 — `subscriptionEventService.onProductDiscontinued(new ProductDiscontinuedEvent(productId, shopId, "DISCONTINUED"))`를 직접 호출한다(서비스 메서드 이름은 예시다. Kafka의 같은 메시지 중복 소비는 `InboxGuard`(3-2)가 막으므로 여기서는 서비스 자체의 멱등을 본다).
-- 확인 2: 예외 없이 끝난다 / 구독 `status()` = `TERMINATED`, `endReason()` = `PRODUCT_DISCONTINUED` 그대로 / `order.subscription-status-changed.v1`이 여전히 1건.
+판매자 토큰(1·2·4·5·8번이 쓴다): `sellerToken = login("seller@test.com")`. 구매자 토큰(8번이 쓴다): `login("buyer@test.com")`.
 
-**3. 탈퇴·폐업 이벤트는 해당 구독만 종료한다** — `@ParameterizedTest`. 준비: 공통 준비 + 구매자 `buyer2@test.com`의 구독 `subscription2Id`(같은 상품, `registerBillingKey(buyer2Id)`, `createSubscription`). 회원 탈퇴는 활성 구독이 있으면 API가 막으므로(5-2) 서비스 메서드를 직접 부른다(방어용 경로).
+**확인 표기**: 각 "확인"은 맨 앞에 읽는 곳을 쓴다. `응답(andExpect)`는 요청 호출 체인에 바로 거는 상태·헤더·`jsonPath` 단언, `응답 본문(andReturn 후)`는 `.andReturn()`으로 받은 `MvcResult`에서 꺼낸 상태·헤더·본문 값, `DB(헬퍼)`는 `TestFixtures` 등의 읽기 헬퍼, `Redis(헬퍼/키)`, `ES(헬퍼)`, `outbox(OutboxAssert.rows(토픽))`, `Kafka(TestKafka.messages)`, `메일(fakeMailSender.sent())`, `로그(output.getAll())`, `메트릭(registry)`, `가짜 서버 요청(가짜 서버의 요청 기록 호출)`, `반환값`은 서비스·도메인 테스트가 직접 받은 값, `예외`는 던져진 예외, `명령 출력`은 수동 확인의 명령 결과다. 한 줄에 읽는 곳이 둘이면 줄을 나눈다.
 
-| 행 | 동작 | `subscriptionId` | `subscription2Id` |
+**1. 상품 가격 인상이 구독에 반영된다** — 준비: 공통 준비 + 구독 준비 + 판매자 토큰 + `setSubscriptionNextRunDate(subscriptionId, today.plusDays(5))`. 동작: `sellerToken`으로 `PATCH /api/shops/{shopId}/products/{productId}`, 본문 `{"price":12000}` → `outboxRelay.relayOnce()`.
+- 가격 변경 요청의 응답(andExpect): 상태 200.
+- `relayOnce()` 뒤 `Eventually` 안에서 DB(subscriptionSnapshotOf(subscriptionId)): `pendingUnitPrice()` = 12000, `priceChangedAt()`이 null이 아니다(`isNotNull()`).
+- `relayOnce()` 뒤 `Eventually` 안에서 outbox(OutboxAssert.rows("order.subscription-price-changed.v1")): `.size()`가 정확히 1.
+- `relayOnce()` 뒤 `Eventually` 안에서 outbox(OutboxAssert.rows("order.subscription-price-changed.v1")): 그 행 `payload()`의 `subscriptionId`, `memberId` = `buyerId`, `oldPrice` = 10000, `newPrice` = 12000, `effectiveDate` = `today.plusDays(5).toString()`(`payload().get("필드").asText()`/`asLong()`).
+
+**2. 단종 이벤트를 두 번 받아도 종료는 한 번** — 준비: 공통 준비 + 구독 준비 + 판매자 토큰. 동작 1: `sellerToken`으로 `PATCH /api/shops/{shopId}/products/{productId}/status`, 본문 `{"status":"DISCONTINUED"}` → `outboxRelay.relayOnce()`.
+- 확인 1:
+  - 응답(andExpect): 상태 200.
+  - `Eventually` 안에서 DB(subscriptionSnapshotOf(subscriptionId)): `status()` = `TERMINATED`, `endReason()` = `PRODUCT_DISCONTINUED`.
+  - `Eventually` 안에서 outbox(OutboxAssert.rows("order.subscription-status-changed.v1")): `.size()`가 1.
+  - `Eventually` 안에서 outbox(OutboxAssert.rows("order.subscription-status-changed.v1")): 그 행 `payload()`의 `subscriptionId`, `memberId` = `buyerId`, `from` = `ACTIVE`, `to` = `TERMINATED`, `reason` = `PRODUCT_DISCONTINUED`.
+- 동작 2: `subscriptionEventService.onProductDiscontinued(new ProductDiscontinuedEvent(productId, shopId, "DISCONTINUED"))`를 직접 호출한다.
+- 확인 2:
+  - 반환값: 호출이 예외 없이 끝난다.
+  - 동작 2 뒤 DB(subscriptionSnapshotOf(subscriptionId)): `status()` = `TERMINATED`, `endReason()` = `PRODUCT_DISCONTINUED` 그대로(확인 1에서 읽은 값).
+  - 동작 2 뒤 outbox(OutboxAssert.rows("order.subscription-status-changed.v1")): `.size()`가 여전히 1(확인 1에서 읽은 값).
+
+**3. 탈퇴·폐업 이벤트는 해당 구독만 종료한다** — `@ParameterizedTest`. 준비: 공통 준비 + 구독 준비 + 구매자 `buyer2@test.com`의 구독 `subscription2Id`(같은 상품, `registerBillingKey(buyer2Id)`, `createSubscription`). 확인은 표의 구독별 DB(subscriptionSnapshotOf(구독 ID))다.
+
+| 행 | 동작 | DB(subscriptionSnapshotOf(`subscriptionId`)) | DB(subscriptionSnapshotOf(`subscription2Id`)) |
 |---|---|---|---|
-| 탈퇴 | `subscriptionEventService.onMemberWithdrawn(new MemberWithdrawnEvent(buyerId))` | `status()` = `TERMINATED`, `endReason()` = `MEMBER_WITHDRAWN` | `ACTIVE`, `endReason()` = null(다른 회원의 구독은 그대로) |
-| 폐업 | `subscriptionEventService.onShopClosed(new ShopClosedEvent(shopId, sellerId))` | `status()` = `TERMINATED`, `endReason()` = `SHOP_CLOSED` | `TERMINATED`, `endReason()` = `SHOP_CLOSED`(같은 가게의 구독이라 함께 종료) |
+| 탈퇴 | `subscriptionEventService.onMemberWithdrawn(new MemberWithdrawnEvent(buyerId))` | `status()` = `TERMINATED`, `endReason()` = `MEMBER_WITHDRAWN` | `status()` = `ACTIVE`, `endReason()`이 null(`assertThat(...).isNull()`) |
+| 폐업 | `subscriptionEventService.onShopClosed(new ShopClosedEvent(shopId, sellerId))` | `status()` = `TERMINATED`, `endReason()` = `SHOP_CLOSED` | `status()` = `TERMINATED`, `endReason()` = `SHOP_CLOSED` |
 
-- 종료된 구독마다 `order.subscription-status-changed.v1`이 1건씩이고 payload는 `from` = `ACTIVE`, `to` = `TERMINATED`, `subscriptionId`, `memberId`가 그 구독의 값이다. 탈퇴 행은 이벤트 총 1건, 폐업 행은 총 2건이다.
+- outbox(OutboxAssert.rows("order.subscription-status-changed.v1")): 종료된 구독마다 1건씩이고 그 행 `payload()`는 `from` = `ACTIVE`, `to` = `TERMINATED`, `subscriptionId`, `memberId`가 그 구독의 값이다.
+- outbox(OutboxAssert.rows("order.subscription-status-changed.v1")): `.size()`가 탈퇴 행은 총 1, 폐업 행은 총 2.
 
-**4. 판매자 구독 현황** — 준비: 공통 준비. 동작: `GET /api/shops/{shopId}/subscriptions`(요청은 5~8번도 같다).
-- 내 가게: `sellerToken`으로 `shopId`를 부르면 200, `$.items.length()` = 1, `$.nextCursor` = null. `$.items[0]`: `id` = `subscriptionId`, `productId` = `productId`, `quantity` = 1, `cycleType` = `WEEKLY`, `cycleValue` = 1, `status` = `ACTIVE`, `nextRunDate` = `subscriptionSnapshotOf(subscriptionId).nextRunDate().toString()`, `unitPrice` = 10000, `createdAt` 존재. `$.items[0].memberId`, `$.items[0].shippingAddress`는 없다(`doesNotExist()`. 구매자 개인정보를 내려주지 않는다).
+**4. 판매자 구독 현황** — 준비: 공통 준비 + 구독 준비 + 판매자 토큰. 동작: `sellerToken`으로 `GET /api/shops/{shopId}/subscriptions`(요청은 6~8번도 같다).
+- 응답(andExpect): 상태 200, `jsonPath("$.items.length()")` = 1, `jsonPath("$.nextCursor").value(nullValue())`.
+- 응답(andExpect): `$.items[0].id` = `subscriptionId`의 문자열, `$.items[0].productId` = `productId`의 문자열, `$.items[0].quantity` = 1, `$.items[0].cycleType` = `WEEKLY`, `$.items[0].cycleValue` = 1, `$.items[0].status` = `ACTIVE`, `$.items[0].unitPrice` = 10000.
+- 응답(andExpect): `$.items[0].nextRunDate` = `subscriptionSnapshotOf(subscriptionId).nextRunDate().toString()`(요청 전에 구해 둔 값), `jsonPath("$.items[0].createdAt").exists()`.
+- 응답(andExpect): `jsonPath("$.items[0].memberId").doesNotExist()`, `jsonPath("$.items[0].shippingAddress").doesNotExist()`.
 
-**5. 가격 인상 알림이 나간다** — 동작: 1번과 같은 준비와 가격 인상 요청 → `outboxRelay.relayOnce()`.
-- `Eventually` 안에서 `outboxRelay.relayOnce()`를 부르며 확인: `notificationRowsOf(buyerId)`가 정확히 1건이고 `type()` = 가격 변경 알림 type(`NotificationType` 값 이름은 문서에 없어(확인 필요) 구현 때 정한 값).
+**5. 가격 인상 알림이 나간다** — 준비: 1번과 같은 준비. 동작: 가격 인상 요청 → `outboxRelay.relayOnce()`.
+- 가격 인상 요청 뒤 `Eventually` 안에서 `outboxRelay.relayOnce()`를 부르며 DB(notificationRowsOf(buyerId)): `.size()`가 정확히 1이고 `get(0).type()` = 가격 변경 알림 type(`NotificationType`의 값 이름은 문서에 없다. 확인 필요).
 
-**6. 남의 가게의 구독 현황 거부** — 준비: 공통 준비 + 다른 판매자 `seller2@test.com`(`seller2Id`, 토큰 `seller2Token`)과 `shop2Id = openShop(seller2Id, "2222222222")`. 동작: `seller2Token`으로 `shopId`의 구독 현황을 부른다.
-- 응답: 403, `$.code` = `FORBIDDEN`.
+**6. 남의 가게의 구독 현황 거부** — 준비: 공통 준비 + 다른 판매자 `seller2@test.com`(`seller2Id`, 토큰 `seller2Token = login`)과 `shop2Id = openShop(seller2Id, "2222222222")`. 동작: `seller2Token`으로 `GET /api/shops/{shopId}/subscriptions`.
+- 응답(andExpect): 상태 403, `jsonPath("$.code")` = `FORBIDDEN`.
 
-**7. 구독이 없는 내 가게는 빈 목록** — 준비: 6번과 같은 준비. 동작: `seller2Token`으로 `shop2Id`의 구독 현황을 부른다.
-- 응답: 200, `$.items.length()` = 0.
+**7. 구독이 없는 내 가게는 빈 목록** — 준비: 6번과 같은 준비. 동작: `seller2Token`으로 `GET /api/shops/{shop2Id}/subscriptions`.
+- 응답(andExpect): 상태 200.
+- 응답(andExpect): `jsonPath("$.items").value(hasSize(0))`.
 
-**8. 상태 필터** — 준비: 공통 준비. 동작: 구매자 토큰으로 `POST /api/subscriptions/{subscriptionId}/pause` → 200 → `sellerToken`으로 `shopId`의 구독 현황에 `?status=PAUSED` / `?status=ACTIVE` / 필터 없이.
-- `?status=PAUSED` → `$.items.length()` = 1, `?status=ACTIVE` → `$.items.length()` = 0, 필터 없이 → `$.items.length()` = 1.
+**8. 상태 필터** — 준비: 공통 준비 + 구독 준비 + 판매자 토큰 + 구매자 토큰. 동작: 구매자 토큰으로 `POST /api/subscriptions/{subscriptionId}/pause` → `sellerToken`으로 `GET /api/shops/{shopId}/subscriptions`에 `?status=PAUSED` / `?status=ACTIVE` / 필터 없이.
+- 세 조회 모두 응답(andExpect): 상태 200.
+- `?status=PAUSED` 조회의 응답(andExpect): `jsonPath("$.items.length()")` = 1.
+- `?status=ACTIVE` 조회의 응답(andExpect): `jsonPath("$.items").value(hasSize(0))`.
+- 필터 없는 조회의 응답(andExpect): `jsonPath("$.items.length()")` = 1.
 
 **리뷰 때 물어볼 것**
 - 이벤트 순서가 바뀌면 어떻게 되나? 버전 대신 `changedAt`을 쓴 것의 한계는?
@@ -1132,5 +1331,6 @@
 
 ---
 
-## Part 5 완료
-- [ ] `v0.5.0` 릴리스, Part 6 문서 다듬기
+## 구독 완료
+- [ ] "Part 6에 더할 것"을 모두 반영했고 6-4 E2E가 통과한다
+- [ ] `v1.x.0` 릴리스

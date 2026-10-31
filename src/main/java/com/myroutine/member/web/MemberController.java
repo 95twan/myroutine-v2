@@ -1,14 +1,18 @@
 package com.myroutine.member.web;
 
+import com.myroutine.common.error.BusinessException;
+import com.myroutine.common.error.CommonErrorCode;
+import com.myroutine.common.security.AuthClaims;
 import com.myroutine.common.security.CurrentMember;
-import com.myroutine.member.application.MemberProfileService;
-import com.myroutine.member.application.MemberQueryService;
-import com.myroutine.member.application.WithdrawService;
+import com.myroutine.member.application.*;
+import com.myroutine.member.domain.OAuthProvider;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Locale;
 import java.util.UUID;
 
 @RestController
@@ -18,6 +22,8 @@ public class MemberController {
     private final MemberQueryService memberQueryService;
     private final MemberProfileService memberProfileService;
     private final WithdrawService withdrawService;
+    private final PasswordService passwordService;
+    private final OAuthLoginService oAuthLoginService;
 
     @GetMapping("/me")
     public ResponseEntity<MeResponse> getMe(@CurrentMember UUID memberId) {
@@ -32,6 +38,24 @@ public class MemberController {
     @DeleteMapping("/me")
     public ResponseEntity<Void> withdraw(@CurrentMember UUID memberId) {
         withdrawService.withdraw(memberId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/me/password")
+    public ResponseEntity<TokenResponse> changePassword(@AuthenticationPrincipal AuthClaims claims, @Valid @RequestBody ChangePasswordRequest request) {
+        TokenResult result = passwordService.change(claims.memberId(), claims.sessionId(), request.currentPassword(), request.newPassword());
+        return ResponseEntity.ok(TokenResponse.from(result));
+    }
+
+    @PostMapping("/me/social-accounts/{provider}")
+    public ResponseEntity<Void> linkSocialAccount(@CurrentMember UUID memberId, @PathVariable String provider, @Valid @RequestBody OAuthLoginRequest request) {
+        OAuthProvider p;
+        try {
+            p = OAuthProvider.valueOf(provider.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(CommonErrorCode.INVALID_REQUEST);
+        }
+        oAuthLoginService.link(memberId, p, request.code(), request.state());
         return ResponseEntity.noContent().build();
     }
 }

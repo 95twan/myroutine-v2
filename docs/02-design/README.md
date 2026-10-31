@@ -1,6 +1,6 @@
 # Phase 2. 설계서 (MyRoutine v2)
 
-> 버전 0.1 · 2026-10-02 · 근거: [01-requirements](../01-requirements/README.md), [00-as-is](../00-as-is/README.md)
+> 버전 0.1 · 2026-10-02
 
 ## 문서 구성
 | 문서 | 내용 |
@@ -50,4 +50,4 @@
 코드 작성·리뷰 기준은 [개발 가이드](../development-guide.md)를 따른다.
 
 ## 다음 단계
-Phase 3: [구현 로드맵](../03-roadmap/README.md) — 기능부터 만들고 도구는 필요해질 때 도입하는 Part 1~7. Git 규칙은 [Git 정책](../git-policy.md).
+Phase 3: [구현 로드맵](../03-roadmap/README.md) — 기능부터 만들고 도구는 필요해질 때 도입하는 Part 1~6. 로드맵에서 뺀 기능은 [서브](../04-sub/README.md). Git 규칙은 [Git 정책](../git-policy.md).

@@ -17,7 +17,8 @@ public enum CommonErrorCode implements ErrorCode{
     IDEMPOTENCY_KEY_REUSED(HttpStatus.UNPROCESSABLE_CONTENT, "같은 Idempotency-Key로 다른 요청을 보냈습니다."),
     PAYMENT_FAILED(HttpStatus.PAYMENT_REQUIRED, "결제에 실패했습니다."),
     PG_ERROR(HttpStatus.BAD_GATEWAY, "결제사 처리 중 오류가 발생했습니다."),
-    AMOUNT_MISMATCH(HttpStatus.UNPROCESSABLE_CONTENT, "결제 금액이 주문 금액과 다릅니다.");
+    AMOUNT_MISMATCH(HttpStatus.UNPROCESSABLE_CONTENT, "결제 금액이 주문 금액과 다릅니다."),
+    RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.");
 
 
     private final HttpStatus status;

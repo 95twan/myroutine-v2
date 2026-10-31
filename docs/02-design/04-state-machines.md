@@ -4,7 +4,7 @@
 > 2026-10-13: 주문의 `PAYMENT_FAILED`·`EXPIRED`·`CANCELLED`는 "끝난 원인", 가게주문·품목의 `CANCELLED`는 원인과 무관한 "이행하지 않음"임을 핵심 규칙에 적었다
 > 2026-10-13: 결제 전 구매자 주문 취소를 필수 API(`POST /api/orders/{id}/cancel`, 2-4)로 올리고 상태를 **`CANCELLED`**로 분리했다(`PENDING_PAYMENT → PAYMENT_FAILED` 삭제. `PAYMENT_FAILED`는 승인 시작 뒤의 PG 거절·보상만)
 > 2026-10-12: 로드맵 용어 정리에 맞춰 "2-4 제안"을 "2-4 추가 항목"으로 바꿨다
-> 2026-10-09: 로드맵과 맞춤 — 결제창 실패 통지는 선택(2-4 제안)임을 표시, Outbox·알림 재시도는 고정 간격(3-1·3-5), 회차 적용가 기준 날짜 이름(`cycle_date`), 재고 부족 SKIPPED는 확정 정책(5-3)
+> 2026-10-09: 로드맵과 맞춤 — 결제창 실패 통지는 선택(2-4 제안)임을 표시, Outbox·알림 재시도는 고정 간격(3-1·3-5), 회차 적용가 기준 날짜 이름(`cycle_date`), 재고 부족 SKIPPED는 확정 정책(SUB-3)
 > 2026-10-02: 예치금 제거 — 주문은 항상 PG 결제를 거친다(즉시 PAID 경로 삭제), 환불은 PG 부분취소만, 예치금 보류·출금 상태머신 삭제.
 
 원칙
@@ -93,7 +93,7 @@ stateDiagram-v2
   PG_CANCELLED --> COMPLETED: 재고 복구 + 품목 상태
   APPROVED --> FAILED: PG 취소 명확한 실패 (운영 알림)
   APPROVED --> APPROVED: PG 취소 결과 불확실 → 대사
-  FAILED --> APPROVED: 관리자 재시도 (운영 API, 로드맵 7-3)
+  FAILED --> APPROVED: 관리자 재시도 (운영 API, 로드맵 6-3)
   COMPLETED --> [*]
   REJECTED --> [*]
 ```
@@ -172,7 +172,7 @@ stateDiagram-v2
 ```
 - **INV-08 구체화**: 회차(구독 × 날짜) 1개당 주문은 1건. 회차 INSERT(unique)와 주문 생성을 한 트랜잭션에 넣어 같은 날 두 번 실행돼도 주문이 하나다.
 - 회차 적용가: `pending_effective_date <= cycle_date`면 `pending_unit_price`를 적용하고 `unit_price`로 승격한다(POL-03·11).
-- 재고 부족·판매 중지는 결제 실패로 세지 않고 SKIPPED 처리 후 알린다(5-3).
+- 재고 부족·판매 중지는 결제 실패로 세지 않고 SKIPPED 처리 후 알린다(SUB-3).
 
 ## 9. 기타
 
@@ -182,5 +182,5 @@ stateDiagram-v2
 | shop | ACTIVE, CLOSED | ACTIVE→CLOSED(폐업 조건 충족 시) |
 | product | ON_SALE, HIDDEN, DISCONTINUED | ON_SALE⇄HIDDEN, 둘 다 → DISCONTINUED(종결) |
 | settlement | CALCULATED, PAID, PAYOUT_FAILED | CALCULATED→PAID / PAYOUT_FAILED→PAID(재시도) |
-| outbox_event | READY, PROCESSING, SENT, DEAD | READY→PROCESSING(선점, locked_until)→SENT / 실패 시 READY(10초 뒤 재시도) / 10번 실패하면 DEAD(관리 API로 READY 복귀, 7-3). locked_until 경과한 PROCESSING은 READY로 회수 |
-| notification | PENDING, SENT, FAILED | 실패하면 5분 뒤 재시도, 5번 실패하면 FAILED(관리 API로 PENDING 복귀, 7-3) |
+| outbox_event | READY, PROCESSING, SENT, DEAD | READY→PROCESSING(선점, locked_until)→SENT / 실패 시 READY(10초 뒤 재시도) / 10번 실패하면 DEAD(관리 API로 READY 복귀, 6-3). locked_until 경과한 PROCESSING은 READY로 회수 |
+| notification | PENDING, SENT, FAILED | 실패하면 5분 뒤 재시도, 5번 실패하면 FAILED(관리 API로 PENDING 복귀, 6-3) |

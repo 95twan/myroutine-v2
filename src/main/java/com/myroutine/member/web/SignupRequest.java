@@ -20,9 +20,11 @@ public record SignupRequest(
         String nickname,
         @NotBlank(message = "필수 값입니다.")
         @Size(max = 50, message = "이름은 50자 이하여야 합니다.")
-        String name
+        String name,
+        @NotBlank(message = "필수 값입니다.")
+        String verificationToken
 ) {
     public SignupCommand toCommand() {
-        return new SignupCommand(email, password, nickname, name);
+        return new SignupCommand(email, password, nickname, name, verificationToken);
     }
 }

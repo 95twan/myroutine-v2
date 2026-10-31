@@ -1,6 +1,7 @@
 package com.myroutine.product.domain;
 
 import com.myroutine.common.error.BusinessException;
+import com.myroutine.common.model.Ids;
 import com.myroutine.common.model.Money;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,7 +19,7 @@ class ProductTest {
     void updatePriceReturnsPriceChange() {
         // Given
         Product product = Product.register(
-                UUID.randomUUID(),
+                Ids.newId(),
                 "product",
                 "description",
                 ProductCategory.ETC,
@@ -51,7 +52,7 @@ class ProductTest {
     void updateWithoutPriceChangeReturnsEmpty() {
         // Given
         Product product = Product.register(
-                UUID.randomUUID(),
+                Ids.newId(),
                 "product",
                 "description",
                 ProductCategory.ETC,
@@ -78,7 +79,7 @@ class ProductTest {
     void updateDiscontinuedProduct() {
         // Given
         Product product = Product.register(
-                UUID.randomUUID(),
+                Ids.newId(),
                 "product",
                 "description",
                 ProductCategory.ETC,

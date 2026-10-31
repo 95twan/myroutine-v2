@@ -1,12 +1,18 @@
 # 07. API 명세 (Stage 1)
 
 > 엔드포인트 목록과 핵심 API의 요청·응답 계약. 필드 단위 상세는 구현 시 springdoc(OpenAPI)로 생성하고, 이 문서와 어긋나면 이 문서를 갱신한다.
+> 2026-10-31 · 로그인 실패 401 `LOGIN_FAILED`에 `details.remainingAttempts`, 5번째 실패부터 423 `ACCOUNT_LOCKED`, 관리자 회원 목록에 제재 시각 `bannedAt`(로드맵 4-4)
+> 2026-10-31 · 평점 통계 응답의 최신 요약(`latestSummary`)을 5-1에서 빼고 SUB-6(서브)에서 더하게 했다
+> 2026-10-30 · 제공자 로그인 화면 주소를 프론트가 만들어 `GET /api/auth/oauth/{provider}/authorize-url`을 지웠다(로드맵 4-3)
+> 2026-10-28 · 429 `RATE_LIMITED`에 `details.retryAfterSeconds`, `MEMBER_BANNED`에 `details.reason`, 내 정보에 `hasPassword`·`socialAccounts`, 관리자 회원 목록에 `banReason`(로드맵 4-2~4-4)
+> 2026-10-28 · 이메일 인증을 가입 전에 한다: 가입 인증 발송·확인 API(`/api/auth/signup/email-verifications`, `/confirm` → `verificationToken`), 가입·OAuth 가입 요청에 `verificationToken`. 로그인 회원용 인증 API·OAuth 전용 발송 API·`EMAIL_NOT_VERIFIED`를 지웠다(로드맵 4-2·4-3)
+> 2026-10-28 · 정산 응답에 수수료율 `feeRateBp`, 정산 품목에 `shopOrderId`·`productName`·`quantity`를 더하고 정산 예정 조회 `GET /api/shops/{shopId}/settlements/upcoming`을 더했다. 정산 상세 경로를 구현(로드맵 3-4)대로 `/settlements/{id}`로 맞췄다(로드맵 4-0)
 > 2026-10-19 · 판매자 가게주문 응답(목록·상세·발송·배송완료)에 환불 목록 `refunds`를 더했다. 판매자는 여기서 반품 승인·거절에 쓸 `refundId`와 구매자가 적은 사유를 읽는다(로드맵 2-9)
-> 2026-10-15 · 관리자 결제 대사 경로를 `/admin/api/payments/{orderId}/reconcile`로 맞췄다(로드맵 7-3)
-> 2026-10-15 · 이메일 인증 API를 로그인 회원 전용으로 정리하고 OAuth 가입용 발송 API(`/api/auth/oauth/signup/email-verifications`)를 더했다(로드맵 4-2·4-3), 구독 신청 응답을 `{ subscriptionId }`로 맞췄다(로드맵 5-2)
+> 2026-10-15 · 관리자 결제 대사 경로를 `/admin/api/payments/{orderId}/reconcile`로 맞췄다(로드맵 6-3)
+> 2026-10-15 · 이메일 인증 API를 로그인 회원 전용으로 정리하고 OAuth 가입용 발송 API(`/api/auth/oauth/signup/email-verifications`)를 더했다(로드맵 4-2·4-3), 구독 신청 응답을 `{ subscriptionId }`로 맞췄다(서브 SUB-2)
 > 2026-10-13 · 결제 전 주문 취소 `POST /api/orders/{id}/cancel`을 필수로 올림(기존 선택 API `payment/fail`을 합침, 상태는 `CANCELLED`, §3.2.1)
 > 2026-10-12 · 장바구니는 체크아웃 때 건드리지 않고 결제 완료 때 주문 수량만큼 차감(§3.1)
-> 2026-10-09 · 로드맵과 맞춤: 품목 취소에서 남의 주문은 404 `ORDER_NOT_FOUND`(2-8), DLT 재처리 경로에 파티션(7-3)
+> 2026-10-09 · 로드맵과 맞춤: 품목 취소에서 남의 주문은 404 `ORDER_NOT_FOUND`(2-8), DLT 재처리 경로에 파티션(6-3)
 
 ## 1. 공통 규약
 | 항목 | 규약 |
@@ -27,9 +33,9 @@
 | 404 | `NOT_FOUND` | 없는 경로 |
 | 405 | `METHOD_NOT_ALLOWED` | 지원하지 않는 HTTP 메서드 |
 | 401 | `UNAUTHORIZED`(토큰 없음·틀림·만료·폐기 모두), `REFRESH_REUSED` | 인증 |
-| 401 | `LOGIN_FAILED` | 이메일 또는 비밀번호 불일치 (어느 쪽이 틀렸는지 알려주지 않음) |
-| 403 | `FORBIDDEN`, `MEMBER_BANNED`, `EMAIL_NOT_VERIFIED` | 인가, 제재, 이메일 미인증 회원의 주문·결제·가게 개설 |
-| 423 | `ACCOUNT_LOCKED` | 로그인 연속 실패로 잠김 (details.unlockAt) |
+| 401 | `LOGIN_FAILED` | 이메일 또는 비밀번호 불일치 (어느 쪽이 틀렸는지 알려주지 않음). `details.remainingAttempts`: 잠기기까지 남은 실패 횟수(4→1) |
+| 403 | `FORBIDDEN`, `MEMBER_BANNED` | 인가, 제재. `MEMBER_BANNED`는 사유가 있으면 `details.reason` |
+| 423 | `ACCOUNT_LOCKED` | 로그인 연속 실패로 잠김. 5번째 실패부터 (details.unlockAt). 비밀번호 재설정을 확인하면 풀린다 |
 | 404 | `*_NOT_FOUND` | `MEMBER_NOT_FOUND`, `MEMBER_ADDRESS_NOT_FOUND`, `SHOP_NOT_FOUND`, `PRODUCT_NOT_FOUND` 등 |
 | 409 | `MEMBER_EMAIL_DUPLICATED`, `MEMBER_NICKNAME_DUPLICATED`, `SHOP_BUSINESS_NUMBER_DUPLICATED` | 중복 (서비스의 사전 조회) |
 | 409 | `DUPLICATE_RESOURCE` | 동시 요청 경합으로 DB unique 제약에 걸림 |
@@ -44,7 +50,7 @@
 | 422 | `OUT_OF_STOCK`, `PRODUCT_NOT_ON_SALE`, `SHOP_NOT_ACTIVE`, `AMOUNT_MISMATCH`, `IDEMPOTENCY_KEY_REUSED` | 비즈니스 규칙 |
 | 422 | `SHOP_HAS_ACTIVE_ORDERS`, `MEMBER_HAS_ACTIVE_RESOURCES`, `PRODUCT_NOT_SUBSCRIBABLE`, `OWN_SHOP_PRODUCT` | 폐업·탈퇴·구독 조건 |
 | 402 | `PAYMENT_FAILED` | PG 명확한 거절 |
-| 429 | `RATE_LIMITED` | 인증코드 발송 등 |
+| 429 | `RATE_LIMITED` | 인증코드 발송 등. `details.retryAfterSeconds`(다시 보낼 수 있을 때까지 남은 초) |
 | 502 | `PG_ERROR` | PG 취소 명확한 실패 |
 | 500 | `INTERNAL_ERROR` | 예상하지 못한 서버 오류 (내부 정보 비노출) |
 
@@ -53,24 +59,22 @@
 ### member / auth
 | Method | Path | 권한 | 설명 | 요구사항 |
 |---|---|---|---|---|
-| POST | `/api/auth/signup` | - | 이메일·비밀번호 가입 `{email, password, nickname, name}` → 토큰 (이메일 미인증 상태) | FR-MEM-09 |
+| POST | `/api/auth/signup` | - | 이메일·비밀번호 가입 `{email, password, nickname, name, verificationToken}` → 토큰. 인증 토큰은 아래 가입 인증 확인이 준다 | FR-MEM-09 |
 | POST | `/api/auth/login` | - | 이메일·비밀번호 로그인 → 토큰. 연속 실패 시 잠금(POL-18) | FR-MEM-09 |
 | PATCH | `/api/members/me/password` | U | 비밀번호 변경 `{currentPassword, newPassword}` → 다른 세션 모두 폐기 | FR-MEM-10 |
 | POST | `/api/auth/password-reset`, `/api/auth/password-reset/confirm` | - | 재설정 코드 발송 → 코드 + 새 비밀번호 | FR-MEM-10 |
-| GET | `/api/auth/oauth/{provider}/authorize-url` | - | OAuth 인가 URL | FR-MEM-01 |
-| POST | `/api/auth/oauth/{provider}/login` | - | code 교환 → 기존 회원: 토큰 / 신규: 임시 토큰 | FR-MEM-01 |
+| POST | `/api/auth/oauth/{provider}/login` | - | `{code, state}`로 code 교환 → 기존 회원: 토큰 / 신규: 임시 토큰. 제공자 로그인 화면 주소는 프론트가 만든다 | FR-MEM-01 |
 | POST | `/api/members/me/social-accounts/{provider}` | U | 로그인한 회원에 소셜 계정 연결 (POL-19) | FR-MEM-01 |
-| POST | `/api/auth/email-verifications` | U | 인증코드 발송 (rate limit). 이메일 가입 후 미인증 회원 | FR-MEM-02 |
-| POST | `/api/auth/oauth/signup/email-verifications` | 가입 토큰 | OAuth 가입용 인증코드 발송 `{signupToken, email}` (같은 rate limit) | FR-MEM-02 |
-| POST | `/api/auth/email-verifications/confirm` | U | 코드 확인 (5회 실패 시 무효) → `email_verified_at` 기록, 새 access 반환(기존 refresh 유지) | FR-MEM-02 |
-| POST | `/api/auth/oauth/signup` | 임시 | OAuth 가입 완료 → 토큰 | FR-MEM-01 |
+| POST | `/api/auth/signup/email-verifications` | - | 가입 인증코드 발송 `{email}` (rate limit). 이미 가입된 이메일은 409 | FR-MEM-02 |
+| POST | `/api/auth/signup/email-verifications/confirm` | - | 코드 확인 `{email, code}` (5회 실패 시 무효) → `{verificationToken}`(30분, 이메일 가입·OAuth 가입에 쓴다) | FR-MEM-02 |
+| POST | `/api/auth/oauth/signup` | 임시 | OAuth 가입 완료 `{signupToken, email, nickname, name, verificationToken}` → 토큰 | FR-MEM-01 |
 | POST | `/api/auth/refresh` | - | 토큰 회전 | FR-MEM-03 |
 | POST | `/api/auth/logout` | U | 현재 세션 폐기 (`?all=true` 전체 세션) | FR-MEM-04 |
-| GET/PATCH | `/api/members/me` | U | 내 정보 | FR-MEM-05 |
+| GET/PATCH | `/api/members/me` | U | 내 정보. GET 응답에 `hasPassword`, `socialAccounts[{provider, linkedAt}]`(연결한 순서) | FR-MEM-05 |
 | GET/POST/PATCH/DELETE | `/api/members/me/addresses[/{id}]` | U | 배송지 | FR-MEM-05 |
 | DELETE | `/api/members/me` | U | 탈퇴 (조건 검증) | FR-MEM-06 |
 | GET/POST | `/api/inquiries` | U | 문의 | FR-MEM-08 |
-| GET | `/admin/api/members` | A | 회원 검색 | FR-MEM-07 |
+| GET | `/admin/api/members` | A | 회원 검색. 항목에 제재 사유 `banReason`과 제재 시각 `bannedAt`(BANNED가 아니면 null) | FR-MEM-07 |
 | POST | `/admin/api/members/{id}/ban`, `/unban` | A | 제재 | FR-MEM-07 |
 | POST | `/admin/api/inquiries/{id}/answer` | A | 답변 | FR-MEM-08 |
 
@@ -140,8 +144,9 @@
 ### settlement
 | Method | Path | 권한 | 설명 | 요구사항 |
 |---|---|---|---|---|
-| GET | `/api/shops/{shopId}/settlements` | O | 정산 내역 | FR-STL-03 |
-| GET | `/api/shops/{shopId}/settlements/{id}/items` | O | 정산 품목 | FR-STL-03 |
+| GET | `/api/shops/{shopId}/settlements` | O | 정산 내역 (`feeRateBp` 포함) | FR-STL-03 |
+| GET | `/api/shops/{shopId}/settlements/{id}` | O | 정산과 품목(품목마다 `shopOrderId`·`productName`·`quantity`) | FR-STL-03 |
+| GET | `/api/shops/{shopId}/settlements/upcoming` | O | 정산 예정 `{itemCount, grossAmount, firstConfirmedAt}` (폐업한 가게 포함) | FR-STL-03 |
 
 ### review / search / recommendation
 | Method | Path | 권한 | 설명 | 요구사항 |
@@ -149,7 +154,7 @@
 | POST | `/api/reviews` | U | 작성 `{orderLineId, rating, content}` (구매확정 품목만) | FR-REV-01 |
 | PATCH/DELETE | `/api/reviews/{id}` | O | 수정(30일 내)·삭제 | POL-14 |
 | GET | `/api/products/{id}/reviews` | - | 리뷰 목록 (정렬: 최신·좋아요) | FR-REV-02 |
-| GET | `/api/products/{id}/review-stats` | - | 평점 분포 + 최신 요약 | FR-REV-02·03 |
+| GET | `/api/products/{id}/review-stats` | - | 평점 분포. 최신 요약은 SUB-6(서브)에서 더한다 | FR-REV-02·03 |
 | POST/DELETE | `/api/reviews/{id}/likes` | U | 좋아요 | FR-REV-02 |
 | GET | `/api/search/products` | - | `?q=&category=&cursor=` | FR-SRC-01 |
 | GET | `/api/search/autocomplete` | - | `?q=` | FR-SRC-01 |

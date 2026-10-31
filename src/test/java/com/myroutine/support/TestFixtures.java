@@ -2,6 +2,9 @@ package com.myroutine.support;
 
 import com.myroutine.common.model.Ids;
 import com.myroutine.member.application.*;
+import com.myroutine.member.domain.EmailCodePurpose;
+import com.myroutine.member.domain.Member;
+import com.myroutine.member.domain.SignupVerificationStore;
 import com.myroutine.order.application.*;
 import com.myroutine.product.application.*;
 import com.myroutine.product.domain.ProductCategory;
@@ -9,6 +12,8 @@ import com.myroutine.product.domain.ProductStatus;
 import com.myroutine.shop.application.OpenShopCommand;
 import com.myroutine.shop.application.OpenShopService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -16,9 +21,14 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.Timestamp;
 import java.time.*;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
@@ -36,6 +46,116 @@ public class TestFixtures {
     private final ShipmentService shipmentService;
     private final UpdateProductService updateProductService;
     private final JdbcTemplate jdbcTemplate;
+    private final StringRedisTemplate redisTemplate;
+    private final SignupVerificationStore signupVerificationStore;
+
+    public TokenVersionSnapshot tokenVersionSnapshotOf(UUID memberId) {
+        int tokenVersion = jdbcTemplate.queryForObject("SELECT token_version FROM member.member WHERE id = ?", Integer.class, memberId);
+        String redisTokenVersionRow = redisTemplate.opsForValue().get("auth:token-version:" + memberId);
+        Integer redisTokenVersion = null;
+        if (redisTokenVersionRow != null) {
+            redisTokenVersion = Integer.parseInt(redisTokenVersionRow);
+        }
+        long redisTtlSeconds = redisTemplate.getExpire("auth:token-version:" + memberId);
+        return new TokenVersionSnapshot(tokenVersion, redisTokenVersion, redisTtlSeconds);
+    }
+
+    public String adminToken(String email) {
+        UUID memberId = signup(email);
+        changeRole(memberId, "ADMIN");
+        return login(email);
+    }
+
+    public RedisHash redisHashOf(String key) {
+        Map<Object, Object> map = redisTemplate.opsForHash().entries(key);
+        Map<String, String> fields = map.entrySet().stream()
+                .collect(Collectors.toMap(
+                        entry -> (String) entry.getKey(),
+                        entry -> (String) entry.getValue()
+                ));
+        Long ttlSeconds = redisTemplate.getExpire(key);
+        return new RedisHash(fields, ttlSeconds);
+    }
+
+    public List<SocialAccountRow> socialAccountsOf(UUID memberId) {
+        return jdbcTemplate.query("SELECT provider, provider_user_id, provider_email FROM member.social_account WHERE member_id = ? ORDER BY created_at, id",
+                (rs, rowNum) ->
+                        new SocialAccountRow(
+                                rs.getString("provider"),
+                                rs.getString("provider_user_id"),
+                                rs.getString("provider_email")
+                        ),
+                memberId);
+    }
+
+    public UUID memberIdOf(String email) {
+        return jdbcTemplate.query(
+                        "SELECT id FROM member.member WHERE email = ?",
+                        (rs, rowNum) -> rs.getObject("id", UUID.class),
+                        email
+                )
+                .stream()
+                .findFirst()
+                .orElse(null);
+    }
+
+    public void resetRedisStats() {
+        redisTemplate.execute((RedisCallback<Void>) c -> {
+            c.serverCommands().resetConfigStats();
+            return null;
+        });
+    }
+
+    public long redisCallsOf(String command) {
+        Properties stats = redisTemplate.execute((RedisCallback<Properties>) c ->
+                c.serverCommands().info("commandstats")
+        );
+        String value = stats.getProperty("cmdstat_" + command);
+        if (value == null) {
+            return 0;
+        }
+        return Long.parseLong(value.replaceAll("^calls=(\\d+),.*", "$1"));
+    }
+
+    public RedisString redisStringOf(String key) {
+        String value = redisTemplate.opsForValue().get(key);
+        long ttlSeconds = redisTemplate.getExpire(key, TimeUnit.SECONDS);
+        return new RedisString(value, ttlSeconds);
+    }
+
+    public static String sha256Hex(String value) {
+        MessageDigest md;
+        try {
+            md = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 not available", e);
+        }
+        byte[] digest = md.digest(value.getBytes(StandardCharsets.UTF_8));
+        return HexFormat.of().formatHex(digest);
+    }
+
+    public EmailAuthSnapshot emailAuthSnapshotOf(EmailCodePurpose purpose, String email) {
+        Map<Object, Object> map = redisTemplate.opsForHash().entries("auth:email-code:" + purpose + ":" + email);
+        Map<String, String> emailCodeFields = map.entrySet().stream()
+                .collect(Collectors.toMap(e -> (String) e.getKey(), e -> (String) e.getValue()));
+
+        String cooldown = redisTemplate.opsForValue().get("auth:email-cooldown:" + email);
+        String h = redisTemplate.opsForValue().get("auth:email-hourly:" + email);
+        Integer hourly = h == null ? null : Integer.valueOf(h);
+
+        return new EmailAuthSnapshot(
+                emailCodeFields,
+                redisTemplate.getExpire("auth:email-code:" + purpose + ":" + email, TimeUnit.SECONDS),
+                cooldown,
+                redisTemplate.getExpire("auth:email-cooldown:" + email, TimeUnit.SECONDS),
+                hourly,
+                redisTemplate.getExpire("auth:email-hourly:" + email, TimeUnit.SECONDS)
+        );
+    }
+
+    public String verificationToken(String email) {
+        return signupVerificationStore.issue(Member.normalizeEmail(email));
+    }
 
     public UUID signup(String email) {
 
@@ -43,7 +163,8 @@ public class TestFixtures {
                 email,
                 "pass1234",
                 email.substring(0, email.indexOf("@")),
-                "테스터"
+                "테스터",
+                verificationToken(email)
         );
 
         SignupResult result = signupService.signUp(command);
@@ -55,7 +176,8 @@ public class TestFixtures {
                 email,
                 "pass1234",
                 email.substring(0, email.indexOf("@")),
-                "테스터"
+                "테스터",
+                verificationToken(email)
         );
 
         SignupResult result = signupService.signUp(command);
@@ -76,6 +198,10 @@ public class TestFixtures {
 
     public String login(String email) {
         return loginService.login(new LoginCommand(email, "pass1234")).accessToken();
+    }
+
+    public TokenResult loginTokens(String email) {
+        return loginService.login(new LoginCommand(email, "pass1234"));
     }
 
     public UUID registerProduct(UUID memberId, UUID shopId) {
@@ -335,12 +461,13 @@ public class TestFixtures {
         );
 
         return jdbcTemplate.queryForObject("""
-                        SELECT nickname, name, phone, password_hash, role, status, email, withdrawn_at, created_at, updated_at
+                        SELECT nickname, name, phone, password_hash, role, status, email, withdrawn_at, ban_reason, banned_at, created_at, updated_at
                         FROM member.member
                         WHERE id = ?
                         """,
                 (rs, rowNum) -> {
                     Timestamp withdrawnAt = rs.getTimestamp("withdrawn_at");
+                    Timestamp bannedAt = rs.getTimestamp("banned_at");
                     return new MemberSnapshot(
                             rs.getString("nickname"),
                             rs.getString("name"),
@@ -352,7 +479,9 @@ public class TestFixtures {
                             withdrawnAt != null ? withdrawnAt.toInstant() : null,
                             rs.getTimestamp("created_at").toInstant(),
                             rs.getTimestamp("updated_at").toInstant(),
-                            addressStates
+                            addressStates,
+                            rs.getString("ban_reason"),
+                            bannedAt != null ? bannedAt.toInstant() : null
                     );
                 },
                 memberId);
@@ -448,14 +577,7 @@ public class TestFixtures {
     }
 
     public UUID insertSettlementItem(UUID shopId, long amount, Instant confirmedAt) {
-        UUID orderLineId = Ids.newId();
-        jdbcTemplate.update("""
-                        INSERT INTO settlement.settlement_item (id, order_line_id, shop_id, order_id, product_id, amount, confirmed_at, settlement_id, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, now(), now())
-                        """,
-                Ids.newId(), orderLineId, shopId, Ids.newId(), Ids.newId(), amount, OffsetDateTime.ofInstant(confirmedAt, ZoneOffset.UTC)
-        );
-        return orderLineId;
+        return insertSettlementItem(shopId, amount, confirmedAt, Ids.newId(), "product", 1);
     }
 
     public void insertSettlementItems(List<UUID> shopIds, int itemsPerShop, long amount, Instant confirmedAt) {
@@ -463,14 +585,14 @@ public class TestFixtures {
         for (UUID shopId : shopIds) {
             for (int i = 0; i < itemsPerShop; i++) {
                 args.add(new Object[]{
-                        Ids.newId(), Ids.newId(), shopId, Ids.newId(), Ids.newId(),
-                        amount, OffsetDateTime.ofInstant(confirmedAt, ZoneOffset.UTC)
+                        Ids.newId(), Ids.newId(), shopId, Ids.newId(), Ids.newId(), Ids.newId(),
+                        "product", 1, amount, OffsetDateTime.ofInstant(confirmedAt, ZoneOffset.UTC)
                 });
             }
         }
         jdbcTemplate.batchUpdate("""
-                        INSERT INTO settlement.settlement_item (id, order_line_id, shop_id, order_id, product_id, amount, confirmed_at, settlement_id, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, now(), now())
+                        INSERT INTO settlement.settlement_item (id, order_line_id, shop_id, order_id, shop_order_id, product_id, product_name, quantity, amount, confirmed_at, settlement_id, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, now(), now())
                         """,
                 args
         );
@@ -576,7 +698,7 @@ public class TestFixtures {
 
     public SettlementItemSnapshot settlementItemSnapshotOf(UUID orderLineId) {
         List<SettlementItemSnapshot> snapshots = jdbcTemplate.query("""
-                        SELECT i.id, i.shop_id, i.order_id, i.product_id, i.amount, i.confirmed_at, i.settlement_id, s.period_start
+                        SELECT i.id, i.shop_id, i.order_id, i.shop_order_id, i.product_id, i.product_name, i.quantity, i.amount, i.confirmed_at, i.settlement_id, s.period_start
                         FROM settlement.settlement_item i
                         LEFT JOIN settlement.settlement s ON s.id = i.settlement_id
                         WHERE i.order_line_id = ?
@@ -588,7 +710,10 @@ public class TestFixtures {
                             rs.getObject("id", UUID.class),
                             rs.getObject("shop_id", UUID.class),
                             rs.getObject("order_id", UUID.class),
+                            rs.getObject("shop_order_id", UUID.class),
                             rs.getObject("product_id", UUID.class),
+                            rs.getString("product_name"),
+                            rs.getInt("quantity"),
                             settlementId,
                             rs.getLong("amount"),
                             rs.getTimestamp("confirmed_at").toInstant(),
@@ -701,5 +826,32 @@ public class TestFixtures {
                 memberId
         );
         return new CartSnapshot(cartCount, quantityByProduct);
+    }
+
+    public UUID insertSettlementItem(UUID shopId, long amount, Instant confirmedAt, UUID shopOrderId, String productName, int quantity) {
+        UUID orderLineId = Ids.newId();
+        jdbcTemplate.update("""
+                        INSERT INTO settlement.settlement_item (id, order_line_id, shop_id, order_id, shop_order_id, product_id, product_name, quantity, amount, confirmed_at, settlement_id, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, now(), now())
+                        """,
+                Ids.newId(), orderLineId, shopId, Ids.newId(), shopOrderId, Ids.newId(), productName, quantity, amount, OffsetDateTime.ofInstant(confirmedAt, ZoneOffset.UTC)
+        );
+        return orderLineId;
+    }
+
+    public SessionSnapshot sessionSnapshotOf(UUID sessionId) {
+        String key = "auth:session:" + sessionId;
+        Map<Object, Object> map = redisTemplate.opsForHash().entries(key);
+        Long expire = redisTemplate.getExpire(key, TimeUnit.SECONDS);
+        return new SessionSnapshot(map.entrySet().stream().collect(Collectors.toMap(e -> (String) e.getKey(), e -> (String) e.getValue())), expire);
+    }
+
+    public long memberSessionsTtlOf(UUID memberId) {
+        return redisTemplate.getExpire("auth:member-sessions:" + memberId, TimeUnit.SECONDS);
+    }
+
+    public Set<UUID> sessionIdsOf(UUID memberId) {
+        Set<String> sessionIds = redisTemplate.opsForSet().members("auth:member-sessions:" + memberId);
+        return sessionIds.stream().map(UUID::fromString).collect(Collectors.toSet());
     }
 }

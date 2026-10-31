@@ -41,11 +41,11 @@
 | K-1 | k3s VM 구성, Postgres·MinIO 매니페스트, 앱을 수동으로 `kubectl apply` | 앱이 k3s에서 Part 1 기능을 수행 |
 | K-2 | probe·graceful shutdown·롤링(replicas 2) | **k6 부하 중 롤아웃 → 5xx 0건** |
 | K-3 | CD를 kubectl로 교체, 자동 롤백, RBAC 제한 | 실패 배포가 자동 `rollout undo`, 러너 권한이 네임스페이스로 제한됨 |
-| K-4 | Redis·Kafka·ES·관측 스택 이전, compose VM 정지 | 전체 기능·E2E 시나리오(7-4) 통과 |
+| K-4 | Redis·Kafka·ES·관측 스택 이전, compose VM 정지 | 전체 기능·E2E 시나리오(6-4) 통과 |
 | K-5 | 파드 강제 종료 등 장애 주입, 리소스 requests/limits, 비교 리포트·회고 | compose 대비 배포 중 에러율·단절 시간 수치 |
 
 - 릴리스 태그: 앱 코드가 아니라 배포 방식이 바뀌므로 PATCH(`v1.0.1`)를 제안한다(확정은 착수 전).
-- Part 3~6(Kafka, Redis, ES)이 compose 기준으로 먼저 만들어지므로 K-4에서 매니페스트로 옮긴다. 이때 compose의 서비스 정의가 그대로 번역 원본이 된다.
+- Part 3~5(Kafka, Redis, ES)이 compose 기준으로 먼저 만들어지므로 K-4에서 매니페스트로 옮긴다. 이때 compose의 서비스 정의가 그대로 번역 원본이 된다.
 
 ## 고려한 대안
 | 대안 | 결정 |

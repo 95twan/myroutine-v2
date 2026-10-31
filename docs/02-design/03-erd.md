@@ -1,8 +1,12 @@
 # 03. ERD (Stage 1)
 
+> 2026-10-31: `member.banned_at`(제재 시각)을 더했다(로드맵 4-4)
+> 2026-10-29: Redis `auth:signup-verified`·`auth:oauth-signup` 키에 토큰 원문 대신 SHA-256 해시를 넣는다(로드맵 Part 4 공통 규칙 T)
+> 2026-10-28: Redis `auth:session`의 기기 필드와 `auth:oauth-state` 키를 빼고 `auth:signup-verified:{token}`을 더했다. 가입 전에 이메일을 인증해 `member.email_verified_at`을 뺐다(로드맵 4-1·4-2·4-3)
+> 2026-10-28: `settlement_item`에 `shop_order_id`·`product_name`·`quantity`를 더했다(로드맵 4-0)
 > 2026-10-17: `refund.reason_type`에서 `SYSTEM`을 뺐다(환불을 만드는 경로가 구매자 취소와 반품뿐이라 쓰는 곳이 없다, 로드맵 2-8)
 > 2026-10-15: 주문 만료 스윕 조건을 `expires_at <= now()`로 맞췄다(같은 시각도 만료, 결제 시작 CAS의 `expires_at > now`와 상보적, 로드맵 2-5)
-> 2026-10-15: `review_like`에 `created_at`을 더하고, 추천 캐시 키를 로드맵 6-4의 `rec:result:{memberId}`(추천 결과 캐시)로 맞췄다
+> 2026-10-15: `review_like`에 `created_at`을 더하고, 추천 캐시 키를 서브 SUB-5의 `rec:result:{memberId}`(추천 결과 캐시)로 맞췄다
 > 2026-10-13: `order_line(shop_order_id)` 인덱스를 인덱스 목록에 더했다(주문 상세의 품목 배치 로딩, 로드맵 2-2)
 > 2026-10-12: 장바구니와 주문은 연결하지 않는다 — 체크아웃은 장바구니를 건드리지 않고(주문 품목으로 복사), 결제 완료 때 주문 수량만큼 차감(로드맵 2-2·2-4)
 > 2026-10-09: 로드맵 4-x와 맞춤 — Redis 키 이름(`auth:email-code:{purpose}:{email}`, 쿨다운·시간당 키, OAuth 키, 세션 = family라 `familyId` 없음), `member.ban_reason`·`social_account.provider_email` 추가
@@ -32,11 +36,11 @@ erDiagram
     varchar name
     varchar phone
     varchar password_hash "BCrypt, OAuth 전용 회원은 null"
-    timestamptz email_verified_at "null = 이메일 미인증"
     varchar status "ACTIVE, BANNED, WITHDRAWN"
     varchar role "USER, SELLER, ADMIN (하나)"
     int token_version "토큰 즉시 무효화"
     varchar ban_reason "제재 사유 (4-4)"
+    timestamptz banned_at "제재 시각 (4-4)"
     timestamptz withdrawn_at
   }
   social_account {
@@ -70,7 +74,7 @@ erDiagram
     text content
   }
 ```
-Redis(키·TTL의 기준은 [로드맵 Part 4 공통 규칙 T](../03-roadmap/part4-auth.md)): `auth:session:{sessionId}`(memberId, refreshHash, 기기 — 세션 하나가 곧 refresh family), `auth:member-sessions:{memberId}`, `auth:email-code:{purpose}:{email}`(코드 해시, 시도 횟수, TTL 5분), `auth:email-cooldown:{email}`(60초), `auth:email-hourly:{email}`(1시간), `auth:oauth-state:{state}`, `auth:oauth-signup:{signupToken}`, `auth:token-version:{memberId}`, `auth:login-fail:{email}`(연속 실패 횟수, TTL 15분).
+Redis(키·TTL의 기준은 [로드맵 Part 4 공통 규칙 T](../03-roadmap/part4-auth.md)): `auth:session:{sessionId}`(memberId, refreshHash — 세션 하나가 곧 refresh family), `auth:member-sessions:{memberId}`, `auth:email-code:{purpose}:{email}`(코드 해시, 시도 횟수, TTL 5분), `auth:email-cooldown:{email}`(60초), `auth:email-hourly:{email}`(1시간), `auth:signup-verified:{tokenHash}`(인증을 통과한 이메일, TTL 30분), `auth:oauth-signup:{tokenHash}`, `auth:token-version:{memberId}`, `auth:login-fail:{email}`(연속 실패 횟수, TTL 15분).
 - 한 회원은 비밀번호(`password_hash`)와 소셜 계정(`social_account`)을 함께 가질 수 있다. 둘 다 없는 회원은 없다.
 - 이메일 미인증 회원은 주문·결제·가게 개설 API를 쓸 수 없다(FR-MEM-09).
 - Redis는 로드맵 Part 4에서 도입한다. 그 전에는 로그인 실패 제한·refresh 세션 없이 Access 토큰만 쓴다.
@@ -317,7 +321,10 @@ erDiagram
     uuid order_line_id UK "INV-07"
     uuid shop_id
     uuid order_id
+    uuid shop_order_id
     uuid product_id
+    varchar product_name "주문 때 스냅샷"
+    int quantity
     bigint amount "구매확정 금액 = line_amount - refunded_amount"
     timestamptz confirmed_at
     uuid settlement_id FK "null = 미정산"
@@ -339,7 +346,7 @@ erDiagram
     timestamptz paid_at
   }
 ```
-- `order.order-line-confirmed` 이벤트 소비 → `settlement_item` 적재 (`order_line_id` unique로 멱등).
+- `order.order-line-confirmed` 이벤트 소비 → `settlement_item` 적재 (`order_line_id` unique로 멱등). `shop_order_id`·`product_name`·`quantity`는 이벤트가 실어 온 주문 품목 값이다.
 - 정산 실행: 가게 ID keyset 순회 → 가게별 한 트랜잭션에서 `settlement` 생성 + 해당 기간 미정산 item에 `settlement_id` 설정 (BAT-02 offset 누락 문제 제거).
 - 지급: `PayoutGateway`(은행 송금 Mock) 호출, 멱등 키 = settlementId. 트랜잭션 밖에서 호출하고 결과를 기록한다(외부 송금 원칙, As-Is WAL-02 교훈).
 - 인덱스: `settlement_item(shop_id, confirmed_at) WHERE settlement_id IS NULL` (부분 인덱스).
@@ -396,7 +403,7 @@ erDiagram
     varchar status "ACTIVE, INACTIVE"
   }
 ```
-- 추천 결과 캐시: Redis `rec:result:{memberId}`(TTL 30분. 새 주문 결제·탈퇴 시 삭제, 로드맵 6-4).
+- 추천 결과 캐시: Redis `rec:result:{memberId}`(TTL 30분. 새 주문 결제·탈퇴 시 삭제, 서브 [취향 추천](../04-sub/recommendation.md) SUB-5).
 
 ## notification
 ```mermaid

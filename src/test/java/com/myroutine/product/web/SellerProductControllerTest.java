@@ -1,6 +1,7 @@
 package com.myroutine.product.web;
 
 import com.jayway.jsonpath.JsonPath;
+import com.myroutine.common.model.Ids;
 import com.myroutine.product.domain.ProductCategory;
 import com.myroutine.product.domain.ProductStatus;
 import com.myroutine.product.domain.StockMovementType;
@@ -64,7 +65,7 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         // When & Then
         MvcResult result = mockMvc.perform(post("/api/shops/" + shopId + "/products")
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("Idempotency-Key", Ids.newId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -105,7 +106,7 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         // When & Then
         mockMvc.perform(post("/api/shops/" + shopId + "/products")
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("Idempotency-Key", Ids.newId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isForbidden());
@@ -131,7 +132,7 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         // When & Then
         mockMvc.perform(post("/api/shops/" + shopId + "/products")
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("Idempotency-Key", Ids.newId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isUnprocessableContent())
@@ -153,9 +154,9 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         );
 
         // When & Then
-        mockMvc.perform(post("/api/shops/" + UUID.randomUUID() + "/products")
+        mockMvc.perform(post("/api/shops/" + Ids.newId() + "/products")
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("Idempotency-Key", Ids.newId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound())
@@ -198,7 +199,7 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         // When & Then
         MvcResult result = mockMvc.perform(post("/api/shops/{shopId}/products", shopId)
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("Idempotency-Key", Ids.newId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"테스트상품\",\"description\":\"설명\",\"category\":\"FOOD\",\"price\":1000,\"initialStock\":10}"))
                 .andExpect(status().isCreated())
@@ -229,7 +230,7 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         // When & Then
         MvcResult result = mockMvc.perform(post("/api/shops/{shopId}/products", shopId)
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("Idempotency-Key", Ids.newId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -432,7 +433,7 @@ class SellerProductControllerTest extends IntegrationTestSupport {
         // When & Then
         mockMvc.perform(post("/api/shops/" + shopId + "/products/" + productId + "/stock-adjustments")
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("Idempotency-Key", Ids.newId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isUnprocessableContent())

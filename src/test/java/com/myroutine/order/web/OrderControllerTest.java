@@ -1,5 +1,6 @@
 package com.myroutine.order.web;
 
+import com.myroutine.common.model.Ids;
 import com.myroutine.order.application.CartResult;
 import com.myroutine.order.application.CartService;
 import com.myroutine.order.domain.OrderStatus;
@@ -62,7 +63,7 @@ class OrderControllerTest extends IntegrationTestSupport {
         // When
         MvcResult result = mockMvc.perform(post("/api/orders/checkout")
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("Idempotency-Key", Ids.newId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -94,7 +95,7 @@ class OrderControllerTest extends IntegrationTestSupport {
         // When
         MvcResult result = mockMvc.perform(post("/api/orders/checkout")
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("Idempotency-Key", Ids.newId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"cartItemIds\":[\"%s\"],\"addressId\":\"%s\", \"price\":%d}".formatted(cartItemId, addressId, 10)))
                 .andExpect(status().isCreated())
@@ -127,7 +128,7 @@ class OrderControllerTest extends IntegrationTestSupport {
         // When & Then
         mockMvc.perform(post("/api/orders/checkout")
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("Idempotency-Key", Ids.newId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isUnprocessableContent())
@@ -168,7 +169,7 @@ class OrderControllerTest extends IntegrationTestSupport {
         // When & Then
         mockMvc.perform(post("/api/orders/checkout")
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("Idempotency-Key", Ids.newId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isUnprocessableContent())
@@ -209,7 +210,7 @@ class OrderControllerTest extends IntegrationTestSupport {
         // When & Then
         mockMvc.perform(post("/api/orders/checkout")
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("Idempotency-Key", Ids.newId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isUnprocessableContent())
@@ -245,7 +246,7 @@ class OrderControllerTest extends IntegrationTestSupport {
         // When & Then
         mockMvc.perform(post("/api/orders/checkout")
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("Idempotency-Key", Ids.newId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound())
@@ -284,7 +285,7 @@ class OrderControllerTest extends IntegrationTestSupport {
         // When & Then
         mockMvc.perform(post("/api/orders/checkout")
                         .header("Authorization", "Bearer " + other)
-                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("Idempotency-Key", Ids.newId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound())
@@ -315,7 +316,7 @@ class OrderControllerTest extends IntegrationTestSupport {
 
         CheckoutRequest request = new CheckoutRequest(List.of(cartItemId), addressId);
 
-        String idempotencyKey = UUID.randomUUID().toString();
+        UUID idempotencyKey = Ids.newId();
 
         // When & Then
         MvcResult result1 = mockMvc.perform(post("/api/orders/checkout")
@@ -365,7 +366,7 @@ class OrderControllerTest extends IntegrationTestSupport {
         // When & Then
         MvcResult result1 = mockMvc.perform(post("/api/orders/checkout")
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("Idempotency-Key", Ids.newId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -373,7 +374,7 @@ class OrderControllerTest extends IntegrationTestSupport {
 
         MvcResult result2 = mockMvc.perform(post("/api/orders/checkout")
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("Idempotency-Key", Ids.newId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())

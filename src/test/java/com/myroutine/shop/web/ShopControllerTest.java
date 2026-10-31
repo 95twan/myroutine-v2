@@ -1,6 +1,7 @@
 package com.myroutine.shop.web;
 
 import com.jayway.jsonpath.JsonPath;
+import com.myroutine.common.model.Ids;
 import com.myroutine.support.IntegrationTestSupport;
 import com.myroutine.support.TestFixtures;
 import org.junit.jupiter.api.DisplayName;
@@ -48,7 +49,7 @@ class ShopControllerTest extends IntegrationTestSupport {
         // When & Then
         MvcResult result = mockMvc.perform(post("/api/shops")
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("Idempotency-Key", Ids.newId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -183,7 +184,7 @@ class ShopControllerTest extends IntegrationTestSupport {
         // When & Then
         mockMvc.perform(post("/api/shops")
                         .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("Idempotency-Key", Ids.newId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request2)))
                 .andExpect(status().isConflict())

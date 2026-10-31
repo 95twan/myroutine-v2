@@ -2,6 +2,7 @@ package com.myroutine.shop.domain;
 
 import com.myroutine.common.error.BusinessException;
 import com.myroutine.common.error.CommonErrorCode;
+import com.myroutine.common.model.Ids;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -19,7 +20,7 @@ public class ShopTest {
 
         // When
         Shop shop = Shop.open(
-                UUID.randomUUID(),
+                Ids.newId(),
                 "shop",
                 "1304913993",
                 "shop@test.com",
@@ -36,9 +37,9 @@ public class ShopTest {
     @DisplayName("소유자 확인을 실패한다. (다른 회원)")
     void verifyOwnerOfOtherMember() {
         // Given
-        UUID otherMemberId = UUID.randomUUID();
+        UUID otherMemberId = Ids.newId();
         Shop shop = Shop.open(
-                UUID.randomUUID(),
+                Ids.newId(),
                 "shop",
                 "1304913993",
                 "shop@test.com",
