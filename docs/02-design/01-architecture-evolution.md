@@ -64,7 +64,7 @@ flowchart LR
 
 | 순서 | 대상 | 이유 | 전환 시 새로 생기는 문제 |
 |---|---|---|---|
-| 1 | notification, search, recommendation | 이미 이벤트로만 연결된 읽기 측 → consumer를 옮기면 끝 | 거의 없음 (Stage 1 설계의 검증) |
+| 1 | notification, search, recommendation | 쓰기 흐름과는 이벤트로만 연결된 읽기 측. 동기 호출은 조회뿐 → consumer를 옮기고 조회를 원격 호출로 바꾸면 끝 | 조회 호출(수신자 연락처, 검색 결과 요약([ADR-013](../adr/ADR-013-search-hydration.md)) 등)의 지연과 상대 서비스 장애 전파 |
 | 2 | payment | 외부 PG 격리, 보안 경계, 독립 배포 | 주문↔결제 원격 호출, 결제 결과 콜백 |
 | 3 | product(inventory) / order / payment | 쓰기 확장, 장애 격리 | **체크아웃 로컬 트랜잭션 → 오케스트레이션 Saga**, 예약 TTL·보상·멱등이 필수가 됨 |
 | 4 | member+shop | 인증 분리, 게이트웨이 도입 | 역할 변경 Saga(원 프로젝트 경험), 게이트웨이 인가 |

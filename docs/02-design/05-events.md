@@ -1,5 +1,6 @@
 # 05. 이벤트 카탈로그
 
+> 2026-11-01 · `product.stock-depleted.v1`을 뺐다. 유일한 소비 계획이던 검색의 품절 표시를 상품 DB에서 읽는다(로드맵 5-2, ADR-013)
 > 2026-10-28 · `order-line-confirmed`의 payload에 `shopOrderId`·`productName`·`quantity`를 더했다(로드맵 4-0, 정산 품목 표시용)
 > 2026-10-21 · 릴레이 SQL의 시각을 앱 `Clock` 파라미터로 정했다(로드맵 3-1)
 > 2026-10-20 · 릴레이가 한 행의 발행 실패에서 그 호출을 멈추고 남은 행을 되돌린다(로드맵 3-1)
@@ -61,7 +62,6 @@
 | `product.product-upserted.v1` | 상품 생성·수정·상태 변경 | productId, shopId, name, description, category, price, status, subscribable, version | search(색인), recommendation(본문 해시 변경 시 재임베딩) |
 | `product.product-price-changed.v1` | 가격 변경 | productId, oldPrice, newPrice, changedAt | order(구독 pending 가격 설정, POL-11 → `subscription-price-changed` 발행. 구독자 알림은 그 이벤트로) |
 | `product.product-discontinued.v1` | 단종 | productId, shopId, reason(`SELLER`, `SHOP_CLOSED`) | order(구독 TERMINATED). search·recommendation은 함께 발행되는 `product-upserted`(status DISCONTINUED)로 처리한다(5-2·SUB-5) |
-| `product.stock-depleted.v1` | 가용재고 0 | productId | search(품절 표시) [C] |
 
 ### order
 | 토픽 | 발생 시점 | payload | consumer |
