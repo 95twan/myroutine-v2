@@ -40,7 +40,7 @@
 | `docs/00-as-is/` | 원 프로젝트 분석, 결함 54건 (재설계 근거) |
 | `docs/01-requirements/` | 요구사항, 정책(POL), 불변식(INV) |
 | `docs/02-design/` | 아키텍처 진화, Stage 1 구조, ERD, 상태머신, 이벤트, 시퀀스, API |
-| `docs/adr/` | 설계 결정 기록 ADR-001~012 |
+| `docs/adr/` | 설계 결정 기록 ADR-001~013 |
 | `docs/development-guide.md` | 코딩 규칙 + **리뷰 기준(§18 체크리스트, §19 금지 패턴)** |
 | `docs/git-policy.md` | Git Flow, 커밋·PR 규칙 |
 | `docs/03-roadmap/` | Part 1~6 단계별 구현 로드맵, 미결 정책 OPEN-xx |

@@ -42,7 +42,6 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 |---|---|
 | 폐업 → 구독 종료 경로 | order의 `shop-closed` consumer(`terminate("SHOP_CLOSED")`)와 `shop-closed` → product 전 상품 단종 → 상품별 `product-discontinued` → order `terminate("PRODUCT_DISCONTINUED")`가 겹친다. 구독은 반드시 어떤 상품의 구독이라 뒤쪽이 앞쪽을 포함한다. 앞쪽은 문서가 "폐업 조건상 보통 0건, 방어용"이라고 적었다. `ProductDiscontinuedEvent.shopId`·`reason`을 order가 읽지 않는다 |
 | `review.review-created.v1` | 소비자가 없다. 리뷰 작성마다 outbox 행 + Kafka 메시지 + 토픽·DLT가 생긴다. SUB-6 추가 항목을 하기 전까지 발행하지 않아도 된다 |
-| `product.stock-depleted.v1` | 발행하는 단계도 소비하는 단계도 로드맵에 없다 |
 | SELLER 역할 부여·회수 체인(shop-opened/closed consumer, `countActiveShops` 재조회, INV-09) | 만드는 값을 읽는 곳이 `/api/members/me` 응답의 `role`뿐이다. 인가는 소유권 기반이고 `hasRole`은 `"ADMIN"` 하나뿐이다. Outbox 학습용 첫 사례라는 목적이면 그렇게 명시한다. 기능 가치를 따지면 `/me`에서 가게 수로 `role`을 파생하는 쪽이 이벤트 없이 같은 값을 준다 |
 | `member-registered`의 `email`·`nickname` | 알림은 `memberApi.getContact`로 이메일을 따로 가져온다. 이메일(개인정보)이 토픽에 실려 나간다 |
 | `product-upserted.subscribable` | search는 문서 필드로 넣지 않고 recommendation도 읽지 않는다 |
@@ -62,7 +61,7 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 | `refund.completed_at`, `refund.member_id`, `payment_cancel.reason`·`failure_code` | 쓰기만 하고 읽지 않는다 |
 | `settlement.payout_attempts` | 증가만 하는 카운터. 감사 목적이면 이유를 ERD에 적는다 |
 | `notification.version`·`channel`·`member_id` | 쓰기가 모두 native SQL이라 `version`은 쓰는 곳이 없다 |
-| `subscription.end_reason`, `billing_key.deleted_at`, `product_embedding.model`, `review_summary.source_review_count`·`model`, `inquiry_answer.admin_id` | 쓰기만 하고 읽지 않는다 |
+| `subscription.end_reason`, `billing_key.deleted_at`, `product_embedding.model`, `review_summary.source_review_count`·`model` | 쓰기만 하고 읽지 않는다 |
 
 ### API
 
@@ -120,11 +119,7 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 
 | 단계 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
-| 5-1 | A | 리뷰 수정 요청을 부분 수정(null=안 바꿈)으로 볼지(규칙 E는 null=안 바꿈, `Review.edit`은 `int`) | 5-1 review.application | 사용자 결정 |
-| 5-1 | A | 이미 `DELETED`인 리뷰의 재삭제·수정, 숨겨진 리뷰에 좋아요 응답 | 5-1 review.application | 사용자 결정 |
-| 5-1 | A | 평균 반올림 방식, 통계 행이 없거나 0건일 때 응답 | 5-1 review.application | 사용자 결정 |
-| 5-1 | A | `sort` 기본값·허용 밖 값 처리·좋아요순 동점 정렬 | 5-1 review.application, 완료 확인 | 사용자 결정 |
-| 5-1 | A | 수정 가능 기간 30일의 경계(30일째 포함 여부) | 5-1 완료 확인 `ReviewTest` | 사용자 결정 |
+| 5-1 | B | 비로그인 요청에서 `@CurrentMember`가 `null`을 주는지(익명 principal `anonymousUser`에 `memberId` 표현식). 실패하면 리뷰 목록만 `@AuthenticationPrincipal AuthClaims`로 받는다 | 5-1 review.web(`likedByMe`) | 완료 확인 8번(비로그인 목록)으로 확인 |
 | 5-2 | A | 기동 시 ES가 내려가 있으면 앱 기동을 막을지(경고만 권장) | 5-2 search.infrastructure | 사용자 결정 |
 | 5-2 | B | 없는 alias로 쓰면 ES가 일반 인덱스를 자동 생성하는지, `_id` 정렬이 막혀 `productId`(keyword)를 쓰는지 | 5-2 search.infrastructure, search.application | 로컬 ES로 실험 |
 | 5-3 | A | 재색인 실패 시 `reindex()`가 예외를 던질지 | 5-3 search.application | 사용자 결정 |

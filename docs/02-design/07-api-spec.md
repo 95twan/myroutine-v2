@@ -1,6 +1,7 @@
 # 07. API 명세 (Stage 1)
 
 > 엔드포인트 목록과 핵심 API의 요청·응답 계약. 필드 단위 상세는 구현 시 springdoc(OpenAPI)로 생성하고, 이 문서와 어긋나면 이 문서를 갱신한다.
+> 2026-11-01 · 내 리뷰 조회 `GET /api/reviews/mine`, 리뷰 목록의 `likedByMe`, 지운 리뷰 요청의 404와 빈 통계 응답, 검색 결과를 상품 요약 모양으로(ADR-013), 문의 상세·관리자 문의 목록의 응답 필드(로드맵 5-1·5-2·5-4)
 > 2026-10-31 · 로그인 실패 401 `LOGIN_FAILED`에 `details.remainingAttempts`, 5번째 실패부터 423 `ACCOUNT_LOCKED`, 관리자 회원 목록에 제재 시각 `bannedAt`(로드맵 4-4)
 > 2026-10-31 · 평점 통계 응답의 최신 요약(`latestSummary`)을 5-1에서 빼고 SUB-6(서브)에서 더하게 했다
 > 2026-10-30 · 제공자 로그인 화면 주소를 프론트가 만들어 `GET /api/auth/oauth/{provider}/authorize-url`을 지웠다(로드맵 4-3)
@@ -73,9 +74,11 @@
 | GET/PATCH | `/api/members/me` | U | 내 정보. GET 응답에 `hasPassword`, `socialAccounts[{provider, linkedAt}]`(연결한 순서) | FR-MEM-05 |
 | GET/POST/PATCH/DELETE | `/api/members/me/addresses[/{id}]` | U | 배송지 | FR-MEM-05 |
 | DELETE | `/api/members/me` | U | 탈퇴 (조건 검증) | FR-MEM-06 |
-| GET/POST | `/api/inquiries` | U | 문의 | FR-MEM-08 |
+| GET/POST | `/api/inquiries` | U | 문의 작성, 내 문의 목록(최신순, 항목에 답변 시각 `answeredAt`) | FR-MEM-08 |
+| GET | `/api/inquiries/{id}` | O | 내 문의 상세. 답변 `answer{content, createdAt}`(답변 전 null), 답변한 관리자는 내려주지 않음 | FR-MEM-08 |
 | GET | `/admin/api/members` | A | 회원 검색. 항목에 제재 사유 `banReason`과 제재 시각 `bannedAt`(BANNED가 아니면 null) | FR-MEM-07 |
 | POST | `/admin/api/members/{id}/ban`, `/unban` | A | 제재 | FR-MEM-07 |
+| GET | `/admin/api/inquiries` | A | 문의 목록 `?status=`(생략하면 전체), 오래된 순. 항목에 작성자 `memberId`·`memberEmail`·`memberNickname`, 본문, 답변 `answer{adminId, content, createdAt}` | FR-MEM-08 |
 | POST | `/admin/api/inquiries/{id}/answer` | A | 답변 | FR-MEM-08 |
 
 ### shop
@@ -152,11 +155,12 @@
 | Method | Path | 권한 | 설명 | 요구사항 |
 |---|---|---|---|---|
 | POST | `/api/reviews` | U | 작성 `{orderLineId, rating, content}` (구매확정 품목만) | FR-REV-01 |
-| PATCH/DELETE | `/api/reviews/{id}` | O | 수정(30일 내)·삭제 | POL-14 |
-| GET | `/api/products/{id}/reviews` | - | 리뷰 목록 (정렬: 최신·좋아요) | FR-REV-02 |
-| GET | `/api/products/{id}/review-stats` | - | 평점 분포. 최신 요약은 SUB-6(서브)에서 더한다 | FR-REV-02·03 |
-| POST/DELETE | `/api/reviews/{id}/likes` | U | 좋아요 | FR-REV-02 |
-| GET | `/api/search/products` | - | `?q=&category=&cursor=` | FR-SRC-01 |
+| PATCH/DELETE | `/api/reviews/{id}` | O | 수정(`createdAt + 30일`까지, 별점·본문 필수, 응답은 내 리뷰 모양)·삭제. 지운 리뷰는 404 | POL-14 |
+| GET | `/api/reviews/mine` | U | 내 리뷰 `?orderLineIds=`(1~50개). 지운 리뷰 포함, 항목에 `status`·`editableUntil` | FR-REV-01 |
+| GET | `/api/products/{id}/reviews` | - | 리뷰 목록 (정렬: 최신(기본)·좋아요 상위 50, 항목에 요청자 기준 `likedByMe`) | FR-REV-02 |
+| GET | `/api/products/{id}/review-stats` | - | 평점 분포. 리뷰가 없으면 `average` null. 최신 요약은 SUB-6(서브)에서 더한다 | FR-REV-02·03 |
+| POST/DELETE | `/api/reviews/{id}/likes` | U | 좋아요. 지운 리뷰는 404 | FR-REV-02 |
+| GET | `/api/search/products` | - | `?q=&category=&cursor=`. 항목은 상품 목록과 같은 요약(`thumbnailUrl`·`inStock` 포함, ADR-013) | FR-SRC-01 |
 | GET | `/api/search/autocomplete` | - | `?q=` | FR-SRC-01 |
 | GET | `/api/recommendations/me` | U | 취향 추천 | FR-REC-01 |
 

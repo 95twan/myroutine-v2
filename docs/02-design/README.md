@@ -32,6 +32,7 @@
 | [010](../adr/ADR-010-observability.md) | ELK(로그·traceId) + Prometheus/Grafana(메트릭), 정합성 비즈니스 메트릭 | INF-02 |
 | [011](../adr/ADR-011-ops-practice-environment.md) | 운영 연습: Proxmox VM 1대 + Docker Compose, self-hosted runner로 develop 머지 시 자동 배포·롤백 | - |
 | [012](../adr/ADR-012-kubernetes-zero-downtime.md) | Stage 1.5: k3s 단일 노드로 옮기고 롤링 배포 무중단 증명 (세부는 착수 전 확정) | - |
+| [013](../adr/ADR-013-search-hydration.md) | 검색은 ES로 순서만 정하고 결과 항목(사진·재고 여부 포함)은 상품 DB에서 읽는다 | - |
 
 ## 불변식 → 설계 장치 매핑
 | 불변식 | 보장 장치 |
