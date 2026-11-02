@@ -150,4 +150,13 @@ public interface JpaOrderRepository extends JpaRepository<Order, UUID>, OrderRep
                 )
             """)
     boolean existsActiveByMemberId(UUID memberId, Collection<OrderStatus> orderStatuses, Collection<ShopOrderStatus> shopOrderStatuses, Collection<RefundStatus> refundStatuses);
+
+    @Query("""
+            select ol
+            from OrderLine ol
+            join ShopOrder so on so.id = ol.shopOrderId
+            join Order o on o.id = so.orderId
+            where ol.id = :lineId and o.memberId = :memberId
+            """)
+    Optional<OrderLine> findLineByIdAndMemberId(UUID lineId, UUID memberId);
 }
