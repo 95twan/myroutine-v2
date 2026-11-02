@@ -399,6 +399,59 @@ class SellerProductControllerTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("상품 수정을 실패한다. (다른 회원의 가게)")
+    void updateProductOfOtherMemberShop() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("test@test.com");
+        UUID shopId = testFixtures.openShop(memberId, "1111111111");
+        UUID productId = testFixtures.registerProduct(memberId, shopId);
+
+        UpdateProductRequest request = new UpdateProductRequest(
+                "updated product",
+                null,
+                null,
+                20000L,
+                false
+        );
+
+        String token = testFixtures.token("other@test.com");
+
+        // When & Then
+        mockMvc.perform(patch("/api/shops/" + shopId + "/products/" + productId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("상품 수정을 실패한다. (가게에 속하지 않은 상품)")
+    void updateProductNotInShop() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("test@test.com");
+        String token = testFixtures.login("test@test.com");
+        UUID shopId = testFixtures.openShop(memberId, "1111111111");
+        UUID otherShopId = testFixtures.openShop(memberId, "2222222222");
+        UUID productId = testFixtures.registerProduct(memberId, shopId);
+
+        UpdateProductRequest request = new UpdateProductRequest(
+                "updated product",
+                null,
+                null,
+                20000L,
+                false
+        );
+
+        // When & Then
+        mockMvc.perform(patch("/api/shops/" + otherShopId + "/products/" + productId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"));
+    }
+
+    @Test
     @DisplayName("상품 상태 변경을 실패한다. (단종 → 판매 중)")
     void changeStatusFromDiscontinuedToOnSale() throws Exception {
         // Given
@@ -463,59 +516,6 @@ class SellerProductControllerTest extends IntegrationTestSupport {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
                 .andExpect(jsonPath("$.details.deltaNonZero").exists());
-    }
-
-    @Test
-    @DisplayName("상품 수정을 실패한다. (다른 회원의 가게)")
-    void updateProductOfOtherMemberShop() throws Exception {
-        // Given
-        UUID memberId = testFixtures.signup("test@test.com");
-        UUID shopId = testFixtures.openShop(memberId, "1111111111");
-        UUID productId = testFixtures.registerProduct(memberId, shopId);
-
-        UpdateProductRequest request = new UpdateProductRequest(
-                "updated product",
-                null,
-                null,
-                20000L,
-                false
-        );
-
-        String token = testFixtures.token("other@test.com");
-
-        // When & Then
-        mockMvc.perform(patch("/api/shops/" + shopId + "/products/" + productId)
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
-    @DisplayName("상품 수정을 실패한다. (가게에 속하지 않은 상품)")
-    void updateProductNotInShop() throws Exception {
-        // Given
-        UUID memberId = testFixtures.signup("test@test.com");
-        String token = testFixtures.login("test@test.com");
-        UUID shopId = testFixtures.openShop(memberId, "1111111111");
-        UUID otherShopId = testFixtures.openShop(memberId, "2222222222");
-        UUID productId = testFixtures.registerProduct(memberId, shopId);
-
-        UpdateProductRequest request = new UpdateProductRequest(
-                "updated product",
-                null,
-                null,
-                20000L,
-                false
-        );
-
-        // When & Then
-        mockMvc.perform(patch("/api/shops/" + otherShopId + "/products/" + productId)
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"));
     }
 
 }

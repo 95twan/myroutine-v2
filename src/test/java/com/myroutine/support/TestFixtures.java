@@ -48,6 +48,59 @@ public class TestFixtures {
     private final JdbcTemplate jdbcTemplate;
     private final StringRedisTemplate redisTemplate;
     private final SignupVerificationStore signupVerificationStore;
+    private final ConfirmPurchaseService confirmPurchaseService;
+
+    public void setReviewCreatedAt(UUID reviewId, Instant instant) {
+        jdbcTemplate.update("UPDATE review.review SET created_at = ? WHERE id = ?", Timestamp.from(instant), reviewId);
+    }
+
+    public long reviewCountOf(UUID productId) {
+        return jdbcTemplate.queryForObject("SELECT count(*) FROM review.review WHERE product_id = ?", Long.class, productId);
+    }
+
+    public ReviewStatSnapshot reviewStatOf(UUID productId) {
+        return jdbcTemplate.query("SELECT review_count, rating_sum, r1, r2, r3, r4, r5 FROM review.product_review_stat WHERE product_id = ?",
+                (rs, _) -> new ReviewStatSnapshot(
+                        rs.getInt("review_count"),
+                        rs.getLong("rating_sum"),
+                        rs.getInt("r1"),
+                        rs.getInt("r2"),
+                        rs.getInt("r3"),
+                        rs.getInt("r4"),
+                        rs.getInt("r5")
+                ),
+                productId
+        ).stream().findFirst().orElse(null);
+    }
+
+    public ReviewSnapshot reviewSnapshotOf(UUID reviewId) {
+        List<UUID> memberIds = jdbcTemplate.query("SELECT member_id FROM review.review_like WHERE review_id = ? ORDER BY created_at", (rs, _) -> rs.getObject("member_id", UUID.class), reviewId);
+
+        return jdbcTemplate.query(
+                """
+                        SELECT order_line_id, product_id, rating, content, like_count, status
+                        FROM review.review
+                        WHERE id = ?
+                        """,
+                (rs, _) -> new ReviewSnapshot(
+                        rs.getObject("order_line_id", UUID.class),
+                        rs.getObject("product_id", UUID.class),
+                        rs.getString("status"),
+                        rs.getInt("rating"),
+                        rs.getString("content"),
+                        rs.getInt("like_count"),
+                        memberIds
+                ),
+                reviewId
+        ).stream().findFirst().orElse(null);
+    }
+
+    public UUID createConfirmedLine(UUID buyerId, UUID sellerId, UUID shopId, UUID productId) {
+        UUID orderId = createDeliveredOrder(buyerId, sellerId, shopId, productId);
+        UUID orderLineId = orderLineIdOf(orderId, productId);
+        confirmPurchaseService.confirm(buyerId, orderId, orderLineId);
+        return orderLineId;
+    }
 
     public TokenVersionSnapshot tokenVersionSnapshotOf(UUID memberId) {
         int tokenVersion = jdbcTemplate.queryForObject("SELECT token_version FROM member.member WHERE id = ?", Integer.class, memberId);

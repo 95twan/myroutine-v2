@@ -38,7 +38,7 @@
 | 1-10 | 상품 이미지 업로드 (presigned URL + MinIO) | M |
 | 1-11 | 운영 환경 연습: VM 배포와 자동 CD | L |
 
-크기: S(1일 이내) · M(2~3일) · L(4~5일)
+크기: S(1일 이내) · M(2\~3일) · L(4\~5일)
 
 ---
 
@@ -896,20 +896,20 @@ curl -s localhost:8080/api/members/me -H "Authorization: Bearer $TOKEN"        #
 **2. 두 번째를 기본으로 등록** — 준비: 배송지 A 등록(자동 기본). 동작: 배송지 B를 `isDefault: true`로 등록. 등록 응답은 `.andReturn()`으로 받는다.
 - 응답(andExpect): 목록 요청에서 `$[?(@.isDefault == true)]`가 정확히 1개이고 그 항목의 `id` = B(등록 응답 본문의 `$.addressId`).
 
-**3. PATCH로 기본 변경** — 준비: 배송지 A(자동 기본), B(`isDefault` 생략 → false). 동작: `PATCH /api/members/me/addresses/{B}` 본문 `{"isDefault":true}`. 등록 응답은 `.andReturn()`으로 받는다.
+**3. 우편번호 4자리** — 동작: `zipcode` = `"1234"`로 등록.
+- 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`, `$.details.zipcode` = `"우편번호는 5자리 숫자입니다."`.
+
+**4. PATCH로 기본 변경** — 준비: 배송지 A(자동 기본), B(`isDefault` 생략 → false). 동작: `PATCH /api/members/me/addresses/{B}` 본문 `{"isDefault":true}`. 등록 응답은 `.andReturn()`으로 받는다.
 - 응답(andExpect): 목록 요청에서 `$[?(@.isDefault == true)]`가 정확히 1개이고 그 항목의 `id` = B(등록 응답 본문의 `$.addressId`).
 
-**4. 남의 배송지 PATCH** — 준비: 회원 1이 배송지 A 등록(응답을 `.andReturn()`으로 받아 id 꺼냄), 회원 2 가입. 동작: 회원 2의 토큰으로 `PATCH /api/members/me/addresses/{A}` 본문 `{"recipient":"침입자"}`.
+**5. 남의 배송지 PATCH** — 준비: 회원 1이 배송지 A 등록(응답을 `.andReturn()`으로 받아 id 꺼냄), 회원 2 가입. 동작: 회원 2의 토큰으로 `PATCH /api/members/me/addresses/{A}` 본문 `{"recipient":"침입자"}`.
 - 응답(andExpect): 상태 404, `$.code` = `MEMBER_ADDRESS_NOT_FOUND`.
 - DB(memberSnapshotOf(회원 1)): `address(A)`가 `null`이 아니고 `recipient()` = `"수령인"`.
 
-**5. 목록 정렬** — 준비: 배송지 A, B, C를 이 순서로 등록(A가 자동 기본, 등록 응답은 `.andReturn()`으로 받는다) → C를 `PATCH ... {"isDefault":true}`로 기본 지정. 동작: `GET /api/members/me/addresses`.
+**6. 목록 정렬** — 준비: 배송지 A, B, C를 이 순서로 등록(A가 자동 기본, 등록 응답은 `.andReturn()`으로 받는다) → C를 `PATCH ... {"isDefault":true}`로 기본 지정. 동작: `GET /api/members/me/addresses`.
 - 응답(andExpect): 목록 요청의 `$[0].id` = C, `$[1].id` = B, `$[2].id` = A(각각 등록 응답 본문의 `$.addressId`).
 
-**6. 우편번호 4자리** — 동작: `zipcode` = `"1234"`로 등록.
-- 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`, `$.details.zipcode` = `"우편번호는 5자리 숫자입니다."`.
-
-**7. 남의 배송지 DELETE** — 4번과 같은 준비. 동작: 회원 2의 토큰으로 `DELETE /api/members/me/addresses/{A}`.
+**7. 남의 배송지 DELETE** — 5번과 같은 준비. 동작: 회원 2의 토큰으로 `DELETE /api/members/me/addresses/{A}`.
 - 응답(andExpect): 상태 404, `$.code` = `MEMBER_ADDRESS_NOT_FOUND`.
 - DB(memberSnapshotOf(회원 1)): `address(A)`가 `null`이 아니다.
 
@@ -1096,35 +1096,35 @@ public record ShopInfo(UUID shopId, UUID ownerId, String name) {}
 - 응답(andExpect): 상태 201, `$.shopId` 존재.
 - 응답(andExpect): 같은 토큰의 `GET /api/shops/me` 상태 200, `$[0].id` = 개설 응답 본문의 `$.shopId`, `$[0].businessNumber` = `"1111111111"`.
 
-**2. 토큰 없이 공개 조회** — 준비: `memberId = fixtures.signup("test@test.com")`, `shopId = fixtures.openShop(memberId, "1111111111")`. 동작: 헤더 없이 `GET /api/shops/{shopId}`.
-- 응답(andExpect): 상태 200, `$.id` = shopId, `$.name` = `"shop"`, `$.phone` = `"010-1111-1111"`, `$.address` = `"shop address"`, `$.status` = `"ACTIVE"`.
-- 응답(andExpect): `$.businessNumber`, `$.email`, `$.memberId`가 모두 존재하지 않는다(`jsonPath(...).doesNotExist()`).
+**2. 사업자번호 9자리** — 준비: `fixtures.token("test@test.com")`. 동작: `businessNumber` = `"123456789"`로 `POST /api/shops`.
+- 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`, `$.details.businessNumber` = `"사업자번호는 하이픈 없는 10자리 숫자입니다."`.
 
-**3. 토큰 없이 내 가게 목록** — 동작: 헤더 없이 `GET /api/shops/me`.
-- 응답(andExpect): 상태 401, `$.code` = `UNAUTHORIZED`.
-
-**4. 일부 필드만 수정** — 준비: `memberId = fixtures.signup("test@test.com")`, `token = fixtures.login("test@test.com")`, `shopId = fixtures.openShop(memberId, "1111111111")`. 동작: `PATCH /api/shops/{shopId}` 본문 `{"name":"updated shop","address":"updated shop address"}`.
-- 응답(andExpect): 상태 200, `$.id` = shopId, `$.name` = `"updated shop"`, `$.address` = `"updated shop address"`, `$.email` = `"shop@test.com"`, `$.phone` = `"010-1111-1111"`.
-- DB(shopSnapshotOf(shopId)): `s.name()`·`s.email()`·`s.phone()`·`s.address()`가 응답과 같은 값이다.
-
-**5. 빈 문자열로 수정** — 준비: `memberId = fixtures.signup("test@test.com")`, `token = fixtures.login("test@test.com")`, `shopId = fixtures.openShop(memberId, "1111111111")`. 동작: 본문 `{"name":"","address":"updated shop address"}`.
-- 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`, `$.details.name` = `"공백만 입력할 수 없습니다."`.
-- DB(shopSnapshotOf(shopId)): `s.name()` = `"shop"`, `s.address()` = `"shop address"`.
-
-**6. 다른 회원의 가게 수정** — 준비: 회원 A `memberId = fixtures.signup("test@test.com")`, `shopId = fixtures.openShop(memberId, "1111111111")`. 회원 B의 토큰은 `fixtures.token("other@test.com")`. 동작: B의 토큰으로 `PATCH /api/shops/{shopId}` 본문 `{"name":"updated shop"}`.
-- 응답(andExpect): 상태 403, `$.code` = `FORBIDDEN`.
-- DB(shopSnapshotOf(shopId)): `name()` = `"shop"`.
-
-**7. 사업자번호 중복** — 준비: `memberId = fixtures.signup("test@test.com")`, `token = fixtures.login("test@test.com")`, `fixtures.openShop(memberId, "1111111111")`로 가게 1개. 동작: 본문 `businessNumber` = `"1111111111"`, 나머지는 다른 값으로 `POST /api/shops`.
+**3. 사업자번호 중복** — 준비: `memberId = fixtures.signup("test@test.com")`, `token = fixtures.login("test@test.com")`, `fixtures.openShop(memberId, "1111111111")`로 가게 1개. 동작: 본문 `businessNumber` = `"1111111111"`, 나머지는 다른 값으로 `POST /api/shops`.
 - 응답(andExpect): 상태 409, `$.code` = `SHOP_BUSINESS_NUMBER_DUPLICATED`.
 - DB(countOf("shop.shop")): 1.
 
-**8. 폐업한 가게 수정** — 준비: `memberId = fixtures.signup("test@test.com")`, `token = fixtures.login("test@test.com")`, `shopId = fixtures.openShop(memberId, "1111111111")` 후 `fixtures.closeShop(shopId)`. 동작: 소유자 토큰으로 `PATCH` 본문 `{"name":"updated shop"}`.
+**4. 토큰 없이 공개 조회** — 준비: `memberId = fixtures.signup("test@test.com")`, `shopId = fixtures.openShop(memberId, "1111111111")`. 동작: 헤더 없이 `GET /api/shops/{shopId}`.
+- 응답(andExpect): 상태 200, `$.id` = shopId, `$.name` = `"shop"`, `$.phone` = `"010-1111-1111"`, `$.address` = `"shop address"`, `$.status` = `"ACTIVE"`.
+- 응답(andExpect): `$.businessNumber`, `$.email`, `$.memberId`가 모두 존재하지 않는다(`jsonPath(...).doesNotExist()`).
+
+**5. 토큰 없이 내 가게 목록** — 동작: 헤더 없이 `GET /api/shops/me`.
+- 응답(andExpect): 상태 401, `$.code` = `UNAUTHORIZED`.
+
+**6. 일부 필드만 수정** — 준비: `memberId = fixtures.signup("test@test.com")`, `token = fixtures.login("test@test.com")`, `shopId = fixtures.openShop(memberId, "1111111111")`. 동작: `PATCH /api/shops/{shopId}` 본문 `{"name":"updated shop","address":"updated shop address"}`.
+- 응답(andExpect): 상태 200, `$.id` = shopId, `$.name` = `"updated shop"`, `$.address` = `"updated shop address"`, `$.email` = `"shop@test.com"`, `$.phone` = `"010-1111-1111"`.
+- DB(shopSnapshotOf(shopId)): `s.name()`·`s.email()`·`s.phone()`·`s.address()`가 응답과 같은 값이다.
+
+**7. 빈 문자열로 수정** — 준비: `memberId = fixtures.signup("test@test.com")`, `token = fixtures.login("test@test.com")`, `shopId = fixtures.openShop(memberId, "1111111111")`. 동작: 본문 `{"name":"","address":"updated shop address"}`.
+- 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`, `$.details.name` = `"공백만 입력할 수 없습니다."`.
+- DB(shopSnapshotOf(shopId)): `s.name()` = `"shop"`, `s.address()` = `"shop address"`.
+
+**8. 다른 회원의 가게 수정** — 준비: 회원 A `memberId = fixtures.signup("test@test.com")`, `shopId = fixtures.openShop(memberId, "1111111111")`. 회원 B의 토큰은 `fixtures.token("other@test.com")`. 동작: B의 토큰으로 `PATCH /api/shops/{shopId}` 본문 `{"name":"updated shop"}`.
+- 응답(andExpect): 상태 403, `$.code` = `FORBIDDEN`.
+- DB(shopSnapshotOf(shopId)): `name()` = `"shop"`.
+
+**9. 폐업한 가게 수정** — 준비: `memberId = fixtures.signup("test@test.com")`, `token = fixtures.login("test@test.com")`, `shopId = fixtures.openShop(memberId, "1111111111")` 후 `fixtures.closeShop(shopId)`. 동작: 소유자 토큰으로 `PATCH` 본문 `{"name":"updated shop"}`.
 - 응답(andExpect): 상태 422, `$.code` = `SHOP_NOT_ACTIVE`.
 - DB(shopSnapshotOf(shopId)): `s.name()` = `"shop"`.
-
-**9. 사업자번호 9자리** — 준비: `fixtures.token("test@test.com")`. 동작: `businessNumber` = `"123456789"`로 `POST /api/shops`.
-- 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`, `$.details.businessNumber` = `"사업자번호는 하이픈 없는 10자리 숫자입니다."`.
 
 #### `shop/application/ShopApiImplTest` (서비스 직접 호출, `ShopApi`를 주입받는다)
 
@@ -1429,20 +1429,20 @@ public record Money(long amount) implements Comparable<Money> { ... }
 **4. 숨김 상품은 목록에서 제외** — 준비: 1번의 판매자·가게에 상품 3개를 등록하고 그중 1개를 `fixtures.hideProduct`. 동작: `GET /api/products`.
 - 응답(andExpect): `$.items` 2개이고 `jsonPath("$.items[*].id", not(hasItem(hiddenId.toString())))`(`hiddenId`는 숨긴 상품 id).
 
-**5. 상세** — 준비: 1번의 판매자·가게에 재고 10인 상품 A(`registerProduct(memberId, shopId)`). 동작: `GET /api/products/{id}`.
-- 응답(andExpect): 상태 200, `$.status` = `"ON_SALE"`, `$.inStock` = true, `$.price` = 10000, `$.subscribable` = false.
+**5. N+1 없음** — 준비: `application-test.yaml`에 `spring.jpa.properties.hibernate.generate_statistics: true`, 테스트에서 `Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics()`. 1번의 판매자·가게에 상품 3개 등록. 동작: `statistics.clear()` → `GET /api/products`(응답(andExpect): `$.items` 3개) → `first = statistics.getPrepareStatementCount()` → 상품 7개를 더 등록(총 10개) → `statistics.clear()` → `GET /api/products`(응답(andExpect): `$.items` 10개) → `second = statistics.getPrepareStatementCount()`.
+- 반환값(Hibernate `statistics.getPrepareStatementCount()`): `first` > 0 이고 `second` = `first`.
 
 **6. size 범위** — 동작: `GET /api/products?size=0`, `?size=51`.
 - 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`, `$.details.size`가 `size=0`이면 `"1 이상이어야 합니다."`, `size=51`이면 `"50 이하여야 합니다."`.
 
-**7. N+1 없음** — 준비: `application-test.yaml`에 `spring.jpa.properties.hibernate.generate_statistics: true`, 테스트에서 `Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics()`. 1번의 판매자·가게에 상품 3개 등록. 동작: `statistics.clear()` → `GET /api/products`(응답(andExpect): `$.items` 3개) → `first = statistics.getPrepareStatementCount()` → 상품 7개를 더 등록(총 10개) → `statistics.clear()` → `GET /api/products`(응답(andExpect): `$.items` 10개) → `second = statistics.getPrepareStatementCount()`.
-- 반환값(Hibernate `statistics.getPrepareStatementCount()`): `first` > 0 이고 `second` = `first`.
+**7. 상세** — 준비: 1번의 판매자·가게에 재고 10인 상품 A(`registerProduct(memberId, shopId)`). 동작: `GET /api/products/{id}`.
+- 응답(andExpect): 상태 200, `$.status` = `"ON_SALE"`, `$.inStock` = true, `$.price` = 10000, `$.subscribable` = false.
 
-**8. 숨김 상품의 상세** — 준비: 4번과 같이 숨긴 상품 1개. 동작: 숨긴 상품의 `GET /api/products/{id}`.
-- 응답(andExpect): 상태 404, `$.code` = `PRODUCT_NOT_FOUND`.
-
-**9. 재고 0 상품의 상세** — 준비: 1번의 판매자·가게에 재고 0인 상품 B(`registerProduct(memberId, shopId, ProductCategory.ETC, 0)`). 동작: `GET /api/products/{id}`.
+**8. 재고 0 상품의 상세** — 준비: 1번의 판매자·가게에 재고 0인 상품 B(`registerProduct(memberId, shopId, ProductCategory.ETC, 0)`). 동작: `GET /api/products/{id}`.
 - 응답(andExpect): 상태 200, `$.inStock` = false.
+
+**9. 숨김 상품의 상세** — 준비: 4번과 같이 숨긴 상품 1개. 동작: 숨긴 상품의 `GET /api/products/{id}`.
+- 응답(andExpect): 상태 404, `$.code` = `PRODUCT_NOT_FOUND`.
 
 **추가 항목**
 - 재고 저장 실패 시 상품도 롤백되는지 증명하는 테스트(`@MockitoSpyBean StockRepository`로 `insertStock`이 예외를 던지게) — 원 프로젝트에서 상품·재고가 따로 저장되던 결함(CAT-04)의 반증
@@ -1596,25 +1596,25 @@ SELECT product_id FROM product.stock WHERE available + reserved + sold <> receiv
 - 응답(andExpect): 상태 409, `$.code` = `PRODUCT_DISCONTINUED`.
 - DB(productSnapshotOf(productId)): `s.name()` = `"product"`.
 
-**4. 단종 → 판매 중 상태 변경** — 준비: 3번과 같다. 동작: `PATCH .../status` 본문 `{"status":"ON_SALE"}`.
+**4. 다른 회원의 가게 ID로 접근** — 준비: 1번의 `productId`, 다른 회원 `other@test.com`의 가게 `otherShopId`. 동작: 판매자 토큰으로 `PATCH /api/shops/{otherShopId}/products/{productId}` 본문 `{"name":"hack"}`.
+- 응답(andExpect): 상태 403, `$.code` = `FORBIDDEN`.
+- DB(productSnapshotOf(productId)): `name()` = `"product"`.
+
+**5. 내 가게 ID + 다른 가게의 상품 ID** — 준비: 다른 회원(`other@test.com`)의 가게에 등록된 상품 `otherProductId`(이름 `product`). 동작: 판매자 토큰으로 `PATCH /api/shops/{shopId}/products/{otherProductId}` 본문 `{"name":"hack"}`.
+- 응답(andExpect): 상태 404, `$.code` = `PRODUCT_NOT_FOUND`.
+- DB(productSnapshotOf(otherProductId)): `name()` = `"product"`.
+
+**6. 단종 → 판매 중 상태 변경** — 준비: 3번과 같다. 동작: `PATCH .../status` 본문 `{"status":"ON_SALE"}`.
 - 응답(andExpect): 상태 409, `$.code` = `INVALID_STATE_TRANSITION`.
 - DB(productSnapshotOf(productId)): `status()` = `"DISCONTINUED"`.
 
-**5. 가용 재고보다 많이 차감** — 준비: 재고 3인 상품(`fixtures.registerProduct(memberId, shopId, ProductCategory.ETC, 3)`). 동작: 본문 `{"delta":-5,"reason":"test"}`.
+**7. 가용 재고보다 많이 차감** — 준비: 재고 3인 상품(`fixtures.registerProduct(memberId, shopId, ProductCategory.ETC, 3)`). 동작: 본문 `{"delta":-5,"reason":"test"}`.
 - 응답(andExpect): 상태 422, `$.code` = `OUT_OF_STOCK`.
 - DB(stockOf(productId)): `available()` = 3. DB(productSnapshotOf(productId)): `received()` = 3.
 - DB(productSnapshotOf(productId)): `movements()`가 등록 때의 `RECEIVE` 1건뿐이다.
 
-**6. 변경 수량 0** — 준비: 1번의 `productId`. 동작: 본문 `{"delta":0,"reason":"test"}`.
+**8. 변경 수량 0** — 준비: 1번의 `productId`. 동작: 본문 `{"delta":0,"reason":"test"}`.
 - 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`, `$.details.deltaNonZero` = `"변경 수량은 0이 아니어야 합니다."`.
-
-**7. 다른 회원의 가게 ID로 접근** — 준비: 1번의 `productId`, 다른 회원 `other@test.com`의 가게 `otherShopId`. 동작: 판매자 토큰으로 `PATCH /api/shops/{otherShopId}/products/{productId}` 본문 `{"name":"hack"}`.
-- 응답(andExpect): 상태 403, `$.code` = `FORBIDDEN`.
-- DB(productSnapshotOf(productId)): `name()` = `"product"`.
-
-**8. 내 가게 ID + 다른 가게의 상품 ID** — 준비: 다른 회원(`other@test.com`)의 가게에 등록된 상품 `otherProductId`(이름 `product`). 동작: 판매자 토큰으로 `PATCH /api/shops/{shopId}/products/{otherProductId}` 본문 `{"name":"hack"}`.
-- 응답(andExpect): 상태 404, `$.code` = `PRODUCT_NOT_FOUND`.
-- DB(productSnapshotOf(otherProductId)): `name()` = `"product"`.
 
 #### `product/application/StockAdjustmentConcurrencyTest` (서비스 직접 호출)
 
@@ -2107,30 +2107,30 @@ static void storageProperties(DynamicPropertyRegistry registry) {
 **3. 목록에 thumbnailUrl** — 준비: `imageResult = fixtures.registerProductImage(...)` 1장. 동작: `GET /api/products`.
 - 응답(andExpect): 상태 200, `$.items[0].thumbnailUrl` = `imageUrls.toUrl(imageResult.objectKey())`.
 
-**4. 서명과 다른 Content-Type으로 PUT** — 준비: `contentType` `image/png`로 발급받은 `uploadUrl`·`headers`(발급 응답을 `.andReturn()`으로 받아 `$.uploadUrl`·`$.headers`·`$.objectKey`를 꺼낸다). 동작: `headers`를 복사해 `content-type`만 `image/jpeg`로 바꿔 `putToStorage`.
-- 반환값(`putToStorage`의 `HttpResponse`): `statusCode()` = 403, `body()`에 `<Code>SignatureDoesNotMatch</Code>`가 있다.
-- S3(MinIO)(`objectStorage.exists(objectKey)`): false(`objectKey`는 발급 응답의 `$.objectKey`).
-
-**5. 업로드 없이 등록** — 준비: `objectKey = "products/" + productId + "/" + Ids.newId() + ".png"`(업로드하지 않음). 동작: `POST .../images` 본문 `{"objectKey":"{objectKey}"}`.
-- 응답(andExpect): 상태 422, `$.code` = `IMAGE_NOT_UPLOADED`.
-- DB(productSnapshotOf(productId)): `imageKeys()`가 `isEmpty()`다.
-
-**6. 다른 상품의 파일 키 등록** — 준비: 같은 가게에 상품 A(`productId`), 상품 B. `imageB = fixtures.registerProductImage(memberId, shopId, productB)`. 동작: 상품 A의 `POST /api/shops/{shopId}/products/{productA}/images` 본문 `{"objectKey":"{imageB.objectKey()}"}`.
-- 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`.
-- DB(productSnapshotOf(productA)): `imageKeys()`가 `isEmpty()`. DB(productSnapshotOf(productB)): `imageKeys()`는 `imageB.objectKey()` 1건이다.
-
-**7. 허용되지 않은 형식** — 동작: `{"contentType":"image/gif","contentLength":1000}`으로 발급.
-- 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`.
-
-**8. 가게 주인이 아닌 회원** — 준비: 다른 회원 `other@test.com`의 토큰. 동작: 그 토큰으로 `POST .../images/presigned-url` 본문 `{"contentType":"image/png","contentLength":2000}`.
-- 응답(andExpect): 상태 403, `$.code` = `FORBIDDEN`.
-
-**9. 삭제** — 준비: `imageResult = fixtures.registerProductImage(...)` 1장. 동작: `DELETE .../images/{imageResult.imageId()}`.
+**4. 삭제** — 준비: `imageResult = fixtures.registerProductImage(...)` 1장. 동작: `DELETE .../images/{imageResult.imageId()}`.
 - 응답(andExpect): 상태 204.
 - S3(MinIO)(`objectStorage.exists(imageResult.objectKey())`): false. DB(productSnapshotOf(productId)): `s.imageKeys()`가 `isEmpty()`이고 `s.thumbnailKey()`가 `isNull()`.
 
-**10. 허용 크기 초과** — 동작: `{"contentType":"image/png","contentLength":6291456}`(6MB)으로 발급.
+**5. 허용되지 않은 형식** — 동작: `{"contentType":"image/gif","contentLength":1000}`으로 발급.
 - 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`.
+
+**6. 허용 크기 초과** — 동작: `{"contentType":"image/png","contentLength":6291456}`(6MB)으로 발급.
+- 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`.
+
+**7. 가게 주인이 아닌 회원** — 준비: 다른 회원 `other@test.com`의 토큰. 동작: 그 토큰으로 `POST .../images/presigned-url` 본문 `{"contentType":"image/png","contentLength":2000}`.
+- 응답(andExpect): 상태 403, `$.code` = `FORBIDDEN`.
+
+**8. 서명과 다른 Content-Type으로 PUT** — 준비: `contentType` `image/png`로 발급받은 `uploadUrl`·`headers`(발급 응답을 `.andReturn()`으로 받아 `$.uploadUrl`·`$.headers`·`$.objectKey`를 꺼낸다). 동작: `headers`를 복사해 `content-type`만 `image/jpeg`로 바꿔 `putToStorage`.
+- 반환값(`putToStorage`의 `HttpResponse`): `statusCode()` = 403, `body()`에 `<Code>SignatureDoesNotMatch</Code>`가 있다.
+- S3(MinIO)(`objectStorage.exists(objectKey)`): false(`objectKey`는 발급 응답의 `$.objectKey`).
+
+**9. 업로드 없이 등록** — 준비: `objectKey = "products/" + productId + "/" + Ids.newId() + ".png"`(업로드하지 않음). 동작: `POST .../images` 본문 `{"objectKey":"{objectKey}"}`.
+- 응답(andExpect): 상태 422, `$.code` = `IMAGE_NOT_UPLOADED`.
+- DB(productSnapshotOf(productId)): `imageKeys()`가 `isEmpty()`다.
+
+**10. 다른 상품의 파일 키 등록** — 준비: 같은 가게에 상품 A(`productId`), 상품 B. `imageB = fixtures.registerProductImage(memberId, shopId, productB)`. 동작: 상품 A의 `POST /api/shops/{shopId}/products/{productA}/images` 본문 `{"objectKey":"{imageB.objectKey()}"}`.
+- 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`.
+- DB(productSnapshotOf(productA)): `imageKeys()`가 `isEmpty()`. DB(productSnapshotOf(productB)): `imageKeys()`는 `imageB.objectKey()` 1건이다.
 
 ```bash
 curl -s -X POST localhost:8080/api/shops/$SHOP/products/$PRODUCT/images/presigned-url \

@@ -91,6 +91,49 @@ class SellerOrderControllerTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("목록 조회의 SQL 수는 가게주문이 3개일 때와 10개일 때 같다.")
+    void getShopOrdersQueryCountDoesNotGrowWithRows() throws Exception {
+        // Given
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        UUID seller1Id = testFixtures.signup("seller1@test.com");
+        String token = testFixtures.login("seller1@test.com");
+        UUID shop1Id = testFixtures.openShop(seller1Id, "1111111111");
+        UUID product1Id = testFixtures.registerProduct(seller1Id, shop1Id);
+
+        UUID buyerId = testFixtures.signup("buyer@test.com");
+        for (int i = 0; i < 3; i++) {
+            testFixtures.createPaidOrder(buyerId, product1Id);
+        }
+
+        mockMvc.perform(get("/api/shops/{shopId}/orders", shop1Id)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        statistics.clear();
+
+        // When & Then
+        mockMvc.perform(get("/api/shops/{shopId}/orders", shop1Id)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        long first = statistics.getPrepareStatementCount();
+
+        for (int i = 0; i < 7; i++) {
+            testFixtures.createPaidOrder(buyerId, product1Id);
+        }
+
+        statistics.clear();
+
+        mockMvc.perform(get("/api/shops/{shopId}/orders", shop1Id)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        long second = statistics.getPrepareStatementCount();
+
+        assertThat(second).isEqualTo(first);
+    }
+
+    @Test
     @DisplayName("발송한 뒤 배송완료하면 가게주문과 품목 상태가 차례로 바뀐다.")
     void shipThenDeliver() throws Exception {
         // Given
@@ -223,48 +266,5 @@ class SellerOrderControllerTest extends IntegrationTestSupport {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_STATE_TRANSITION"));
-    }
-
-    @Test
-    @DisplayName("목록 조회의 SQL 수는 가게주문이 3개일 때와 10개일 때 같다.")
-    void getShopOrdersQueryCountDoesNotGrowWithRows() throws Exception {
-        // Given
-        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
-        UUID seller1Id = testFixtures.signup("seller1@test.com");
-        String token = testFixtures.login("seller1@test.com");
-        UUID shop1Id = testFixtures.openShop(seller1Id, "1111111111");
-        UUID product1Id = testFixtures.registerProduct(seller1Id, shop1Id);
-
-        UUID buyerId = testFixtures.signup("buyer@test.com");
-        for (int i = 0; i < 3; i++) {
-            testFixtures.createPaidOrder(buyerId, product1Id);
-        }
-
-        mockMvc.perform(get("/api/shops/{shopId}/orders", shop1Id)
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk());
-
-        statistics.clear();
-
-        // When & Then
-        mockMvc.perform(get("/api/shops/{shopId}/orders", shop1Id)
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk());
-
-        long first = statistics.getPrepareStatementCount();
-
-        for (int i = 0; i < 7; i++) {
-            testFixtures.createPaidOrder(buyerId, product1Id);
-        }
-
-        statistics.clear();
-
-        mockMvc.perform(get("/api/shops/{shopId}/orders", shop1Id)
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk());
-
-        long second = statistics.getPrepareStatementCount();
-
-        assertThat(second).isEqualTo(first);
     }
 }

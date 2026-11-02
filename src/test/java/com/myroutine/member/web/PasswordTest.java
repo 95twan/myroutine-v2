@@ -157,6 +157,27 @@ class PasswordTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("비밀번호 변경을 실패한다. (비밀번호 없는 회원, PASSWORD_MISMATCH)")
+    void changeWithoutPasswordHashFails() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("pw@test.com");
+        TokenResult token = testFixtures.loginTokens("pw@test.com");
+        String accessA = token.accessToken();
+
+        jdbcTemplate.update("UPDATE member.member SET password_hash = null WHERE id = ?", memberId);
+
+        ChangePasswordRequest request = new ChangePasswordRequest("pass1234", "newpass5678");
+
+        // When & Then
+        mockMvc.perform(patch("/api/members/me/password")
+                        .header("Authorization", "Bearer " + accessA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PASSWORD_MISMATCH"));
+    }
+
+    @Test
     @DisplayName("비밀번호 재설정 요청은 가입 여부와 상관없이 같은 응답을 반환한다.")
     void resetRequestSameResponseRegardlessOfSignup() throws Exception {
         // Given
@@ -182,6 +203,72 @@ class PasswordTest extends IntegrationTestSupport {
         assertThat(mailSender.sent()).hasSize(1);
         assertThat(mailSender.sent().getFirst().to()).isEqualTo("pw@test.com");
         assertThat(testFixtures.emailAuthSnapshotOf(EmailCodePurpose.RESET_PASSWORD, "pw@test.com").codeExists()).isTrue();
+    }
+
+    @Test
+    @DisplayName("재설정 메일 발송이 실패해도 같은 응답을 반환한다.")
+    void resetRequestSameResponseWhenMailFails() throws Exception {
+        // Given
+        testFixtures.signup("pw@test.com");
+
+        mailSender.failNext(1);
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/password-reset")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PasswordResetRequest("pw@test.com"))))
+                .andExpect(status().isAccepted())
+                .andExpect(content().string(""));
+
+        assertThat(mailSender.sent()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("재설정 요청의 발송 한도는 가입 여부와 상관없이 적용된다.")
+    void resetRequestRateLimitRegardlessOfSignup() throws Exception {
+        // Given
+        testFixtures.signup("pw@test.com");
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/password-reset")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PasswordResetRequest("nobody@test.com"))))
+                .andExpect(status().isAccepted());
+
+        mockMvc.perform(post("/api/auth/password-reset")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PasswordResetRequest("nobody@test.com"))))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("RATE_LIMITED"))
+                .andExpect(jsonPath("$.details.retryAfterSeconds").value(allOf(greaterThanOrEqualTo(1), lessThanOrEqualTo(60))));
+
+        mockMvc.perform(post("/api/auth/password-reset")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PasswordResetRequest("pw@test.com"))))
+                .andExpect(status().isAccepted());
+
+        mockMvc.perform(post("/api/auth/password-reset")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PasswordResetRequest("pw@test.com"))))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("RATE_LIMITED"))
+                .andExpect(jsonPath("$.details.retryAfterSeconds").value(allOf(greaterThanOrEqualTo(1), lessThanOrEqualTo(60))));
+    }
+
+    @Test
+    @DisplayName("ACTIVE가 아닌 회원에게는 재설정 메일을 보내지 않는다.")
+    void resetRequestForInactiveMemberSendsNoMail() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("pw@test.com");
+
+        testFixtures.changeStatus(memberId, "BANNED");
+
+        mockMvc.perform(post("/api/auth/password-reset")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PasswordResetRequest("pw@test.com"))))
+                .andExpect(status().isAccepted());
+
+        assertThat(mailSender.sent()).isEmpty();
     }
 
     @Test
@@ -230,40 +317,31 @@ class PasswordTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("비밀번호 변경을 실패한다. (비밀번호 없는 회원, PASSWORD_MISMATCH)")
-    void changeWithoutPasswordHashFails() throws Exception {
+    @DisplayName("비밀번호 재설정을 실패한다. (가입 규칙 위반 새 비밀번호, INVALID_REQUEST)")
+    void confirmResetWithInvalidNewPasswordFails() throws Exception {
         // Given
         UUID memberId = testFixtures.signup("pw@test.com");
-        TokenResult token = testFixtures.loginTokens("pw@test.com");
-        String accessA = token.accessToken();
-
-        jdbcTemplate.update("UPDATE member.member SET password_hash = null WHERE id = ?", memberId);
-
-        ChangePasswordRequest request = new ChangePasswordRequest("pass1234", "newpass5678");
-
-        // When & Then
-        mockMvc.perform(patch("/api/members/me/password")
-                        .header("Authorization", "Bearer " + accessA)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("PASSWORD_MISMATCH"));
-    }
-
-    @Test
-    @DisplayName("ACTIVE가 아닌 회원에게는 재설정 메일을 보내지 않는다.")
-    void resetRequestForInactiveMemberSendsNoMail() throws Exception {
-        // Given
-        UUID memberId = testFixtures.signup("pw@test.com");
-
-        testFixtures.changeStatus(memberId, "BANNED");
 
         mockMvc.perform(post("/api/auth/password-reset")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new PasswordResetRequest("pw@test.com"))))
                 .andExpect(status().isAccepted());
 
-        assertThat(mailSender.sent()).isEmpty();
+        String code = mailSender.sent().get(0).body().split("인증코드: ")[1];
+
+        String before = testFixtures.memberSnapshotOf(memberId).passwordHash();
+
+        PasswordResetConfirmRequest request = new PasswordResetConfirmRequest("pw@test.com", code, "abcdefgh");
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/password-reset/confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        assertThat(testFixtures.memberSnapshotOf(memberId).passwordHash()).isEqualTo(before);
+        assertThat(testFixtures.emailAuthSnapshotOf(EmailCodePurpose.RESET_PASSWORD, "pw@test.com").codeExists()).isTrue();
     }
 
     @Test
@@ -301,83 +379,5 @@ class PasswordTest extends IntegrationTestSupport {
         assertThat(testFixtures.memberSnapshotOf(memberId).passwordHash()).isEqualTo(before);
         assertThat(testFixtures.sessionSnapshotOf(sidA).exists()).isTrue();
         assertThat(testFixtures.sessionSnapshotOf(sidB).exists()).isTrue();
-    }
-
-    @Test
-    @DisplayName("재설정 요청의 발송 한도는 가입 여부와 상관없이 적용된다.")
-    void resetRequestRateLimitRegardlessOfSignup() throws Exception {
-        // Given
-        testFixtures.signup("pw@test.com");
-
-        // When & Then
-        mockMvc.perform(post("/api/auth/password-reset")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new PasswordResetRequest("nobody@test.com"))))
-                .andExpect(status().isAccepted());
-
-        mockMvc.perform(post("/api/auth/password-reset")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new PasswordResetRequest("nobody@test.com"))))
-                .andExpect(status().isTooManyRequests())
-                .andExpect(jsonPath("$.code").value("RATE_LIMITED"))
-                .andExpect(jsonPath("$.details.retryAfterSeconds").value(allOf(greaterThanOrEqualTo(1), lessThanOrEqualTo(60))));
-
-        mockMvc.perform(post("/api/auth/password-reset")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new PasswordResetRequest("pw@test.com"))))
-                .andExpect(status().isAccepted());
-
-        mockMvc.perform(post("/api/auth/password-reset")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new PasswordResetRequest("pw@test.com"))))
-                .andExpect(status().isTooManyRequests())
-                .andExpect(jsonPath("$.code").value("RATE_LIMITED"))
-                .andExpect(jsonPath("$.details.retryAfterSeconds").value(allOf(greaterThanOrEqualTo(1), lessThanOrEqualTo(60))));
-    }
-
-    @Test
-    @DisplayName("비밀번호 재설정을 실패한다. (가입 규칙 위반 새 비밀번호, INVALID_REQUEST)")
-    void confirmResetWithInvalidNewPasswordFails() throws Exception {
-        // Given
-        UUID memberId = testFixtures.signup("pw@test.com");
-
-        mockMvc.perform(post("/api/auth/password-reset")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new PasswordResetRequest("pw@test.com"))))
-                .andExpect(status().isAccepted());
-
-        String code = mailSender.sent().get(0).body().split("인증코드: ")[1];
-
-        String before = testFixtures.memberSnapshotOf(memberId).passwordHash();
-
-        PasswordResetConfirmRequest request = new PasswordResetConfirmRequest("pw@test.com", code, "abcdefgh");
-
-        // When & Then
-        mockMvc.perform(post("/api/auth/password-reset/confirm")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-
-        assertThat(testFixtures.memberSnapshotOf(memberId).passwordHash()).isEqualTo(before);
-        assertThat(testFixtures.emailAuthSnapshotOf(EmailCodePurpose.RESET_PASSWORD, "pw@test.com").codeExists()).isTrue();
-    }
-
-    @Test
-    @DisplayName("재설정 메일 발송이 실패해도 같은 응답을 반환한다.")
-    void resetRequestSameResponseWhenMailFails() throws Exception {
-        // Given
-        testFixtures.signup("pw@test.com");
-
-        mailSender.failNext(1);
-
-        // When & Then
-        mockMvc.perform(post("/api/auth/password-reset")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new PasswordResetRequest("pw@test.com"))))
-                .andExpect(status().isAccepted())
-                .andExpect(content().string(""));
-
-        assertThat(mailSender.sent()).hasSize(1);
     }
 }

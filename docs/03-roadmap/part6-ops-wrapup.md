@@ -301,19 +301,19 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 - 동작: `setOrderUpdatedAt(orderId, 지금 - 6분)` → `refresh()`.
 - 메트릭(registry): 같은 Gauge 값 = 1.0.
 
-**4. `stock_reservation_expired_total`** — 준비: 판매자·가게, 상품 3개(`registerProduct(sellerId, shopId, 1000, 10)`)와 구매자 1명. 서로 다른 상품 `p1`·`p2`·`p3`로 `createPendingOrder` 주문 3개를 만들고 셋 모두 `setOrderExpired(orderId, 지금 - 1분)`. `p3`에는 `breakReservedStock(p3)`(`UPDATE product.stock SET available = available + reserved, reserved = 0`)를 건다. 동작: `registry.find("stock_reservation_expired_total").counter()`가 null이면 0, 아니면 `count()`를 `before`로 읽은 뒤 `orderExpirationService.expireBatch()`.
-- 반환값: `expireBatch()` = 2.
-- 메트릭(registry): `registry.get("stock_reservation_expired_total").counter().count()` - `before` = 2.0.
-
-**5. 결제 수집기 Gauge 값** — 준비: 판매자·가게·상품(`registerProduct(sellerId, shopId, 1000, 10)`)과 구매자 1명. `pg.on("/v1/payments/confirm", Behavior.delay(1000))` + `createPendingOrder(구매자 ID, 상품 ID)` → `confirmPayment(구매자 ID, orderId)`(응답 202). 다른 주문 하나는 `pg.on("/v1/payments/confirm", Behavior.approve())`로 되돌린 뒤 `createPaidOrder`로 만들어 `APPROVED` 결제를 하나 더 둔다. JDBC로 UNKNOWN 결제(첫 주문의 `orderId`)의 `updated_at`을 지금 - 90초로 바꾼다(`UPDATE payment.payment SET updated_at = ? WHERE order_id = ?`).
-- 동작: `paymentMetrics.refresh()`.
-- 메트릭(registry): Gauge `payment_unknown_count` 값 = 1.0 / `payment_unknown_oldest_age_seconds` 값은 90.0 이상 100.0 미만.
-
-**6. 환불의 `saga_stuck_count` 기준 시간** — 준비: 판매자·가게·상품(`registerProduct(sellerId, shopId, 1000, 10)`)과 구매자 1명. `createPaidOrder` 주문의 품목 1개를 `pg.on("/v1/payments/" + paymentKey, Behavior.delay(1000))` 후 취소 요청(응답 202)으로 `APPROVED`에 멈춘 환불 1건. 환불 ID는 취소 응답 본문의 `$.refundId`.
+**4. 환불의 `saga_stuck_count` 기준 시간** — 준비: 판매자·가게·상품(`registerProduct(sellerId, shopId, 1000, 10)`)과 구매자 1명. `createPaidOrder` 주문의 품목 1개를 `pg.on("/v1/payments/" + paymentKey, Behavior.delay(1000))` 후 취소 요청(응답 202)으로 `APPROVED`에 멈춘 환불 1건. 환불 ID는 취소 응답 본문의 `$.refundId`.
 - 동작: `setRefundUpdatedAt(refundId, 지금 - 9분)` → `orderMetrics.refresh()`.
 - 메트릭(registry): Gauge `saga_stuck_count`(라벨 `type` = `refund`) 값 = 0.0.
 - 동작: `setRefundUpdatedAt(refundId, 지금 - 11분)` → `refresh()`.
 - 메트릭(registry): 같은 Gauge 값 = 1.0.
+
+**5. `stock_reservation_expired_total`** — 준비: 판매자·가게, 상품 3개(`registerProduct(sellerId, shopId, 1000, 10)`)와 구매자 1명. 서로 다른 상품 `p1`·`p2`·`p3`로 `createPendingOrder` 주문 3개를 만들고 셋 모두 `setOrderExpired(orderId, 지금 - 1분)`. `p3`에는 `breakReservedStock(p3)`(`UPDATE product.stock SET available = available + reserved, reserved = 0`)를 건다. 동작: `registry.find("stock_reservation_expired_total").counter()`가 null이면 0, 아니면 `count()`를 `before`로 읽은 뒤 `orderExpirationService.expireBatch()`.
+- 반환값: `expireBatch()` = 2.
+- 메트릭(registry): `registry.get("stock_reservation_expired_total").counter().count()` - `before` = 2.0.
+
+**6. 결제 수집기 Gauge 값** — 준비: 판매자·가게·상품(`registerProduct(sellerId, shopId, 1000, 10)`)과 구매자 1명. `pg.on("/v1/payments/confirm", Behavior.delay(1000))` + `createPendingOrder(구매자 ID, 상품 ID)` → `confirmPayment(구매자 ID, orderId)`(응답 202). 다른 주문 하나는 `pg.on("/v1/payments/confirm", Behavior.approve())`로 되돌린 뒤 `createPaidOrder`로 만들어 `APPROVED` 결제를 하나 더 둔다. JDBC로 UNKNOWN 결제(첫 주문의 `orderId`)의 `updated_at`을 지금 - 90초로 바꾼다(`UPDATE payment.payment SET updated_at = ? WHERE order_id = ?`).
+- 동작: `paymentMetrics.refresh()`.
+- 메트릭(registry): Gauge `payment_unknown_count` 값 = 1.0 / `payment_unknown_oldest_age_seconds` 값은 90.0 이상 100.0 미만.
 
 #### `product/application/StockCheckJobTest` (`OutputCaptureExtension` + `IntegrationTestSupport`)
 
@@ -524,32 +524,32 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 
 #### `common/web/AdminOutboxTest` (`@ExtendWith(OutputCaptureExtension.class)` + `IntegrationTestSupport`)
 
-행 X·S의 정의는 1번에 있고, 쓰는 케이스(2·5·6번은 X만)가 1번과 같게 만든다. 3번은 DB 행이 필요 없다.
+행 X·S의 정의는 1번에 있고, 쓰는 케이스(3·4·5번은 X만)가 1번과 같게 만든다. 6번은 DB 행이 필요 없다.
 
 **1. DEAD 목록 조회** — 준비: `common.outbox_event`에 JDBC `INSERT`로 DEAD 행 X(`id` X와 `aggregate_id` K는 임의 UUID, `aggregate_type` `TEST`, `event_type` `TestEvent`, `topic` `test.admin-outbox.v1`, `payload` `'{"hello":"admin"}'::jsonb`, `status` `DEAD`, `attempts` 10, `last_error` `kafka timeout`, `next_attempt_at`·`created_at` = 지금 - 1시간)와 SENT 행 S(같은 컬럼, `status` `SENT`, `sent_at` 지금)를 넣는다. 동작: `GET /admin/api/outbox?status=DEAD`.
 - 응답(andExpect): 상태 200, `$.items`의 항목 수 = 1, `$.items[0]`의 `id` = X, `topic` = `test.admin-outbox.v1`, `aggregateId` = K, `attempts` = 10, `lastError` = `kafka timeout`, `jsonPath("$.items[0].createdAt")`의 값이 `notNullValue()`.
 
-**2. 같은 retry 두 번** — 준비: 1번의 행 X, 테스트용 토픽 `test.admin-outbox.v1`(`NewTopic` 빈). 5번의 retry와 6번의 `relayOnce()`를 마쳐 X가 SENT인 상태에서 `outboxSnapshotOf(X)`를 읽어 둔다. 동작 1: `POST /admin/api/outbox/{X}/retry` 다시.
-- 확인 1(retry 응답 직후): 응답(andExpect) 상태 4xx(코드는 확인 필요). DB(outboxSnapshotOf(X)): 동작 전에 읽은 값과 같다.
-- 동작 2: `outboxRelay.relayOnce()`.
-- 확인 2(`relayOnce()` 직후): 반환값 `relayOnce()` = 0. Kafka(testKafka.messages): `testKafka.messages("test.admin-outbox.v1", K.toString())`의 크기가 1 그대로.
-
-**3. 없는 id** — 동작: 임의의 UUID로 `POST /admin/api/outbox/{임의 UUID}/retry`.
-- 응답(andExpect): 상태 4xx(404 `NOT_FOUND`가 후보, 확인 필요).
-
-**4. 목록 페이지** — 준비: DEAD 행 3개를 `created_at`을 서로 다르게(지금 - 3시간, - 2시간, - 1시간) 넣는다). 동작: `GET /admin/api/outbox?status=DEAD&size=2` → `.andReturn()`으로 받은 응답 본문에서 `JsonPath.read(본문, "$.nextCursor")`로 꺼낸 값을 `cursor`로 `GET ...&size=2&cursor={값}`(이 호출도 `.andReturn()`으로 받는다).
+**2. 목록 페이지** — 준비: DEAD 행 3개를 `created_at`을 서로 다르게(지금 - 3시간, - 2시간, - 1시간) 넣는다). 동작: `GET /admin/api/outbox?status=DEAD&size=2` → `.andReturn()`으로 받은 응답 본문에서 `JsonPath.read(본문, "$.nextCursor")`로 꺼낸 값을 `cursor`로 `GET ...&size=2&cursor={값}`(이 호출도 `.andReturn()`으로 받는다).
 - 응답(andExpect): 첫 응답 `$.items`의 항목 수 = 2, `jsonPath("$.nextCursor")`의 값이 `notNullValue()`. 둘째 응답 `$.items`의 항목 수 = 1, `jsonPath("$.nextCursor")`의 값이 `nullValue()`.
 - 응답 본문(andReturn 후): 두 본문에서 `JsonPath.read(본문, "$.items[*].createdAt")`(`List<String>`)를 꺼내 `Instant.parse(...)`로 바꾼 리스트가 `isSorted()`(오름차순).
 - 응답 본문(andReturn 후): 두 본문에서 `JsonPath.read(본문, "$.items[*].id")`로 꺼낸 리스트를 합치면 `hasSize(3)`이고 `doesNotHaveDuplicates()`.
 
-**5. DEAD 행 retry → READY** — 준비: 1번의 행 X. 동작: `POST /admin/api/outbox/{X}/retry`.
+**3. DEAD 행 retry → READY** — 준비: 1번의 행 X. 동작: `POST /admin/api/outbox/{X}/retry`.
 - 응답(andExpect): 상태 2xx(상태·본문은 확인 필요).
 - DB(outboxSnapshotOf(X)): `status()` = `READY`, `attempts()` = 0.
 - 로그(output.getAll()): `"target=" + X + " by=" + adminId`가 있다.
 
-**6. retry한 행은 다시 발행된다** — 준비: 2번의 준비와 같고, X에 5번의 retry를 마친 상태. 동작: `outboxRelay.relayOnce()`.
+**4. retry한 행은 다시 발행된다** — 준비: 5번의 준비와 같고, X에 3번의 retry를 마친 상태. 동작: `outboxRelay.relayOnce()`.
 - 반환값: `relayOnce()` = 1.
 - Kafka(testKafka.messages): `testKafka.messages("test.admin-outbox.v1", K.toString())`가 1건이고 `get(0).envelope().eventId()` = X.
+
+**5. 같은 retry 두 번** — 준비: 1번의 행 X, 테스트용 토픽 `test.admin-outbox.v1`(`NewTopic` 빈). 3번의 retry와 4번의 `relayOnce()`를 마쳐 X가 SENT인 상태에서 `outboxSnapshotOf(X)`를 읽어 둔다. 동작 1: `POST /admin/api/outbox/{X}/retry` 다시.
+- 확인 1(retry 응답 직후): 응답(andExpect) 상태 4xx(코드는 확인 필요). DB(outboxSnapshotOf(X)): 동작 전에 읽은 값과 같다.
+- 동작 2: `outboxRelay.relayOnce()`.
+- 확인 2(`relayOnce()` 직후): 반환값 `relayOnce()` = 0. Kafka(testKafka.messages): `testKafka.messages("test.admin-outbox.v1", K.toString())`의 크기가 1 그대로.
+
+**6. 없는 id** — 동작: 임의의 UUID로 `POST /admin/api/outbox/{임의 UUID}/retry`.
+- 응답(andExpect): 상태 4xx(404 `NOT_FOUND`가 후보, 확인 필요).
 
 #### `common/web/AdminDltTest` (`@ExtendWith(OutputCaptureExtension.class)` + `IntegrationTestSupport`)
 
@@ -594,15 +594,15 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 - 응답(andExpect): 상태 200, `$.status` = `PAYMENT_IN_PROGRESS`.
 - DB(snapshotOf(orderId)): `s.payment().reconcileAttempts()` = 1.
 
-**4. 없는 주문** — 동작: 임의의 UUID로 reconcile.
+**4. 같은 reconcile을 한 번 더 호출해도 PAID** — 준비: 1번과 같은 준비로 reconcile을 한 번 호출해 `PAID`가 된 상태. 동작: 같은 호출을 한 번 더.
+- 응답(andExpect): 상태 200, `$.status` = `PAID`.
+
+**5. 없는 주문** — 동작: 임의의 UUID로 reconcile.
 - 응답(andExpect): 상태 4xx(코드는 확인 필요).
 - 가짜 서버 요청(pg.requests(접두어)): `pg.requests("/v1/payments/")`의 크기 0.
 
-**5. UNKNOWN 결제 목록 조회** — 준비: 1번과 같은 준비. 동작: `GET /admin/api/payments?status=UNKNOWN`(reconcile 전).
+**6. UNKNOWN 결제 목록 조회** — 준비: 1번과 같은 준비. 동작: `GET /admin/api/payments?status=UNKNOWN`(reconcile 전).
 - 응답(andExpect): 상태 200, `$.items`의 항목 수 = 1, `$.items[0]`의 `id` = 비교 값 `snapshotOf(orderId).payment().id()`(미리 읽어 둔 값), `orderId` = orderId, `amount` = 1000, `jsonPath("$.items[0].updatedAt")`의 값이 `notNullValue()`.
-
-**6. 같은 reconcile을 한 번 더 호출해도 PAID** — 준비: 1번과 같은 준비로 reconcile을 한 번 호출해 `PAID`가 된 상태. 동작: 같은 호출을 한 번 더.
-- 응답(andExpect): 상태 200, `$.status` = `PAID`.
 
 #### `order/web/AdminRefundRetryTest` (`@ExtendWith(OutputCaptureExtension.class)` + `@AutoConfigureMockMvc` + `IntegrationTestSupport`)
 
@@ -677,7 +677,7 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 
 ## 6-4. E2E 시나리오 · 불변식 점검 (L)
 
-**목표**: 시나리오 S1~S7(S5 제외)을 테스트로 증명하고, 시나리오가 끝날 때마다 불변식(INV-01~07)을 점검한다(INV-09는 최종적 일관성이라 아래 참고). 구독 시나리오 S5와 구독 회차 불변식 INV-08은 서브인 구독을 할 때 더한다([구독 "Part 6에 더할 것"](../04-sub/subscription.md#part-6에-더할-것)).
+**목표**: 시나리오 S1\~S7(S5 제외)을 테스트로 증명하고, 시나리오가 끝날 때마다 불변식(INV-01\~07)을 점검한다(INV-09는 최종적 일관성이라 아래 참고). 구독 시나리오 S5와 구독 회차 불변식 INV-08은 서브인 구독을 할 때 더한다([구독 "Part 6에 더할 것"](../04-sub/subscription.md#part-6에-더할-것)).
 
 **정책**: E2E 테스트는 실제 API(MockMvc)와 실제 Kafka·Redis·Postgres·가짜 PG로 돌린다. 잡과 릴레이는 테스트에서 직접 호출한다. 위치 `src/test/java/com/myroutine/e2e/`.
 

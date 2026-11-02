@@ -50,4 +50,6 @@ public interface OrderRepository {
     boolean existsByShopIdAndStatusIn(UUID shopId, Collection<ShopOrderStatus> statuses);
 
     boolean existsActiveByMemberId(UUID memberId, Collection<OrderStatus> orderStatuses, Collection<ShopOrderStatus> shopOrderStatuses, Collection<RefundStatus> refundStatuses);
+
+    Optional<OrderLine> findLineByIdAndMemberId(UUID lineId, UUID memberId);
 }

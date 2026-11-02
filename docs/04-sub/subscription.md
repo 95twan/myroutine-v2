@@ -1,6 +1,6 @@
 # 서브: 구독
 
-> 버전 0.31 · 2026-10-31 · 로드맵의 옛 Part 5를 서브로 옮겼다(파일은 `03-roadmap/part5-subscription.md`에서 이동, 단계 ID는 5-1~5-4에서 SUB-1~SUB-4로): Stage 1 뒤에 하고 `v1.x.0`으로 릴리스한다. Part 6에서 뺀 구독 점검(로그 점검, 빌링 호출 지표, INV-08, E2E S5·S7)을 "Part 6에 더할 것"으로 옮겼다
+> 버전 0.31 · 2026-10-31 · 로드맵의 옛 Part 5를 서브로 옮겼다(파일은 `03-roadmap/part5-subscription.md`에서 이동, 단계 ID는 5-1\~5-4에서 SUB-1\~SUB-4로): Stage 1 뒤에 하고 `v1.x.0`으로 릴리스한다. Part 6에서 뺀 구독 점검(로그 점검, 빌링 호출 지표, INV-08, E2E S5·S7)을 "Part 6에 더할 것"으로 옮겼다
 > 0.30 · 2026-10-28 · SUB-2 구독 신청에서 이메일 인증 확인(`@RequireVerifiedEmail`)을 뺐다. 4-2부터 가입 전에 이메일을 인증해 모든 회원이 인증된 이메일을 가진다
 > 0.29 · 2026-10-27
 > 0.13 · 2026-10-16 · 쓰지 않는 요소와 억지 재사용 경로를 걷어냈다. `PaymentApi.getActiveBillingKey`(반환 `BillingKeyInfo`)를 반환 없는 `verifyActiveBillingKey`로 바꾸고 record를 지웠다. `TossBillingResponse.customerKey`와 `Subscription.isActiveLike()`를 뺐다. SKIPPED 회차는 `insertIfAbsent`에 `failureReason` 인자를 더해 한 번의 INSERT로 만들고 `recordSkipReason`·추가 조회·UPDATE를 없앴다(같은 날 다른 실행이 먼저 만든 경우의 종료도 적었다). 구독 회차 주문의 결제 시작은 2-4 `startPayment` CAS 대신 `Order.markPaymentInProgress()`로 바꿨다(`SubscriptionCycleService`의 `OrderRepository` 의존 제거)
@@ -149,7 +149,7 @@
 
 ### V. 구독 날짜 규칙
 - 날짜는 모두 **업무 날짜**(`LocalDate`, Asia/Seoul)다. "오늘" = `LocalDate.now(clock.withZone(businessZone))`. `businessZone`은 3-4a가 만든 `BusinessProperties.businessZone()`(`myroutine.business-zone`)이고, `Clock`과 함께 주입받아 쓴다.
-- 주기: `WEEKLY` + 요일 1~7(월=1, `DayOfWeek.getValue()`), `MONTHLY` + 일 1~28(29~31일은 달마다 없을 수 있어 막는다).
+- 주기: `WEEKLY` + 요일 1\~7(월=1, `DayOfWeek.getValue()`), `MONTHLY` + 일 1\~28(29\~31일은 달마다 없을 수 있어 막는다).
 - 날짜 계산은 `SubscriptionSchedule` 값 객체 한 곳에서만 한다(서비스·잡에 날짜 계산 코드 금지).
 
 ### W. 구독 에러 코드
@@ -437,14 +437,14 @@
 | `pg.on("/v1/billing/authorizations/issue", Behavior.reject("REJECT_CARD_COMPANY"))` | 422, `$.code` = `BILLING_KEY_ISSUE_FAILED` | DB(billingKeysOf(buyerId)): `.isEmpty()`가 true |
 | `pg.on("/v1/billing/authorizations/issue", Behavior.delay(1000))` | 502, `$.code` = `PG_ERROR` | DB(billingKeysOf(buyerId)): `.isEmpty()`가 true |
 
-**3. 남의 빌링키 삭제 거부** — 준비: 다른 회원 `owner@test.com` 가입 + `ownerKeyId = registerBillingKey(ownerId)`. 동작: `buyer` 토큰으로 `DELETE /api/billing-keys/{ownerKeyId}`.
-- 응답(andExpect): 상태 404, `jsonPath("$.code")` = `BILLING_KEY_NOT_FOUND`.
-- DB(billingKeyOf(ownerKeyId)): `status()` = `ACTIVE`, `deletedAt()`이 null(`assertThat(...).isNull()`).
-
-**4. 내 빌링키 삭제** — 준비: `keyId = registerBillingKey(buyerId)`. 동작: `buyer` 토큰으로 `DELETE /api/billing-keys/{keyId}`.
+**3. 내 빌링키 삭제** — 준비: `keyId = registerBillingKey(buyerId)`. 동작: `buyer` 토큰으로 `DELETE /api/billing-keys/{keyId}`.
 - 응답(andExpect): 상태 204.
 - DB(billingKeyOf(keyId)): `status()` = `DELETED`, `deletedAt()`이 null이 아니다(`isNotNull()`).
 - 가짜 서버 요청(pg.requests("/v1/billing/")): Toss 삭제 API를 부르지 않는다: `method()`가 `DELETE`인 요청의 수(`stream().filter(r -> r.method().equals("DELETE")).count()`)가 0.
+
+**4. 남의 빌링키 삭제 거부** — 준비: 다른 회원 `owner@test.com` 가입 + `ownerKeyId = registerBillingKey(ownerId)`. 동작: `buyer` 토큰으로 `DELETE /api/billing-keys/{ownerKeyId}`.
+- 응답(andExpect): 상태 404, `jsonPath("$.code")` = `BILLING_KEY_NOT_FOUND`.
+- DB(billingKeyOf(ownerKeyId)): `status()` = `ACTIVE`, `deletedAt()`이 null(`assertThat(...).isNull()`).
 
 **5. 회원 탈퇴 이벤트로 빌링키 삭제** — 준비: `registerBillingKey(buyerId)` 두 번(`keyA`, `keyB`), `owner@test.com`의 `ownerKeyId`. 동작: `buyer` 토큰으로 `DELETE /api/members/me`(3-6) → `outboxRelay.relayOnce()` → `Eventually.await(Duration.ofSeconds(5), ...)` 안에서 아래 DB 확인.
 - 응답(andExpect): 탈퇴 요청의 상태 204.
@@ -456,7 +456,7 @@
 - 응답(andExpect): `jsonPath("$[0].id")` = `respId`.
 - 응답(andExpect): `jsonPath("$[0].billingKey").doesNotExist()`, `jsonPath("$[0].customerKey").doesNotExist()`.
 
-**7. 삭제한 빌링키는 목록에서 빠진다** — 준비: 4번과 같은 준비, `buyer` 토큰으로 `DELETE /api/billing-keys/{keyId}` → 204. 동작: `GET /api/billing-keys`.
+**7. 삭제한 빌링키는 목록에서 빠진다** — 준비: 3번과 같은 준비, `buyer` 토큰으로 `DELETE /api/billing-keys/{keyId}` → 204. 동작: `GET /api/billing-keys`.
 - 응답(andExpect): 상태 200.
 - 응답(andExpect): `jsonPath("$").value(hasSize(0))`.
 
@@ -511,7 +511,7 @@
 | 클래스 | 규격 |
 |---|---|
 | `CycleType` | `WEEKLY, MONTHLY` |
-| `SubscriptionSchedule` | **"몇 월 며칠·무슨 요일에 실행한다"는 주기와 그 날짜 계산을 한 곳에 모은 값 객체**(공통 규칙 V). `record (CycleType type, int value)`. compact 생성자에서 범위(WEEKLY 1~7, MONTHLY 1~28)를 검사해 벗어나면 예외. 날짜 계산 메서드는 `LocalDate firstOnOrAfter(LocalDate date)`(date 포함)와 `LocalDate nextAfter(LocalDate date)`(date 제외) 둘이고 계산식은 아래 표다 |
+| `SubscriptionSchedule` | **"몇 월 며칠·무슨 요일에 실행한다"는 주기와 그 날짜 계산을 한 곳에 모은 값 객체**(공통 규칙 V). `record (CycleType type, int value)`. compact 생성자에서 범위(WEEKLY 1\~7, MONTHLY 1\~28)를 검사해 벗어나면 예외. 날짜 계산 메서드는 `LocalDate firstOnOrAfter(LocalDate date)`(date 포함)와 `LocalDate nextAfter(LocalDate date)`(date 제외) 둘이고 계산식은 아래 표다 |
 | `SubscriptionStatus` | 전이: `ACTIVE → {PAUSED, SUSPENDED, CANCELLED, TERMINATED}`, `PAUSED → {ACTIVE, CANCELLED, TERMINATED}`, `SUSPENDED → {ACTIVE, CANCELLED, TERMINATED}`. "활성"(ACTIVE·PAUSED·SUSPENDED)은 상수 하나(예: `Set<SubscriptionStatus> ACTIVE_LIKE`)로 둔다 |
 | `Subscription` (애그리거트 루트) | **구독 한 건(누가·무엇을·언제마다·어디로·어느 카드로·얼마에)과 그 상태**. `@Entity @Table(name = "subscription", schema = "orders")`, `extends BaseTimeEntity`, 필드는 위 컬럼과 1:1(`@Version Long version` 포함). 주기는 `@Embedded`가 아니라 `cycleType`·`cycleValue` 컬럼 두 개로 두고 `SubscriptionSchedule schedule()`이 `new SubscriptionSchedule(cycleType, cycleValue)`를 돌려준다. `shippingAddress`는 jsonb 매핑(`@JdbcTypeCode(SqlTypes.JSON)`, Part 2 공통 규칙 P-8), 가격은 `Money`(null 가능한 `pendingUnitPrice`도 `MoneyConverter`가 처리) |
 | `OrderErrorCode` | `SUBSCRIPTION_NOT_FOUND`, `PRODUCT_NOT_SUBSCRIBABLE` |
@@ -686,21 +686,21 @@ SUB-3의 "오늘 실행 대상" 조회와 SUB-4의 판매자 목록 조회는 �
 - DB(subscriptionSnapshotOf): `s.nextRunDate()` = `today.plusDays(1).with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY))`.
 - DB(subscriptionSnapshotOf): `s.shippingAddress().get("recipient")` = `recipient`, `s.shippingAddress().get("address1")` = `address1`.
 
-**2. 구독 불가 상품 거부** — 준비: `registerProduct(sellerId, shopId, 12000, 10)`(`subscribable = false`)로 만든 `plainProductId`. 동작: `productId` 자리에 `plainProductId`.
+**2. 오늘 시작 거부** — 동작: `startDate` = `today`.
+- 응답(andExpect): 상태 400, `jsonPath("$.code")` = `INVALID_REQUEST`.
+- DB(subscriptionIdsOf(buyerId)): `.isEmpty()`가 true.
+
+**3. 주기 값 범위 밖 거부** — `@ParameterizedTest`. 동작: `cycle`을 `{"type":"WEEKLY","value":8}` / `{"type":"MONTHLY","value":29}`로 바꿔 신청.
+- 응답(andExpect): 상태 400, `jsonPath("$.code")` = `INVALID_REQUEST`.
+- DB(subscriptionIdsOf(buyerId)): `.isEmpty()`가 true.
+
+**4. 구독 불가 상품 거부** — 준비: `registerProduct(sellerId, shopId, 12000, 10)`(`subscribable = false`)로 만든 `plainProductId`. 동작: `productId` 자리에 `plainProductId`.
 - 응답(andExpect): 상태 422, `jsonPath("$.code")` = `PRODUCT_NOT_SUBSCRIBABLE`.
 - DB(subscriptionIdsOf(buyerId)): `.isEmpty()`가 true.
 
-**3. 자기 가게 상품 거부** — 준비: `address(sellerId)`, `registerBillingKey(sellerId)`. 동작: 판매자 토큰으로, `addressId`·`billingKeyId` 자리에 판매자 것을 넣어 신청.
+**5. 자기 가게 상품 거부** — 준비: `address(sellerId)`, `registerBillingKey(sellerId)`. 동작: 판매자 토큰으로, `addressId`·`billingKeyId` 자리에 판매자 것을 넣어 신청.
 - 응답(andExpect): 상태 422, `jsonPath("$.code")` = `OWN_SHOP_PRODUCT`.
 - DB(subscriptionIdsOf(sellerId)): `.isEmpty()`가 true.
-
-**4. 오늘 시작 거부** — 동작: `startDate` = `today`.
-- 응답(andExpect): 상태 400, `jsonPath("$.code")` = `INVALID_REQUEST`.
-- DB(subscriptionIdsOf(buyerId)): `.isEmpty()`가 true.
-
-**5. 주기 값 범위 밖 거부** — `@ParameterizedTest`. 동작: `cycle`을 `{"type":"WEEKLY","value":8}` / `{"type":"MONTHLY","value":29}`로 바꿔 신청.
-- 응답(andExpect): 상태 400, `jsonPath("$.code")` = `INVALID_REQUEST`.
-- DB(subscriptionIdsOf(buyerId)): `.isEmpty()`가 true.
 
 **6. 남의 빌링키로 신청 거부** — 준비: `owner@test.com` 가입 + `ownerKeyId = registerBillingKey(ownerId)`. 동작: `billingKeyId` 자리에 `ownerKeyId`.
 - 응답(andExpect): 상태 404, `jsonPath("$.code")` = `BILLING_KEY_NOT_FOUND`.
@@ -1132,14 +1132,14 @@ SUB-3의 "오늘 실행 대상" 조회와 SUB-4의 판매자 목록 조회는 �
 - 응답(andExpect): `jsonPath("$.items[0].failureReason").value(nullValue())`.
 - 응답(andExpect): `$.items[1].status` = `FAILED`, `$.items[1].failureReason` = `PG 거절: REJECT_CARD_COMPANY`.
 
-**2. 남의 구독 회차 이력 거부** — 준비: 다른 회원 `other@test.com` 가입·로그인. 동작: 그 토큰으로 `GET /api/subscriptions/{subscriptionId}/cycles`.
-- 응답(andExpect): 상태 404, `jsonPath("$.code")` = `SUBSCRIPTION_NOT_FOUND`.
-
-**3. 회차 이력은 커서로 나눠 읽는다** — 준비: 1번과 같은 준비. 동작 1: 구매자 토큰으로 `GET /api/subscriptions/{subscriptionId}/cycles?size=1`, `.andReturn()`으로 받은 본문에서 `JsonPath.read(본문, "$.nextCursor")`를 `cursor`로 둔다. 동작 2: `?size=1&cursor={cursor}`.
+**2. 회차 이력은 커서로 나눠 읽는다** — 준비: 1번과 같은 준비. 동작 1: 구매자 토큰으로 `GET /api/subscriptions/{subscriptionId}/cycles?size=1`, `.andReturn()`으로 받은 본문에서 `JsonPath.read(본문, "$.nextCursor")`를 `cursor`로 둔다. 동작 2: `?size=1&cursor={cursor}`.
 - 동작 1의 응답(andExpect): `$.items.length()` = 1, `$.items[0].status` = `PAID`.
 - 동작 1의 응답 본문(andReturn 후): `cursor`가 null이 아니다(`isNotNull()`).
 - 동작 2의 응답(andExpect): `$.items.length()` = 1, `$.items[0].status` = `FAILED`.
 - 동작 2의 응답(andExpect): `jsonPath("$.nextCursor").value(nullValue())`.
+
+**3. 남의 구독 회차 이력 거부** — 준비: 다른 회원 `other@test.com` 가입·로그인. 동작: 그 토큰으로 `GET /api/subscriptions/{subscriptionId}/cycles`.
+- 응답(andExpect): 상태 404, `jsonPath("$.code")` = `SUBSCRIPTION_NOT_FOUND`.
 
 **리뷰 때 물어볼 것**
 - 구독 결제가 중복으로 나가지 않게 어떻게 했나? (회차 unique + 결제 unique + PG 멱등키)
@@ -1271,7 +1271,7 @@ SUB-3의 "오늘 실행 대상" 조회와 SUB-4의 판매자 목록 조회는 �
 
 구독 준비(6·7번을 뺀 모든 케이스가 쓴다): 구매자 `buyer@test.com`(`buyerId`), `billingKeyId = registerBillingKey(buyerId)`, `subscriptionId = createSubscription(buyerId, productId, billingKeyId)`. 이때 구독은 `ACTIVE`, `unit_price` 10000, `pending_unit_price` null, `end_reason` null이다.
 
-판매자 토큰(1·2·4·5·8번이 쓴다): `sellerToken = login("seller@test.com")`. 구매자 토큰(8번이 쓴다): `login("buyer@test.com")`.
+판매자 토큰(1·2·3·5·8번이 쓴다): `sellerToken = login("seller@test.com")`. 구매자 토큰(8번이 쓴다): `login("buyer@test.com")`.
 
 **확인 표기**: 각 "확인"은 맨 앞에 읽는 곳을 쓴다. `응답(andExpect)`는 요청 호출 체인에 바로 거는 상태·헤더·`jsonPath` 단언, `응답 본문(andReturn 후)`는 `.andReturn()`으로 받은 `MvcResult`에서 꺼낸 상태·헤더·본문 값, `DB(헬퍼)`는 `TestFixtures` 등의 읽기 헬퍼, `Redis(헬퍼/키)`, `ES(헬퍼)`, `outbox(OutboxAssert.rows(토픽))`, `Kafka(TestKafka.messages)`, `메일(fakeMailSender.sent())`, `로그(output.getAll())`, `메트릭(registry)`, `가짜 서버 요청(가짜 서버의 요청 기록 호출)`, `반환값`은 서비스·도메인 테스트가 직접 받은 값, `예외`는 던져진 예외, `명령 출력`은 수동 확인의 명령 결과다. 한 줄에 읽는 곳이 둘이면 줄을 나눈다.
 
@@ -1281,7 +1281,10 @@ SUB-3의 "오늘 실행 대상" 조회와 SUB-4의 판매자 목록 조회는 �
 - `relayOnce()` 뒤 `Eventually` 안에서 outbox(OutboxAssert.rows("order.subscription-price-changed.v1")): `.size()`가 정확히 1.
 - `relayOnce()` 뒤 `Eventually` 안에서 outbox(OutboxAssert.rows("order.subscription-price-changed.v1")): 그 행 `payload()`의 `subscriptionId`, `memberId` = `buyerId`, `oldPrice` = 10000, `newPrice` = 12000, `effectiveDate` = `today.plusDays(5).toString()`(`payload().get("필드").asText()`/`asLong()`).
 
-**2. 단종 이벤트를 두 번 받아도 종료는 한 번** — 준비: 공통 준비 + 구독 준비 + 판매자 토큰. 동작 1: `sellerToken`으로 `PATCH /api/shops/{shopId}/products/{productId}/status`, 본문 `{"status":"DISCONTINUED"}` → `outboxRelay.relayOnce()`.
+**2. 가격 인상 알림이 나간다** — 준비: 1번과 같은 준비. 동작: 가격 인상 요청 → `outboxRelay.relayOnce()`.
+- 가격 인상 요청 뒤 `Eventually` 안에서 `outboxRelay.relayOnce()`를 부르며 DB(notificationRowsOf(buyerId)): `.size()`가 정확히 1이고 `get(0).type()` = 가격 변경 알림 type(`NotificationType`의 값 이름은 문서에 없다. 확인 필요).
+
+**3. 단종 이벤트를 두 번 받아도 종료는 한 번** — 준비: 공통 준비 + 구독 준비 + 판매자 토큰. 동작 1: `sellerToken`으로 `PATCH /api/shops/{shopId}/products/{productId}/status`, 본문 `{"status":"DISCONTINUED"}` → `outboxRelay.relayOnce()`.
 - 확인 1:
   - 응답(andExpect): 상태 200.
   - `Eventually` 안에서 DB(subscriptionSnapshotOf(subscriptionId)): `status()` = `TERMINATED`, `endReason()` = `PRODUCT_DISCONTINUED`.
@@ -1293,7 +1296,7 @@ SUB-3의 "오늘 실행 대상" 조회와 SUB-4의 판매자 목록 조회는 �
   - 동작 2 뒤 DB(subscriptionSnapshotOf(subscriptionId)): `status()` = `TERMINATED`, `endReason()` = `PRODUCT_DISCONTINUED` 그대로(확인 1에서 읽은 값).
   - 동작 2 뒤 outbox(OutboxAssert.rows("order.subscription-status-changed.v1")): `.size()`가 여전히 1(확인 1에서 읽은 값).
 
-**3. 탈퇴·폐업 이벤트는 해당 구독만 종료한다** — `@ParameterizedTest`. 준비: 공통 준비 + 구독 준비 + 구매자 `buyer2@test.com`의 구독 `subscription2Id`(같은 상품, `registerBillingKey(buyer2Id)`, `createSubscription`). 확인은 표의 구독별 DB(subscriptionSnapshotOf(구독 ID))다.
+**4. 탈퇴·폐업 이벤트는 해당 구독만 종료한다** — `@ParameterizedTest`. 준비: 공통 준비 + 구독 준비 + 구매자 `buyer2@test.com`의 구독 `subscription2Id`(같은 상품, `registerBillingKey(buyer2Id)`, `createSubscription`). 확인은 표의 구독별 DB(subscriptionSnapshotOf(구독 ID))다.
 
 | 행 | 동작 | DB(subscriptionSnapshotOf(`subscriptionId`)) | DB(subscriptionSnapshotOf(`subscription2Id`)) |
 |---|---|---|---|
@@ -1303,14 +1306,11 @@ SUB-3의 "오늘 실행 대상" 조회와 SUB-4의 판매자 목록 조회는 �
 - outbox(OutboxAssert.rows("order.subscription-status-changed.v1")): 종료된 구독마다 1건씩이고 그 행 `payload()`는 `from` = `ACTIVE`, `to` = `TERMINATED`, `subscriptionId`, `memberId`가 그 구독의 값이다.
 - outbox(OutboxAssert.rows("order.subscription-status-changed.v1")): `.size()`가 탈퇴 행은 총 1, 폐업 행은 총 2.
 
-**4. 판매자 구독 현황** — 준비: 공통 준비 + 구독 준비 + 판매자 토큰. 동작: `sellerToken`으로 `GET /api/shops/{shopId}/subscriptions`(요청은 6~8번도 같다).
+**5. 판매자 구독 현황** — 준비: 공통 준비 + 구독 준비 + 판매자 토큰. 동작: `sellerToken`으로 `GET /api/shops/{shopId}/subscriptions`(요청은 6~8번도 같다).
 - 응답(andExpect): 상태 200, `jsonPath("$.items.length()")` = 1, `jsonPath("$.nextCursor").value(nullValue())`.
 - 응답(andExpect): `$.items[0].id` = `subscriptionId`의 문자열, `$.items[0].productId` = `productId`의 문자열, `$.items[0].quantity` = 1, `$.items[0].cycleType` = `WEEKLY`, `$.items[0].cycleValue` = 1, `$.items[0].status` = `ACTIVE`, `$.items[0].unitPrice` = 10000.
 - 응답(andExpect): `$.items[0].nextRunDate` = `subscriptionSnapshotOf(subscriptionId).nextRunDate().toString()`(요청 전에 구해 둔 값), `jsonPath("$.items[0].createdAt").exists()`.
 - 응답(andExpect): `jsonPath("$.items[0].memberId").doesNotExist()`, `jsonPath("$.items[0].shippingAddress").doesNotExist()`.
-
-**5. 가격 인상 알림이 나간다** — 준비: 1번과 같은 준비. 동작: 가격 인상 요청 → `outboxRelay.relayOnce()`.
-- 가격 인상 요청 뒤 `Eventually` 안에서 `outboxRelay.relayOnce()`를 부르며 DB(notificationRowsOf(buyerId)): `.size()`가 정확히 1이고 `get(0).type()` = 가격 변경 알림 type(`NotificationType`의 값 이름은 문서에 없다. 확인 필요).
 
 **6. 남의 가게의 구독 현황 거부** — 준비: 공통 준비 + 다른 판매자 `seller2@test.com`(`seller2Id`, 토큰 `seller2Token = login`)과 `shop2Id = openShop(seller2Id, "2222222222")`. 동작: `seller2Token`으로 `GET /api/shops/{shopId}/subscriptions`.
 - 응답(andExpect): 상태 403, `jsonPath("$.code")` = `FORBIDDEN`.

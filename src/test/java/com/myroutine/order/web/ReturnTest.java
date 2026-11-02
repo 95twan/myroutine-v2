@@ -197,123 +197,6 @@ class ReturnTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("배송 중 품목의 반품 요청을 실패한다. (INVALID_STATE_TRANSITION)")
-    void requestReturnOfShippedLineFails() throws Exception {
-        // Given
-        UUID sellerId = testFixtures.signup("seller@test.com");
-        UUID shopId = testFixtures.openShop(sellerId, "1111111111");
-        UUID product1Id = testFixtures.registerProduct(sellerId, shopId, 1000, 10);
-
-        UUID buyerId = testFixtures.signup("buyer@test.com");
-        String buyerToken = testFixtures.login("buyer@test.com");
-        UUID orderId = testFixtures.createPaidOrder(buyerId, product1Id);
-        UUID shopOrderId = testFixtures.shopOrderIdOf(orderId, shopId);
-        testFixtures.shipShopOrder(sellerId, shopId, shopOrderId);
-
-        UUID line1 = testFixtures.orderLineIdOf(orderId, product1Id);
-
-        ReturnRequest returnRequest = new ReturnRequest("상품 불량");
-
-        // When & Then
-        mockMvc.perform(post("/api/orders/{orderId}/lines/{lineId}/return-requests", orderId, line1)
-                        .header("Authorization", "Bearer " + buyerToken)
-                        .header("Idempotency-Key", Ids.newId())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(returnRequest)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("INVALID_STATE_TRANSITION"));
-
-        OrderSnapshot s = testFixtures.snapshotOf(orderId);
-        assertThat(s.refundStatuses()).isEmpty();
-        assertThat(s.line(product1Id).status()).isEqualTo("SHIPPED");
-    }
-
-    @Test
-    @DisplayName("다른 가게 판매자의 반품 승인을 실패한다. (FORBIDDEN, REFUND_NOT_FOUND)")
-    void approveByOtherShopSellerFails() throws Exception {
-        // Given
-        UUID seller1Id = testFixtures.signup("seller1@test.com");
-        UUID shop1Id = testFixtures.openShop(seller1Id, "1111111111");
-        UUID product1Id = testFixtures.registerProduct(seller1Id, shop1Id, 1000, 10);
-
-        UUID seller2Id = testFixtures.signup("seller2@test.com");
-        String seller2Token = testFixtures.login("seller2@test.com");
-        UUID shop2Id = testFixtures.openShop(seller2Id, "2222222222");
-
-        UUID buyerId = testFixtures.signup("buyer@test.com");
-        String buyerToken = testFixtures.login("buyer@test.com");
-        UUID orderId = testFixtures.createDeliveredOrder(buyerId, seller1Id, shop1Id, product1Id);
-
-        UUID line1 = testFixtures.orderLineIdOf(orderId, product1Id);
-
-        ReturnRequest returnRequest = new ReturnRequest("상품 불량");
-
-        MvcResult result = mockMvc.perform(post("/api/orders/{orderId}/lines/{lineId}/return-requests", orderId, line1)
-                        .header("Authorization", "Bearer " + buyerToken)
-                        .header("Idempotency-Key", Ids.newId())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(returnRequest)))
-                .andExpect(status().isCreated())
-                .andReturn();
-
-        UUID refundId = UUID.fromString(JsonPath.read(result.getResponse().getContentAsString(), "$.refundId"));
-
-        // When & Then
-        mockMvc.perform(post("/api/shops/{shopId}/refunds/{refundId}/approve", shop1Id, refundId)
-                        .header("Authorization", "Bearer " + seller2Token))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-
-        mockMvc.perform(post("/api/shops/{shopId}/refunds/{refundId}/approve", shop2Id, refundId)
-                        .header("Authorization", "Bearer " + seller2Token))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("REFUND_NOT_FOUND"));
-
-        OrderSnapshot s = testFixtures.snapshotOf(orderId);
-        RefundRow r = testFixtures.refundRowOf(refundId);
-
-        assertThat(r.status()).isEqualTo("REQUESTED");
-        assertThat(s.line(product1Id).status()).isEqualTo("RETURN_REQUESTED");
-        assertThat(pg.requests("/v1/payments/").stream().filter(req -> req.path().endsWith("/cancel"))).isEmpty();
-    }
-
-    @Test
-    @DisplayName("같은 품목에 다른 키로 반품을 두 번 요청하면 두 번째를 실패한다. (INVALID_STATE_TRANSITION)")
-    void requestReturnTwiceWithDifferentKeysFails() throws Exception {
-        // Given
-        UUID sellerId = testFixtures.signup("seller@test.com");
-        UUID shopId = testFixtures.openShop(sellerId, "1111111111");
-        UUID product1Id = testFixtures.registerProduct(sellerId, shopId, 1000, 10);
-
-        UUID buyerId = testFixtures.signup("buyer@test.com");
-        String buyerToken = testFixtures.login("buyer@test.com");
-        UUID orderId = testFixtures.createDeliveredOrder(buyerId, sellerId, shopId, product1Id);
-
-        UUID line1 = testFixtures.orderLineIdOf(orderId, product1Id);
-
-        ReturnRequest returnRequest = new ReturnRequest("상품 불량");
-
-        // When & Then
-        mockMvc.perform(post("/api/orders/{orderId}/lines/{lineId}/return-requests", orderId, line1)
-                        .header("Authorization", "Bearer " + buyerToken)
-                        .header("Idempotency-Key", Ids.newId())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(returnRequest)))
-                .andExpect(status().isCreated());
-
-        mockMvc.perform(post("/api/orders/{orderId}/lines/{lineId}/return-requests", orderId, line1)
-                        .header("Authorization", "Bearer " + buyerToken)
-                        .header("Idempotency-Key", Ids.newId())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(returnRequest)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("INVALID_STATE_TRANSITION"));
-
-        OrderSnapshot s = testFixtures.snapshotOf(orderId);
-        assertThat(s.refundStatuses()).containsExactly("REQUESTED");
-    }
-
-    @Test
     @DisplayName("판매자 가게주문 조회 응답에 반품 요청의 환불 ID와 사유가 나온다.")
     void sellerShopOrderShowsReturnRefunds() throws Exception {
         // Given
@@ -364,6 +247,74 @@ class ReturnTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.items", hasSize(1)))
                 .andExpect(jsonPath("$.items[0].refunds[0].refundId").value(refundId.toString()))
                 .andExpect(jsonPath("$.items[0].refunds[0].status").value("REQUESTED"));
+    }
+
+    @Test
+    @DisplayName("배송 중 품목의 반품 요청을 실패한다. (INVALID_STATE_TRANSITION)")
+    void requestReturnOfShippedLineFails() throws Exception {
+        // Given
+        UUID sellerId = testFixtures.signup("seller@test.com");
+        UUID shopId = testFixtures.openShop(sellerId, "1111111111");
+        UUID product1Id = testFixtures.registerProduct(sellerId, shopId, 1000, 10);
+
+        UUID buyerId = testFixtures.signup("buyer@test.com");
+        String buyerToken = testFixtures.login("buyer@test.com");
+        UUID orderId = testFixtures.createPaidOrder(buyerId, product1Id);
+        UUID shopOrderId = testFixtures.shopOrderIdOf(orderId, shopId);
+        testFixtures.shipShopOrder(sellerId, shopId, shopOrderId);
+
+        UUID line1 = testFixtures.orderLineIdOf(orderId, product1Id);
+
+        ReturnRequest returnRequest = new ReturnRequest("상품 불량");
+
+        // When & Then
+        mockMvc.perform(post("/api/orders/{orderId}/lines/{lineId}/return-requests", orderId, line1)
+                        .header("Authorization", "Bearer " + buyerToken)
+                        .header("Idempotency-Key", Ids.newId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(returnRequest)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_STATE_TRANSITION"));
+
+        OrderSnapshot s = testFixtures.snapshotOf(orderId);
+        assertThat(s.refundStatuses()).isEmpty();
+        assertThat(s.line(product1Id).status()).isEqualTo("SHIPPED");
+    }
+
+    @Test
+    @DisplayName("같은 품목에 다른 키로 반품을 두 번 요청하면 두 번째를 실패한다. (INVALID_STATE_TRANSITION)")
+    void requestReturnTwiceWithDifferentKeysFails() throws Exception {
+        // Given
+        UUID sellerId = testFixtures.signup("seller@test.com");
+        UUID shopId = testFixtures.openShop(sellerId, "1111111111");
+        UUID product1Id = testFixtures.registerProduct(sellerId, shopId, 1000, 10);
+
+        UUID buyerId = testFixtures.signup("buyer@test.com");
+        String buyerToken = testFixtures.login("buyer@test.com");
+        UUID orderId = testFixtures.createDeliveredOrder(buyerId, sellerId, shopId, product1Id);
+
+        UUID line1 = testFixtures.orderLineIdOf(orderId, product1Id);
+
+        ReturnRequest returnRequest = new ReturnRequest("상품 불량");
+
+        // When & Then
+        mockMvc.perform(post("/api/orders/{orderId}/lines/{lineId}/return-requests", orderId, line1)
+                        .header("Authorization", "Bearer " + buyerToken)
+                        .header("Idempotency-Key", Ids.newId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(returnRequest)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/api/orders/{orderId}/lines/{lineId}/return-requests", orderId, line1)
+                        .header("Authorization", "Bearer " + buyerToken)
+                        .header("Idempotency-Key", Ids.newId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(returnRequest)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_STATE_TRANSITION"));
+
+        OrderSnapshot s = testFixtures.snapshotOf(orderId);
+        assertThat(s.refundStatuses()).containsExactly("REQUESTED");
     }
 
     @Test
@@ -446,5 +397,54 @@ class ReturnTest extends IntegrationTestSupport {
 
         assertThat(s1.refundStatuses()).containsExactly("REJECTED");
         assertThat(s2.refundStatuses()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("다른 가게 판매자의 반품 승인을 실패한다. (FORBIDDEN, REFUND_NOT_FOUND)")
+    void approveByOtherShopSellerFails() throws Exception {
+        // Given
+        UUID seller1Id = testFixtures.signup("seller1@test.com");
+        UUID shop1Id = testFixtures.openShop(seller1Id, "1111111111");
+        UUID product1Id = testFixtures.registerProduct(seller1Id, shop1Id, 1000, 10);
+
+        UUID seller2Id = testFixtures.signup("seller2@test.com");
+        String seller2Token = testFixtures.login("seller2@test.com");
+        UUID shop2Id = testFixtures.openShop(seller2Id, "2222222222");
+
+        UUID buyerId = testFixtures.signup("buyer@test.com");
+        String buyerToken = testFixtures.login("buyer@test.com");
+        UUID orderId = testFixtures.createDeliveredOrder(buyerId, seller1Id, shop1Id, product1Id);
+
+        UUID line1 = testFixtures.orderLineIdOf(orderId, product1Id);
+
+        ReturnRequest returnRequest = new ReturnRequest("상품 불량");
+
+        MvcResult result = mockMvc.perform(post("/api/orders/{orderId}/lines/{lineId}/return-requests", orderId, line1)
+                        .header("Authorization", "Bearer " + buyerToken)
+                        .header("Idempotency-Key", Ids.newId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(returnRequest)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        UUID refundId = UUID.fromString(JsonPath.read(result.getResponse().getContentAsString(), "$.refundId"));
+
+        // When & Then
+        mockMvc.perform(post("/api/shops/{shopId}/refunds/{refundId}/approve", shop1Id, refundId)
+                        .header("Authorization", "Bearer " + seller2Token))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        mockMvc.perform(post("/api/shops/{shopId}/refunds/{refundId}/approve", shop2Id, refundId)
+                        .header("Authorization", "Bearer " + seller2Token))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("REFUND_NOT_FOUND"));
+
+        OrderSnapshot s = testFixtures.snapshotOf(orderId);
+        RefundRow r = testFixtures.refundRowOf(refundId);
+
+        assertThat(r.status()).isEqualTo("REQUESTED");
+        assertThat(s.line(product1Id).status()).isEqualTo("RETURN_REQUESTED");
+        assertThat(pg.requests("/v1/payments/").stream().filter(req -> req.path().endsWith("/cancel"))).isEmpty();
     }
 }

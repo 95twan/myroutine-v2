@@ -110,6 +110,20 @@ public class TossClientTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("요청 헤더에 Idempotency-Key(paymentId)와 Basic 인증 헤더가 실린다.")
+    void requestHeaders() {
+        UUID paymentId = Ids.newId();
+
+        // When
+        tossClient.confirm(paymentId, "pk_1", "order-1", Money.of(1000));
+
+        // Then
+        RecordedRequest request = pg.requests("/v1/payments/confirm").get(0);
+        assertThat(request.headers().get("idempotency-key")).isEqualTo(paymentId.toString());
+        assertThat(request.headers().get("authorization")).startsWith("Basic ");
+    }
+
+    @Test
     @DisplayName("승인된 주문을 조회하면 Approved로 분류한다.")
     void queryApprovedOrder() {
         // Given
@@ -133,19 +147,5 @@ public class TossClientTest extends IntegrationTestSupport {
         // Then
         assertThat(result).isInstanceOf(PgResult.Rejected.class);
         assertThat(((PgResult.Rejected) result).code()).isEqualTo("NOT_FOUND_PAYMENT");
-    }
-
-    @Test
-    @DisplayName("요청 헤더에 Idempotency-Key(paymentId)와 Basic 인증 헤더가 실린다.")
-    void requestHeaders() {
-        UUID paymentId = Ids.newId();
-
-        // When
-        tossClient.confirm(paymentId, "pk_1", "order-1", Money.of(1000));
-
-        // Then
-        RecordedRequest request = pg.requests("/v1/payments/confirm").get(0);
-        assertThat(request.headers().get("idempotency-key")).isEqualTo(paymentId.toString());
-        assertThat(request.headers().get("authorization")).startsWith("Basic ");
     }
 }
