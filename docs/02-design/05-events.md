@@ -1,5 +1,6 @@
 # 05. 이벤트 카탈로그
 
+> 2026-11-01 · `review.review-created.v1`을 카탈로그에서 뺐다. 소비자가 없어 5-1은 발행하지 않고, SUB-6 추가 항목(리뷰 임베딩)에서 더한다
 > 2026-11-01 · `product.stock-depleted.v1`을 뺐다. 유일한 소비 계획이던 검색의 품절 표시를 상품 DB에서 읽는다(로드맵 5-2, ADR-013)
 > 2026-10-28 · `order-line-confirmed`의 payload에 `shopOrderId`·`productName`·`quantity`를 더했다(로드맵 4-0, 정산 품목 표시용)
 > 2026-10-21 · 릴레이 SQL의 시각을 앱 `Clock` 파라미터로 정했다(로드맵 3-1)
@@ -86,7 +87,6 @@
 | 토픽 | 발생 시점 | payload | consumer |
 |---|---|---|---|
 | `settlement.settlement-paid.v1` | 정산금 지급 | settlementId, shopId, netAmount, periodStart, periodEnd | notification |
-| `review.review-created.v1` | 리뷰 작성 | reviewId, productId, content | 없음 — 리뷰 임베딩(SUB-6 추가 항목)을 만들 때 쓴다 |
 
 ## 3. consumer 요약 (모듈별 구독 토픽)
 | 모듈 | 구독 |
