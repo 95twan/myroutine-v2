@@ -147,6 +147,92 @@ class ProductImageControllerTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("이미지를 삭제하면 DB와 저장소에서 모두 사라진다.")
+    void deleteImage() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("test@test.com");
+        String token = testFixtures.login("test@test.com");
+        UUID shopId = testFixtures.openShop(memberId, "1111111111");
+        UUID productId = testFixtures.registerProduct(memberId, shopId);
+        ImageResult imageResult = testFixtures.registerProductImage(memberId, shopId, productId);
+
+        // When & Then
+        mockMvc.perform(delete("/api/shops/{shopId}/products/{productId}/images/{imageId}", shopId, productId, imageResult.imageId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        assertThat(objectStorage.exists(imageResult.objectKey())).isFalse();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM product.product_image WHERE id = ?", Long.class, imageResult.imageId())).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("업로드 URL 발급을 실패한다. (허용되지 않은 형식)")
+    void issueUploadUrlWithUnsupportedContentType() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("test@test.com");
+        String token = testFixtures.login("test@test.com");
+        UUID shopId = testFixtures.openShop(memberId, "1111111111");
+        UUID productId = testFixtures.registerProduct(memberId, shopId);
+        UploadUrlRequest request = new UploadUrlRequest(
+                "image/gif",
+                10000L
+        );
+
+        // When & Then
+        mockMvc.perform(post("/api/shops/{shopId}/products/{productId}/images/presigned-url", shopId, productId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("이미지 관련 요청을 실패한다. (다른 회원의 가게)")
+    void imageRequestOfOtherMemberShop() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("test@test.com");
+        UUID shopId = testFixtures.openShop(memberId, "1111111111");
+        UUID productId = testFixtures.registerProduct(memberId, shopId);
+        UploadUrlRequest request = new UploadUrlRequest(
+                "image/jpeg",
+                10000L
+        );
+
+        String token = testFixtures.token("other@test.com");
+
+        // When & Then
+        mockMvc.perform(post("/api/shops/{shopId}/products/{productId}/images/presigned-url", shopId, productId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    @DisplayName("업로드 URL 발급을 실패한다. (5MB 초과)")
+    void issueUploadUrlExceedingMaxSize() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("test@test.com");
+        String token = testFixtures.login("test@test.com");
+        UUID shopId = testFixtures.openShop(memberId, "1111111111");
+        UUID productId = testFixtures.registerProduct(memberId, shopId);
+        UploadUrlRequest request = new UploadUrlRequest(
+                "image/jpeg",
+                5242881L
+        );
+
+        // When & Then
+        mockMvc.perform(post("/api/shops/{shopId}/products/{productId}/images/presigned-url", shopId, productId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
     @DisplayName("이미지 업로드를 실패한다. (서명과 다른 Content-Type, 저장소가 403으로 거절)")
     void putWithDifferentContentType() throws Exception {
         // Given
@@ -205,91 +291,5 @@ class ProductImageControllerTest extends IntegrationTestSupport {
                         .content(objectMapper.writeValueAsString(new RegisterImageRequest(imageB.objectKey()))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-    }
-
-    @Test
-    @DisplayName("업로드 URL 발급을 실패한다. (허용되지 않은 형식)")
-    void issueUploadUrlWithUnsupportedContentType() throws Exception {
-        // Given
-        UUID memberId = testFixtures.signup("test@test.com");
-        String token = testFixtures.login("test@test.com");
-        UUID shopId = testFixtures.openShop(memberId, "1111111111");
-        UUID productId = testFixtures.registerProduct(memberId, shopId);
-        UploadUrlRequest request = new UploadUrlRequest(
-                "image/gif",
-                10000L
-        );
-
-        // When & Then
-        mockMvc.perform(post("/api/shops/{shopId}/products/{productId}/images/presigned-url", shopId, productId)
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-    }
-
-    @Test
-    @DisplayName("업로드 URL 발급을 실패한다. (5MB 초과)")
-    void issueUploadUrlExceedingMaxSize() throws Exception {
-        // Given
-        UUID memberId = testFixtures.signup("test@test.com");
-        String token = testFixtures.login("test@test.com");
-        UUID shopId = testFixtures.openShop(memberId, "1111111111");
-        UUID productId = testFixtures.registerProduct(memberId, shopId);
-        UploadUrlRequest request = new UploadUrlRequest(
-                "image/jpeg",
-                5242881L
-        );
-
-        // When & Then
-        mockMvc.perform(post("/api/shops/{shopId}/products/{productId}/images/presigned-url", shopId, productId)
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-    }
-
-    @Test
-    @DisplayName("이미지 관련 요청을 실패한다. (다른 회원의 가게)")
-    void imageRequestOfOtherMemberShop() throws Exception {
-        // Given
-        UUID memberId = testFixtures.signup("test@test.com");
-        UUID shopId = testFixtures.openShop(memberId, "1111111111");
-        UUID productId = testFixtures.registerProduct(memberId, shopId);
-        UploadUrlRequest request = new UploadUrlRequest(
-                "image/jpeg",
-                10000L
-        );
-
-        String token = testFixtures.token("other@test.com");
-
-        // When & Then
-        mockMvc.perform(post("/api/shops/{shopId}/products/{productId}/images/presigned-url", shopId, productId)
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-    }
-
-    @Test
-    @DisplayName("이미지를 삭제하면 DB와 저장소에서 모두 사라진다.")
-    void deleteImage() throws Exception {
-        // Given
-        UUID memberId = testFixtures.signup("test@test.com");
-        String token = testFixtures.login("test@test.com");
-        UUID shopId = testFixtures.openShop(memberId, "1111111111");
-        UUID productId = testFixtures.registerProduct(memberId, shopId);
-        ImageResult imageResult = testFixtures.registerProductImage(memberId, shopId, productId);
-
-        // When & Then
-        mockMvc.perform(delete("/api/shops/{shopId}/products/{productId}/images/{imageId}", shopId, productId, imageResult.imageId())
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isNoContent());
-
-        assertThat(objectStorage.exists(imageResult.objectKey())).isFalse();
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM product.product_image WHERE id = ?", Long.class, imageResult.imageId())).isEqualTo(0);
     }
 }

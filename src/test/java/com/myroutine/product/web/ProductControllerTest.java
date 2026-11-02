@@ -140,19 +140,6 @@ class ProductControllerTest extends IntegrationTestSupport {
 
     @ParameterizedTest
     @CsvSource({"0, 1 이상이어야 합니다.", "51, 50 이하여야 합니다."})
-    @DisplayName("상품 목록 조회를 실패한다. (size 범위 초과)")
-    void getPublicProductsWithInvalidSize(int size, String message) throws Exception {
-        // Given
-
-        // When & Then
-        mockMvc.perform(get("/api/products")
-                        .param("size", String.valueOf(size)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
-                .andExpect(jsonPath("$.details").value(hasKey("size")))
-                .andExpect(jsonPath("$.details.size").value(message));
-    }
-
     @Test
     @DisplayName("상품 수가 늘어도 목록 조회의 쿼리 수는 같다.")
     void getPublicProductsQueryCountIsConstant() throws Exception {
@@ -191,6 +178,19 @@ class ProductControllerTest extends IntegrationTestSupport {
 
         assertThat(first).isGreaterThan(0);
         assertThat(second).isEqualTo(first);
+    }
+
+    @DisplayName("상품 목록 조회를 실패한다. (size 범위 초과)")
+    void getPublicProductsWithInvalidSize(int size, String message) throws Exception {
+        // Given
+
+        // When & Then
+        mockMvc.perform(get("/api/products")
+                        .param("size", String.valueOf(size)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.details").value(hasKey("size")))
+                .andExpect(jsonPath("$.details.size").value(message));
     }
 
     @Test

@@ -73,6 +73,30 @@ class TokenRefreshTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("로그인할 때마다 새 세션이 만들어진다.")
+    void loginCreatesNewSession() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("member@test.com");
+
+        LoginRequest request = new LoginRequest("member@test.com", "pass1234");
+
+        // When & Then
+        MvcResult result = mockMvc.perform(post("/api/auth/login")
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.refreshToken").exists())
+                .andReturn();
+
+        TokenResponse response = objectMapper.readValue(result.getResponse().getContentAsString(), TokenResponse.class);
+        String refreshToken = response.refreshToken();
+        UUID sid = RefreshToken.parse(refreshToken).sessionId();
+
+        assertThat(testFixtures.sessionIdsOf(memberId)).hasSize(2).contains(sid);
+        assertThat(testFixtures.sessionSnapshotOf(sid).memberId()).isEqualTo(memberId);
+    }
+
+    @Test
     @DisplayName("refresh로 갱신하면 새 access와 새 refresh를 받는다.")
     void refreshRotatesToken() throws Exception {
         // Given
@@ -105,6 +129,119 @@ class TokenRefreshTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("Redis에 refresh 원문을 저장하지 않는다.")
+    void redisDoesNotStoreRawRefresh() throws Exception {
+        // Given
+        testFixtures.signup("member@test.com");
+        TokenResult tokenA = testFixtures.loginTokens("member@test.com");
+        UUID sidA = RefreshToken.parse(tokenA.refreshToken()).sessionId();
+        String secretA = RefreshToken.parse(tokenA.refreshToken()).secret();
+        String refreshTokenA = tokenA.refreshToken();
+
+        RefreshRequest request = new RefreshRequest(refreshTokenA);
+
+        // When & Then
+        MvcResult result = mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        TokenResponse response = objectMapper.readValue(result.getResponse().getContentAsString(), TokenResponse.class);
+        String refreshTokenB = response.refreshToken();
+        String secretB = RefreshToken.parse(refreshTokenB).secret();
+
+        Set<String> keys = redisTemplate.keys("*");
+        assertThat(keys).noneMatch(key -> key.contains(secretA) || key.contains(secretB));
+
+        SessionSnapshot s = testFixtures.sessionSnapshotOf(sidA);
+
+        assertThat(s.fieldNames()).containsExactlyInAnyOrder("memberId", "refreshHash");
+        assertThat(s.values()).noneMatch(value -> value.contains(secretA) || value.contains(secretB));
+    }
+
+    @Test
+    @DisplayName("refresh로 갱신하면 회원의 세션 목록 만료도 연장된다.")
+    void refreshExtendsMemberSessionsTtl() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("member@test.com");
+        TokenResult token = testFixtures.loginTokens("member@test.com");
+        String refreshToken = token.refreshToken();
+
+        redisTemplate.expire("auth:member-sessions:" + memberId, Duration.ofSeconds(100));
+
+        RefreshRequest request = new RefreshRequest(refreshToken);
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk());
+
+        assertThat(testFixtures.memberSessionsTtlOf(memberId)).isBetween(604000L, 604800L);
+    }
+
+    @Test
+    @DisplayName("refresh로 갱신하면 세션 만료가 7일로 연장된다.")
+    void refreshExtendsSessionTtl() throws Exception {
+        // Given
+        testFixtures.signup("member@test.com");
+        TokenResult token = testFixtures.loginTokens("member@test.com");
+        String refreshToken = token.refreshToken();
+        UUID sid = RefreshToken.parse(refreshToken).sessionId();
+
+        redisTemplate.expire("auth:session:" + sid, Duration.ofSeconds(100));
+
+        RefreshRequest request = new RefreshRequest(refreshToken);
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk());
+
+        assertThat(testFixtures.sessionSnapshotOf(sid).ttlSeconds()).isBetween(604000L, 604800L);
+    }
+
+    @Test
+    @DisplayName("refresh 갱신을 실패한다. (빈 요청 본문, INVALID_REQUEST)")
+    void refreshBlankBodyFails() throws Exception {
+        // Given
+        testFixtures.signup("member@test.com");
+
+        Set<String> keys = redisTemplate.keys("*");
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        assertThat(redisTemplate.keys("*")).isEqualTo(keys);
+    }
+
+    @Test
+    @DisplayName("refresh 갱신을 실패한다. (없는 세션, UNAUTHORIZED)")
+    void refreshUnknownSessionFails() throws Exception {
+        // Given
+        testFixtures.signup("member@test.com");
+
+        RefreshRequest request = new RefreshRequest(Ids.newId() + ".xyz");
+
+        Set<String> keys = redisTemplate.keys("*");
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+
+        assertThat(redisTemplate.keys("*")).isEqualTo(keys);
+    }
+
+    @Test
     @DisplayName("이미 쓴 refresh로 갱신하는 것을 실패한다. (재사용 탐지, 세션 폐기)")
     void refreshReusedTokenFails() throws Exception {
         // Given
@@ -130,6 +267,73 @@ class TokenRefreshTest extends IntegrationTestSupport {
         SessionSnapshot s = testFixtures.sessionSnapshotOf(sid);
         assertThat(s.exists()).isFalse();
         assertThat(testFixtures.sessionIdsOf(memberId)).doesNotContain(sid);
+    }
+
+    @Test
+    @DisplayName("refresh 갱신을 실패한다. (secret 불일치, REFRESH_REUSED)")
+    void refreshWrongSecretFails() throws Exception {
+        // Given
+        testFixtures.signup("member@test.com");
+        TokenResult token = testFixtures.loginTokens("member@test.com");
+        UUID sid = RefreshToken.parse(token.refreshToken()).sessionId();
+
+        RefreshRequest request = new RefreshRequest(sid + "." + "x".repeat(43));
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("REFRESH_REUSED"));
+
+        assertThat(testFixtures.sessionSnapshotOf(sid).exists()).isFalse();
+    }
+
+    @Test
+    @DisplayName("refresh 갱신을 실패한다. (정지 회원, MEMBER_BANNED)")
+    void refreshBannedMemberFails() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("ban@test.com");
+        TokenResult token = testFixtures.loginTokens("ban@test.com");
+        String refreshToken = token.refreshToken();
+        UUID sidBan = RefreshToken.parse(refreshToken).sessionId();
+
+        testFixtures.changeStatus(memberId, "BANNED");
+
+        RefreshRequest request = new RefreshRequest(refreshToken);
+
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("MEMBER_BANNED"));
+
+        assertThat(testFixtures.sessionSnapshotOf(sidBan).exists()).isFalse();
+    }
+
+    @Test
+    @DisplayName("refresh 갱신을 실패한다. (탈퇴 회원, LOGIN_FAILED)")
+    void refreshWithdrawnMemberFails() throws Exception {
+        // Given
+        UUID goneId = testFixtures.signup("gone@test.com");
+        TokenResult token = testFixtures.loginTokens("gone@test.com");
+        String refreshGone = token.refreshToken();
+        UUID sidGone = RefreshToken.parse(refreshGone).sessionId();
+
+        testFixtures.changeStatus(goneId, "WITHDRAWN");
+
+        RefreshRequest request = new RefreshRequest(refreshGone);
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("LOGIN_FAILED"));
+
+        assertThat(testFixtures.sessionSnapshotOf(sidGone).exists()).isFalse();
     }
 
     @Test
@@ -184,82 +388,6 @@ class TokenRefreshTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("Redis에 refresh 원문을 저장하지 않는다.")
-    void redisDoesNotStoreRawRefresh() throws Exception {
-        // Given
-        testFixtures.signup("member@test.com");
-        TokenResult tokenA = testFixtures.loginTokens("member@test.com");
-        UUID sidA = RefreshToken.parse(tokenA.refreshToken()).sessionId();
-        String secretA = RefreshToken.parse(tokenA.refreshToken()).secret();
-        String refreshTokenA = tokenA.refreshToken();
-
-        RefreshRequest request = new RefreshRequest(refreshTokenA);
-
-        // When & Then
-        MvcResult result = mockMvc.perform(post("/api/auth/refresh")
-                        .contentType(APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk())
-                .andReturn();
-
-        TokenResponse response = objectMapper.readValue(result.getResponse().getContentAsString(), TokenResponse.class);
-        String refreshTokenB = response.refreshToken();
-        String secretB = RefreshToken.parse(refreshTokenB).secret();
-
-        Set<String> keys = redisTemplate.keys("*");
-        assertThat(keys).noneMatch(key -> key.contains(secretA) || key.contains(secretB));
-
-        SessionSnapshot s = testFixtures.sessionSnapshotOf(sidA);
-
-        assertThat(s.fieldNames()).containsExactlyInAnyOrder("memberId", "refreshHash");
-        assertThat(s.values()).noneMatch(value -> value.contains(secretA) || value.contains(secretB));
-    }
-
-    @Test
-    @DisplayName("refresh 갱신을 실패한다. (없는 세션, UNAUTHORIZED)")
-    void refreshUnknownSessionFails() throws Exception {
-        // Given
-        testFixtures.signup("member@test.com");
-
-        RefreshRequest request = new RefreshRequest(Ids.newId() + ".xyz");
-
-        Set<String> keys = redisTemplate.keys("*");
-
-        // When & Then
-        mockMvc.perform(post("/api/auth/refresh")
-                        .contentType(APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
-
-        assertThat(redisTemplate.keys("*")).isEqualTo(keys);
-    }
-
-    @Test
-    @DisplayName("refresh 갱신을 실패한다. (정지 회원, MEMBER_BANNED)")
-    void refreshBannedMemberFails() throws Exception {
-        // Given
-        UUID memberId = testFixtures.signup("ban@test.com");
-        TokenResult token = testFixtures.loginTokens("ban@test.com");
-        String refreshToken = token.refreshToken();
-        UUID sidBan = RefreshToken.parse(refreshToken).sessionId();
-
-        testFixtures.changeStatus(memberId, "BANNED");
-
-        RefreshRequest request = new RefreshRequest(refreshToken);
-
-
-        // When & Then
-        mockMvc.perform(post("/api/auth/refresh")
-                        .contentType(APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("MEMBER_BANNED"));
-
-        assertThat(testFixtures.sessionSnapshotOf(sidBan).exists()).isFalse();
-    }
-
-    @Test
     @DisplayName("같은 access로 로그아웃을 두 번 해도 204를 반환한다.")
     void logoutTwiceReturnsNoContent() throws Exception {
         // Given
@@ -291,133 +419,5 @@ class TokenRefreshTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
 
         assertThat(testFixtures.sessionSnapshotOf(sibA).exists()).isTrue();
-    }
-
-    @Test
-    @DisplayName("refresh 갱신을 실패한다. (빈 요청 본문, INVALID_REQUEST)")
-    void refreshBlankBodyFails() throws Exception {
-        // Given
-        testFixtures.signup("member@test.com");
-
-        Set<String> keys = redisTemplate.keys("*");
-
-        // When & Then
-        mockMvc.perform(post("/api/auth/refresh")
-                        .contentType(APPLICATION_JSON)
-                        .content("{\"refreshToken\":\"\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-
-        assertThat(redisTemplate.keys("*")).isEqualTo(keys);
-    }
-
-    @Test
-    @DisplayName("refresh 갱신을 실패한다. (secret 불일치, REFRESH_REUSED)")
-    void refreshWrongSecretFails() throws Exception {
-        // Given
-        testFixtures.signup("member@test.com");
-        TokenResult token = testFixtures.loginTokens("member@test.com");
-        UUID sid = RefreshToken.parse(token.refreshToken()).sessionId();
-
-        RefreshRequest request = new RefreshRequest(sid + "." + "x".repeat(43));
-
-        // When & Then
-        mockMvc.perform(post("/api/auth/refresh")
-                        .contentType(APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("REFRESH_REUSED"));
-
-        assertThat(testFixtures.sessionSnapshotOf(sid).exists()).isFalse();
-    }
-
-    @Test
-    @DisplayName("refresh 갱신을 실패한다. (탈퇴 회원, LOGIN_FAILED)")
-    void refreshWithdrawnMemberFails() throws Exception {
-        // Given
-        UUID goneId = testFixtures.signup("gone@test.com");
-        TokenResult token = testFixtures.loginTokens("gone@test.com");
-        String refreshGone = token.refreshToken();
-        UUID sidGone = RefreshToken.parse(refreshGone).sessionId();
-
-        testFixtures.changeStatus(goneId, "WITHDRAWN");
-
-        RefreshRequest request = new RefreshRequest(refreshGone);
-
-        // When & Then
-        mockMvc.perform(post("/api/auth/refresh")
-                        .contentType(APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("LOGIN_FAILED"));
-
-        assertThat(testFixtures.sessionSnapshotOf(sidGone).exists()).isFalse();
-    }
-
-    @Test
-    @DisplayName("refresh로 갱신하면 회원의 세션 목록 만료도 연장된다.")
-    void refreshExtendsMemberSessionsTtl() throws Exception {
-        // Given
-        UUID memberId = testFixtures.signup("member@test.com");
-        TokenResult token = testFixtures.loginTokens("member@test.com");
-        String refreshToken = token.refreshToken();
-
-        redisTemplate.expire("auth:member-sessions:" + memberId, Duration.ofSeconds(100));
-
-        RefreshRequest request = new RefreshRequest(refreshToken);
-
-        // When & Then
-        mockMvc.perform(post("/api/auth/refresh")
-                        .contentType(APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk());
-
-        assertThat(testFixtures.memberSessionsTtlOf(memberId)).isBetween(604000L, 604800L);
-    }
-
-    @Test
-    @DisplayName("로그인할 때마다 새 세션이 만들어진다.")
-    void loginCreatesNewSession() throws Exception {
-        // Given
-        UUID memberId = testFixtures.signup("member@test.com");
-
-        LoginRequest request = new LoginRequest("member@test.com", "pass1234");
-
-        // When & Then
-        MvcResult result = mockMvc.perform(post("/api/auth/login")
-                        .contentType(APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.refreshToken").exists())
-                .andReturn();
-
-        TokenResponse response = objectMapper.readValue(result.getResponse().getContentAsString(), TokenResponse.class);
-        String refreshToken = response.refreshToken();
-        UUID sid = RefreshToken.parse(refreshToken).sessionId();
-
-        assertThat(testFixtures.sessionIdsOf(memberId)).hasSize(2).contains(sid);
-        assertThat(testFixtures.sessionSnapshotOf(sid).memberId()).isEqualTo(memberId);
-    }
-
-    @Test
-    @DisplayName("refresh로 갱신하면 세션 만료가 7일로 연장된다.")
-    void refreshExtendsSessionTtl() throws Exception {
-        // Given
-        testFixtures.signup("member@test.com");
-        TokenResult token = testFixtures.loginTokens("member@test.com");
-        String refreshToken = token.refreshToken();
-        UUID sid = RefreshToken.parse(refreshToken).sessionId();
-
-        redisTemplate.expire("auth:session:" + sid, Duration.ofSeconds(100));
-
-        RefreshRequest request = new RefreshRequest(refreshToken);
-
-        // When & Then
-        mockMvc.perform(post("/api/auth/refresh")
-                        .contentType(APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk());
-
-        assertThat(testFixtures.sessionSnapshotOf(sid).ttlSeconds()).isBetween(604000L, 604800L);
     }
 }

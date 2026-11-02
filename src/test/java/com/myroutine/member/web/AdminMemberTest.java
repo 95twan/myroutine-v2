@@ -51,37 +51,6 @@ class AdminMemberTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("관리자 API 호출을 실패한다. (일반 회원, FORBIDDEN)")
-    void adminApiWithMemberTokenFails() throws Exception {
-        // Given
-        testFixtures.signup("alan@test.com");
-
-        UUID bobId = testFixtures.signup("bob@test.com");
-        jdbcTemplate.update("UPDATE member.member SET nickname = 'zebra' WHERE id = ?", bobId);
-        testFixtures.changeStatus(bobId, "BANNED");
-
-        testFixtures.signup("carol@test.com");
-
-        testFixtures.adminToken("admin@test.com");
-
-        testFixtures.signup("alice@test.com");
-        String token = testFixtures.login("alice@test.com");
-
-        // When & Then
-        mockMvc.perform(get("/admin/api/members")
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-
-        mockMvc.perform(get("/admin/api/members/{bobId}/unban", bobId)
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-
-        assertThat(testFixtures.memberSnapshotOf(bobId).status()).isEqualTo("BANNED");
-    }
-
-    @Test
     @DisplayName("이메일 또는 닉네임 앞부분으로 회원을 검색한다.")
     void searchByPrefix() throws Exception {
         // Given
@@ -194,94 +163,6 @@ class AdminMemberTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("회원을 제재한 뒤 해제하면 다시 로그인한다.")
-    void banThenUnban() throws Exception {
-        // Given
-        String adminToken = testFixtures.adminToken("admin@test.com");
-
-        UUID aliceId = testFixtures.signup("alice@test.com");
-        TokenResult tokenResult = testFixtures.loginTokens("alice@test.com");
-        UUID sid = RefreshToken.parse(tokenResult.refreshToken()).sessionId();
-
-        BanRequest request = new BanRequest("운영정책 위반");
-
-        // When & Then
-        mockMvc.perform(post("/admin/api/members/{aliceId}/ban", aliceId)
-                        .header("Authorization", "Bearer " + adminToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isNoContent());
-
-        MemberSnapshot m = testFixtures.memberSnapshotOf(aliceId);
-        assertThat(m.status()).isEqualTo("BANNED");
-        assertThat(m.banReason()).isEqualTo("운영정책 위반");
-        assertThat(m.bannedAt()).isNotNull();
-
-        assertThat(testFixtures.sessionSnapshotOf(sid).exists()).isFalse();
-        assertThat(outboxAssert.rows(MemberTopics.MEMBER_BANNED)).hasSize(1);
-        assertThat(outboxAssert.rows(MemberTopics.MEMBER_BANNED).getFirst().aggregateId()).isEqualTo(aliceId);
-        assertThat(outboxAssert.rows(MemberTopics.MEMBER_BANNED).getFirst().payload().get("memberId").asString()).isEqualTo(aliceId.toString());
-        assertThat(outboxAssert.rows(MemberTopics.MEMBER_BANNED).getFirst().payload().get("reason").asString()).isEqualTo("운영정책 위반");
-
-        mockMvc.perform(post("/admin/api/members/{aliceId}/unban", aliceId)
-                        .header("Authorization", "Bearer " + adminToken))
-                .andExpect(status().isNoContent());
-
-        m = testFixtures.memberSnapshotOf(aliceId);
-        assertThat(m.status()).isEqualTo("ACTIVE");
-        assertThat(m.banReason()).isNull();
-        assertThat(m.bannedAt()).isNull();
-
-
-        mockMvc.perform(post("/api/auth/login")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new LoginRequest("alice@test.com", "pass1234"))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.accessToken").exists());
-    }
-
-    @Test
-    @DisplayName("제재·해제를 실패한다. (상태 전이 규칙 위반, INVALID_STATE_TRANSITION)")
-    void banOrUnbanWithInvalidStateFails() throws Exception {
-        // Given
-        String adminToken = testFixtures.adminToken("admin@test.com");
-
-        UUID bobId = testFixtures.signup("bob@test.com");
-        jdbcTemplate.update("UPDATE member.member SET nickname = 'zebra' WHERE id = ?", bobId);
-        testFixtures.changeStatus(bobId, "BANNED");
-
-        UUID aliceId = testFixtures.signup("alice@test.com");
-
-        BanRequest request = new BanRequest("중복");
-
-        // When & Then
-        mockMvc.perform(post("/admin/api/members/{bobId}/ban", bobId)
-                        .header("Authorization", "Bearer " + adminToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("INVALID_STATE_TRANSITION"));
-
-        assertThat(outboxAssert.rows(MemberTopics.MEMBER_BANNED)).hasSize(0);
-
-        mockMvc.perform(post("/admin/api/members/{aliceId}/unban", aliceId)
-                        .header("Authorization", "Bearer " + adminToken))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("INVALID_STATE_TRANSITION"));
-    }
-
-    @Test
-    @DisplayName("관리자 API 호출을 실패한다. (토큰 없음, UNAUTHORIZED)")
-    void adminApiWithoutTokenFails() throws Exception {
-        // Given
-
-        // When & Then
-        mockMvc.perform(get("/admin/api/members"))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
-    }
-
-    @Test
     @DisplayName("상태로 회원 목록을 거른다.")
     void filterByStatus() throws Exception {
         // Given
@@ -333,67 +214,6 @@ class AdminMemberTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("회원을 제재하면 BANNED 알림이 만들어진다.")
-    void banCreatesBannedNotification() throws Exception {
-        // Given
-        String adminToken = testFixtures.adminToken("admin@test.com");
-
-        UUID aliceId = testFixtures.signup("alice@test.com");
-
-        BanRequest request = new BanRequest("운영정책 위반");
-
-        // When & Then
-        mockMvc.perform(post("/admin/api/members/{aliceId}/ban", aliceId)
-                        .header("Authorization", "Bearer " + adminToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isNoContent());
-
-        outboxRelay.relayOnce();
-
-        Eventually.await(Duration.ofSeconds(5), () -> {
-            List<NotificationRow> rows = testFixtures.notificationRowsOf(aliceId);
-            assertThat(rows).filteredOn(row -> row.type().equals("BANNED")).hasSize(1);
-        });
-    }
-
-    @Test
-    @DisplayName("제재를 실패한다. (없는 회원, MEMBER_NOT_FOUND)")
-    void banUnknownMemberFails() throws Exception {
-        // Given
-        String adminToken = testFixtures.adminToken("admin@test.com");
-
-        BanRequest request = new BanRequest("운영정책 위반");
-
-        // When & Then
-        mockMvc.perform(post("/admin/api/members/{aliceId}/ban", Ids.newId())
-                        .header("Authorization", "Bearer " + adminToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("MEMBER_NOT_FOUND"));
-    }
-
-    @Test
-    @DisplayName("제재를 실패한다. (사유 비어 있음, INVALID_REQUEST)")
-    void banWithBlankReasonFails() throws Exception {
-        // Given
-        String adminToken = testFixtures.adminToken("admin@test.com");
-
-        UUID aliceId = testFixtures.signup("alice@test.com");
-
-        // When & Then
-        mockMvc.perform(post("/admin/api/members/{aliceId}/ban", aliceId)
-                        .header("Authorization", "Bearer " + adminToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"reason\":\"\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-
-        assertThat(testFixtures.memberSnapshotOf(aliceId).status()).isEqualTo("ACTIVE");
-    }
-
-    @Test
     @DisplayName("회원 목록 항목에 제재 사유가 담긴다.")
     void listItemHasBanReason() throws Exception {
         // Given
@@ -416,30 +236,6 @@ class AdminMemberTest extends IntegrationTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[?(@.email == 'alice@test.com')].banReason").value("운영정책 위반"))
                 .andExpect(jsonPath("$.items[?(@.email == 'carol@test.com')].banReason").value(hasItem(nullValue())));
-    }
-
-    @Test
-    @DisplayName("제재된 회원의 로그인 거절 응답에 제재 사유가 담긴다.")
-    void bannedLoginRejectionHasReason() throws Exception {
-        // Given
-        String adminToken = testFixtures.adminToken("admin@test.com");
-
-        UUID aliceId = testFixtures.signup("alice@test.com");
-
-
-        mockMvc.perform(post("/admin/api/members/{aliceId}/ban", aliceId)
-                        .header("Authorization", "Bearer " + adminToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new BanRequest("운영정책 위반"))))
-                .andExpect(status().isNoContent());
-
-        // When & Then
-        mockMvc.perform(post("/api/auth/login")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new LoginRequest("alice@test.com", "pass1234"))))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("MEMBER_BANNED"))
-                .andExpect(jsonPath("$.details.reason").value("운영정책 위반"));
     }
 
     @Test
@@ -473,6 +269,168 @@ class AdminMemberTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("회원을 제재한 뒤 해제하면 다시 로그인한다.")
+    void banThenUnban() throws Exception {
+        // Given
+        String adminToken = testFixtures.adminToken("admin@test.com");
+
+        UUID aliceId = testFixtures.signup("alice@test.com");
+        TokenResult tokenResult = testFixtures.loginTokens("alice@test.com");
+        UUID sid = RefreshToken.parse(tokenResult.refreshToken()).sessionId();
+
+        BanRequest request = new BanRequest("운영정책 위반");
+
+        // When & Then
+        mockMvc.perform(post("/admin/api/members/{aliceId}/ban", aliceId)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNoContent());
+
+        MemberSnapshot m = testFixtures.memberSnapshotOf(aliceId);
+        assertThat(m.status()).isEqualTo("BANNED");
+        assertThat(m.banReason()).isEqualTo("운영정책 위반");
+        assertThat(m.bannedAt()).isNotNull();
+
+        assertThat(testFixtures.sessionSnapshotOf(sid).exists()).isFalse();
+        assertThat(outboxAssert.rows(MemberTopics.MEMBER_BANNED)).hasSize(1);
+        assertThat(outboxAssert.rows(MemberTopics.MEMBER_BANNED).getFirst().aggregateId()).isEqualTo(aliceId);
+        assertThat(outboxAssert.rows(MemberTopics.MEMBER_BANNED).getFirst().payload().get("memberId").asString()).isEqualTo(aliceId.toString());
+        assertThat(outboxAssert.rows(MemberTopics.MEMBER_BANNED).getFirst().payload().get("reason").asString()).isEqualTo("운영정책 위반");
+
+        mockMvc.perform(post("/admin/api/members/{aliceId}/unban", aliceId)
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isNoContent());
+
+        m = testFixtures.memberSnapshotOf(aliceId);
+        assertThat(m.status()).isEqualTo("ACTIVE");
+        assertThat(m.banReason()).isNull();
+        assertThat(m.bannedAt()).isNull();
+
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest("alice@test.com", "pass1234"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").exists());
+    }
+
+    @Test
+    @DisplayName("회원을 제재하면 BANNED 알림이 만들어진다.")
+    void banCreatesBannedNotification() throws Exception {
+        // Given
+        String adminToken = testFixtures.adminToken("admin@test.com");
+
+        UUID aliceId = testFixtures.signup("alice@test.com");
+
+        BanRequest request = new BanRequest("운영정책 위반");
+
+        // When & Then
+        mockMvc.perform(post("/admin/api/members/{aliceId}/ban", aliceId)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNoContent());
+
+        outboxRelay.relayOnce();
+
+        Eventually.await(Duration.ofSeconds(5), () -> {
+            List<NotificationRow> rows = testFixtures.notificationRowsOf(aliceId);
+            assertThat(rows).filteredOn(row -> row.type().equals("BANNED")).hasSize(1);
+        });
+    }
+
+    @Test
+    @DisplayName("제재를 실패한다. (사유 비어 있음, INVALID_REQUEST)")
+    void banWithBlankReasonFails() throws Exception {
+        // Given
+        String adminToken = testFixtures.adminToken("admin@test.com");
+
+        UUID aliceId = testFixtures.signup("alice@test.com");
+
+        // When & Then
+        mockMvc.perform(post("/admin/api/members/{aliceId}/ban", aliceId)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        assertThat(testFixtures.memberSnapshotOf(aliceId).status()).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    @DisplayName("제재를 실패한다. (없는 회원, MEMBER_NOT_FOUND)")
+    void banUnknownMemberFails() throws Exception {
+        // Given
+        String adminToken = testFixtures.adminToken("admin@test.com");
+
+        BanRequest request = new BanRequest("운영정책 위반");
+
+        // When & Then
+        mockMvc.perform(post("/admin/api/members/{aliceId}/ban", Ids.newId())
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("MEMBER_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("제재·해제를 실패한다. (상태 전이 규칙 위반, INVALID_STATE_TRANSITION)")
+    void banOrUnbanWithInvalidStateFails() throws Exception {
+        // Given
+        String adminToken = testFixtures.adminToken("admin@test.com");
+
+        UUID bobId = testFixtures.signup("bob@test.com");
+        jdbcTemplate.update("UPDATE member.member SET nickname = 'zebra' WHERE id = ?", bobId);
+        testFixtures.changeStatus(bobId, "BANNED");
+
+        UUID aliceId = testFixtures.signup("alice@test.com");
+
+        BanRequest request = new BanRequest("중복");
+
+        // When & Then
+        mockMvc.perform(post("/admin/api/members/{bobId}/ban", bobId)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_STATE_TRANSITION"));
+
+        assertThat(outboxAssert.rows(MemberTopics.MEMBER_BANNED)).hasSize(0);
+
+        mockMvc.perform(post("/admin/api/members/{aliceId}/unban", aliceId)
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_STATE_TRANSITION"));
+    }
+
+    @Test
+    @DisplayName("제재된 회원의 로그인 거절 응답에 제재 사유가 담긴다.")
+    void bannedLoginRejectionHasReason() throws Exception {
+        // Given
+        String adminToken = testFixtures.adminToken("admin@test.com");
+
+        UUID aliceId = testFixtures.signup("alice@test.com");
+
+
+        mockMvc.perform(post("/admin/api/members/{aliceId}/ban", aliceId)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new BanRequest("운영정책 위반"))))
+                .andExpect(status().isNoContent());
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest("alice@test.com", "pass1234"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("MEMBER_BANNED"))
+                .andExpect(jsonPath("$.details.reason").value("운영정책 위반"));
+    }
+
+    @Test
     @DisplayName("사유 없이 BANNED가 된 회원의 로그인 거절 응답에는 사유가 없다.")
     void bannedLoginRejectionWithoutReason() throws Exception {
         // Given
@@ -486,5 +444,47 @@ class AdminMemberTest extends IntegrationTestSupport {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("MEMBER_BANNED"))
                 .andExpect(jsonPath("$.details.reason").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("관리자 API 호출을 실패한다. (토큰 없음, UNAUTHORIZED)")
+    void adminApiWithoutTokenFails() throws Exception {
+        // Given
+
+        // When & Then
+        mockMvc.perform(get("/admin/api/members"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    @DisplayName("관리자 API 호출을 실패한다. (일반 회원, FORBIDDEN)")
+    void adminApiWithMemberTokenFails() throws Exception {
+        // Given
+        testFixtures.signup("alan@test.com");
+
+        UUID bobId = testFixtures.signup("bob@test.com");
+        jdbcTemplate.update("UPDATE member.member SET nickname = 'zebra' WHERE id = ?", bobId);
+        testFixtures.changeStatus(bobId, "BANNED");
+
+        testFixtures.signup("carol@test.com");
+
+        testFixtures.adminToken("admin@test.com");
+
+        testFixtures.signup("alice@test.com");
+        String token = testFixtures.login("alice@test.com");
+
+        // When & Then
+        mockMvc.perform(get("/admin/api/members")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        mockMvc.perform(get("/admin/api/members/{bobId}/unban", bobId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(testFixtures.memberSnapshotOf(bobId).status()).isEqualTo("BANNED");
     }
 }
