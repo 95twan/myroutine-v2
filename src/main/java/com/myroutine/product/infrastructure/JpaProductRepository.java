@@ -75,4 +75,12 @@ public interface JpaProductRepository extends JpaRepository<Product, UUID>, Prod
                 where p.id in :ids
             """)
     List<ProductCheckoutRow> findCheckoutRowsByIds(Collection<UUID> ids);
+
+    @Query("""
+                select new com.myroutine.product.domain.ProductListRow(p.id, p.shopId, p.name, p.category, p.price, p.status, p.thumbnailKey, p.createdAt, s.available, s.reserved, s.sold, s.received)
+                from Product p
+                join Stock s on s.productId = p.id
+                where p.id in :ids and p.status = 'ON_SALE'
+            """)
+    List<ProductListRow> findOnSaleByIds(Collection<UUID> ids);
 }

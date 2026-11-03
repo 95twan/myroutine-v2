@@ -30,4 +30,6 @@ public interface ProductRepository {
     List<Product> findAllByShopIdAndStatusIn(UUID shopId, Collection<ProductStatus> statuses);
 
     void flush();
+
+    List<ProductListRow> findOnSaleByIds(Collection<UUID> ids);
 }

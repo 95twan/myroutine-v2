@@ -67,7 +67,7 @@ flowchart LR
   MEM -->|활성 가게 수 재조회| SHOP
   REV -->|구매확정 여부| ORD
   REC -->|상품 정보| PRD
-  SRC[search] -->|재색인용 상품 목록·검색 결과 요약| PRD
+  SRC[search] -->|검색 결과 요약| PRD
 ```
 실선은 **동기 호출(모듈 API)**. 그 외 연결은 모두 Kafka 이벤트([05-events.md](05-events.md)).
 - 의존 역전 구현(호출이 아니라 인터페이스 구현): order → `shop.api.ShopClosePrecondition`, order·settlement → `member.api.WithdrawalPrecondition`. member는 shop을 참조하므로 shop은 member를 참조하지 않는다(가게 조건은 member가 `ShopApi`로 직접 확인).

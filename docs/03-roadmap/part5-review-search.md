@@ -1,6 +1,13 @@
 # Part 5. 리뷰 · 검색 · 문의
 
-> 버전 0.31 · 2026-11-02 · 5-1 `MyReviewResponse`에서 `updatedAt`을 뺐다(수정 응답을 만들 때 감사 필드가 아직 채워지기 전이라 수정 전 값이 나가고, 화면이 쓰지 않는다).
+> 버전 0.38 · 2026-11-03 · 자동완성을 관련도순으로, 점수가 같으면 이름 오름차순으로 정렬하게 했다. 동점인 이름의 순서가 색인 순서에 따라 달라졌다
+> 0.37 · 2026-11-03 · 검색 분석기가 감탄사와 일반 부사를 버리지 않게 했다. nori가 `마스크팩 세트`의 `마스크`·`팩`을 감탄사·부사로 판단해 버려서 `마스크팩`으로 찾지 못했다. 완료 확인에 케이스를 더했다
+> 0.36 · 2026-11-03 · 자동완성이 상품명과 검색어의 공백을 무시하고 맞추게 했다. `허브티`로도 `허브 티백`이 나온다. 분석기에 `remove_whitespace` 문자 필터를 더하고 완료 확인에 케이스를 더했다
+> 0.35 · 2026-11-03 · 자동완성이 서로 다른 상품명을 최대 10개 돌려주도록 `collapse`를 더했다. 매핑에 하위 필드 `name.keyword`를 추가하고 완료 확인에 케이스를 더했다
+> 0.34 · 2026-11-02 · 자동완성 `min_gram`을 2로 바꿨다. 자동완성이 2자 이상일 때만이라 한 글자 조각이 필요 없고, 공백을 더한 `" 브"`처럼 검증을 지나 trim으로 한 글자가 된 검색어는 0건이 된다
+> 0.33 · 2026-11-02 · 5-3 무중단 재색인을 로드맵에서 빼서 [서브 SUB-7](../04-sub/search-reindex.md)로 옮겼다. `ProductApi.findForIndexing`도 함께 옮겨 갔다. 1:1 문의를 5-4에서 5-3으로 당겼다(아래 이력의 5-3은 무중단 재색인, 5-4는 문의다)
+> 0.32 · 2026-11-02 · 5-2에 nori를 넣어 ES 이미지를 `docker/elasticsearch/Dockerfile`로 빌드하고, 자동완성 검색어를 나누지 않고 한 덩어리로 맞추게 했다. ES 응답 타임아웃 설정, `/actuator/health`에서 ES 제외, 운영 compose, 기동 때 ES가 꺼져 있을 때의 처리를 정했다
+> 0.31 · 2026-11-02 · 5-1 `MyReviewResponse`에서 `updatedAt`을 뺐다(수정 응답을 만들 때 감사 필드가 아직 채워지기 전이라 수정 전 값이 나가고, 화면이 쓰지 않는다).
 > 0.30 · 2026-11-01 · 5-1이 `review.review-created.v1`을 발행하지 않게 했다(소비자가 없다). `review.api`·`ReviewTopicConfig`·`write`의 outbox 발행·완료 확인의 이벤트 케이스를 뺐다. SUB-6 추가 항목(리뷰 임베딩)에서 발행을 더한다. `Review.likeCount`를 `updatable = false`로 정해 수정·삭제가 동시에 들어온 좋아요를 덮어쓰지 않게 했다. 리뷰 작성 요청에서 `content`가 없으면 500이 아니라 400 `INVALID_REQUEST`다
 > 0.29 · 2026-11-01 · 프론트 빈칸 G18~G23 반영: 5-1에 내 리뷰 조회·`likedByMe`를 더하고 수정·삭제·좋아요·통계·정렬의 미정 동작을 정했다. 5-2 검색 결과를 상품 요약 모양으로 바꿔 ES는 순서만 정하게 했고([ADR-013](../adr/ADR-013-search-hydration.md)), 5-4 문의 응답 필드와 관리자 목록을 정하고 답변 알림을 추가 항목으로 뒀다
 > 0.28 · 2026-11-01 · 5-4 문의 목록 정렬(본인 최신순·관리자 오래된 순)과 상세 응답의 답변 필드(`answer.content`·`answer.createdAt`)를 확정했다
@@ -13,15 +20,14 @@
 > **끝나면**: 구매확정한 상품에 리뷰를 쓰고, 키워드로 상품을 검색하고, 1:1 문의를 남긴다.
 > **인프라 추가**: **Elasticsearch**
 > 검색 모듈은 **이벤트로 받은 문서로 검색 순서를 정하고**, 결과 항목은 상품 조회(`ProductApi`)로 채운다([ADR-013](../adr/ADR-013-search-hydration.md)). Stage 3에서 가장 먼저 분리될 대상이다.
-> 시간이 부족하면 5-1(리뷰), 5-2(검색)만 하고 나머지는 생략할 수 있다. **5-3은 선택 단계**다.
+> 시간이 부족하면 5-1(리뷰), 5-2(검색)만 하고 나머지는 생략할 수 있다. 무중단 재색인은 [서브 SUB-7](../04-sub/search-reindex.md)에 있다.
 > **릴리스**: `v0.5.0`
 
 | 단계 | 제목 | 크기 |
 |---|---|---|
 | 5-1 | 리뷰 · 평점 통계 · 좋아요 | M |
 | 5-2 | 상품 검색 · 자동완성 (Elasticsearch) | M |
-| 5-3 | (선택) 무중단 재색인 | S |
-| 5-4 | 1:1 문의 | S |
+| 5-3 | 1:1 문의 | S |
 
 ---
 
@@ -50,7 +56,7 @@
 | `REVIEW_NOT_FOUND` | 404 | 리뷰를 찾을 수 없습니다. | `ReviewErrorCode` | 5-1 |
 | `REVIEW_EDIT_EXPIRED` | 409 | 작성 후 30일이 지나 수정할 수 없습니다. | `ReviewErrorCode` | 5-1 |
 | `SEARCH_UNAVAILABLE` | 503 | 검색을 일시적으로 사용할 수 없습니다. | `SearchErrorCode` | 5-2 |
-| `INQUIRY_NOT_FOUND` | 404 | 문의를 찾을 수 없습니다. | `MemberErrorCode` | 5-4 |
+| `INQUIRY_NOT_FOUND` | 404 | 문의를 찾을 수 없습니다. | `MemberErrorCode` | 5-3 |
 
 ---
 
@@ -453,57 +459,453 @@ ON CONFLICT (product_id) DO UPDATE SET
 | 개념 | 한 줄 설명 |
 |---|---|
 | Elasticsearch | 검색 전용 저장소. 원본은 Postgres, ES는 이벤트로 갱신하는 **읽기 모델**이다 |
-| alias | 인덱스에 붙이는 별칭. 검색·색인은 항상 alias(`products`)로 한다 → 5-3에서 실제 인덱스를 바꿔치기할 수 있다 |
+| alias | 인덱스에 붙이는 별칭. 검색·색인은 항상 alias(`products`)로 한다 → SUB-7에서 실제 인덱스를 바꿔치기할 수 있다 |
 | external version | 문서에 상품 `version`을 같이 넣으면 ES가 **더 오래된 버전의 쓰기를 거부**한다 → 이벤트 순서가 뒤바뀌어도 최신 유지 |
-| edge_ngram | "루틴" → "루", "루틴"처럼 앞부분 조각을 미리 색인해 자동완성을 빠르게 |
+| edge_ngram | "루틴비타" → "루틴", "루틴비", "루틴비타"처럼 앞부분 조각을 미리 색인해 자동완성을 빠르게 |
+| nori | 한국어 형태소 분석기. "멀티비타민"을 "멀티", "비타민"으로 잘라 색인해 "비타민"으로도 찾게 한다. ES 플러그인이라 플러그인을 넣은 이미지를 직접 만든다 |
 
 **정책 (이 단계에서 정함)**
 - 단종·숨김 상품도 문서는 남기고 `status`로 걸러낸다(삭제와 재색인이 엇갈리는 문제를 피함). 검색 결과는 `ON_SALE`만.
-- 한국어 형태소 분석(nori)은 쓰지 않는다(별도 플러그인 설치 필요). 표준 분석기 + edge_ngram으로 시작하고, 검색 품질 개선은 Stage 2 이후 과제로 둔다.
+- 상품명·설명의 검색은 nori로 분석하고, 자동완성은 edge_ngram을 쓴다. ES를 고른 근거와 측정 결과는 [ADR-014](../adr/ADR-014-search-engine-choice.md)에 있다.
+- 검색어 조각은 OR로 맞춘다(`multi_match` 기본값). nori는 같은 단어를 문맥에 따라 다르게 자르기 때문에 AND면 놓친다: `수면용 근육이완 보충제` 안의 근육이완은 `근육`·`이완`인데 검색어 `근육이완`만 넣으면 `근육`·`완`·`오`가 되어 AND로는 못 찾는다.
+- 사전에 없는 말은 쪼개진다. `프로폴리스`는 `프로`·`폴리스`가 되어 `프로틴`(`프로`·`틴`)도 결과 뒤쪽에 나온다. 두 조각이 모두 맞는 상품의 점수가 높아 앞에 온다. 사용자 사전과 검색 품질 개선은 Stage 2 이후 과제로 둔다.
+- 품사 필터는 감탄사(`IC`)와 일반 부사(`MAG`)를 버리지 않는다. nori가 뒤에 다른 단어가 오면 상품 이름을 이 품사로 잘못 판단해서, 기본값대로 버리면 `마스크팩 세트`는 `마스크팩`으로, `아이 크림`은 `아이`로 찾지 못한다. 대신 `정말`·`매우` 같은 부사도 검색어로 맞는다.
 - 검색 정렬: 관련도(`_score`) → id. 페이지는 `search_after` 커서(Base64로 감싼 정렬값), size 기본 20·최대 50.
 - 검색 결과 항목은 상품 목록 카드(`ProductSummaryResponse`)와 같은 모양이다. ES는 순서와 커서만 정하고, 항목 값(이름·가격·카테고리·사진·재고 여부·등록 시각)은 상품 DB에서 읽는다([ADR-013](../adr/ADR-013-search-hydration.md)). 사진은 이미지 추가·삭제가, 재고는 재고 조정·주문이 바꾸는데 둘 다 `product-upserted`를 내지 않아 ES 문서에 두면 낡는다.
 - ES에서는 `ON_SALE`이어도 DB에서 판매 중이 아니면 결과에서 뺀다. 그래서 한 페이지가 `size`보다 짧거나 비어 있을 수 있고, `nextCursor`는 ES 결과로 정한다.
-- 자동완성: 상품명 기준 최대 10개, 2자 이상일 때만.
+- 자동완성: 상품명이 검색어로 시작하는 판매 중 상품의 서로 다른 이름을 최대 10개, 2자 이상일 때만. 맞는 이름이 10개보다 적으면 있는 만큼만 돌려준다. 관련도순으로 정렬하고, 점수가 같으면 이름 오름차순(한글은 가나다순)이다. 띄어쓰기가 달라도 찾도록 공백은 무시한다: `허브티`와 `허브 티`는 둘 다 `허브 티백`을 찾는다.
+- 재색인 기능은 이 단계에 없다([서브 SUB-7](../04-sub/search-reindex.md)). 문서는 `product-upserted` 이벤트로만 채워진다. 분석기·매핑을 바꾸거나 ES 데이터를 잃으면 인덱스를 지우고 앱을 다시 시작하는데, 새 인덱스는 비어 있어 기존 상품은 다음에 수정될 때까지 검색되지 않는다. 이 한계는 회고에 적는다.
 
 ### 할 일
 
-**구현 순서**: 절 번호 순서대로 만든다. 1) 인프라(compose·의존성·`IntegrationTestSupport`·`application.yaml` 타임아웃) → 2) 모듈 경계 → 3) `search.infrastructure`(`ProductIndexDefinition`·`products-index.json` → `ProductIndexer`(`ensureIndex` → `upsert`) → `ProductEventConsumer`) → 4) product 요약 조회(`product.domain` → `product.infrastructure` → `product.api` → `product.application`) → 5) `search.application`(`SearchErrorCode` → `ProductSearchService`) → 6) `search.web` → 7) `common.security` → 테스트.
+**구현 순서**: 절 번호 순서대로 만든다. 1) 인프라(compose·의존성·`IntegrationTestSupport`·`application.yaml` 타임아웃) → 2) 모듈 경계 → 3) `search.infrastructure`(`ElasticsearchTimeoutConfig` → `ProductIndexDefinition`·`products-index.json` → `ProductIndexer`(`ensureIndex` → `upsert`) → `ProductEventConsumer`) → 4) product 요약 조회(`product.domain` → `product.infrastructure` → `product.api` → `product.application`) → 5) `search.application`(`SearchErrorCode` → `ProductSearchService`) → 6) `search.web` → 7) `common.security` → 테스트.
 
 **1) 인프라**
-- docker-compose: `docker.elastic.co/elasticsearch/elasticsearch:9.4.8`(클라이언트 9.4.5와 같은 9.4 줄의 최신 패치, 2026-10-09 레지스트리에서 태그 확인), `discovery.type=single-node`, `xpack.security.enabled=false`, `ES_JAVA_OPTS=-Xms512m -Xmx512m`, 포트 `127.0.0.1:9200`
+- `docker/elasticsearch/Dockerfile`: 공식 이미지에 nori를 넣는다. 로컬·운영·테스트가 이 파일 하나를 같이 쓴다. `FROM docker.elastic.co/elasticsearch/elasticsearch:9.4.8`(클라이언트 9.4.5와 같은 9.4 줄의 최신 패치) + `RUN bin/elasticsearch-plugin install --batch analysis-nori`(`--batch`는 권한 확인 프롬프트를 건너뛴다. 빌드할 때 `artifacts.elastic.co`에서 받는다)
+- `docker/docker-compose.yml`: 서비스 `elasticsearch`. `build: ./elasticsearch`(compose 파일 기준 경로), `image: myroutine-elasticsearch:9.4.8`, `restart: unless-stopped`, 환경변수 `discovery.type: single-node`, `xpack.security.enabled: "false"`, `ES_JAVA_OPTS: -Xms512m -Xmx512m`, 포트 `127.0.0.1:9200:9200`, named volume `elasticsearch_data:/usr/share/elasticsearch/data`
+- `docker/docker-compose.ops.yml`: 위와 같은 서비스에서 `ports`를 빼고 아래 `healthcheck`를 둔다(`up`이 이미지가 없으면 빌드하고 healthy까지 기다리는 것을 이 설정으로 확인했다). `app`에는 `environment`의 `SPRING_ELASTICSEARCH_URIS: http://elasticsearch:9200`과 `depends_on`의 `elasticsearch: condition: service_healthy`를 더한다. `depends_on`은 `compose up` 때의 시작 순서만 정하므로, 평소 ES가 죽어도 앱은 영향받지 않는다
+  - `healthcheck`: `test: ["CMD", "curl", "-fsS", "http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s"]`, `interval: 10s`, `timeout: 10s`, `retries: 12`, `start_period: 60s`. 노드가 하나라 복제본을 둘 곳이 없어 상태는 `green`이 아니라 `yellow`까지 오른다
+- Dockerfile을 바꾸면 `image` 태그도 올린다. 같은 태그의 이미지가 이미 있으면 `up`이 다시 빌드하지 않는다
 - 의존성: `implementation 'org.springframework.boot:spring-boot-starter-data-elasticsearch'`(Boot 4.1.1에 있다), 테스트 `testImplementation 'org.testcontainers:testcontainers-elasticsearch'`(Testcontainers BOM 2.0.5가 관리)
-- `IntegrationTestSupport`: `@ServiceConnection protected static final ElasticsearchContainer es = new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:9.4.8").withEnv("xpack.security.enabled", "false")`(8.x 이후 이미지는 기본으로 보안이 켜져 있어 끈다. `kafka`처럼 `protected`라서 같은 패키지의 `TestFixtures`와 다른 패키지의 하위 테스트가 모두 `es`를 읽는다) → `Startables.deepStart(...)`에 추가
-- `application.yaml`: `spring.elasticsearch.connection-timeout: 2s`, `spring.elasticsearch.socket-timeout: 2s`(공통 규칙 X의 ES 타임아웃 2초. Boot 4.1.1 기본값은 1s·30s, 키 이름은 jar 메타데이터로 확인)
+- `IntegrationTestSupport`: 아래 형태로 만들고 `Startables.deepStart(...)`에 추가한다. `kafka`처럼 `protected`라서 같은 패키지의 `TestFixtures`와 다른 패키지의 하위 테스트가 모두 `es`를 읽는다.
+
+  ```java
+  @ServiceConnection
+  protected static final ElasticsearchContainer es = new ElasticsearchContainer(
+          DockerImageName.parse(new ImageFromDockerfile("myroutine-elasticsearch:9.4.8", false)
+                          .withDockerfile(Path.of("docker/elasticsearch/Dockerfile"))
+                          .get())
+                  .asCompatibleSubstituteFor("docker.elastic.co/elasticsearch/elasticsearch"))
+          .withEnv("xpack.security.enabled", "false")
+          .withEnv("ES_JAVA_OPTS", "-Xms512m -Xmx512m");
+  ```
+
+  | 부분 | 이유 |
+  |---|---|
+  | `new ImageFromDockerfile(이름, false)` | 테스트가 시작될 때 Dockerfile로 이미지를 빌드한다. `false`는 끝나도 이미지를 지우지 않는다는 뜻이라 다음 실행은 Docker 캐시로 바로 끝난다. `.get()`은 빌드가 끝날 때까지 기다려 이미지 이름을 돌려준다 |
+  | `Path.of("docker/...")` | Gradle 테스트의 작업 폴더는 리포 루트다 |
+  | `asCompatibleSubstituteFor` | `ElasticsearchContainer`는 공식 이미지 이름만 받으므로, 직접 만든 이미지를 공식 이미지 대신 쓴다고 알린다(`minio`와 같다) |
+  | 태그 `9.4.8` | `ElasticsearchContainer`가 태그로 8.x 이상인지 판단하므로 버전을 태그에 그대로 둔다 |
+  | `xpack.security.enabled` | 8.x 이후 이미지는 기본으로 보안이 켜져 있어 끈다 |
+  | `ES_JAVA_OPTS` | `ElasticsearchContainer`의 기본 힙이 2GB라 compose와 같은 512MB로 줄인다 |
+
+- `application.yaml`
+  - `spring.elasticsearch.connection-timeout: 2s`, `spring.elasticsearch.socket-timeout: 2s`(공통 규칙 X의 ES 타임아웃 2초. Boot 4.1.1 기본값은 1s·30s). 이 둘만으로는 응답 대기가 끊기지 않는다. 아래 `ElasticsearchTimeoutConfig`와 함께 둔다
+  - `management.health.elasticsearch.enabled: false`. 켜 두면(기본값) ES가 멈출 때 `/actuator/health`가 `DOWN`이 되고, 운영 `app`의 healthcheck가 이 주소를 보므로 앱이 `unhealthy`가 되어 배포가 롤백된다. "ES가 죽어도 검색만 실패한다"는 목표와 어긋난다
 
 **2) search — 모듈 경계** (domain 생략, application + infrastructure, 개발 가이드 §3.3)
 
 - **역할**: search는 상품 원본(Postgres)을 부르지 않는다. product가 내보내는 `product-upserted` 이벤트를 받아 ES에 문서로 복제해 두고, 검색 요청은 그 ES만 읽는다.
-- **호출 수단**: 공식 Java 클라이언트 `ElasticsearchClient`를 쓴다(`spring-boot-starter-data-elasticsearch`가 빈으로 만든다). 요청이 ES REST API의 JSON과 1:1이라 아래 요청 모양을 그대로 옮길 수 있고, Spring Data의 `ElasticsearchOperations`는 엔티티 매핑을 전제하는데 이 모듈은 domain을 두지 않는다. 아래는 **ES에 보내야 하는 요청의 모양**으로 적었다. external version·alias 교체·`search_after`·bulk를 클라이언트의 어떤 메서드가 맡는지는 클라이언트 jar에서 확인한다(확인 필요).
+- **호출 수단**: 공식 Java 클라이언트 `ElasticsearchClient`를 쓴다(`spring-boot-starter-data-elasticsearch`가 빈으로 만든다). 요청이 ES REST API의 JSON과 1:1이라 아래 요청 모양을 그대로 옮길 수 있고, Spring Data의 `ElasticsearchOperations`는 엔티티 매핑을 전제하는데 이 모듈은 domain을 두지 않는다. 아래 3)·5)의 순서는 **ES에 보내야 하는 요청의 모양**으로 적었고, 클라이언트 호출은 아래 사용법과 같다.
 
 | 클래스 | 규격 |
 |---|---|
-| `search/package-info.java` | 모듈 경계. `@ApplicationModule(allowedDependencies = {"common", "product::api"})`(규칙 Y). `product::api`는 이벤트 record(`ProductUpsertedEvent`), 검색 결과 요약(`getOnSaleSummaries`), 5-3의 `findForIndexing`을 쓰기 위한 것이다 |
+| `search/package-info.java` | 모듈 경계. `@ApplicationModule(allowedDependencies = {"common", "product::api"})`(규칙 Y). `product::api`는 이벤트 record(`ProductUpsertedEvent`), 검색 결과 요약(`getOnSaleSummaries`)을 쓰기 위한 것이다 |
+
+아래 코드는 클라이언트 9.4.5로 ES 9.4.8에 실행해 확인했다. 검색·자동완성의 응답값은 그때 나온 값이다.
+
+**타입과 패키지**
+
+| 타입 | 패키지 | 뜻 |
+|---|---|---|
+| `ElasticsearchClient` | `co.elastic.clients.elasticsearch` | ES 호출 진입점. 스타터가 빈으로 만들어 주므로 생성자로 주입받는다 |
+| `ElasticsearchException` | `co.elastic.clients.elasticsearch._types` | ES가 오류 응답을 줄 때 나는 런타임 예외 |
+| `FieldValue` | `co.elastic.clients.elasticsearch._types` | 숫자·문자열 하나를 담는 값. `FieldValue.of(0.22)`, `FieldValue.of("abc")` |
+| `SortOrder`, `VersionType` | `co.elastic.clients.elasticsearch._types` | 정렬 방향(`Desc`, `Asc`), 버전 방식(`External`) enum |
+| `Query` | `co.elastic.clients.elasticsearch._types.query_dsl` | 검색 조건 하나. `filter`에 넣을 목록을 미리 만들 때 쓴다 |
+| `SearchResponse<T>` | `co.elastic.clients.elasticsearch.core` | 검색 응답. `T`는 `_source`를 담을 타입이다 |
+| `Hit<T>` | `co.elastic.clients.elasticsearch.core.search` | 검색 결과 한 건 |
+
+**호출 코드를 읽는 법**
+
+모든 호출은 람다로 요청을 조립한다. `b`는 요청 빌더이고, 메서드 이름이 ES JSON의 키, 인자가 값이다. 값이 객체인 키는 다시 람다를 받는다.
+
+```java
+client.search(b -> b.index("products").size(21), Map.class);
+// POST /products/_search  {"size": 21}
+```
+
+- 모든 호출은 검사 예외 `IOException`을 던진다. 람다 바깥의 메서드나 `try`에서 처리한다.
+- 람다 안에서 쓰는 지역 변수와 파라미터는 다시 대입하면 안 된다(effectively final). 람다 파라미터 이름은 바깥 변수와 겹칠 수 없어서, 메서드 파라미터가 `q`면 `query -> ...`처럼 다른 이름을 쓴다.
+
+**인덱스 준비** (`ensureIndex`)
+
+```java
+boolean exists = client.indices().existsAlias(b -> b.name("products")).value();
+
+String json = new ClassPathResource("search/products-index.json").getContentAsString(StandardCharsets.UTF_8);
+String indexName = "products-" + LocalDateTime.now(clock).format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+client.indices().create(b -> b
+        .index(indexName)
+        .withJson(new StringReader(json))   // JSON의 settings·mappings를 빌더에 넣는다
+        .aliases("products", a -> a));      // 만들면서 alias를 연결한다
+```
+
+`ClassPathResource`는 `org.springframework.core.io` 패키지에 있고, `src/main/resources` 아래 파일을 읽는다.
+
+**문서 쓰기** (`upsert`)
+
+```java
+Map<String, Object> document = Map.of(
+        "productId", e.productId().toString(),
+        "shopId", e.shopId().toString(),
+        "name", e.name(),
+        "description", e.description(),
+        "category", e.category(),
+        "price", e.price(),
+        "status", e.status());
+
+try {
+    client.index(b -> b
+            .index(indexOrAlias)
+            .id(e.productId().toString())
+            .version(e.version())
+            .versionType(VersionType.External)
+            .document(document));
+} catch (ElasticsearchException ex) {
+    if (ex.status() != 409) {
+        throw ex;
+    }
+    // 409는 이미 같거나 더 최신이라는 뜻이다
+}
+```
+
+`Map.of`는 값에 `null`이 있으면 `NullPointerException`을 던진다. 위 값은 모두 `NOT NULL` 컬럼에서 온다. 같은 id에 버전 0을 다시 쓰면 `ex.status()` = 409, `ex.error().type()` = `version_conflict_engine_exception`이고, 더 큰 버전 3을 쓰면 문서가 바뀐다.
+
+**검색** (`search`)
+
+카테고리와 커서는 있을 때만 넣어야 한다. 그래서 `filter` 목록을 미리 만들고, 요청은 블록 람다로 조립해 마지막에 `b`를 돌려준다.
+
+```java
+List<Query> filters = new ArrayList<>();
+filters.add(Query.of(f -> f.term(t -> t.field("status").value("ON_SALE"))));
+if (category != null) {
+    filters.add(Query.of(f -> f.term(t -> t.field("category").value(category))));
+}
+
+SearchResponse<Map> response = client.search(b -> {
+    b.index("products")
+            .size(size + 1)
+            .query(query -> query.bool(bool -> bool
+                    .must(must -> must.multiMatch(mm -> mm.query(q).fields("name^3", "description")))
+                    .filter(filters)))
+            .sort(s -> s.score(o -> o.order(SortOrder.Desc)))
+            .sort(s -> s.field(f -> f.field("productId").order(SortOrder.Asc)))
+            .source(src -> src.filter(f -> f.includes("productId")));
+    if (after != null) {
+        b.searchAfter(after);   // after는 List<FieldValue>
+    }
+    return b;
+}, Map.class);
+```
+
+ES에 가는 JSON은 다음과 같다.
+
+```json
+{
+  "size": 21,
+  "query": {
+    "bool": {
+      "must": { "multi_match": { "query": "루틴", "fields": ["name^3", "description"] } },
+      "filter": [
+        { "term": { "status": "ON_SALE" } },
+        { "term": { "category": "HEALTH" } }
+      ]
+    }
+  },
+  "sort": [ { "_score": { "order": "desc" } }, { "productId": { "order": "asc" } } ],
+  "_source": { "includes": ["productId"] },
+  "search_after": [0.22232392, "aaaaaaaa-0000-4000-8000-000000000001"]
+}
+```
+
+| 키 | 뜻 |
+|---|---|
+| `bool.must` | 맞아야 하고 점수에 반영된다 |
+| `bool.filter` | 맞아야 하지만 점수에 영향이 없다 |
+| `multi_match` | 여러 필드에서 찾는다. 검색어는 각 필드의 분석기로 잘린다. `name^3`은 이름 점수를 3배로 친다 |
+| `term` | 검색어를 자르지 않고 정확히 비교한다. `keyword` 필드에 쓴다 |
+| `search_after` | 이전 쪽 마지막 결과의 `sort` 값 뒤부터 준다 |
+
+**결과 읽기**
+
+`Map.class`는 `_source`를 `Map`으로 받는다는 뜻이다. 그래서 값은 `Object`로 나오고 형변환이 필요하다.
+
+```java
+List<Hit<Map>> hits = response.hits().hits();   // 결과가 없으면 빈 목록
+
+Hit<Map> hit = hits.get(0);
+String productId = (String) hit.source().get("productId");   // aaaaaaaa-0000-...
+List<FieldValue> sort = hit.sort();                          // [0.22232392, aaaaaaaa-0000-...]
+double score = sort.get(0).doubleValue();
+String sortProductId = sort.get(1).stringValue();
+```
+
+**커서**
+
+`[점수, productId]`를 JSON 배열로 만들어 Base64로 감싼다. `ObjectMapper`는 `tools.jackson.databind.ObjectMapper`, `JsonNode`는 `tools.jackson.databind.JsonNode`이고 빈으로 주입받는다(`OutboxRelay`와 같다).
+
+```java
+// hit → 커서: [0.22232392,"aaaaaaaa-0000-..."] → WzAuMjIy...
+List<Object> values = List.of(sort.get(0).doubleValue(), sort.get(1).stringValue());
+String cursor = Base64.getUrlEncoder().withoutPadding().encodeToString(objectMapper.writeValueAsBytes(values));
+
+// 커서 → search_after 값
+JsonNode node = objectMapper.readTree(Base64.getUrlDecoder().decode(cursor));
+if (!node.isArray() || node.size() != 2 || !node.get(0).isNumber() || !node.get(1).isString()) {
+    // 모양이 맞지 않는다
+}
+List<FieldValue> after = List.of(FieldValue.of(node.get(0).doubleValue()), FieldValue.of(node.get(1).stringValue()));
+```
+
+잘못된 커서는 세 가지로 실패하고, 모두 400 `INVALID_REQUEST`다.
+
+| 커서 | 내용 | 실패 지점 |
+|---|---|---|
+| `not-a-cursor!!` | Base64가 아니다 | `decode`의 `IllegalArgumentException` |
+| `YWJj` | `abc`, JSON이 아니다 | `readTree`의 `JacksonException`(`tools.jackson.core`) |
+| `WzFd` | `[1]`, 배열 길이가 다르다 | 위 모양 검사 |
+
+**자동완성** (`autocomplete`)
+
+```java
+SearchResponse<Map> response = client.search(b -> b
+        .index("products")
+        .size(10)
+        .query(query -> query.bool(bool -> bool
+                .must(must -> must.match(m -> m.field("name.autocomplete").query(q)))
+                .filter(f -> f.term(t -> t.field("status").value("ON_SALE")))))
+        .sort(s -> s.score(o -> o.order(SortOrder.Desc)))
+        .sort(s -> s.field(f -> f.field("name.keyword").order(SortOrder.Asc)))
+        .collapse(c -> c.field("name.keyword"))
+        .source(src -> src.filter(f -> f.includes("name"))), Map.class);
+
+List<String> names = response.hits().hits().stream()
+        .map(hit -> (String) hit.source().get("name"))
+        .toList();
+```
+
+`루틴 비타`로 찾으면 `루틴 비타민`은 걸리고 `비타민 루틴`은 걸리지 않는다. `collapse`는 같은 필드 값을 가진 hit를 하나로 묶으므로, `size(10)`이 서로 다른 이름 10개를 뜻한다. 받은 뒤 자바에서 중복을 빼면 같은 이름이 상위를 차지할 때 10개보다 적어진다. 두 번째 정렬 키가 없으면 점수가 같은 이름은 색인된 순서대로 나온다.
+
+**실패 종류**
+
+| 상황 | 예외 |
+|---|---|
+| ES가 멈춰 응답이 없다 | `SocketTimeoutException`(`IOException`), 약 2초 |
+| ES가 꺼져 있다 | `ConnectException`(`IOException`) |
+| 없는 인덱스나 잘못된 쿼리 | `ElasticsearchException`. `ex.error().type()` 예: `index_not_found_exception` |
+| 버전 충돌 | `ElasticsearchException`, `ex.status()` = 409 |
+
+**직접 확인하는 명령**
+
+구현 중 ES 상태는 터미널에서 본다. 개발용 compose는 `localhost:9200`에 열려 있다.
+
+```bash
+E=http://localhost:9200
+
+curl -s "$E/_cat/indices?v"                     # 인덱스 목록과 문서 수
+curl -s "$E/_cat/aliases?v"                     # alias가 어느 인덱스를 가리키는지
+curl -s "$E/products/_mapping?pretty"           # 매핑
+curl -s "$E/products/_doc/{productId}?pretty"   # 문서 하나. _version이 상품 버전이다
+curl -s -XPOST "$E/products/_refresh"           # 방금 쓴 문서를 바로 검색되게 한다
+
+# 분석기 결과: [멀티, 비타민]
+curl -s "$E/products/_analyze?pretty" -H 'Content-Type: application/json' \
+  -d '{"analyzer":"korean","text":"멀티비타민"}'
+
+# 검색
+curl -s "$E/products/_search?pretty" -H 'Content-Type: application/json' \
+  -d '{"query":{"match":{"name":"비타민"}}}'
+
+# 처음부터 다시: alias가 가리키는 실제 인덱스를 지운다
+curl -s -XDELETE "$E/products-{yyyyMMddHHmmss}"
+```
+
+문서를 쓴 직후에는 검색에 나오지 않는다. 기본 1초 주기의 refresh 뒤에 보인다. `_doc` 조회는 바로 된다.
+
+**자주 나는 오류**
+
+| 증상 | 원인 |
+|---|---|
+| `invalid_alias_name_exception` | alias 이름과 같은 일반 인덱스 `products`가 이미 있다. 문서를 먼저 써서 자동 생성된 것이다. `curl -XDELETE "$E/products"` 뒤 앱을 다시 시작한다 |
+| `Unknown tokenizer type [nori_tokenizer]` | nori가 없는 이미지다. Dockerfile로 빌드한 이미지인지 확인한다 |
+| 검색 결과가 0건 | refresh 전이거나, 쿼리 필드 이름이 매핑과 다르다. 위 `_analyze`로 잘린 조각을 비교한다 |
+| `Fielddata access on the _id field is disallowed` | `_id`로 정렬했다. `productId`로 정렬한다 |
 
 **3) search.infrastructure**
 
 | 클래스 | 규격 |
 |---|---|
-| `ProductIndexDefinition` | 인덱스를 만들 때 쓰는 설정·매핑 JSON(`src/main/resources/search/products-index.json`)을 읽어 준다. `ensureIndex`와 5-3 재색인이 같은 JSON을 쓰므로 한 곳에 둔다. JSON 내용: 분석기 `autocomplete`(tokenizer `edge_ngram` min 1 max 20, filter `lowercase`), 필드 `productId keyword`, `shopId keyword`, `name text` + 하위 필드 `name.autocomplete`(분석기 autocomplete, 검색 분석기 standard), `description text`, `category keyword`, `price long`, `status keyword`. JSON 내용을 돌려주는 메서드 하나(이름은 구현이 정한다). `search.infrastructure`에 둔다 |
-| `ProductIndexer` | `@Component`. 상품 문서를 ES에 쓰는 유일한 곳. consumer와 5-3 재색인이 같이 쓴다. `void ensureIndex()` — 앱 시작 때 한 번 / `void upsert(ProductUpsertedEvent e, String indexOrAlias)` — 문서 한 건 색인 |
+| `ElasticsearchTimeoutConfig` | `@Configuration`. ES 응답 대기에 타임아웃을 건다. 코드는 표 아래에 있다 |
+| `ProductIndexDefinition` | 인덱스를 만들 때 쓰는 설정·매핑 JSON(`src/main/resources/search/products-index.json`)을 읽어 준다. `ensureIndex`와 SUB-7 재색인이 같은 JSON을 쓰므로 한 곳에 둔다. JSON 내용은 아래 표다. JSON 내용을 돌려주는 메서드 하나(이름은 구현이 정한다). `search.infrastructure`에 둔다 |
+| `ProductIndexer` | `@Component`. 상품 문서를 ES에 쓰는 유일한 곳. consumer가 쓰고, SUB-7 재색인도 같이 쓴다. `synchronized void ensureIndex()` — 인덱스 준비 / `void upsert(ProductUpsertedEvent e, String indexOrAlias)` — 문서 한 건 색인 / `@EventListener(ApplicationReadyEvent.class)` 메서드 — 앱 시작 때 `ensureIndex`를 부르고, 실패하면 `log.warn`만 남긴다. 준비가 끝났는지를 `volatile boolean` 필드에 둔다 |
 | `ProductEventConsumer` | consumer `search.product-upserted`. `product-upserted` 이벤트를 받아 `indexer.upsert`를 부른다. `void onProductUpserted(String message)` |
 
-**분석기가 두 개인 이유**: `name.autocomplete`는 **색인할 때만** 앞부분 조각(edge_ngram)을 만들고, 검색어는 `standard`로만 쪼갠다. 검색어까지 조각내면 "루틴"이 "루"·"루틴"으로 쪼개져 "루"로 시작하는 모든 문서가 걸린다.
+`ElasticsearchTimeoutConfig`는 다음과 같다.
+
+```java
+@Configuration
+public class ElasticsearchTimeoutConfig {
+
+    @Bean
+    public Rest5ClientBuilderCustomizer rest5ClientBuilderCustomizer(
+            @Value("${spring.elasticsearch.socket-timeout}") Duration timeout) {
+        return new Rest5ClientBuilderCustomizer() {
+            @Override
+            public void customize(Rest5ClientBuilder builder) {
+            }
+
+            @Override
+            public void customize(RequestConfig.Builder builder) {
+                builder.setResponseTimeout(Timeout.of(timeout));
+                builder.setConnectionRequestTimeout(Timeout.of(timeout));
+            }
+        };
+    }
+}
+```
+
+| 타입 | 패키지 |
+|---|---|
+| `Rest5ClientBuilderCustomizer` | `org.springframework.boot.elasticsearch.autoconfigure` |
+| `Rest5ClientBuilder` | `co.elastic.clients.transport.rest5_client.low_level` |
+| `RequestConfig` | `org.apache.hc.client5.http.config` |
+| `Timeout` | `org.apache.hc.core5.util` |
+
+- **왜 필요한가**: Boot의 `socket-timeout`은 연결 설정에만 들어가서, ES 컨테이너를 멈추면 `client.search`가 9분이 넘도록 돌아오지 않았다. 요청 설정의 `responseTimeout`을 따로 넣어야 2초에 `SocketTimeoutException`이 난다. `connectionRequestTimeout`은 연결 풀이 빌 때까지 기다리는 시간이다. 이 설정으로 ES를 멈추고 동시 30건을 보내면 모두 약 2초에 끝났다.
+- **왜 익명 클래스인가**: 인터페이스의 추상 메서드는 `customize(Rest5ClientBuilder)`이고, 필요한 것은 기본 메서드 `customize(RequestConfig.Builder)`다. 람다는 추상 메서드만 구현하므로 익명 클래스로 만들고 추상 메서드는 비워 둔다.
+- **`setRequestConfigCallback`을 쓰지 않는 이유**: Boot가 이미 이 콜백으로 모든 customizer의 `customize(RequestConfig.Builder)`를 부르는데, 호출하면 그 콜백을 덮어쓴다.
+
+`src/main/resources/search/products-index.json`은 다음과 같다.
+
+```json
+{
+  "settings": {
+    "analysis": {
+      "char_filter": {
+        "remove_whitespace": {
+          "type": "pattern_replace",
+          "pattern": "\\s+",
+          "replacement": ""
+        }
+      },
+      "filter": {
+        "product_part_of_speech": {
+          "type": "nori_part_of_speech",
+          "stoptags": [
+            "EP", "EF", "EC", "ETN", "ETM",
+            "JKS", "JKC", "JKG", "JKO", "JKB", "JKV", "JKQ", "JX", "JC",
+            "MAJ", "MM",
+            "SP", "SSC", "SSO", "SC", "SE",
+            "XPN", "XSA", "XSN", "XSV",
+            "UNA", "NA", "VSV"
+          ]
+        }
+      },
+      "tokenizer": {
+        "korean_tokenizer": {
+          "type": "nori_tokenizer",
+          "decompound_mode": "mixed"
+        },
+        "autocomplete_tokenizer": {
+          "type": "edge_ngram",
+          "min_gram": 2,
+          "max_gram": 20
+        }
+      },
+      "analyzer": {
+        "korean": {
+          "type": "custom",
+          "tokenizer": "korean_tokenizer",
+          "filter": ["product_part_of_speech", "lowercase"]
+        },
+        "autocomplete": {
+          "type": "custom",
+          "char_filter": ["remove_whitespace"],
+          "tokenizer": "autocomplete_tokenizer",
+          "filter": ["lowercase"]
+        },
+        "autocomplete_search": {
+          "type": "custom",
+          "char_filter": ["remove_whitespace"],
+          "tokenizer": "keyword",
+          "filter": ["lowercase"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "productId": { "type": "keyword" },
+      "shopId": { "type": "keyword" },
+      "name": {
+        "type": "text",
+        "analyzer": "korean",
+        "fields": {
+          "keyword": { "type": "keyword" },
+          "autocomplete": {
+            "type": "text",
+            "analyzer": "autocomplete",
+            "search_analyzer": "autocomplete_search"
+          }
+        }
+      },
+      "description": { "type": "text", "analyzer": "korean" },
+      "category": { "type": "keyword" },
+      "price": { "type": "long" },
+      "status": { "type": "keyword" }
+    }
+  }
+}
+```
+
+| 구분 | 이름 | 뜻 |
+|---|---|---|
+| char_filter | `remove_whitespace` | 분석 전에 공백을 모두 지운다. 자동완성의 두 분석기가 함께 써서 상품명과 검색어의 띄어쓰기가 달라도 맞는다 |
+| filter | `product_part_of_speech` | `stoptags`에 적은 품사를 버린다. 어미(`E…`)·조사(`J…`)·접사(`X…`)·기호(`S…`) 등 기본값에서 `IC`와 `MAG`만 뺀 목록이다. `E`나 `J` 같은 축약 태그를 쓰면 인덱스 생성이 400으로 실패한다 |
+| tokenizer | `korean_tokenizer` | nori. `decompound_mode: mixed`는 복합명사의 원형과 조각을 모두 색인한다 |
+| tokenizer | `autocomplete_tokenizer` | 앞부분 조각을 2~20자로 만든다. 자동완성이 2자 이상일 때만이라 한 글자 조각은 만들지 않는다. 공백을 지운 뒤에 자르므로 20자에 공백은 세지 않는다 |
+| analyzer | `korean` | `product_part_of_speech`로 조사 등을 빼고 소문자로 바꾼다 |
+| analyzer | `autocomplete` | 색인할 때 쓴다. `루틴 비타` → `루틴`, `루틴비`, `루틴비타` |
+| analyzer | `autocomplete_search` | 검색할 때 쓴다. 공백을 지우고 `keyword`로 나누지 않으므로 ` 루틴 비타 ` → `루틴비타` |
+| 필드 | `name` | `text`라 잘라서 색인한다. `fields`의 `name.keyword`와 `name.autocomplete`는 같은 값을 다른 방식으로 한 번 더 색인한 하위 필드이고, 문서에 따로 넣지 않는다. `name.keyword`는 이름을 통째로 저장해 자동완성의 `collapse`와 정렬이 쓴다 |
+| 필드 | `productId`, `shopId`, `category`, `status` | `keyword`라 통째로 저장한다. 정확히 일치 비교와 정렬에 쓴다 |
+
+**자동완성 분석기가 두 개인 이유**: `autocomplete`는 **색인할 때** 상품명 전체의 앞부분 조각을 만든다. `루틴 비타민`은 `루틴`, `루틴비`, `루틴비타`, `루틴비타민`이 된다. 검색어는 `autocomplete_search`로 나누지 않고 한 덩어리로 찾는다. 검색어까지 조각내면 `루틴 비타`가 `루틴`, `루틴비`, `루틴비타`로 쪼개져 `루틴 마스크팩`처럼 `루틴`으로 시작하는 문서가 모두 걸린다. `standard`로 공백에서 나누면 `루틴 비타`가 `루틴`, `비타`로 갈라져 `비타민 루틴`과 `루틴 마스크팩`까지 걸린다.
 
 `ensureIndex()` 순서
-1. alias `products`가 있는지 확인한다(`HEAD`/`GET _alias/products`). 있으면 끝
-2. 없으면 `products-{yyyyMMddHHmmss}`(현재 시각, `Clock` 기준) 인덱스를 `ProductIndexDefinition`의 JSON으로 만들고 alias `products`를 연결한다
-- 존재하지 않는 alias 이름으로 문서를 쓰면 ES가 `products`라는 **일반 인덱스를 자동 생성**해 버려 alias를 만들 수 없게 된다(ES 기본 설정 기준, 확인 필요). `ensureIndex`가 먼저 끝나야 한다.
-- 앱이 뜰 때 ES가 내려가 있으면 `ensureIndex`가 예외를 던진다. 이때 앱 기동을 막을지 경고만 남기고 넘어갈지는 문서에 정해져 있지 않다(확인 필요). "ES가 죽어도 검색만 실패한다"는 목표와 맞추려면 기동은 막지 않는 쪽이다.
+1. 준비가 끝났다는 필드가 true면 끝. 아니면 alias `products`가 있는지 확인한다. 있으면 필드를 true로 두고 끝
+2. 없으면 `products-{yyyyMMddHHmmss}`(현재 시각, `Clock` 기준) 인덱스를 `ProductIndexDefinition`의 JSON으로 만들고 alias `products`를 연결한 뒤 필드를 true로 둔다
+- 존재하지 않는 alias 이름으로 문서를 쓰면 ES가 `products`라는 **일반 인덱스를 자동 생성**하고, 그 뒤로는 같은 이름의 alias를 만들지 못한다(`invalid_alias_name_exception`). 그래서 문서를 쓰기 전에 항상 준비를 끝낸다. 시작 이벤트(`ApplicationReadyEvent`) 때는 Kafka 리스너가 이미 돌고 있어 consumer가 먼저 도착할 수 있고, 앱이 뜰 때 ES가 꺼져 있었을 수도 있다.
+- `synchronized`인 이유: 시작 이벤트와 consumer가 동시에 들어와 인덱스를 둘 만들면 alias 하나가 두 인덱스를 가리켜 쓰기가 실패한다. 앱 인스턴스 하나를 기준으로 한다.
+- 앱이 뜰 때 ES가 꺼져 있으면 경고만 남기고 앱은 뜬다. 이때 검색은 503이고, ES가 돌아온 뒤 첫 상품 이벤트가 인덱스를 만든다. ES에 이미 인덱스가 있었다면 ES가 돌아오는 즉시 검색이 된다.
+- 앱이 도는 중에 ES 데이터가 통째로 사라지면 준비 필드가 true라 일반 인덱스가 자동 생성된다. 이 경우 그 인덱스를 지우고 앱을 다시 시작한다.
 
 `upsert(e, indexOrAlias)` 순서
-1. 문서 본문: 매핑의 필드 이름 그대로 `productId`, `shopId`, `name`, `description`, `category`, `price`, `status`(문자열 그대로, 예 `ON_SALE`). `subscribable`·`version`은 문서 필드로 넣지 않는다
-2. 문서 id = `e.productId().toString()`. 요청에 **`version = e.version()`, `versionType = EXTERNAL`**을 붙인다(REST로는 `PUT {indexOrAlias}/_doc/{id}?version={n}&version_type=external`). ES는 저장된 버전이 **같거나 더 크면** 쓰기를 거부(409 `version_conflict_engine_exception`)하므로 순서가 뒤바뀐 이벤트·같은 이벤트의 중복이 문서를 덮어쓰지 못한다
-3. 409는 "이미 같거나 더 최신"이므로 `log.debug` 후 정상 반환한다. 그 밖의 ES 오류·타임아웃은 그대로 던진다
+1. `ensureIndex()`를 부른다. 실패하면 예외가 그대로 나가 재시도된다
+2. 문서 본문: 매핑의 필드 이름 그대로 `productId`, `shopId`, `name`, `description`, `category`, `price`, `status`(문자열 그대로, 예 `ON_SALE`). `subscribable`·`version`은 문서 필드로 넣지 않는다
+3. 문서 id = `e.productId().toString()`. 요청에 **`version = e.version()`, `versionType = EXTERNAL`**을 붙인다(REST로는 `PUT {indexOrAlias}/_doc/{id}?version={n}&version_type=external`). 등록 이벤트의 첫 버전 0도 받는다. ES는 저장된 버전이 **같거나 더 크면** 쓰기를 거부(409 `version_conflict_engine_exception`)하므로 순서가 뒤바뀐 이벤트·같은 이벤트의 중복이 문서를 덮어쓰지 못한다
+4. 409는 "이미 같거나 더 최신"이므로 `log.debug` 후 정상 반환한다. 그 밖의 ES 오류·타임아웃은 그대로 던진다
 - `IOException` 같은 검사 예외는 `RuntimeException`으로 감싸 던진다. `BusinessException`으로 감싸지 않는다(규칙 X의 consumer 모양).
 
 `ProductEventConsumer.onProductUpserted(String message)` 순서
@@ -512,7 +914,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 - `inboxGuard.runOnce`를 쓰지 않는다. ES 쓰기 자체가 external version으로 멱등이고, `runOnce`는 DB 트랜잭션이라 그 안에서 ES를 부르면 안 되기 때문이다(규칙 X).
 
 - `product-discontinued`는 따로 구독하지 않는다. 단종도 `product-upserted`(status DISCONTINUED)가 함께 발행되기 때문이다(3-3).
-- ES가 내려가 있으면 consumer가 실패 → 3번 재시도 → DLT. 복구 후 DLT 재처리 API(`POST /admin/api/dlt/{topic}/{partition}/{offset}/replay`, 6-3 — DLT 레코드 하나를 원래 토픽으로 다시 보낸다)로 재처리하거나 5-3 재색인으로 맞춘다.
+- ES가 내려가 있으면 consumer가 실패 → 3번 재시도 → DLT. 복구 후 DLT 재처리 API(`POST /admin/api/dlt/{topic}/{partition}/{offset}/replay`, 6-3 — DLT 레코드 하나를 원래 토픽으로 다시 보낸다)로 재처리한다.
 
 **4) product — 검색 결과 요약 조회**
 
@@ -534,13 +936,13 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 `search(q, category, cursor, size)` 순서
 1. `cursor`가 비어 있지 않으면 해석해 `search_after` 값 두 개(점수, `productId`)로 복원한다. 해석 실패는 400 `INVALID_REQUEST`다. 1-7의 `Cursor`는 `(createdAt, id)` 전용이라 쓸 수 없고, 여기서는 `[score, productId]` JSON 배열을 Base64 URL-safe(패딩 없음)로 감싼 값을 쓴다. **이 해석은 ES 호출을 감싸는 `try` 밖에서** 한다(안에서 하면 400이 503으로 바뀐다)
-2. 별칭 `products`에 검색 요청을 보낸다: `query.bool.must = multi_match(q, fields [name^3, description])`, `query.bool.filter = [term status = ON_SALE, (category가 있으면 term category)]`(filter라 점수에 영향이 없다), `sort = [_score desc, productId asc]`, `size = size + 1`, `_source = ["productId"]`, 커서가 있으면 `search_after`. 동점을 가르는 두 번째 정렬 키로 `_id`가 아니라 매핑의 `productId`(keyword)를 쓴다(`_id` 정렬은 기본으로 막혀 있다. 확인 필요)
+2. 별칭 `products`에 검색 요청을 보낸다: `query.bool.must = multi_match(q, fields [name^3, description])`, `query.bool.filter = [term status = ON_SALE, (category가 있으면 term category)]`(filter라 점수에 영향이 없다), `sort = [_score desc, productId asc]`, `size = size + 1`, `_source = ["productId"]`, 커서가 있으면 `search_after`. 동점을 가르는 두 번째 정렬 키로 `_id`가 아니라 매핑의 `productId`(keyword)를 쓴다(`_id` 정렬은 기본으로 막혀 있어 `illegal_argument_exception`이 난다)
 3. 받은 hit가 `size`보다 많으면 다음 페이지가 있다. `size`개만 남기고, **`size`번째 hit**의 `sort` 배열(`[score, productId]`)을 1번의 형식으로 감싸 `nextCursor`에 넣는다. 없으면 `null`
 4. 남긴 hit의 `_source.productId`를 모아 `productApi.getOnSaleSummaries(ids)`를 한 번 부른다. 결과를 hit 순서대로 놓아 `ProductSearchResult`로 바꾸고, 결과에 없는 ID(그사이 판매 중이 아니게 된 상품)는 뺀다. 3번의 `nextCursor`는 그대로 둔다
 5. `new CursorPage<>(items, nextCursor)`로 반환한다
-- ES 예외·타임아웃은 `BusinessException(SEARCH_UNAVAILABLE)`(503)로 바꾼다. 4번 `getOnSaleSummaries`는 ES 호출을 감싸는 `try` 밖에서 부른다(안에서 부르면 DB 오류가 503으로 바뀐다)
+- ES 예외·타임아웃(`catch (IOException | ElasticsearchException e)`)은 `BusinessException(SEARCH_UNAVAILABLE)`(503)로 바꾼다. 4번 `getOnSaleSummaries`는 ES 호출을 감싸는 `try` 밖에서 부른다(안에서 부르면 DB 오류가 503으로 바뀐다)
 
-`autocomplete(q)` 순서: `match` 쿼리(`name.autocomplete` 필드에 `q`) + `filter status = ON_SALE`, `size = 10`, `_source = ["name"]`을 `products`에 보내고, hit의 `_source.name`을 모아 `List<String>`으로 반환한다. 2자 미만은 컨트롤러 검증이 막으므로 서비스는 검사하지 않는다. 실패는 `search`와 같이 `SEARCH_UNAVAILABLE`.
+`autocomplete(q)` 순서: `match` 쿼리(`name.autocomplete` 필드에 `q`) + `filter status = ON_SALE`, `sort = [_score desc, name.keyword asc]`, `collapse = name.keyword`, `size = 10`, `_source = ["name"]`을 `products`에 보내고, hit의 `_source.name`을 모아 `List<String>`으로 반환한다. 2자 미만은 컨트롤러 검증이 막으므로 서비스는 검사하지 않는다. 실패는 `search`와 같이 `SEARCH_UNAVAILABLE`.
 
 **6) search.web**
 
@@ -563,22 +965,22 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `productSearchDocOf(UUID productId)` → `ProductSearchDoc` | ES REST `GET {es 주소}/products/_doc/{productId}`(alias로 읽는다)를 JDK `HttpClient`로 보내 응답 JSON에서 한 번에 읽는다(요청 코드는 테스트에 쓰지 않는다): `found`, `_version`(external version이 그대로 저장된다), `_source.name`·`.description`·`.category`·`.price`·`.status`. `ProductSearchDoc`은 `support/`의 record `(boolean found, Long version, String name, String description, String category, Long price, String status)`이고, 404면 `found` = `false`에 나머지는 `null`이다. ES 주소는 `IntegrationTestSupport.es.getHttpHostAddress()`다(`es`는 `protected static`이고 `TestFixtures`는 같은 `support` 패키지라 그대로 읽는다) | `ProductSearchTest` 10·11·12번, 5-3 `ReindexTest` 2·3번 |
+| `productSearchDocOf(UUID productId)` → `ProductSearchDoc` | ES REST `GET {es 주소}/products/_doc/{productId}`(alias로 읽는다)를 JDK `HttpClient`로 보내 응답 JSON에서 한 번에 읽는다(요청 코드는 테스트에 쓰지 않는다): `found`, `_version`(external version이 그대로 저장된다), `_source.name`·`.description`·`.category`·`.price`·`.status`. `ProductSearchDoc`은 `support/`의 record `(boolean found, Long version, String name, String description, String category, Long price, String status)`이고, 404면 `found` = `false`에 나머지는 `null`이다. ES 주소는 `IntegrationTestSupport.es.getHttpHostAddress()`다(`es`는 `protected static`이고 `TestFixtures`는 같은 `support` 패키지라 그대로 읽는다) | `ProductSearchTest` 10·11·12번 |
 
 이미 있는 헬퍼와 주입: `RegisterProductService`·`UpdateProductService`(주입), `outboxRelay.relayOnce()`(`int` 반환. `READY` outbox 행을 Kafka로 한 번 발행한다), `Eventually.await(Duration timeout, ThrowingRunnable assertion)`(단언을 100ms마다 다시 실행해 통과하면 끝나고, 시간이 다 되면 마지막 실패를 던진다), `ProductIndexer.upsert`(이 단계에서 만든다). `ProductUpsertedEvent` 필드 순서는 `(productId, shopId, name, description, category, price, status, subscribable, version)`(3-3)이다. 5·7번은 `AdjustStockService.adjust(memberId, shopId, productId, delta, reason)`(주입), `testFixtures.registerProductImage(memberId, shopId, productId)`(→ `ImageResult`, 저장소 업로드까지 한다), `testFixtures.hideProduct(productId)`(JDBC로 상태만 `HIDDEN`으로 바꾸고 이벤트를 내지 않는다), `StorageProperties`(주입, `publicBaseUrl()`)를 쓴다.
 헬퍼를 쓰는 방법은 다음과 같다.
 - 응답: `jsonPath`. 검색은 `$.items[i].id`·`.shopId`·`.name`·`.category`·`.price`·`.thumbnailUrl`·`.inStock`과 `$.nextCursor`(마지막 페이지는 `null`). 자동완성은 응답이 배열이라 `$.length()`와 `$[i]`. 에러 코드는 `$.code`.
 - 색인 반영 대기: `Eventually.await(Duration.ofSeconds(10), …)`로 검색 결과를 기다린다(기본 refresh 주기 1초로 충분하다. 못 기다리면 `POST /products/_refresh`). "안 나온다"는 확인은 Eventually로 기다린 뒤 한 번 더 확인한다.
 
-**ProductSearchTest 공통 규칙**: ES 문서는 테스트가 끝나도 지워지지 않으므로(DB 초기화 대상이 아니다) 케이스마다 아래에 굵게 적은 **검색어**를 따로 쓰고, 다른 케이스의 상품 이름은 "루틴"으로 시작하지 않게 한다. 검색 요청은 `GET /api/search/products?q=…`(Authorization 없이)이다.
+**ProductSearchTest 공통 규칙**: ES 문서는 테스트가 끝나도 지워지지 않으므로(DB 초기화 대상이 아니다) 케이스마다 아래에 굵게 적은 **검색어**를 따로 쓰고, 다른 케이스의 상품 이름은 "루틴"으로 시작하지 않게 한다. 검색어는 조각으로 나뉘어 OR로 맞으므로, 새 케이스의 이름·설명에 다른 케이스의 검색어 조각이 들어가면 그 문서가 걸려 `nextCursor`가 달라진다. 그래서 아래 검색어는 nori가 한 조각으로 두는 단어로 골랐다(`프로폴리스`는 `프로`·`폴리스`로 나뉘지만 다른 케이스에 두 조각이 없다). 검색 요청은 `GET /api/search/products?q=…`(Authorization 없이)이다.
 
-**준비 A**(`ProductSearchTest` 1·2·3·4·5·6·7·8·9·12번이 쓴다. 10·11번은 쓰지 않는다): 판매자 1명, 가게 1개. 상품은 이름·설명을 정해야 하므로 `TestFixtures.registerProduct`(이름이 `product`로 고정)가 아니라 테스트가 `RegisterProductService.register(sellerId, shopId, new RegisterProductCommand(이름, 설명, ProductCategory.X, 가격, 10, false))`로 만든다(반환값이 상품 ID). 등록 뒤 `outboxRelay.relayOnce()`로 이벤트를 흘린다.
+**준비 A**(`ProductSearchTest`에서 10·11번을 뺀 모든 케이스가 쓴다): 판매자 1명, 가게 1개. 상품은 이름·설명을 정해야 하므로 `TestFixtures.registerProduct`(이름이 `product`로 고정)가 아니라 테스트가 `RegisterProductService.register(sellerId, shopId, new RegisterProductCommand(이름, 설명, ProductCategory.X, 가격, 10, false))`로 만든다(반환값이 상품 ID). 등록 뒤 `outboxRelay.relayOnce()`로 이벤트를 흘린다.
 
 #### `search/application/ProductSearchTest` (MockMvc로 공개 API를 부른다)
 
-**1. 등록 → 검색됨** (검색어 **마그네슘**, **근육이완**) — 준비: 준비 A로 상품 `P` = 이름 `"마그네슘 데일리 정"`, 설명 `"수면용 근육이완 보충제"`, `HEALTH`, 15000원. 동작: `relayOnce()` → Eventually로 `q=마그네슘` 조회.
+**1. 등록 → 검색됨** (검색어 **마그네슘**, **수면**) — 준비: 준비 A로 상품 `P` = 이름 `"마그네슘 데일리 정"`, 설명 `"수면용 근육이완 보충제"`, `HEALTH`, 15000원. 동작: `relayOnce()` → Eventually로 `q=마그네슘` 조회.
 - 응답(andExpect): 상태 200, `$.items.length()` = 1, `$.items[0].id` = `P`, `.shopId` = 가게 ID, `.name` = `"마그네슘 데일리 정"`, `.category` = `HEALTH`, `.price` = 15000, `jsonPath("$.nextCursor").value(nullValue())`.
-- 위 `q=마그네슘`이 통과한 뒤 `q=근육이완` → 응답(andExpect): `$.items.length()` = 1, `$.items[0].id` = `P`.
+- 위 `q=마그네슘`이 통과한 뒤 `q=수면` → 응답(andExpect): `$.items.length()` = 1, `$.items[0].id` = `P`.
 
 **2. 관련도 정렬과 페이지** (검색어 **프로폴리스**)
 - 준비: 준비 A로 상품 `A` = 이름 `"프로폴리스 스프레이"`, 설명 `"목 건강 케어"` / 상품 `B` = 이름 `"목 케어 스프레이"`, 설명 `"프로폴리스 함유"`(둘 다 `HEALTH`, `ON_SALE`).
@@ -586,23 +988,23 @@ ON CONFLICT (product_id) DO UPDATE SET
 - `q=프로폴리스&size=1`(`.andReturn()`으로 받는다) — 응답(andExpect): `$.items.length()` = 1, `$.items[0].id` = `A`, `jsonPath("$.nextCursor").value(notNullValue())`.
 - 위 `size=1` 응답 본문(andReturn 후)에서 `JsonPath.read(본문, "$.nextCursor")`로 꺼낸 값을 `cursor=`로 넘겨 `q=프로폴리스&size=1` — 응답(andExpect): `$.items.length()` = 1, `$.items[0].id` = `B`, `jsonPath("$.nextCursor").value(nullValue())`.
 
-**3. 카테고리 필터** (검색어 **카테고리검증**) — 준비: 준비 A로 `X1` = 이름 `"카테고리검증 영양제"`, `HEALTH` / `X2` = 이름 `"카테고리검증 크림"`, `BEAUTY`(둘 다 `ON_SALE`).
-- `q=카테고리검증&category=HEALTH`(준비 A의 `relayOnce()` 뒤 Eventually(10초) 안에서 읽는다. 아래 두 조회는 이 조회가 통과한 뒤 읽는다) — 응답(andExpect): `$.items.length()` = 1, `$.items[0].id` = `X1`.
-- `q=카테고리검증`(`category` 생략) — 응답(andExpect): `$.items.length()` = 2, `$.items[*].id`가 `X1`·`X2`(`containsInAnyOrder`, 순서 무관).
-- `q=카테고리검증&category=FOOD` — 응답(andExpect): `jsonPath("$.items").value(hasSize(0))`.
+**3. 카테고리 필터** (검색어 **아로마**) — 준비: 준비 A로 `X1` = 이름 `"아로마 영양제"`, `HEALTH` / `X2` = 이름 `"아로마 크림"`, `BEAUTY`(둘 다 설명 `"향기 케어"`, `ON_SALE`).
+- `q=아로마&category=HEALTH`(준비 A의 `relayOnce()` 뒤 Eventually(10초) 안에서 읽는다. 아래 두 조회는 이 조회가 통과한 뒤 읽는다) — 응답(andExpect): `$.items.length()` = 1, `$.items[0].id` = `X1`.
+- `q=아로마`(`category` 생략) — 응답(andExpect): `$.items.length()` = 2, `$.items[*].id`가 `X1`·`X2`(`containsInAnyOrder`, 순서 무관).
+- `q=아로마&category=FOOD` — 응답(andExpect): `jsonPath("$.items").value(hasSize(0))`.
 
-**4. 동점은 `productId` 오름차순** (검색어 **동점검증**) — 준비: 준비 A로 이름 `"동점검증 세트"`, 설명 `"동일한 설명"`이 같은 상품 `C1`, `C2`. `lo`·`hi` = `Stream.of(C1.toString(), C2.toString()).sorted().toList()`의 첫째·둘째 원소.
-- `q=동점검증&size=1`(준비 A의 `relayOnce()` 뒤 Eventually(10초) 안에서 두 상품이 모두 색인될 때까지 기다린 뒤 `.andReturn()`으로 받는다) — 응답(andExpect): `$.items[0].id` = `lo`, `jsonPath("$.nextCursor").value(notNullValue())`.
+**4. 동점은 `productId` 오름차순** (검색어 **라벤더**) — 준비: 준비 A로 이름 `"라벤더 세트"`, 설명 `"동일한 설명"`이 같은 상품 `C1`, `C2`. `lo`·`hi` = `Stream.of(C1.toString(), C2.toString()).sorted().toList()`의 첫째·둘째 원소.
+- `q=라벤더&size=1`(준비 A의 `relayOnce()` 뒤 Eventually(10초) 안에서 두 상품이 모두 색인될 때까지 기다린 뒤 `.andReturn()`으로 받는다) — 응답(andExpect): `$.items[0].id` = `lo`, `jsonPath("$.nextCursor").value(notNullValue())`.
 - 그 응답 본문(andReturn 후)에서 `JsonPath.read(본문, "$.nextCursor")`로 꺼낸 값을 `cursor=`로 넘긴 다음 쪽 — 응답(andExpect): `$.items[0].id` = `hi`, `jsonPath("$.nextCursor").value(nullValue())`.
 
 **5. 사진과 품절은 이벤트 없이 상품 DB 값으로 나온다** (검색어 **콜라겐**) — 준비: 준비 A로 상품 `P` = 이름 `"콜라겐 파우더"`, 설명 `"피부 보습 보충제"`, `BEAUTY`, 30000원, 재고 10. `relayOnce()` → Eventually로 `q=콜라겐`이 1건이 될 때까지 기다린다. 동작: `image = testFixtures.registerProductImage(sellerId, shopId, P)` → `adjustStockService.adjust(sellerId, shopId, P, -10, "재고 정리")` → `relayOnce()` 없이 `q=콜라겐`(두 동작 모두 `product-upserted`를 내지 않는다).
 - 응답(andExpect): 상태 200, `$.items[0].id` = `P`, `$.items[0].thumbnailUrl` = `storageProperties.publicBaseUrl() + "/" + image.objectKey()`, `$.items[0].inStock` = false.
 
-**6. 숨김·단종은 검색에서 빠진다** (검색어 **오메가**) — 준비: 준비 A로 상품 `P` = 이름 `"오메가 쓰리 캡슐"`, 설명 `"혈행 개선 보충제"`, `HEALTH`, 22000원. 아래를 차례로 하고 매번 `relayOnce()` 후 Eventually로 `q=오메가`를 확인한다.
-- 등록 직후: 응답(andExpect): `$.items.length()` = 1.
-- `updateProductService.changeStatus(sellerId, shopId, P, ProductStatus.HIDDEN)` 후: 응답(andExpect): `jsonPath("$.items").value(hasSize(0))`.
-- `changeStatus(…, ON_SALE)` 후: 응답(andExpect): `$.items.length()` = 1, `$.items[0].id` = `P`.
-- `changeStatus(…, DISCONTINUED)` 후: 응답(andExpect): `jsonPath("$.items").value(hasSize(0))`.
+**6. 숨김·단종은 검색에서 빠진다** (검색어 **오메가**) — 준비: 준비 A로 상품 `P` = 이름 `"오메가 쓰리 캡슐"`, 상태를 바꾸지 않는 비교 상품 `Q` = 이름 `"오메가 듀얼 캡슐"`(둘 다 설명 `"혈행 개선 보충제"`, `HEALTH`, 22000원). 아래를 차례로 하고 매번 `relayOnce()` 후 Eventually로 `q=오메가&size=1`을 확인한다. `P`가 빠지는 것만 보면 DB 조회가 걸러 주어 이벤트 없이도 통과하므로 `nextCursor`를 함께 본다. `nextCursor`는 ES가 `status` 필터를 거쳐 돌려준 건수로 정해져, ES에 반영된 상태를 드러낸다. 점수 순서에 기대지 않도록 두 상품이 모두 나오는 단계에서는 `items[0].id`를 확인하지 않는다.
+- 등록 직후: 응답(andExpect): `$.items.length()` = 1, `jsonPath("$.nextCursor").value(notNullValue())`.
+- `updateProductService.changeStatus(sellerId, shopId, P, ProductStatus.HIDDEN)` 후: 응답(andExpect): `$.items.length()` = 1, `$.items[0].id` = `Q`, `jsonPath("$.nextCursor").value(nullValue())`.
+- `changeStatus(…, ON_SALE)` 후: 응답(andExpect): `$.items.length()` = 1, `jsonPath("$.nextCursor").value(notNullValue())`.
+- `changeStatus(…, DISCONTINUED)` 후: 응답(andExpect): `$.items.length()` = 1, `$.items[0].id` = `Q`, `jsonPath("$.nextCursor").value(nullValue())`.
 
 **7. DB에서 판매 중이 아닌 상품은 ES에 반영되기 전에도 빠진다** (검색어 **히알루론**) — 준비: 준비 A로 상품 `P1` = 이름 `"히알루론 앰플"`, `P2` = 이름 `"히알루론 크림"`(둘 다 설명 `"보습 케어"`, `BEAUTY`). `relayOnce()` → Eventually로 `q=히알루론`이 2건이 될 때까지 기다린다. 동작: `testFixtures.hideProduct(P1)` → `relayOnce()` 없이 `q=히알루론`.
 - 응답(andExpect): 상태 200, `$.items.length()` = 1, `$.items[0].id` = `P2`.
@@ -617,7 +1019,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 | D | `"루틴 오일"` | 등록 후 `changeStatus(…, HIDDEN)` |
 
 동작: `relayOnce()` → Eventually로 `GET /api/search/autocomplete?q=루틴`.
-- 응답(andExpect): 상태 200, 응답 본문 배열의 `$.length()` = 2, `$[0]`·`$[1]`이 `"루틴 비타민"`·`"루틴 마스크팩"`(순서 불문). `"비타민 루틴"`(C)과 `"루틴 오일"`(D)은 배열에 없다(`jsonPath("$", not(hasItem("비타민 루틴")))`, `"루틴 오일"`도 같은 식).
+- 응답(andExpect): 상태 200, `jsonPath("$[*]").value(containsInAnyOrder("루틴 비타민", "루틴 마스크팩"))`. 순서는 보지 않지만 요소가 더 있거나 모자라면 실패하므로, `"비타민 루틴"`(C)과 `"루틴 오일"`(D)이 없는 것까지 확인된다.
 
 **9. 자동완성은 최대 10개** (검색어 **젤리맛**) — 준비: 준비 A로 이름 `"젤리맛 01"` ~ `"젤리맛 12"`인 `ON_SALE` 상품 12개. 동작: `relayOnce()` → Eventually로 `GET /api/search/autocomplete?q=젤리맛`. 요청을 `.andReturn()`으로 받는다.
 - 응답(andExpect): 상태 200, 응답 본문 배열의 `$.length()` = 10.
@@ -637,6 +1039,22 @@ ON CONFLICT (product_id) DO UPDATE SET
 **12. 단종 상품의 ES 문서는 남는다** (검색어 없음) — 준비: 준비 A로 상품 `P` = 이름 `"단종문서 캡슐"`, 설명 `"혈행 개선 보충제"`, `HEALTH`, 22000원. 동작: `changeStatus(sellerId, shopId, P, ProductStatus.DISCONTINUED)` → `relayOnce()` → Eventually로 `productSearchDocOf(P).status()`가 `DISCONTINUED`가 될 때까지 기다린다.
 - ES(productSearchDocOf(P)): `found()` = true, `status()` = `DISCONTINUED`.
 
+**13. 복합어의 일부로 찾는다** (검색어 **미네랄**) — 준비: 준비 A로 상품 `P` = 이름 `"멀티미네랄 정"`, 설명 `"하루 한 알"`, `HEALTH`, 18000원. 동작: `relayOnce()` → Eventually로 `q=미네랄`.
+- 응답(andExpect): 상태 200, `$.items.length()` = 1, `$.items[0].id` = `P`.
+
+**14. 자동완성은 두 단어를 이어서 맞춘다** (검색어 **허브 티**) — 준비: 준비 A로 이름 `"허브 티백"`, `"허브 오일"`, `"티백 허브"`인 `ON_SALE` 상품 3개. 동작: `relayOnce()` → Eventually로 `GET /api/search/autocomplete?q=허브` 가 2건이 될 때까지 기다린 뒤 `GET /api/search/autocomplete?q=허브 티`.
+- 응답(andExpect): 상태 200, `$.length()` = 1, `$[0]` = `"허브 티백"`.
+
+**15. 자동완성은 이름이 같은 상품을 하나로 묶어 10개를 채운다** (검색어 **쿠키맛**) — 준비: 준비 A로 이름 `"쿠키맛"`인 `ON_SALE` 상품 12개와 이름 `"쿠키맛 09"`부터 `"쿠키맛 01"`까지 거꾸로 등록한 `ON_SALE` 상품 9개. 이름이 짧은 쪽의 점수가 높아, 묶지 않으면 `"쿠키맛"`이 상위 10건을 모두 차지한다. 차례로 등록하면 이름 정렬 없이도 통과하므로 거꾸로 등록한다. 동작: `relayOnce()` → Eventually로 `GET /api/search/autocomplete?q=쿠키맛`이 10건이 될 때까지 기다린다. 요청을 `.andReturn()`으로 받는다.
+- 응답(andExpect): 상태 200, 응답 본문 배열의 `$.length()` = 10.
+- 응답 본문(andReturn 후): `JsonPath.read(본문, "$")`로 꺼낸 `List<String>`이 `"쿠키맛"`, `"쿠키맛 01"`, … `"쿠키맛 09"`를 이 순서로 담는다(`containsExactly`).
+
+**16. 자동완성은 공백을 무시한다** (검색어 **캐모마일**) — 준비: 준비 A로 이름 `"캐모마일 차"`, `"캐모마일차 세트"`, `"캐모마일 오일"`인 `ON_SALE` 상품 3개. 동작: `relayOnce()` → Eventually로 `GET /api/search/autocomplete?q=캐모마일`이 3건이 될 때까지 기다린 뒤 `q=캐모마일차`와 `q=캐모마일 차`를 각각 조회한다.
+- 두 응답 모두(andExpect): 상태 200, `jsonPath("$[*]").value(containsInAnyOrder("캐모마일 차", "캐모마일차 세트"))`.
+
+**17. nori가 감탄사·부사로 판단한 이름도 찾는다** (검색어 **마스크팩**) — 준비: 준비 A로 상품 `P` = 이름 `"마스크팩 세트"`, 설명 `"보습 케어"`, `BEAUTY`, 12000원. 동작: `relayOnce()` → Eventually로 `q=마스크팩`. 8번의 `"루틴 마스크팩"` 문서도 ES에서 걸리므로 `nextCursor`는 확인하지 않는다. 그 문서의 상품은 DB에 없어 응답에서 빠진다.
+- 응답(andExpect): 상태 200, `$.items.length()` = 1, `$.items[0].id` = `P`.
+
 #### `search/web/SearchRequestTest` (추가)
 
 모두 `GET`, Authorization 없이.
@@ -651,11 +1069,23 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 #### `search/web/SearchUnavailableTest`
 
-**ES가 멈춰도 검색만 실패한다** — 준비: 판매자·가게·`registerProduct(sellerId, shopId)`로 상품 `P` 하나. 동작: `es.getDockerClient().pauseContainerCmd(es.getContainerId()).exec()`로 ES 컨테이너를 멈추고, `finally`에서 반드시 `unpauseContainerCmd`로 되돌린다. 아래 네 요청은 모두 ES가 멈춘 동안(`unpause` 전에) 보낸다.
+**ES가 멈춰도 검색만 실패한다** — 준비: 판매자·가게·`registerProduct(sellerId, shopId)`로 상품 `P` 하나. 동작: `es.getDockerClient().pauseContainerCmd(es.getContainerId()).exec()`로 ES 컨테이너를 멈추고, `finally`에서 반드시 `unpauseContainerCmd`로 되돌린다. 아래 다섯 확인은 모두 ES가 멈춘 동안(`unpause` 전에) 한다.
 - `GET /api/search/products?q=product` — 응답(andExpect): 상태 503, `$.code` = `SEARCH_UNAVAILABLE`. 반환값(Instant.now() 두 번의 차이): 요청 직전과 응답 직후에 재서 `Duration.between(직전, 직후)`가 10초보다 짧다.
 - `GET /api/search/autocomplete?q=pr` — 응답(andExpect): 상태 503, `$.code` = `SEARCH_UNAVAILABLE`.
 - `GET /api/products`(DB, Authorization 없이) — 응답(andExpect): 상태 200, `$.items.length()` = 1, `$.items[0].id` = `P`.
 - 상품 등록 `POST /api/shops/{shopId}/products`(판매자 토큰, 새 `Idempotency-Key`, 본문은 `RegisterProductRequest`) — 응답(andExpect): 상태 201.
+- 헬스 — 반환값(`HealthEndpoint` 주입, `org.springframework.boot.health.actuate.endpoint`): `healthEndpoint.health().getStatus()` = `Status.UP`.
+
+#### 수동 확인: ES가 꺼진 채 앱 기동
+
+`@EventListener`가 이미 끝난 테스트 컨텍스트에서는 준비 필드를 되돌릴 수 없어 로컬에서 한 번 확인한다. 로컬 ES에 인덱스가 없는 상태로 시작한다(`docker compose -f docker/docker-compose.yml down elasticsearch` 뒤 `docker volume rm myroutine_elasticsearch_data`).
+
+| 동작 | 확인 |
+|---|---|
+| ES를 띄우지 않고 앱 기동 | 로그: `ensureIndex` 실패의 `WARN` 한 줄, 앱은 뜬다 |
+| `curl -s -o /dev/null -w '%{http_code}' localhost:8080/api/products` | 명령 출력: `200` |
+| `curl -s -o /dev/null -w '%{http_code}' 'localhost:8080/api/search/products?q=x'` | 명령 출력: `503` |
+| `docker compose -f docker/docker-compose.yml up -d --wait elasticsearch` 뒤 상품 하나 등록 | 몇 초 안에 `curl -s localhost:9200/_alias/products`가 `products-{14자리 숫자}` 키를 돌려준다 |
 
 **리뷰 때 물어볼 것**
 - 검색 결과와 DB가 잠시 다를 수 있는데 괜찮은가?
@@ -663,124 +1093,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 
 ---
 
-## 5-3. (선택) 무중단 재색인 (S)
-
-> 이 단계는 **선택**이다. 하지 않으면 재색인이 필요할 때 인덱스를 지우고 다시 만들며(그동안 검색 결과가 비어 있음), 그 한계를 회고에 적는다.
-
-**목표**: 전체 재색인 중에도 검색이 멈추지 않는다(As-Is SUP-04).
-
-**새로 등장**: 이중 쓰기 — 재색인하는 동안 consumer가 기존 인덱스(alias)와 새 인덱스 **둘 다**에 쓴다. 전체 적재와 실시간 변경이 겹쳐도 external version 덕분에 최신 버전만 남는다.
-
-**정책**: 재색인은 한 번에 하나(잡 락 이름 `search-reindex`). 재색인 대상 인덱스 이름은 Redis `search:reindex-target`(TTL 2시간)에 둔다.
-
-### 할 일
-
-**구현 순서**: 절 번호 순서대로 만든다. 1\~2) 상품 keyset 쿼리(`product.domain` → `product.infrastructure`) → 3\~4) `ProductApi.findForIndexing`(`product.api` → `product.application`) → 5) `search.infrastructure`(ES 쓰기 작업 → consumer 이중 쓰기 → 실행기 빈) → 6) `ReindexService.reindex()` → 7) 관리자 API → 테스트.
-
-**1) product.domain**
-
-| 클래스 | 규격 |
-|---|---|
-| `ProductRepository` | 상품 keyset 쿼리를 추가한다. 상태를 가리지 않는다(단종·숨김 문서도 인덱스에 두고 `status`로 걸러내는 정책, 5-2). 비교는 DB가 하므로 자바 `UUID` 정렬과 달라도 문제없다. 기존 `findPublicFirstPage`·`findPublicNextPage`처럼 첫 페이지와 다음 페이지 쿼리 둘로 나눠 `afterId`에 `null`을 넘기지 않는다. `List<Product> findAllFirstPage(Limit limit)`(`ORDER BY id`) / `List<Product> findAllNextPage(UUID afterId, Limit limit)`(`WHERE id > :afterId ORDER BY id`). `ProductApiImpl.findForIndexing`이 쓴다 |
-
-**2) product.infrastructure**
-
-| 클래스 | 규격 |
-|---|---|
-| `JpaProductRepository` | 위 keyset 쿼리의 Jpa 구현(JPQL, `Limit`) |
-
-**3) product.api**
-
-| 클래스 | 규격 |
-|---|---|
-| `ProductApi` | `List<ProductUpsertedEvent> findForIndexing(UUID afterId, int limit)` — 재색인이 상품 전체를 한 번에 읽지 않고 `limit`개씩 읽어 가는 keyset 조회다. 반환 타입은 `product-upserted` 이벤트 record(3-3)이고 현재 상품 상태에서 `ProductEventPublisher.upserted`와 같은 조립 코드로 채운다(`version`은 DB의 `product.version`). 조립 코드는 `ProductEventPublisher`에서 `ProductUpsertedEvent upsertedEventOf(Product)` 메서드로 빼서 `upserted`와 `ProductApiImpl`이 함께 쓴다(둘 다 `product.application`). 이벤트와 같은 필드의 별도 record를 두면 `ProductIndexer.upsert`에 넘길 때마다 변환해야 해서 새로 만들지 않는다. 다음 호출의 `afterId`는 받은 목록의 **마지막 `productId`**, 받은 개수가 `limit`보다 적으면 끝이다. `search` → `product::api` 의존(공통 규칙 Y). `ReindexService`가 쓴다 |
-
-**4) product.application**
-
-| 클래스 | 메서드 |
-|---|---|
-| `ProductApiImpl` | `@Transactional(readOnly = true) List<ProductUpsertedEvent> findForIndexing(UUID afterId, int limit)` — `ProductApi` 구현. `afterId`가 `null`이면 `findAllFirstPage(Limit.of(limit))`, 아니면 `findAllNextPage(afterId, Limit.of(limit))`를 부르고 각 상품을 `upsertedEventOf`로 바꾼다 |
-
-**5) search.infrastructure**
-
-| 클래스 | 규격 |
-|---|---|
-| ES 쓰기 작업 | 새 인덱스 생성(`ProductIndexDefinition`의 JSON), bulk 색인(문서마다 external version), alias `products` 원자 교체(`_aliases` 한 요청), 새 인덱스 `refresh`, 인덱스 삭제, alias가 가리키는 현재 인덱스 이름 조회. `ProductIndexer`가 "상품 문서를 ES에 쓰는 유일한 곳"이므로 모두 `ProductIndexer`에 메서드로 더한다(메서드 이름은 구현이 정한다). `ReindexService`가 쓴다 |
-| `ProductEventConsumer` (5-2 수정) | 재색인 중 이중 쓰기: 5-2 consumer 순서 2번의 `indexer.upsert(typed.payload(), "products")` 뒤에, `StringRedisTemplate`로 Redis `search:reindex-target`을 읽어 값이 있으면 같은 문서를 `indexer.upsert(payload, target)`으로 그 인덱스에도 쓴다. 두 쓰기 사이에 실패해 같은 메시지가 다시 와도 이미 쓴 쪽은 409로 무시되고 못 쓴 쪽만 반영된다. Redis 의존성을 consumer에 더한다 |
-| 실행기 빈 | `Executors.newSingleThreadExecutor()` 빈(`@Async` 대신. MDC traceId는 `JobRunner`가 새로 만든다). 클래스 이름은 문서에 없다 |
-
-**6) search.application**
-
-| 클래스 | 메서드 |
-|---|---|
-| `ReindexService` | `int reindex()` — `@Transactional` 없음 |
-
-`ReindexService.reindex()` — **누가 부르나**: 아래 `search.web` 절의 API가 `JobRunner`로 부른다. `JobRunner.run`은 `Supplier<Integer>`를 받으므로 `reindex()`는 색인한 문서 수(`int`)를 반환한다.
-1. `newIndex = "products-" + 시각` 인덱스를 `ProductIndexDefinition`의 JSON으로 만든다(`ensureIndex`와 같은 매핑). alias는 아직 붙이지 않는다
-2. Redis `SET search:reindex-target newIndex EX 7200`(`StringRedisTemplate`의 `opsForValue().set(키, 값, Duration.ofHours(2))`) → 이 순간부터 5-2의 consumer가 새 인덱스에도 쓴다(위 `search.infrastructure` 절의 consumer 이중 쓰기). 적재 중에 들어온 변경이 새 인덱스에서 빠지지 않게 하려는 것이다
-3. `afterId = null`부터 `productApi.findForIndexing(afterId, 1_000)`을 반복해 bulk 색인한다. 문서마다 `version`을 external version으로 붙인다(실시간 변경이 이미 더 큰 버전을 썼다면 적재 쪽이 409로 거절된다). **bulk 요청은 HTTP 200이어도 항목별로 실패할 수 있다**: 응답의 항목 상태를 보고 409는 무시, 그 밖의 오류가 하나라도 있으면 재색인 실패로 본다
-4. alias `products`를 원자적으로 교체한다. `_aliases` 한 요청에 `remove`(옛 인덱스)와 `add`(새 인덱스)를 같이 담는다(두 요청으로 나누면 그 사이에 alias가 비는 순간이 생긴다). 옛 인덱스 이름은 교체 전에 alias `products`가 가리키는 인덱스를 조회해 얻는다. 교체 전에 새 인덱스를 `refresh`하지 않으면 마지막 몇 건이 최대 1초 동안 검색에 보이지 않을 수 있다(기본 refresh 주기 기준. 문서 규격에 없는 단계라 구현 때 판단, 확인 필요)
-5. Redis 키 삭제 → 이전 인덱스 삭제
-6. 실패하면 Redis 키 삭제, 새 인덱스 삭제, alias는 그대로(검색 영향 없음). `JobRunner`는 예외를 로그만 남기고 삼키므로(2-5) 이 정리는 `reindex()` 안의 `try/catch`가 직접 한다
-
-**7) search.web**
-
-| 클래스 | 규격 |
-|---|---|
-| 관리자 컨트롤러 | 클래스 이름은 문서에 없다. `POST /admin/api/search/reindex`(ADMIN) → 202. 컨트롤러는 `executor.submit(() -> jobRunner.run("search-reindex", reindexService::reindex))`만 하고 바로 202를 돌려준다. 이미 다른 재색인이 돌고 있으면 `JobRunner`가 락을 못 잡아 건너뛰며 API는 그래도 202다(재색인 시작 여부를 응답으로 알 수 없다) |
-
-### 완료 확인
-
-**테스트 준비**
-
-아래 테스트를 쓰기 전에 만든다. 이 단계에서 추가하는 헬퍼는 다음과 같다(`support/TestFixtures`. 이름·인자는 권장안이라 쓰다 바꿔도 된다).
-
-| 메서드 | 만드는 방법 | 쓰는 곳 |
-|---|---|---|
-| `searchIndexStateOf()` → `SearchIndexState` | 한 번 호출로 읽는다(요청 코드는 테스트에 쓰지 않는다). 읽는 곳 4개: ES `GET /_alias/products`(응답 JSON의 **키**들 → `aliasTargets` = alias `products`가 가리키는 인덱스 이름들, alias가 없어 404면 빈 목록), ES `GET /_cat/indices/products-*?format=json`(각 항목의 `index` → `indexNames` = `products-*` 인덱스 전부), ES `GET /products/_count`(`count` → `docCount` = alias로 센 문서 수, alias가 없으면 0), Redis `StringRedisTemplate.opsForValue().get("search:reindex-target")`(`reindexTarget`, 키가 없으면 `null`). `SearchIndexState`는 `support/`의 record `(List<String> aliasTargets, List<String> indexNames, long docCount, String reindexTarget)`. ES 요청은 JDK `HttpClient`로 보내고 주소는 `es.getHttpHostAddress()`다(5-2 `productSearchDocOf`와 같다) | `ReindexTest` 2·3·4·5번 |
-
-이미 있는 헬퍼: 5-2 `productSearchDocOf`, `String adminToken(String email)`(4-4. `signup(email)` → `changeRole(memberId, "ADMIN")` → `login(email)`로 ADMIN 토큰을 돌려준다), `Eventually.await(Duration timeout, ThrowingRunnable assertion)`(통과할 때까지 100ms마다 단언을 다시 실행).
-
-헬퍼를 쓰는 방법은 다음과 같다.
-- DB: `jdbcTemplate.queryForObject("SELECT version FROM product.product WHERE id = ?", Long.class, id)`(이 한 곳뿐이라 헬퍼 없이 쓴다).
-- 검색: `GET /api/search/products?q=재색인상품&size=1`(Authorization 없이).
-
-**준비 A**(5번을 뺀 모든 케이스가 쓴다): 판매자 1명, 가게 1개. `RegisterProductService.register`로 상품 1,000개를 만든다: 이름 `"재색인상품 " + i`(i = 1~1000), 설명 `"재색인 검증용 상품"`, `ETC`, 1000원, 재고 1. 첫 상품을 `P1`이라 부른다. 옛 인덱스를 채운다: `productApi.findForIndexing(null, 1_000)`로 받은 이벤트 1,000건을 `productIndexer.upsert(e, "products")`로 색인하고 `POST /products/_refresh`. `oldIndex` = `searchIndexStateOf().aliasTargets().get(0)`(원소가 하나뿐이다). 재색인은 `reindexService.reindex()`를 별도 스레드(`ExecutorService`)에서 부르고 `Future`로 결과를 받는다(반환값 = 색인한 문서 수 1000).
-
-#### `search/application/ReindexTest`
-
-**1. 재색인 도중에도 검색이 끊기지 않는다** — 동작: 스레드 A가 `reindex()`를 시작한다. 시작 직후부터 A가 끝날 때까지 스레드 B가 검색 요청을 10ms 간격으로 연달아 보내며(`.andReturn()`으로 받는다) 응답마다 상태 코드와 본문의 `$.items.length()`를 기록한다.
-- 응답 본문(andReturn 후): B가 기록한 모든 응답의 상태가 200.
-- 응답 본문(andReturn 후): B가 기록한 모든 응답에서 `JsonPath.read(본문, "$.items.length()")` = 1.
-- 반환값(B 스레드 기록 목록): 응답 목록의 `size()` ≥ 5.
-
-**2. 재색인 도중 수정한 상품은 새 인덱스에 수정 내용으로 남는다** — 동작: ① 스레드 A가 `reindex()`를 시작한다. ② 테스트 스레드가 `Eventually.await(Duration.ofSeconds(5), …)`로 `searchIndexStateOf().reindexTarget()`이 `isNotNull()`일 때까지 기다린다. ③ 값이 보이는 즉시 `updateProductService.update(sellerId, shopId, P1, new UpdateProductCommand("재색인상품 수정됨", null, null, null, null))` → `outboxRelay.relayOnce()`. ④ A가 끝날 때까지 기다린다.
-- Redis(searchIndexStateOf().reindexTarget()): ②에서 5초 안에 값이 생긴다.
-- 반환값(A의 Future.isDone()): ③ 시점에 false다.
-- DB(JDBC): ③의 `update` 뒤(④ 전)에 위 쿼리로 `P1`의 `version`을 읽어 둔다(다음 확인의 기준 값).
-- ES(productSearchDocOf(P1)): ④에서 A가 끝난 뒤 Eventually(10초)로 `name()` = `"재색인상품 수정됨"`, `version()` = 위 DB 값.
-
-**3. 재색인이 끝나면 alias가 새 인덱스를 가리키고 정리된다** — 동작: 준비 A 뒤 `reindex()`를 호출하고 끝나기를 기다린다.
-- 반환값: `reindex()` = 1000.
-- ES(searchIndexStateOf()): `aliasTargets()`가 정확히 1개이고 그 이름이 `oldIndex`와 다르며 `products-\d{14}` 모양 / `indexNames()`에 `oldIndex`가 없다(`doesNotContain(oldIndex)`) / `docCount()` = 1000.
-- Redis(searchIndexStateOf().reindexTarget()): `null`(`isNull()`).
-- ES(productSearchDocOf(P1)): `found()` = true.
-
-**4. 재색인이 실패하면 아무것도 바뀌지 않는다** (추가) — 준비: 준비 A + `@MockitoSpyBean ProductApi`에 `doThrow(new RuntimeException("test")).when(productApi).findForIndexing(any(), anyInt())`. 동작: `reindex()`를 `try/catch`로 감싸 호출한다(밖으로 예외가 나오는지는 문서에 없다. 확인 필요).
-- ES(searchIndexStateOf(), `reindex()` 호출이 끝난 직후): `aliasTargets()` = [`oldIndex`] 그대로 / `indexNames()` = [`oldIndex`].
-- Redis(searchIndexStateOf().reindexTarget(), `reindex()` 호출이 끝난 직후): `null`(`isNull()`).
-- 응답(andExpect): `reindex()` 호출이 끝난 뒤 검색 `q=재색인상품&size=1` 상태 200, `$.items.length()` = 1.
-
-**5. 재색인 API 권한** (추가) — 준비: 준비 A는 쓰지 않고 판매자 1명·가게 1개에 상품 1개만 등록한다. 일반 회원 토큰(`token("user@test.com")`), ADMIN 토큰(`adminToken("admin@test.com")`, 4-4). ADMIN 호출 전 `searchIndexStateOf().aliasTargets()`를 `before`로 적어 둔다. 동작: `POST /admin/api/search/reindex`.
-- ADMIN 토큰 — 응답(andExpect): 상태 202. ES(searchIndexStateOf().aliasTargets()): 응답 뒤 `Eventually.await(Duration.ofSeconds(30), …)`로 `before`와 달라질 때까지 기다린 뒤 끝낸다.
-- 일반 회원 토큰 — 응답(andExpect): 상태 403, `$.code` = `FORBIDDEN`.
-- 토큰 없음 — 응답(andExpect): 상태 401, `$.code` = `UNAUTHORIZED`.
-
-**리뷰 때 물어볼 것**: alias 없이 같은 인덱스를 지우고 다시 만들면 무엇이 문제인가?
-
----
-
-## 5-4. 1:1 문의 (S)
+## 5-3. 1:1 문의 (S)
 
 **목표**: 회원 문의, 관리자 답변.
 
@@ -854,7 +1167,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 이미 있는 헬퍼: `signup`, `login`, `void changeRole(UUID memberId, String role)`(JDBC로 `member.member.role`을 바꾼다).
 
 헬퍼를 쓰는 방법은 다음과 같다.
-- 응답: `jsonPath`. 에러 코드는 `$.code`, 목록은 `$.items.length()`·`$.items[i].…`·`$.nextCursor`. 항목 필드는 5-4 `member.application` 절의 `InquiryResult`·`InquiryDetailResult`·`AdminInquiryResult`와 같다(본인 목록 `id`·`title`·`status`·`createdAt`·`answeredAt`, 상세는 `content`와 `answer.content`·`answer.createdAt`, 관리자 목록은 `memberId`·`memberEmail`·`memberNickname`·`content`·`answer.adminId`·`answer.content`).
+- 응답: `jsonPath`. 에러 코드는 `$.code`, 목록은 `$.items.length()`·`$.items[i].…`·`$.nextCursor`. 항목 필드는 5-3 `member.application` 절의 `InquiryResult`·`InquiryDetailResult`·`AdminInquiryResult`와 같다(본인 목록 `id`·`title`·`status`·`createdAt`·`answeredAt`, 상세는 `content`와 `answer.content`·`answer.createdAt`, 관리자 목록은 `memberId`·`memberEmail`·`memberNickname`·`content`·`answer.adminId`·`answer.content`).
 
 **준비 A**(각 케이스는 필요한 계정만 쓴다): 회원 `user1@test.com`, `user2@test.com`(`signup` + `login`으로 ID와 토큰). 관리자 `admin@test.com`: `adminId = signup("admin@test.com")` → `changeRole(adminId, "ADMIN")` → `login`으로 토큰을 다시 받는다(4-4의 `adminToken(email)`은 같은 순서를 밟지만 가입한 회원 ID를 돌려주지 않아 `admin_id` 확인에 쓸 수 없다). 문의 작성 요청은 `POST /api/inquiries`에 `Authorization: Bearer {user1 토큰}`, 본문 `{"title":"배송이 늦어요","content":"주문한 상품이 아직 도착하지 않았습니다."}`다. 응답 `$.inquiryId`로 문의 ID(`Q1`)를 받는다. 답변 요청은 `POST /admin/api/inquiries/{id}/answer`에 `Authorization: Bearer {admin 토큰}`, 본문 `{"content":"확인 후 오늘 중 안내드리겠습니다."}`다.
 
@@ -883,7 +1196,7 @@ ON CONFLICT (product_id) DO UPDATE SET
 **6. 답변하면 ANSWERED** — 준비: `user1`이 `Q1`을 작성. 동작: `admin`이 답변 요청.
 - 응답(andExpect): 상태 204.
 - DB(inquiryOf(Q1)): `status()` = `ANSWERED`, `answers()` 1개(`adminId()` = `adminId`, `content()` = `"확인 후 오늘 중 안내드리겠습니다."`).
-- 응답(andExpect): `user1` 토큰으로 `GET /api/inquiries/{Q1}` → 상태 200, `$.status` = `ANSWERED`, `$.answer.content` = `"확인 후 오늘 중 안내드리겠습니다."`, `jsonPath("$.answer.adminId").doesNotExist()`(본인에게는 답변한 관리자를 내려주지 않는다, 5-4 정책).
+- 응답(andExpect): `user1` 토큰으로 `GET /api/inquiries/{Q1}` → 상태 200, `$.status` = `ANSWERED`, `$.answer.content` = `"확인 후 오늘 중 안내드리겠습니다."`, `jsonPath("$.answer.adminId").doesNotExist()`(본인에게는 답변한 관리자를 내려주지 않는다, 5-3 정책).
 
 **7. 답변 입력 검증** (추가) — 준비: `user1`이 `Q1`을 작성. 동작: `admin`이 `content` 빈 문자열 또는 `"가"×2001`로 답변.
 - 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`.

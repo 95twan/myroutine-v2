@@ -12,11 +12,14 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MinIOContainer;
+import org.testcontainers.elasticsearch.ElasticsearchContainer;
+import org.testcontainers.images.builder.ImageFromDockerfile;
 import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.lifecycle.Startables;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import java.nio.file.Path;
 import java.util.List;
 
 @ActiveProfiles("test")
@@ -45,13 +48,22 @@ public abstract class IntegrationTestSupport {
     @ServiceConnection
     protected static final KafkaContainer kafka = new KafkaContainer("apache/kafka:4.2.2");
 
+    @ServiceConnection
+    protected static final ElasticsearchContainer es = new ElasticsearchContainer(
+            DockerImageName.parse(new ImageFromDockerfile("myroutine-elasticsearch:9.4.8", false)
+                            .withDockerfile(Path.of("docker/elasticsearch/Dockerfile"))
+                            .get())
+                    .asCompatibleSubstituteFor("docker.elastic.co/elasticsearch/elasticsearch"))
+            .withEnv("xpack.security.enabled", "false")
+            .withEnv("ES_JAVA_OPTS", "-Xms512m -Xmx512m");
+
     @ServiceConnection(name = "redis")
     protected static final GenericContainer<?> redis = new GenericContainer<>("redis:7.4.11").withExposedPorts(6379);
 
     static final MinIOContainer minio = new MinIOContainer(DockerImageName.parse("chainguard/minio:latest").asCompatibleSubstituteFor("minio/minio"));
 
     static { // 싱글턴: JVM 전체에서 한 번만 띄워 모든 테스트 클래스가 공유
-        Startables.deepStart(postgres, minio, kafka, redis).join();
+        Startables.deepStart(postgres, minio, kafka, redis, es).join();
     }
 
     @DynamicPropertySource

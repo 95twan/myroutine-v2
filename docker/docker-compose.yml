@@ -38,6 +38,20 @@ services:
     ports:
       - "127.0.0.1:6379:6379"
 
+  elasticsearch:
+    build: ./elasticsearch
+    image: myroutine-elasticsearch:9.4.8
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+
 volumes:
   postgres_data:
   minio_data:
+  elasticsearch_data:

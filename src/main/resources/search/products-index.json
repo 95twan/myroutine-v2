@@ -1,0 +1,78 @@
+{
+  "settings": {
+    "analysis": {
+      "char_filter": {
+        "remove_whitespace": {
+          "type": "pattern_replace",
+          "pattern": "\\s+",
+          "replacement": ""
+        }
+      },
+      "filter": {
+        "product_part_of_speech": {
+          "type": "nori_part_of_speech",
+          "stoptags": [
+            "EP", "EF", "EC", "ETN", "ETM",
+            "JKS", "JKC", "JKG", "JKO", "JKB", "JKV", "JKQ", "JX", "JC",
+            "MAJ", "MM",
+            "SP", "SSC", "SSO", "SC", "SE",
+            "XPN", "XSA", "XSN", "XSV",
+            "UNA", "NA", "VSV"
+          ]
+        }
+      },
+      "tokenizer": {
+        "korean_tokenizer": {
+          "type": "nori_tokenizer",
+          "decompound_mode": "mixed"
+        },
+        "autocomplete_tokenizer": {
+          "type": "edge_ngram",
+          "min_gram": 2,
+          "max_gram": 20
+        }
+      },
+      "analyzer": {
+        "korean": {
+          "type": "custom",
+          "tokenizer": "korean_tokenizer",
+          "filter": ["product_part_of_speech", "lowercase"]
+        },
+        "autocomplete": {
+          "type": "custom",
+          "char_filter": ["remove_whitespace"],
+          "tokenizer": "autocomplete_tokenizer",
+          "filter": ["lowercase"]
+        },
+        "autocomplete_search": {
+          "type": "custom",
+          "char_filter": ["remove_whitespace"],
+          "tokenizer": "keyword",
+          "filter": ["lowercase"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "productId": { "type": "keyword" },
+      "shopId": { "type": "keyword" },
+      "name": {
+        "type": "text",
+        "analyzer": "korean",
+        "fields": {
+          "keyword": { "type": "keyword" },
+          "autocomplete": {
+            "type": "text",
+            "analyzer": "autocomplete",
+            "search_analyzer": "autocomplete_search"
+          }
+        }
+      },
+      "description": { "type": "text", "analyzer": "korean" },
+      "category": { "type": "keyword" },
+      "price": { "type": "long" },
+      "status": { "type": "keyword" }
+    }
+  }
+}

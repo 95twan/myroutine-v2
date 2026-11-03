@@ -114,15 +114,6 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 | 단계 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
 
-### Part 5
-
-| 단계 | 종류 | 항목 | 위치 | 풀 방법 |
-|---|---|---|---|---|
-| 5-2 | A | 기동 시 ES가 내려가 있으면 앱 기동을 막을지(경고만 권장) | 5-2 search.infrastructure | 사용자 결정 |
-| 5-2 | B | 없는 alias로 쓰면 ES가 일반 인덱스를 자동 생성하는지, `_id` 정렬이 막혀 `productId`(keyword)를 쓰는지 | 5-2 search.infrastructure, search.application | 로컬 ES로 실험 |
-| 5-3 | A | 재색인 실패 시 `reindex()`가 예외를 던질지 | 5-3 search.application | 사용자 결정 |
-| 5-3 | B | alias 교체 전 `refresh`가 필요한지(기본 1초) | 5-3 search.application | ES 실험 |
-
 ### Part 6
 
 | 단계 | 종류 | 항목 | 위치 | 풀 방법 |
