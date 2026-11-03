@@ -8,6 +8,7 @@ services:
       SPRING_PROFILES_ACTIVE: prod
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_DATA_REDIS_HOST: redis
+      SPRING_ELASTICSEARCH_URIS: http://elasticsearch:9200
     ports:
       - "8080:8080"
     restart: unless-stopped
@@ -19,6 +20,8 @@ services:
       kafka:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      elasticsearch:
         condition: service_healthy
     healthcheck:
       test: [ "CMD", "curl", "-fsS", "http://localhost:8081/actuator/health" ]
@@ -88,8 +91,26 @@ services:
     volumes:
       - redis_data:/data
 
+  elasticsearch:
+    build: ./elasticsearch
+    image: myroutine-elasticsearch:9.4.8
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    healthcheck:
+      test: [ "CMD", "curl", "-fsS", "http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s" ]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 60s
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+
 volumes:
   postgres_data:
   minio_data:
   kafka_data:
   redis_data:
+  elasticsearch_data:

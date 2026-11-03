@@ -16,6 +16,8 @@ import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -49,6 +51,31 @@ public class TestFixtures {
     private final StringRedisTemplate redisTemplate;
     private final SignupVerificationStore signupVerificationStore;
     private final ConfirmPurchaseService confirmPurchaseService;
+    private final ObjectMapper objectMapper;
+
+    public ProductSearchDoc productSearchDocOf(UUID productId) throws Exception {
+        String url = "http://" + IntegrationTestSupport.es.getHttpHostAddress() + "/products/_doc/" + productId;
+        HttpResponse<String> response = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create(url)).GET().build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+
+        if (response.statusCode() == 404) {
+            return new ProductSearchDoc(false, null, null, null, null, null, null);
+        }
+
+        JsonNode node = objectMapper.readTree(response.body());
+        JsonNode source = node.get("_source");
+        return new ProductSearchDoc(
+                node.get("found").booleanValue(),
+                node.get("_version").longValue(),
+                source.get("name").stringValue(),
+                source.get("description").stringValue(),
+                source.get("category").stringValue(),
+                source.get("price").longValue(),
+                source.get("status").stringValue()
+        );
+    }
 
     public void setReviewCreatedAt(UUID reviewId, Instant instant) {
         jdbcTemplate.update("UPDATE review.review SET created_at = ? WHERE id = ?", Timestamp.from(instant), reviewId);

@@ -28,10 +28,16 @@ spring:
       enable-auto-commit: false
     listener:
       ack-mode: record
+  elasticsearch:
+    connection-timeout: 2s
+    socket-timeout: 2s
 
 management:
   server:
     port: 8081
+  health:
+    elasticsearch:
+      enabled: false
 
 myroutine:
   business-zone: Asia/Seoul
