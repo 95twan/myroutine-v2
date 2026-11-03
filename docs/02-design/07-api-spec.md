@@ -160,8 +160,8 @@
 | GET | `/api/products/{id}/reviews` | - | 리뷰 목록 (정렬: 최신(기본)·좋아요 상위 50, 항목에 요청자 기준 `likedByMe`) | FR-REV-02 |
 | GET | `/api/products/{id}/review-stats` | - | 평점 분포. 리뷰가 없으면 `average` null. 최신 요약은 SUB-6(서브)에서 더한다 | FR-REV-02·03 |
 | POST/DELETE | `/api/reviews/{id}/likes` | U | 좋아요. 지운 리뷰는 404 | FR-REV-02 |
-| GET | `/api/search/products` | - | `?q=&category=&cursor=`. 항목은 상품 목록과 같은 요약(`thumbnailUrl`·`inStock` 포함, ADR-013) | FR-SRC-01 |
-| GET | `/api/search/autocomplete` | - | `?q=` | FR-SRC-01 |
+| GET | `/api/search/products` | - | `?q=&category=&cursor=&size=`. `q` 1~50자 필수, `size` 기본 20·최대 50. 항목은 상품 목록과 같은 요약(`thumbnailUrl`·`inStock` 포함, ADR-013). ES 장애는 503 `SEARCH_UNAVAILABLE` | FR-SRC-01 |
+| GET | `/api/search/autocomplete` | - | `?q=` 2~20자. 판매 중인 상품의 서로 다른 이름을 최대 10개, 관련도순(같으면 이름순). 공백은 무시한다. ES 장애는 503 `SEARCH_UNAVAILABLE` | FR-SRC-01 |
 | GET | `/api/recommendations/me` | U | 취향 추천 | FR-REC-01 |
 
 ### 운영 (관리자)
@@ -173,7 +173,7 @@
 | GET | `/admin/api/payments?status=UNKNOWN` | 결과미확정 결제 | FR-PAY-03 |
 | POST | `/admin/api/payments/{orderId}/reconcile` | 즉시 대사 (경로 값은 orderId, 응답 `{orderId, status}`) | FR-PAY-03 |
 | GET | `/admin/api/refunds?status=FAILED` · POST `/{id}/retry` | 실패 환불 재처리 | |
-| POST | `/admin/api/search/reindex` | 무중단 재색인 (alias swap) | FR-SRC-02 |
+| POST | `/admin/api/search/reindex` | 무중단 재색인 (alias swap). 서브 SUB-7에서 만든다 | FR-SRC-02 |
 | POST | `/admin/api/settlements/run?period=2026-09` | 정산 수동 실행 (멱등) | FR-STL-04 |
 | GET/POST | `/admin/api/notifications?status=FAILED` · `/{id}/retry` | 실패 알림 재처리 | FR-NTF-02 |
 

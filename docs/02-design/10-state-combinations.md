@@ -189,4 +189,4 @@ DB는 이 조합을 막지 않는다. `ck_orders_status`, `ck_shop_order_status`
 | 7 | 04 문서 §4는 "누적 취소액 ≤ 승인액은 payment의 CHECK와 **주문 행 잠금**으로 지킨다"고 쓰지만 PG 취소 반영은 `payment` 행 잠금으로 직렬화한다(로드맵 0.83) | 04-state-machines §4, `PaymentApiImpl.java:160` |
 | 8 | 04 문서에 상태머신이 없는 것: `payment_cancel`, `billing_key`, `idempotency_key`, `review`, `inquiry`, `product_embedding` | 03-erd |
 | 9 | 코드에는 쓰기만 하고 읽지 않거나 저장만 하는 값이 있다: `payment.reconcile_attempts`(상한 없이 `UNKNOWN`이 반복될 수 있음), `stock_reservation.expires_at`, `refund.pg_attempts`(증가시키는 코드가 없어 멱등 키 접미사가 쓰이지 않음) | `JpaPaymentRepository.java:53`, `JpaStockReservationRepository.java:19` |
-| 10 | 설계 문서 간 어긋남(미구현 영역): 제재 회원의 로그인과 문의 허용 방식(4-x 대 5-4), `SUSPENDED` 재개 조건(04 대 SUB-2), 진행 중 구독 주문과 구독 상태 변경(`PAUSED`/`CANCELLED`/`TERMINATED`)의 대사 처리, 정산 지급 재시도 주기(04 §7 대 3-4) | 각 단계 문서 |
+| 10 | 설계 문서 간 어긋남(미구현 영역): 제재 회원의 로그인과 문의 허용 방식(4-x 대 5-3), `SUSPENDED` 재개 조건(04 대 SUB-2), 진행 중 구독 주문과 구독 상태 변경(`PAUSED`/`CANCELLED`/`TERMINATED`)의 대사 처리, 정산 지급 재시도 주기(04 §7 대 3-4) | 각 단계 문서 |

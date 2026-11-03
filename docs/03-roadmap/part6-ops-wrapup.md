@@ -885,7 +885,7 @@ S5(구독)는 서브인 [구독](../04-sub/subscription.md)을 할 때 더한다
 
 **4) Stage 2 준비** (Claude 초안, 사용자 확정)
 
-시드 데이터 규모·생성 방식, k6 시나리오 목록(NFR-PERF-01~06) → Stage 2 로드맵 문서
+시드 데이터 규모·생성 방식, k6 시나리오 목록(NFR-PERF-01~07) → Stage 2 로드맵 문서
 
 **5) 릴리스** — develop → main, 태그 `v1.0.0`
 
@@ -906,7 +906,7 @@ develop → main PR을 **merge commit**으로 합치고(squash 아님), main에 
    - 실행 방법: 새 폴더에 `git clone` 후 README의 명령만 순서대로 실행해 앱이 뜨고 `curl -s localhost:8081/actuator/health`가 `{"status":"UP"}`를 돌려준다. 관측 스택은 `docker compose --profile observability up -d` 뒤 Grafana 대시보드 3개가 보인다.
 2. **회고** `docs/retrospectives/stage1.md`: 절 4개(설계와 달라진 점과 이유, 리뷰에서 반복된 지적, 어려웠던 점, 다시 한다면)가 있고 각 절에 항목이 1개 이상이다. "달라진 점"의 항목마다 근거 문서(ADR 또는 로드맵 버전 줄) 링크가 있다.
 3. **이력서 bullet 초안**: 문장마다 링크가 1개 이상이고 링크 대상이 존재한다(테스트 클래스 파일, ADR, 수치의 출처). 수치가 있는 문장은 그 수치를 낸 측정·테스트 결과가 링크 대상에 있다.
-4. **Stage 2 준비 문서**: 시드 데이터 규모(건수)와 생성 방식이 있고, k6 시나리오 목록에 NFR-PERF-01~06이 각각 1개 이상의 시나리오로 연결된다(`grep -oE 'NFR-PERF-0[1-6]' {문서} | sort -u`가 6줄). 합격 기준 값은 [요구사항 NFR 표](../01-requirements/README.md)의 값(예: NFR-PERF-01 p95 < 200ms, 에러율 < 0.1%)과 같다.
+4. **Stage 2 준비 문서**: 시드 데이터 규모(건수)와 생성 방식이 있고, k6 시나리오 목록에 NFR-PERF-01~07이 각각 1개 이상의 시나리오로 연결된다(`grep -oE 'NFR-PERF-0[1-7]' {문서} | sort -u`가 7줄). 합격 기준 값은 [요구사항 NFR 표](../01-requirements/README.md)의 값(예: NFR-PERF-01 p95 < 200ms, 에러율 < 0.1%)과 같다.
 5. **릴리스**
    - develop → main PR: `gh pr view {번호} --json state,mergeCommit` → `state` = `MERGED`. `git cat-file -p {mergeCommit.oid}`에 `parent` 줄이 2개다.
    - 태그: `git tag -l v1.0.0` 출력이 `v1.0.0`, `git rev-parse v1.0.0^{commit}` = `git rev-parse origin/main`.

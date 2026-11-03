@@ -39,9 +39,11 @@ flowchart LR
 
 시드 데이터 규모 [제안]: 회원 100만, 가게 1만, 상품 100만, 주문 1,000만(주문품목 약 2,500만), 재고 이력 3,000만.
 
+시드를 DB에 직접 넣으면 이벤트가 나가지 않아 ES 문서가 생기지 않는다. NFR-PERF-07을 재려면 시드 스크립트가 상품을 ES에도 넣는다. 앱을 먼저 띄워 alias `products`를 만든 뒤 `_bulk`로 alias에 쓰고(alias가 없으면 일반 인덱스가 자동 생성된다), 문서 id는 `productId`, 버전은 external로 DB의 `version`을 쓴다. 적재 뒤 `_refresh`를 부른다.
+
 | 단계 | 진입 근거(측정) | 작업 | 측정 지표 |
 |---|---|---|---|
-| 2-1 Baseline | - | k6 시나리오(NFR-PERF-01~06), `pg_stat_statements`, slow query log, Grafana 대시보드 | p50/p95/p99, TPS, 에러율, DB CPU, 커넥션 대기 |
+| 2-1 Baseline | - | k6 시나리오(NFR-PERF-01~07), `pg_stat_statements`, slow query log, Grafana 대시보드 | p50/p95/p99, TPS, 에러율, DB CPU, 커넥션 대기 |
 | 2-2 쿼리 튜닝 | 상위 slow query | `EXPLAIN ANALYZE`, 복합·커버링 인덱스, N+1 제거(fetch join / batch size), offset → keyset 페이징, 집계 쿼리 개선 | 쿼리별 실행시간 전후 비교 |
 | 2-3 커넥션·스레드 | 커넥션 대기, 스레드 포화 | HikariCP 크기 산정, 플랫폼 스레드 vs 가상 스레드(Java 25, pinning 해소) 비교, 트랜잭션 범위 축소, Compact Object Headers 메모리 비교 | 커넥션 대기시간, TPS |
 | 2-4 캐시 | 읽기 비중이 높은 API의 DB 부하 | 상품 상세·목록 Redis 캐시, 캐시 스탬피드 방지, 무효화 전략(이벤트 기반) | 캐시 히트율, DB QPS |
@@ -52,7 +54,15 @@ flowchart LR
 
 **정직성 원칙**: 2-8은 "이 규모에서 필요해서"가 아니라 "한계를 측정하고 대안을 검증한 실험"으로 기록한다. 면접에서 "왜 샤딩했나"보다 "언제 샤딩이 필요하고 비용이 무엇인지 측정해봤다"가 강하다.
 
-**이력서 산출물**: 단계별 전후 수치(예: "주문 목록 p95 1.2s → 80ms, 커버링 인덱스 + keyset 페이징"), 핫스팟 재고 차감 방식 비교 실험, 레플리카 도입과 복제 지연 대응.
+**인덱스 설계 검증 실험** [제안]: 2-2에서 함께 하고, 위 시드 데이터로 잰다. 이 인덱스들은 Stage 1부터 있었으므로 결과는 "개선"이 아니라 "설계 검증"으로 기록한다. "개선"은 Baseline에서 실제로 느린 쿼리를 찾아 고친 경우에만 쓴다.
+
+| 실험 | 대상 | 비교 | 측정 지표 |
+|---|---|---|---|
+| 페이징 방식 | `idx_product_status_category_created_at` | 같은 정렬을 offset과 keyset으로 조회. 앞쪽·중간·뒤쪽 페이지를 각각 잰다 | 페이지 위치별 p95, `EXPLAIN ANALYZE`의 읽은 행 수 |
+| 부분 인덱스 | `idx_outbox_event_ready` | 같은 컬럼의 전체 인덱스와 비교. 시드에 outbox가 없으니 발행이 끝난 행이 대부분인 데이터를 실험에서 따로 넣는다 | 인덱스 크기, 폴링 쿼리 p95 |
+| 쓰기 비용 | `product.product`, `orders.shop_order` | PK만 있을 때와 현재 인덱스가 모두 있을 때의 INSERT와 상태 UPDATE | 초당 처리량, p95, 인덱스 크기 |
+
+**이력서 산출물**: 단계별 전후 수치(예: "주문 목록 p95 1.2s → 80ms, 커버링 인덱스 + keyset 페이징"), 인덱스 설계 검증 수치(조회 이득과 쓰기 비용), 핫스팟 재고 차감 방식 비교 실험, 레플리카 도입과 복제 지연 대응.
 
 ## Stage 3. MSA 전환 (Strangler Fig)
 **진입 근거** (성능이 아니라 아래 사유를 측정·사례로 제시)
