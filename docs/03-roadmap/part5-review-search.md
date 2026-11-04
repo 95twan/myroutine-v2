@@ -1281,4 +1281,4 @@ public class ElasticsearchTimeoutConfig {
 ---
 
 ## Part 5 완료
-- [ ] `v0.5.0` 릴리스, Part 6 문서 다듬기
+- [x] `v0.5.0` 릴리스, Part 6 문서 다듬기
