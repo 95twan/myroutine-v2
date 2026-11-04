@@ -5,6 +5,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.MDC;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -36,6 +37,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             if (claims.tokenVersion() == tokenVersionProvider.currentVersion(claims.memberId())) {
                 UsernamePasswordAuthenticationToken authenticatedToken = UsernamePasswordAuthenticationToken.authenticated(claims, null, List.of(new SimpleGrantedAuthority("ROLE_" + claims.role())));
                 SecurityContextHolder.getContext().setAuthentication(authenticatedToken);
+                MDC.put("memberId", claims.memberId().toString());
             }
         });
 

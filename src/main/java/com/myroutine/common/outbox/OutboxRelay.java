@@ -1,6 +1,7 @@
 package com.myroutine.common.outbox;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class OutboxRelay {
@@ -61,10 +63,16 @@ public class OutboxRelay {
                         objectMapper.readTree(row.payload)
                 );
                 kafkaTemplate.send(row.topic, row.aggregateId.toString(), objectMapper.writeValueAsString(eventEnvelope)).get(5, TimeUnit.SECONDS);
+
                 now = OffsetDateTime.ofInstant(Instant.now(clock), ZoneOffset.UTC);
                 jdbcTemplate.update("UPDATE common.outbox_event SET status = 'SENT', sent_at = ?, locked_until = NULL, updated_at = ? WHERE id = ?", now, now, row.id);
+
+                log.info("outbox sent eventId={} topic={} originTraceId={}", row.id, row.topic, row.traceId);
+
                 count++;
             } catch (Exception e) {
+                log.warn("Failed to send outbox event. eventId={} attempts={}", row.id, row.attempts + 1, e);
+
                 now = OffsetDateTime.ofInstant(Instant.now(clock), ZoneOffset.UTC);
                 String lastError = e.getMessage() != null ? e.getMessage().substring(0, Math.min(e.getMessage().length(), 500)) : e.toString();
                 if (row.attempts + 1 >= 10) {

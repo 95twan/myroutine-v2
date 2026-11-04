@@ -34,6 +34,7 @@ public class InboxGuard {
                 return;
             }
             action.run();
+            log.info("event handled consumer={} type={}", consumer, envelope.eventType());
         });
     }
 }

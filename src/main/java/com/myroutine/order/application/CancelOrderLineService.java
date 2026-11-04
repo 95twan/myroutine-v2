@@ -2,6 +2,7 @@ package com.myroutine.order.application;
 
 import com.myroutine.common.error.BusinessException;
 import com.myroutine.common.error.CommonErrorCode;
+import com.myroutine.common.logging.LogOrderId;
 import com.myroutine.common.model.Money;
 import com.myroutine.order.domain.*;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +19,7 @@ public class CancelOrderLineService {
     private final RefundProcessor refundProcessor;
     private final TransactionTemplate tx;
 
+    @LogOrderId
     public RefundResult cancel(UUID memberId, UUID orderId, UUID lineId, String reason) {
         Refund refund = tx.execute(s -> {
             Order order = orderRepository.findByIdAndMemberIdForUpdate(orderId, memberId).orElseThrow(
