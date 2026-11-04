@@ -775,14 +775,15 @@ public class TraceIdFilter extends OncePerRequestFilter {
 | HTTP 요청 | `TraceIdFilter`가 생성 → MDC |
 | Outbox 저장 | `OutboxPublisher`가 MDC의 traceId를 `outbox_event.trace_id`에 저장 → 봉투의 `traceId` |
 | Kafka 소비 | consumer 공통 래퍼(`InboxGuard`)가 처리 전에 봉투의 traceId를 MDC에 넣고, 끝나면 지움 |
-| 스케줄 작업 | 실행마다 새 traceId 생성 (`job=expireOrders` 같은 필드도 함께) |
+| 스케줄 작업 | 실행마다 새 traceId 생성 (`job=expireOrders` 같은 필드도 함께). 릴레이는 메시지에 `originTraceId`를 남겨 원래 흐름과 잇는다 |
 | `@Async`·스레드 풀 | `TaskDecorator`로 MDC 복사 |
 
-Kibana에서 `traceId:"..."`로 검색하면 한 요청의 HTTP → DB → Kafka → 알림 로그가 시간순으로 보인다. 에러 응답의 `traceId`(§11)로 바로 검색할 수 있다.
+Kibana에서 `traceId : "T" or message : "T"`로 검색하면 한 요청의 HTTP → PG → Kafka 전송 → 이벤트 처리 로그가 시간순으로 보인다(로드맵 6-1). 에러 응답의 `traceId`(§11)로 바로 검색할 수 있다.
 
 ### 14.2 로그 규칙
 - 로그는 JSON이고 MDC에 `traceId, memberId`를 둔다. 주문 관련 흐름은 `orderId`도 넣는다.
-- INFO로 남길 것: 상태 전이(`order {} PENDING_PAYMENT -> PAID`), 외부 호출 결과와 지연시간, 스케줄 작업 처리 건수.
+- INFO로 남길 것: HTTP 요청 한 줄(경로만, 쿼리 문자열 제외), 상태 전이(`order {} PENDING_PAYMENT -> PAID`), 외부 호출 결과와 지연시간, 이벤트 처리·전송, 스케줄 작업 처리 건수(0건이면 남기지 않는다).
+- Logstash로는 INFO 이상만 보낸다. SQL·바인드 값은 콘솔에만 남는다.
 - 남기지 말 것: 토큰, 카드·계좌 번호, 이메일 인증코드, 요청 바디 전체.
 - 비즈니스 메트릭 이름은 `{도메인}_{대상}_{단위}`로 하고 [ADR-010](adr/ADR-010-observability.md)의 목록을 따른다. 새 메트릭은 그 목록에 추가한다.
 
