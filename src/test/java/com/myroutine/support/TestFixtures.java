@@ -16,6 +16,8 @@ import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -48,6 +50,111 @@ public class TestFixtures {
     private final JdbcTemplate jdbcTemplate;
     private final StringRedisTemplate redisTemplate;
     private final SignupVerificationStore signupVerificationStore;
+    private final ConfirmPurchaseService confirmPurchaseService;
+    private final ObjectMapper objectMapper;
+
+    public List<InquirySnapshot> inquiriesOf(UUID memberId) {
+        List<UUID> ids = jdbcTemplate.queryForList(
+                "SELECT id FROM member.inquiry WHERE member_id = ? ORDER BY created_at", UUID.class, memberId);
+        return ids.stream().map(this::inquiryOf).toList();
+    }
+
+    public InquirySnapshot inquiryOf(UUID inquiryId) {
+        List<InquirySnapshot.Answer> answers = jdbcTemplate.query("SELECT admin_id, content FROM member.inquiry_answer WHERE inquiry_id = ? ORDER BY created_at",
+                (rs, rowNum) -> new InquirySnapshot.Answer(
+                        rs.getObject("admin_id", UUID.class),
+                        rs.getString("content")
+                ),
+                inquiryId);
+
+        return jdbcTemplate.query("SELECT member_id, title, content, status FROM member.inquiry WHERE id = ?",
+                        (rs, rowNum) -> new InquirySnapshot(
+                                rs.getObject("member_id", UUID.class),
+                                rs.getString("title"),
+                                rs.getString("content"),
+                                rs.getString("status"),
+                                answers
+                        ),
+                        inquiryId).stream()
+                .findFirst()
+                .orElse(null);
+    }
+
+    public ProductSearchDoc productSearchDocOf(UUID productId) throws Exception {
+        String url = "http://" + IntegrationTestSupport.es.getHttpHostAddress() + "/products/_doc/" + productId;
+        HttpResponse<String> response = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create(url)).GET().build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+
+        if (response.statusCode() == 404) {
+            return new ProductSearchDoc(false, null, null, null, null, null, null);
+        }
+
+        JsonNode node = objectMapper.readTree(response.body());
+        JsonNode source = node.get("_source");
+        return new ProductSearchDoc(
+                node.get("found").booleanValue(),
+                node.get("_version").longValue(),
+                source.get("name").stringValue(),
+                source.get("description").stringValue(),
+                source.get("category").stringValue(),
+                source.get("price").longValue(),
+                source.get("status").stringValue()
+        );
+    }
+
+    public void setReviewCreatedAt(UUID reviewId, Instant instant) {
+        jdbcTemplate.update("UPDATE review.review SET created_at = ? WHERE id = ?", Timestamp.from(instant), reviewId);
+    }
+
+    public long reviewCountOf(UUID productId) {
+        return jdbcTemplate.queryForObject("SELECT count(*) FROM review.review WHERE product_id = ?", Long.class, productId);
+    }
+
+    public ReviewStatSnapshot reviewStatOf(UUID productId) {
+        return jdbcTemplate.query("SELECT review_count, rating_sum, r1, r2, r3, r4, r5 FROM review.product_review_stat WHERE product_id = ?",
+                (rs, _) -> new ReviewStatSnapshot(
+                        rs.getInt("review_count"),
+                        rs.getLong("rating_sum"),
+                        rs.getInt("r1"),
+                        rs.getInt("r2"),
+                        rs.getInt("r3"),
+                        rs.getInt("r4"),
+                        rs.getInt("r5")
+                ),
+                productId
+        ).stream().findFirst().orElse(null);
+    }
+
+    public ReviewSnapshot reviewSnapshotOf(UUID reviewId) {
+        List<UUID> memberIds = jdbcTemplate.query("SELECT member_id FROM review.review_like WHERE review_id = ? ORDER BY created_at", (rs, _) -> rs.getObject("member_id", UUID.class), reviewId);
+
+        return jdbcTemplate.query(
+                """
+                        SELECT order_line_id, product_id, rating, content, like_count, status
+                        FROM review.review
+                        WHERE id = ?
+                        """,
+                (rs, _) -> new ReviewSnapshot(
+                        rs.getObject("order_line_id", UUID.class),
+                        rs.getObject("product_id", UUID.class),
+                        rs.getString("status"),
+                        rs.getInt("rating"),
+                        rs.getString("content"),
+                        rs.getInt("like_count"),
+                        memberIds
+                ),
+                reviewId
+        ).stream().findFirst().orElse(null);
+    }
+
+    public UUID createConfirmedLine(UUID buyerId, UUID sellerId, UUID shopId, UUID productId) {
+        UUID orderId = createDeliveredOrder(buyerId, sellerId, shopId, productId);
+        UUID orderLineId = orderLineIdOf(orderId, productId);
+        confirmPurchaseService.confirm(buyerId, orderId, orderLineId);
+        return orderLineId;
+    }
 
     public TokenVersionSnapshot tokenVersionSnapshotOf(UUID memberId) {
         int tokenVersion = jdbcTemplate.queryForObject("SELECT token_version FROM member.member WHERE id = ?", Integer.class, memberId);

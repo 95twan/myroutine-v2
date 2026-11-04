@@ -64,6 +64,54 @@ class ShopControllerTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("가게 개설을 실패한다. (사업자번호 형식 오류)")
+    void openShopInvalidBusinessNumber() throws Exception {
+        // Given
+        String token = testFixtures.token("test@test.com");
+        OpenShopRequest request = new OpenShopRequest(
+                "shop",
+                "123456789",
+                "shop@test.com",
+                "010-1111-1111",
+                "shop address"
+        );
+
+        // When & Then
+        mockMvc.perform(post("/api/shops")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("가게 개설을 실패한다. (이미 등록된 사업자번호)")
+    void openShopDuplicatedBusinessNumber() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("test@test.com");
+        String token = testFixtures.login("test@test.com");
+        testFixtures.openShop(memberId, "1111111111");
+
+        OpenShopRequest request2 = new OpenShopRequest(
+                "shop2",
+                "1111111111",
+                "shop2@test.com",
+                "010-2222-2222",
+                "shop2 address"
+        );
+
+        // When & Then
+        mockMvc.perform(post("/api/shops")
+                        .header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", Ids.newId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request2)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SHOP_BUSINESS_NUMBER_DUPLICATED"));
+    }
+
+    @Test
     @DisplayName("토큰 없이 가게를 조회해도 성공한다.")
     void getShopWithoutToken() throws Exception {
         // Given
@@ -166,32 +214,6 @@ class ShopControllerTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("가게 개설을 실패한다. (이미 등록된 사업자번호)")
-    void openShopDuplicatedBusinessNumber() throws Exception {
-        // Given
-        UUID memberId = testFixtures.signup("test@test.com");
-        String token = testFixtures.login("test@test.com");
-        testFixtures.openShop(memberId, "1111111111");
-
-        OpenShopRequest request2 = new OpenShopRequest(
-                "shop2",
-                "1111111111",
-                "shop2@test.com",
-                "010-2222-2222",
-                "shop2 address"
-        );
-
-        // When & Then
-        mockMvc.perform(post("/api/shops")
-                        .header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", Ids.newId())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request2)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("SHOP_BUSINESS_NUMBER_DUPLICATED"));
-    }
-
-    @Test
     @DisplayName("가게 수정을 실패한다. (폐업한 가게)")
     void updateClosedShop() throws Exception {
         // Given
@@ -214,27 +236,5 @@ class ShopControllerTest extends IntegrationTestSupport {
                         .content(objectMapper.writeValueAsString(updateShopRequest)))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("SHOP_NOT_ACTIVE"));
-    }
-
-    @Test
-    @DisplayName("가게 개설을 실패한다. (사업자번호 형식 오류)")
-    void openShopInvalidBusinessNumber() throws Exception {
-        // Given
-        String token = testFixtures.token("test@test.com");
-        OpenShopRequest request = new OpenShopRequest(
-                "shop",
-                "123456789",
-                "shop@test.com",
-                "010-1111-1111",
-                "shop address"
-        );
-
-        // When & Then
-        mockMvc.perform(post("/api/shops")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 }

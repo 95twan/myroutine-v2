@@ -435,7 +435,7 @@ return 0
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
 | `sessionSnapshotOf(UUID sessionId)` → `SessionSnapshot` | `redis.opsForHash().entries("auth:session:" + sessionId)`와 `redis.getExpire(key, TimeUnit.SECONDS)`(키가 없으면 -2)를 한 번에 읽는다. 해시의 키·값은 `Object`로 오므로 `Map<String, String>`으로 바꿔 담는다. `SessionSnapshot`은 `support/`의 record(`Map<String, String> fields`, `long ttlSeconds`)이고 `exists()`(`fields`가 비어 있지 않다), `memberId()`(`UUID`, 없으면 `null`), `refreshHash()`, `fieldNames()`, `values()`를 가진다 | 4-1 `TokenRefreshTest`·`RefreshConcurrencyTest`, 세션을 확인하는 4-2~4-4 테스트 |
-| `memberSessionsTtlOf(UUID memberId)` → `long` | `redis.getExpire("auth:member-sessions:" + memberId, TimeUnit.SECONDS)`. 키가 없으면 -2 | 4-1 `TokenRefreshTest` 14번 |
+| `memberSessionsTtlOf(UUID memberId)` → `long` | `redis.getExpire("auth:member-sessions:" + memberId, TimeUnit.SECONDS)`. 키가 없으면 -2 | 4-1 `TokenRefreshTest` 5번 |
 | `sessionIdsOf(UUID memberId)` → `Set<UUID>` | `redis.opsForSet().members("auth:member-sessions:" + memberId)`를 `UUID`로 바꾼다. 키가 없으면 빈 집합(Redis는 마지막 원소를 빼면 집합 키를 지우므로 세션이 없을 때도 빈 집합이다) | 4-1 `TokenRefreshTest`·`RefreshConcurrencyTest`, 세션을 확인하는 4-2~4-4 테스트 |
 
 이미 있는 헬퍼와 설정은 다음과 같다.
@@ -460,7 +460,7 @@ return 0
 
 #### `member/web/TokenRefreshTest`
 
-케이스의 `loginTokens(…)`는 2번 준비의 회원 `member@test.com`으로 부른다. 1·8·13번은 자기 준비의 회원을 쓴다.
+케이스의 `loginTokens(…)`는 3번 준비의 회원 `member@test.com`으로 부른다. 1·11·12번은 자기 준비의 회원을 쓴다.
 
 **1. 가입 응답에 refresh가 들어 있다** — 동작: `POST /api/auth/signup` 본문 `{"email":"new@test.com","password":"pass1234","nickname":"newbie","name":"테스터"}`.
 - `응답(andExpect):` 상태 201, `$.refreshExpiresIn` = 604800, `jsonPath("$.refreshToken").isNotEmpty()`.
@@ -468,7 +468,14 @@ return 0
 - `반환값:` `sid` = `RefreshToken.parse(refresh).sessionId()`가 `jwtProvider.parse(access).orElseThrow().sessionId()`와 같다.
 - `Redis(sessionSnapshotOf(sid)):` `s.memberId()` = `memberId`, `s.refreshHash()` = `RefreshToken.parse(refresh).secretHash()`, `s.ttlSeconds()` 604000~604800.
 
-**2. 갱신하면 새 refresh로 바뀐다** — 준비: 회원 `member@test.com`(`testFixtures.signup`, 비밀번호 `pass1234`, 닉네임 `member`) → `memberId`. `loginTokens("member@test.com")`의 `accessToken()`·`refreshToken()` → `access1`, `refresh1`, `sid` = `RefreshToken.parse(refresh1).sessionId()`.
+**2. 로그인할 때마다 새 세션이 생긴다** — 준비: 3번의 회원 `member@test.com`을 만들고 `loginTokens("member@test.com")`로 세션 하나를 만든다. 동작: `POST /api/auth/login` 본문 `{"email":"member@test.com","password":"pass1234"}`.
+- 확인:
+  - `응답(andExpect):` 상태 200, `jsonPath("$.refreshToken").isNotEmpty()`.
+  - `응답 본문(andReturn 후):` `sid` = `RefreshToken.parse(JsonPath.read(본문, "$.refreshToken")).sessionId()`.
+  - `Redis(sessionIdsOf(memberId)):` 2개이고 `sid`가 들어 있다.
+  - `Redis(sessionSnapshotOf(sid)):` `memberId()` = `memberId`.
+
+**3. 갱신하면 새 refresh로 바뀐다** — 준비: 회원 `member@test.com`(`testFixtures.signup`, 비밀번호 `pass1234`, 닉네임 `member`) → `memberId`. `loginTokens("member@test.com")`의 `accessToken()`·`refreshToken()` → `access1`, `refresh1`, `sid` = `RefreshToken.parse(refresh1).sessionId()`.
 - 동작: `refresh(refresh1)`.
 - 확인:
   - `응답(andExpect):` 상태 200.
@@ -476,83 +483,76 @@ return 0
   - `반환값:` `jwtProvider.parse(access2).orElseThrow()`의 `sessionId()` = `sid`, `memberId()` = `memberId`, `role()` = `USER`.
   - `Redis(sessionSnapshotOf(sid)):` `refreshHash()` = `RefreshToken.parse(refresh2).secretHash()`.
 
-**3. 이미 쓴 refresh가 다시 오면 세션을 폐기한다** — 준비: `loginTokens(…)` → `refresh1`, `sid`. `refresh(refresh1)` → 200.
+**4. Redis에 refresh 원문이 없다** — 준비: `loginTokens(…)` → `refresh1`, `secret1` = `RefreshToken.parse(refresh1).secret()`, `sid`. 동작: `refresh(refresh1)` → `refresh2`, `secret2` = `RefreshToken.parse(refresh2).secret()`.
+- `Redis(redis.keys("*")):` 갱신한 뒤 어떤 키 이름에도 `secret1`·`secret2`가 들어 있지 않다.
+- `Redis(sessionSnapshotOf(sid)):` 갱신한 뒤 `s.fieldNames()`가 정확히 `memberId`, `refreshHash` 두 개이고, `s.values()`의 어떤 값도 `secret1`·`secret2`와 같거나 포함하지 않는다.
+
+**5. 회전이 회원의 세션 목록 만료도 연장한다** — 준비: `loginTokens(…)` → `refresh1`. `redis.expire("auth:member-sessions:" + memberId, Duration.ofSeconds(100))`로 목록의 남은 시간을 줄여 둔다.
+- 동작: `refresh(refresh1)` → 200.
+- 확인: `Redis(memberSessionsTtlOf(memberId)):` 604000~604800.
+
+**6. 갱신하면 세션 만료가 7일로 다시 늘어난다** — 준비: `loginTokens(…)` → `refresh1`, `sid`. `redis.expire("auth:session:" + sid, Duration.ofSeconds(100))`로 세션의 남은 시간을 줄여 둔다.
+- 동작: `refresh(refresh1)` → 200.
+- 확인: `Redis(sessionSnapshotOf(sid)):` `ttlSeconds()` 604000~604800.
+
+**7. refresh 요청 본문이 비어 있으면 400** — 준비: 8번과 같다.
+- 동작: 본문 `{"refreshToken":""}`로 `refresh`.
+- 확인:
+  - `응답(andExpect):` 상태 400, `$.code` = `INVALID_REQUEST`.
+  - `Redis(redis.keys("*")):` 요청 전후 집합이 같다.
+
+**8. 없는 세션의 refresh** — 준비: 3번의 회원 `member@test.com`(`signup`)만 만든다.
+- 동작: `refresh(UUID.randomUUID() + ".xyz")`.
+- 확인:
+  - `응답(andExpect):` 상태 401, `$.code` = `UNAUTHORIZED`.
+  - `Redis(redis.keys("*")):` 요청 전후 집합이 같다.
+
+**9. 이미 쓴 refresh가 다시 오면 세션을 폐기한다** — 준비: `loginTokens(…)` → `refresh1`, `sid`. `refresh(refresh1)` → 200.
 - 동작: `refresh(refresh1)` 다시.
 - 확인:
   - `응답(andExpect):` 상태 401, `$.code` = `REFRESH_REUSED`.
   - `Redis(sessionSnapshotOf(sid)):` `exists()` = false.
   - `Redis(sessionIdsOf(memberId)):` `doesNotContain(sid)`.
 
-**4. 로그아웃(현재 기기만)** — 준비: `loginTokens(…)` → `accessA`·`refreshA`·`sidA`, `loginTokens(…)` → `refreshB`·`sidB`.
+**10. secret이 틀린 refresh는 재사용으로 보고 세션을 폐기한다** — 준비: `loginTokens(…)` → `sid`.
+- 동작: `refresh(sid + "." + "x".repeat(43))`.
+- 확인:
+  - `응답(andExpect):` 상태 401, `$.code` = `REFRESH_REUSED`.
+  - `Redis(sessionSnapshotOf(sid)):` `exists()` = false.
+
+**11. 정지 회원의 refresh** — 회원 `ban@test.com`(`banId`)을 `loginTokens(…)` → `refreshBan`·`sidBan`.
+- 동작: `testFixtures.changeStatus(banId, "BANNED")` → `refresh(refreshBan)`.
+- 확인:
+  - `응답(andExpect):` 상태 403, `$.code` = `MEMBER_BANNED`.
+  - `Redis(sessionSnapshotOf(sidBan)):` `exists()` = false.
+
+**12. 탈퇴 회원의 refresh** — 회원 `gone@test.com`(`goneId`)을 `loginTokens(…)` → `refreshGone`·`sidGone`.
+- 동작: `testFixtures.changeStatus(goneId, "WITHDRAWN")` → `refresh(refreshGone)`.
+- 확인:
+  - `응답(andExpect):` 상태 401, `$.code` = `LOGIN_FAILED`.
+  - `Redis(sessionSnapshotOf(sidGone)):` `exists()` = false.
+
+**13. 로그아웃(현재 기기만)** — 준비: `loginTokens(…)` → `accessA`·`refreshA`·`sidA`, `loginTokens(…)` → `refreshB`·`sidB`.
 - 동작: `POST /api/auth/logout`, `Authorization: Bearer {accessA}`, 파라미터 없음.
 - 확인:
   - `응답(andExpect):` 상태 204, `content().string("")`.
   - `Redis(sessionSnapshotOf(sidA)):` `exists()` = false. `Redis(sessionSnapshotOf(sidB)):` `exists()` = true.
   - `Redis(sessionIdsOf(memberId)):` `doesNotContain(sidA)`이고 `contains(sidB)`.
 
-**5. 전체 로그아웃(`?all=true`)** — 준비: 다른 회원 `other@test.com`을 `signup` 후 `loginTokens("other@test.com")` → `sidOther`. 대상 회원은 `loginTokens(…)` → `accessA`·`refreshA`·`sidA`, `loginTokens(…)` → `refreshB`·`sidB`.
+**14. 전체 로그아웃(`?all=true`)** — 준비: 다른 회원 `other@test.com`을 `signup` 후 `loginTokens("other@test.com")` → `sidOther`. 대상 회원은 `loginTokens(…)` → `accessA`·`refreshA`·`sidA`, `loginTokens(…)` → `refreshB`·`sidB`.
 - 동작: `POST /api/auth/logout?all=true`, `Bearer {accessA}`.
 - 확인:
   - `응답(andExpect):` 상태 204.
   - `Redis(sessionSnapshotOf(sidA)):` `exists()` = false. `Redis(sessionSnapshotOf(sidB)):` `exists()` = false. `Redis(sessionSnapshotOf(sidOther)):` `exists()` = true(다른 회원).
   - `Redis(sessionIdsOf(memberId)):` `isEmpty()`.
 
-**6. Redis에 refresh 원문이 없다** — 준비: `loginTokens(…)` → `refresh1`, `secret1` = `RefreshToken.parse(refresh1).secret()`, `sid`. 동작: `refresh(refresh1)` → `refresh2`, `secret2` = `RefreshToken.parse(refresh2).secret()`.
-- `Redis(redis.keys("*")):` 갱신한 뒤 어떤 키 이름에도 `secret1`·`secret2`가 들어 있지 않다.
-- `Redis(sessionSnapshotOf(sid)):` 갱신한 뒤 `s.fieldNames()`가 정확히 `memberId`, `refreshHash` 두 개이고, `s.values()`의 어떤 값도 `secret1`·`secret2`와 같거나 포함하지 않는다.
-
-**7. 없는 세션의 refresh** — 준비: 2번의 회원 `member@test.com`(`signup`)만 만든다.
-- 동작: `refresh(UUID.randomUUID() + ".xyz")`.
-- 확인:
-  - `응답(andExpect):` 상태 401, `$.code` = `UNAUTHORIZED`.
-  - `Redis(redis.keys("*")):` 요청 전후 집합이 같다.
-
-**8. 정지 회원의 refresh** — 회원 `ban@test.com`(`banId`)을 `loginTokens(…)` → `refreshBan`·`sidBan`.
-- 동작: `testFixtures.changeStatus(banId, "BANNED")` → `refresh(refreshBan)`.
-- 확인:
-  - `응답(andExpect):` 상태 403, `$.code` = `MEMBER_BANNED`.
-  - `Redis(sessionSnapshotOf(sidBan)):` `exists()` = false.
-
-**9. 같은 access로 로그아웃을 두 번 불러도 204** — 준비: 4번과 같다. 동작: `accessA`로 `POST /api/auth/logout`을 부르고(204), 같은 `accessA`로 다시 부른다.
+**15. 같은 access로 로그아웃을 두 번 불러도 204** — 준비: 13번과 같다. 동작: `accessA`로 `POST /api/auth/logout`을 부르고(204), 같은 `accessA`로 다시 부른다.
 - 확인: `응답(andExpect):` 두 번째 응답 상태도 204.
 
-**10. 인증 없는 로그아웃은 거부한다** — 준비: 4번과 같다. 동작: `Authorization` 없이 `POST /api/auth/logout`.
+**16. 인증 없는 로그아웃은 거부한다** — 준비: 13번과 같다. 동작: `Authorization` 없이 `POST /api/auth/logout`.
 - 확인:
   - `응답(andExpect):` 상태 401, `$.code` = `UNAUTHORIZED`.
   - `Redis(sessionSnapshotOf(sidB)):` `exists()` = true.
-
-**11. refresh 요청 본문이 비어 있으면 400** — 준비: 7번과 같다.
-- 동작: 본문 `{"refreshToken":""}`로 `refresh`.
-- 확인:
-  - `응답(andExpect):` 상태 400, `$.code` = `INVALID_REQUEST`.
-  - `Redis(redis.keys("*")):` 요청 전후 집합이 같다.
-
-**12. secret이 틀린 refresh는 재사용으로 보고 세션을 폐기한다** — 준비: `loginTokens(…)` → `sid`.
-- 동작: `refresh(sid + "." + "x".repeat(43))`.
-- 확인:
-  - `응답(andExpect):` 상태 401, `$.code` = `REFRESH_REUSED`.
-  - `Redis(sessionSnapshotOf(sid)):` `exists()` = false.
-
-**13. 탈퇴 회원의 refresh** — 회원 `gone@test.com`(`goneId`)을 `loginTokens(…)` → `refreshGone`·`sidGone`.
-- 동작: `testFixtures.changeStatus(goneId, "WITHDRAWN")` → `refresh(refreshGone)`.
-- 확인:
-  - `응답(andExpect):` 상태 401, `$.code` = `LOGIN_FAILED`.
-  - `Redis(sessionSnapshotOf(sidGone)):` `exists()` = false.
-
-**14. 회전이 회원의 세션 목록 만료도 연장한다** — 준비: `loginTokens(…)` → `refresh1`. `redis.expire("auth:member-sessions:" + memberId, Duration.ofSeconds(100))`로 목록의 남은 시간을 줄여 둔다.
-- 동작: `refresh(refresh1)` → 200.
-- 확인: `Redis(memberSessionsTtlOf(memberId)):` 604000~604800.
-
-**15. 로그인할 때마다 새 세션이 생긴다** — 준비: 2번의 회원 `member@test.com`을 만들고 `loginTokens("member@test.com")`로 세션 하나를 만든다. 동작: `POST /api/auth/login` 본문 `{"email":"member@test.com","password":"pass1234"}`.
-- 확인:
-  - `응답(andExpect):` 상태 200, `jsonPath("$.refreshToken").isNotEmpty()`.
-  - `응답 본문(andReturn 후):` `sid` = `RefreshToken.parse(JsonPath.read(본문, "$.refreshToken")).sessionId()`.
-  - `Redis(sessionIdsOf(memberId)):` 2개이고 `sid`가 들어 있다.
-  - `Redis(sessionSnapshotOf(sid)):` `memberId()` = `memberId`.
-
-**16. 갱신하면 세션 만료가 7일로 다시 늘어난다** — 준비: `loginTokens(…)` → `refresh1`, `sid`. `redis.expire("auth:session:" + sid, Duration.ofSeconds(100))`로 세션의 남은 시간을 줄여 둔다.
-- 동작: `refresh(refresh1)` → 200.
-- 확인: `Redis(sessionSnapshotOf(sid)):` `ttlSeconds()` 604000~604800.
 
 #### `member/application/RefreshConcurrencyTest` (`@RepeatedTest(10)`)
 
@@ -813,26 +813,18 @@ return 0
 **1. 발송** — 동작: 발송.
 - `응답(andExpect):` 상태 202.
 - `메일(fakeMailSender.sent()):` 1건, `to` = `new@test.com`, `title` = `[MyRoutine] 이메일 인증코드`, `body`가 `인증코드: ` + 6자리 숫자.
-- `Redis(emailAuthSnapshotOf(VERIFY_EMAIL, "new@test.com")):` `a.codeTtlSeconds()` 1~300. `a.cooldownTtlSeconds()` 1~60. `a.hourly()` = 1, `a.hourlyTtlSeconds()` 1~3600.
+- `Redis(emailAuthSnapshotOf(VERIFY_EMAIL, "new@test.com")):` `a.codeTtlSeconds()` 1\~300. `a.cooldownTtlSeconds()` 1\~60. `a.hourly()` = 1, `a.hourlyTtlSeconds()` 1\~3600.
 
-**2. 확인하면 인증 토큰을 준다** — 준비: 발송 → 메일에서 `code`. 동작: 확인.
-- `응답(andExpect):` 상태 200, `jsonPath("$.verificationToken").isNotEmpty()`.
-- `응답 본문(andReturn 후):` `V` = `JsonPath.read(본문, "$.verificationToken")`.
-- `Redis(redisStringOf("auth:signup-verified:" + sha256Hex(V))):` `value()` = `new@test.com`, `ttlSeconds()` 1~1800.
-- `Redis(emailAuthSnapshotOf(VERIFY_EMAIL, "new@test.com")):` `codeExists()` = false.
+**2. Redis에 코드 원문이 없다** — 준비: 발송 → `code`.
+- `Redis(emailAuthSnapshotOf(VERIFY_EMAIL, "new@test.com")):` `a.fieldNames()`가 정확히 `codeHash`, `attempts`이고 `a.codeHash()`는 `code`와 같지 않다.
+- `Redis(redis.keys("auth:*")):` 어떤 키 이름에도 `code`가 들어 있지 않다.
 
-**3. 인증 토큰으로 가입한다** — 준비: 2번의 동작까지 → `V`. 동작: 가입.
-- `응답(andExpect):` 상태 201.
-- `응답 본문(andReturn 후):` `memberId` = `UUID.fromString(JsonPath.read(본문, "$.memberId"))`.
-- `DB(memberSnapshotOf(memberId)):` `email()` = `new@test.com`.
-- `Redis(redisStringOf("auth:signup-verified:" + sha256Hex(V))):` `exists()` = false.
-
-**4. 60초 안에 재발송** — 동작: 발송 → 202, 곧바로 발송.
+**3. 60초 안에 재발송** — 동작: 발송 → 202, 곧바로 발송.
 - `응답(andExpect):` 두 번째 응답 429, `$.code` = `RATE_LIMITED`, `$.details.retryAfterSeconds` 1~60.
 - `메일(fakeMailSender.sent()):` 두 번째 응답 뒤에도 1건 그대로(첫 발송 직후와 같다).
 - `Redis(emailAuthSnapshotOf(VERIFY_EMAIL, "new@test.com")):` 첫 발송 직후 `before`를 읽어 두고, 두 번째 응답 뒤 읽은 값이 `codeHash()` = `before.codeHash()`, `hourly()` = 1이다.
 
-**5. 시간당 5번 초과** — 동작: 발송(202) → `redis.delete("auth:email-cooldown:new@test.com")`를 5번 반복한 뒤 6번째 발송.
+**4. 시간당 5번 초과** — 동작: 발송(202) → `redis.delete("auth:email-cooldown:new@test.com")`를 5번 반복한 뒤 6번째 발송.
 - `응답(andExpect):` 앞의 5번은 모두 202.
 - `메일(fakeMailSender.sent()):` 5건.
 - `Redis(emailAuthSnapshotOf(VERIFY_EMAIL, "new@test.com")):` 5번째 직후 `hourly()` = 5.
@@ -840,7 +832,28 @@ return 0
 - `메일(fakeMailSender.sent()):` 6번째 응답 뒤에도 5건 그대로.
 - `Redis(emailAuthSnapshotOf(VERIFY_EMAIL, "new@test.com")):` 6번째 응답 뒤 `hourly()` = 6.
 
-**6. 5번 틀리면 맞는 코드도 거부한다** — 준비: 발송 → `code`. 틀린 코드는 `String wrong = code.equals("000000") ? "111111" : "000000";`. 코드가 무작위라 고정값 하나만 쓰면 드물게(100만 분의 1) 맞는 코드와 같아지기 때문이다.
+**5. 이미 가입된 이메일로 발송** — 준비: `testFixtures.signup("done@test.com")`. 동작: 본문 `{"email":"done@test.com"}`으로 발송.
+- 확인:
+  - `응답(andExpect):` 상태 409, `$.code` = `MEMBER_EMAIL_DUPLICATED`.
+  - `메일(fakeMailSender.sent()):` 0건.
+  - `Redis(redis.keys("auth:email-*")):` `isEmpty()`.
+
+**6. 확인하면 인증 토큰을 준다** — 준비: 발송 → 메일에서 `code`. 동작: 확인.
+- `응답(andExpect):` 상태 200, `jsonPath("$.verificationToken").isNotEmpty()`.
+- `응답 본문(andReturn 후):` `V` = `JsonPath.read(본문, "$.verificationToken")`.
+- `Redis(redisStringOf("auth:signup-verified:" + sha256Hex(V))):` `value()` = `new@test.com`, `ttlSeconds()` 1~1800.
+- `Redis(emailAuthSnapshotOf(VERIFY_EMAIL, "new@test.com")):` `codeExists()` = false.
+
+**7. Redis에 인증 토큰 원문이 없다** — 준비: 6번의 동작까지 → `V`.
+- `Redis(redis.keys("auth:*")):` 어떤 키 이름에도 `V`가 들어 있지 않다.
+- `Redis(redis.type(키), redis.opsForValue().get(키)):` `redis.type(키)`가 `DataType.STRING`인 키마다 `get(키)`가 `V`와 같지 않다.
+
+**8. 만료된 코드** — 준비: 발송 → `code`. 동작: `redis.delete("auth:email-code:VERIFY_EMAIL:new@test.com")` 후 `code`로 확인.
+- 확인:
+  - `응답(andExpect):` 상태 400, `$.code` = `EMAIL_CODE_INVALID`.
+  - `Redis(redis.keys("auth:signup-verified:*")):` `isEmpty()`.
+
+**9. 5번 틀리면 맞는 코드도 거부한다** — 준비: 발송 → `code`. 틀린 코드는 `String wrong = code.equals("000000") ? "111111" : "000000";`. 코드가 무작위라 고정값 하나만 쓰면 드물게(100만 분의 1) 맞는 코드와 같아지기 때문이다.
 - 동작: 확인을 `wrong`으로 5번 호출한다.
 - 확인:
   - `응답(andExpect):` 매번 400, `$.code` = `EMAIL_CODE_INVALID`.
@@ -850,47 +863,34 @@ return 0
   - `응답(andExpect):` 상태 400, `$.code` = `EMAIL_CODE_INVALID`.
   - `Redis(redis.keys("auth:signup-verified:*")):` `isEmpty()`.
 
-**7. 만료된 코드** — 준비: 발송 → `code`. 동작: `redis.delete("auth:email-code:VERIFY_EMAIL:new@test.com")` 후 `code`로 확인.
-- 확인:
-  - `응답(andExpect):` 상태 400, `$.code` = `EMAIL_CODE_INVALID`.
-  - `Redis(redis.keys("auth:signup-verified:*")):` `isEmpty()`.
+**10. 인증 토큰으로 가입한다** — 준비: 6번의 동작까지 → `V`. 동작: 가입.
+- `응답(andExpect):` 상태 201.
+- `응답 본문(andReturn 후):` `memberId` = `UUID.fromString(JsonPath.read(본문, "$.memberId"))`.
+- `DB(memberSnapshotOf(memberId)):` `email()` = `new@test.com`.
+- `Redis(redisStringOf("auth:signup-verified:" + sha256Hex(V))):` `exists()` = false.
 
-**8. Redis에 코드 원문이 없다** — 준비: 발송 → `code`.
-- `Redis(emailAuthSnapshotOf(VERIFY_EMAIL, "new@test.com")):` `a.fieldNames()`가 정확히 `codeHash`, `attempts`이고 `a.codeHash()`는 `code`와 같지 않다.
-- `Redis(redis.keys("auth:*")):` 어떤 키 이름에도 `code`가 들어 있지 않다.
-
-**9. 이미 가입된 이메일로 발송** — 준비: `testFixtures.signup("done@test.com")`. 동작: 본문 `{"email":"done@test.com"}`으로 발송.
-- 확인:
-  - `응답(andExpect):` 상태 409, `$.code` = `MEMBER_EMAIL_DUPLICATED`.
-  - `메일(fakeMailSender.sent()):` 0건.
-  - `Redis(redis.keys("auth:email-*")):` `isEmpty()`.
-
-**10. 인증 토큰이 틀리면 가입을 거부한다** — 동작: `verificationToken`을 발급한 적 없는 값 `"never-issued"`로 가입.
-- 확인:
-  - `응답(andExpect):` 상태 400, `$.code` = `VERIFICATION_TOKEN_INVALID`.
-  - `DB(countOf("member.member")):` 0.
-
-**11. 다른 이메일의 인증 토큰으로는 가입할 수 없다** — 준비: `V = testFixtures.verificationToken("other@test.com")`. 동작: 이메일 `new@test.com`, `verificationToken` = `V`로 가입.
-- 확인:
-  - `응답(andExpect):` 상태 400, `$.code` = `VERIFICATION_TOKEN_INVALID`.
-  - `DB(countOf("member.member")):` 0.
-
-**12. 인증 토큰이 없으면 400 `INVALID_REQUEST`** — 동작: 본문에 `verificationToken`이 없는 요청과 빈 문자열인 요청으로 가입.
+**11. 인증 토큰이 없으면 400 `INVALID_REQUEST`** — 동작: 본문에 `verificationToken`이 없는 요청과 빈 문자열인 요청으로 가입.
 - 확인:
   - `응답(andExpect):` 두 요청 모두 상태 400, `$.code` = `INVALID_REQUEST`.
   - `DB(countOf("member.member")):` 0.
 
-**13. 가입이 실패해도 인증 토큰은 남는다** — 준비: `testFixtures.signup("taken@test.com")`(닉네임 `taken`), `V = testFixtures.verificationToken("new@test.com")`. 동작: 닉네임 `taken`으로 가입 → 409 `MEMBER_NICKNAME_DUPLICATED`, 이어 같은 `V`와 닉네임 `newbie`로 가입.
+**12. 인증 토큰이 틀리면 가입을 거부한다** — 동작: `verificationToken`을 발급한 적 없는 값 `"never-issued"`로 가입.
+- 확인:
+  - `응답(andExpect):` 상태 400, `$.code` = `VERIFICATION_TOKEN_INVALID`.
+  - `DB(countOf("member.member")):` 0.
+
+**13. 다른 이메일의 인증 토큰으로는 가입할 수 없다** — 준비: `V = testFixtures.verificationToken("other@test.com")`. 동작: 이메일 `new@test.com`, `verificationToken` = `V`로 가입.
+- 확인:
+  - `응답(andExpect):` 상태 400, `$.code` = `VERIFICATION_TOKEN_INVALID`.
+  - `DB(countOf("member.member")):` 0.
+
+**14. 가입이 실패해도 인증 토큰은 남는다** — 준비: `testFixtures.signup("taken@test.com")`(닉네임 `taken`), `V = testFixtures.verificationToken("new@test.com")`. 동작: 닉네임 `taken`으로 가입 → 409 `MEMBER_NICKNAME_DUPLICATED`, 이어 같은 `V`와 닉네임 `newbie`로 가입.
 - 확인: `응답(andExpect):` 두 번째 가입 응답 상태 201.
 
-**14. 같은 인증 토큰으로 두 번 가입할 수 없다** — 준비: 3번의 동작까지(`new@test.com` 가입 201, `V`). 동작: 같은 `V`, 닉네임 `newbie2`로 다시 가입.
+**15. 같은 인증 토큰으로 두 번 가입할 수 없다** — 준비: 10번의 동작까지(`new@test.com` 가입 201, `V`). 동작: 같은 `V`, 닉네임 `newbie2`로 다시 가입.
 - 확인:
   - `응답(andExpect):` 상태 400, `$.code` = `VERIFICATION_TOKEN_INVALID`.
   - `DB(countOf("member.member")):` 1.
-
-**15. Redis에 인증 토큰 원문이 없다** — 준비: 2번의 동작까지 → `V`.
-- `Redis(redis.keys("auth:*")):` 어떤 키 이름에도 `V`가 들어 있지 않다.
-- `Redis(redis.type(키), redis.opsForValue().get(키)):` `redis.type(키)`가 `DataType.STRING`인 키마다 `get(키)`가 `V`와 같지 않다.
 
 #### `member/web/PasswordTest`
 
@@ -914,7 +914,10 @@ return 0
 - `DB(memberSnapshotOf(memberId)):` `passwordHash()`가 요청 전 값과 같다.
 - `Redis(sessionSnapshotOf(sidA)):` `exists()` = true.
 
-**4. 재설정 요청은 가입 여부와 상관없이 같은 응답** — 동작 1: 가입되지 않은 `nobody@test.com`으로 재설정 요청.
+**4. 비밀번호가 없는 회원의 변경 거부** — 준비: 3번과 같다(`loginTokens(…)` → `accessA`·`sidA`). 동작: `UPDATE member.member SET password_hash = NULL WHERE id = ?` 후 올바른 현재 비밀번호 `pass1234`로 변경(`Bearer {accessA}`, 본문 `{"currentPassword":"pass1234","newPassword":"newpass5678"}`).
+- `응답(andExpect):` 상태 400, `$.code` = `PASSWORD_MISMATCH`.
+
+**5. 재설정 요청은 가입 여부와 상관없이 같은 응답** — 동작 1: 가입되지 않은 `nobody@test.com`으로 재설정 요청.
 - 확인:
   - `응답(andExpect):` 상태 202, `content().string("")`.
   - `메일(fakeMailSender.sent()):` 0건.
@@ -924,7 +927,18 @@ return 0
   - `메일(fakeMailSender.sent()):` 1건, `to` = `pw@test.com`.
   - `Redis(emailAuthSnapshotOf(RESET_PASSWORD, "pw@test.com")):` `codeExists()` = true.
 
-**5. 재설정 후 모든 refresh와 로그인** — 준비: `loginTokens(…)` → `refreshA`·`sidA`, `loginTokens(…)` → `refreshB`·`sidB`. 재설정 요청 → 202, 메일에서 `code`.
+**6. 재설정 메일 발송이 실패해도 같은 응답** — 준비: `fakeMailSender.failNext(1)`. 동작: `pw@test.com`으로 재설정 요청.
+- `응답(andExpect):` 상태 202, `content().string("")`(5번의 가입되지 않은 이메일과 같다).
+- `메일(fakeMailSender.sent()):` 1건(`FakeMailSender`는 예외를 던지기 전에 기록한다). 발송을 시도하지 않고 202를 준 경우와 구분하기 위한 확인이다.
+
+**7. 재설정 요청의 한도는 가입 여부와 무관하다** — 동작: 가입되지 않은 `nobody@test.com`으로 재설정 요청을 연달아 두 번 보낸다. 같은 방식으로 가입된 `pw@test.com`도 두 번 보낸다.
+- `응답(andExpect):` 두 이메일 모두 첫 응답은 상태 202, 두 번째 응답은 상태 429, `$.code` = `RATE_LIMITED`, `$.details.retryAfterSeconds` 1~60.
+
+**8. ACTIVE가 아닌 회원에게는 재설정 메일을 보내지 않는다** — 동작: `testFixtures.changeStatus(memberId, "BANNED")` 후 `pw@test.com`으로 재설정 요청.
+- `응답(andExpect):` 상태 202.
+- `메일(fakeMailSender.sent()):` 0건.
+
+**9. 재설정 후 모든 refresh와 로그인** — 준비: `loginTokens(…)` → `refreshA`·`sidA`, `loginTokens(…)` → `refreshB`·`sidB`. 재설정 요청 → 202, 메일에서 `code`.
 - 동작: `code`로 재설정 확인.
 - 확인 1:
   - `응답(andExpect):` 상태 204.
@@ -933,29 +947,15 @@ return 0
   - `Redis(emailAuthSnapshotOf(RESET_PASSWORD, "pw@test.com")):` `codeExists()` = false.
 - 확인 2: `응답(andExpect):` 로그인 `pass1234` → 상태 401, `$.code` = `LOGIN_FAILED`. `resetpass99` → 상태 200.
 
-**6. 비밀번호가 없는 회원의 변경 거부** — 준비: 3번과 같다(`loginTokens(…)` → `accessA`·`sidA`). 동작: `UPDATE member.member SET password_hash = NULL WHERE id = ?` 후 올바른 현재 비밀번호 `pass1234`로 변경(`Bearer {accessA}`, 본문 `{"currentPassword":"pass1234","newPassword":"newpass5678"}`).
-- `응답(andExpect):` 상태 400, `$.code` = `PASSWORD_MISMATCH`.
-
-**7. ACTIVE가 아닌 회원에게는 재설정 메일을 보내지 않는다** — 동작: `testFixtures.changeStatus(memberId, "BANNED")` 후 `pw@test.com`으로 재설정 요청.
-- `응답(andExpect):` 상태 202.
-- `메일(fakeMailSender.sent()):` 0건.
-
-**8. 틀린 코드로는 재설정할 수 없다** — 준비: 5번과 같다(`loginTokens(…)` → `sidA`, `loginTokens(…)` → `sidB`, 재설정 요청 → 202, 메일에서 `code`). 요청 전 `memberSnapshotOf(memberId).passwordHash()`를 읽어 둔다. 동작: `wrong`(`code.equals("000000") ? "111111" : "000000"`, `SignupVerificationTest` 6번과 같다)으로 재설정 확인.
-- `응답(andExpect):` 상태 400, `$.code` = `EMAIL_CODE_INVALID`.
-- `DB(memberSnapshotOf(memberId)):` `passwordHash()`가 요청 전 값 그대로.
-- `Redis(sessionSnapshotOf(sidA)):` `exists()` = true. `Redis(sessionSnapshotOf(sidB)):` `exists()` = true.
-
-**9. 재설정 요청의 한도는 가입 여부와 무관하다** — 동작: 가입되지 않은 `nobody@test.com`으로 재설정 요청을 연달아 두 번 보낸다. 같은 방식으로 가입된 `pw@test.com`도 두 번 보낸다.
-- `응답(andExpect):` 두 이메일 모두 첫 응답은 상태 202, 두 번째 응답은 상태 429, `$.code` = `RATE_LIMITED`, `$.details.retryAfterSeconds` 1~60.
-
 **10. 재설정의 새 비밀번호도 가입 규칙을 따른다** — 준비: 재설정 요청 → 202, 메일에서 `code`. 요청 전 `memberSnapshotOf(memberId).passwordHash()`를 읽어 둔다. 동작: `newPassword`를 `"abcdefgh"`로 재설정 확인.
 - `응답(andExpect):` 상태 400, `$.code` = `INVALID_REQUEST`.
 - `DB(memberSnapshotOf(memberId)):` `passwordHash()`가 요청 전 값 그대로.
 - `Redis(emailAuthSnapshotOf(RESET_PASSWORD, "pw@test.com")):` `codeExists()` = true.
 
-**11. 재설정 메일 발송이 실패해도 같은 응답** — 준비: `fakeMailSender.failNext(1)`. 동작: `pw@test.com`으로 재설정 요청.
-- `응답(andExpect):` 상태 202, `content().string("")`(4번의 가입되지 않은 이메일과 같다).
-- `메일(fakeMailSender.sent()):` 1건(`FakeMailSender`는 예외를 던지기 전에 기록한다). 발송을 시도하지 않고 202를 준 경우와 구분하기 위한 확인이다.
+**11. 틀린 코드로는 재설정할 수 없다** — 준비: 9번과 같다(`loginTokens(…)` → `sidA`, `loginTokens(…)` → `sidB`, 재설정 요청 → 202, 메일에서 `code`). 요청 전 `memberSnapshotOf(memberId).passwordHash()`를 읽어 둔다. 동작: `wrong`(`code.equals("000000") ? "111111" : "000000"`, `SignupVerificationTest` 9번과 같다)으로 재설정 확인.
+- `응답(andExpect):` 상태 400, `$.code` = `EMAIL_CODE_INVALID`.
+- `DB(memberSnapshotOf(memberId)):` `passwordHash()`가 요청 전 값 그대로.
+- `Redis(sessionSnapshotOf(sidA)):` `exists()` = true. `Redis(sessionSnapshotOf(sidB)):` `exists()` = true.
 
 #### `member/infrastructure/EmailCodeConcurrencyTest` (`@RepeatedTest(10)`)
 
@@ -1242,27 +1242,40 @@ return 0
   - `반환값:` `jwtProvider.parse(access).orElseThrow().memberId()` = `memberId`. `sid` = `RefreshToken.parse(refresh).sessionId()`.
   - `Redis(sessionSnapshotOf(sid)):` `exists()` = true, `memberId()` = `memberId`.
 
-**3. 같은 이메일의 이메일 가입 계정이 있으면 가입 거부** — 준비: `testFixtures.signup("dup@test.com")` → `existingId`(비밀번호 `pass1234`). `oauth.givenUser(KAKAO, "kakao-dup", "dup@test.com")`.
-- 동작: `oauthLogin(KAKAO, STATE)` → `SIGNUP_REQUIRED`, `T` = `JsonPath.read(본문, "$.signupToken")` → `V = testFixtures.verificationToken("dup@test.com")` → `POST /api/auth/oauth/signup` 본문 `{"signupToken":"{T}","nickname":"socialnick","name":"소셜","verificationToken":"{V}"}`.
-- 확인:
-  - `응답(andExpect):` 로그인 단계는 상태 200, `$.status` = `SIGNUP_REQUIRED`. 가입은 상태 409, `$.code` = `MEMBER_EMAIL_DUPLICATED`.
-  - `DB(countOf("member.member")):` 가입 응답 뒤 1. `DB(memberSnapshotOf(existingId)):` 가입 응답 뒤 `passwordHash()`는 요청 전 값 그대로. `DB(countOf("member.social_account")):` 가입 응답 뒤 0.
-
-**4. 제공자 장애** — `@ParameterizedTest` 입력: `Behavior.delay(6000)`, `Behavior.serverError()`. 준비: `oauth.givenUser(KAKAO, "kakao-1", "a@test.com")`, `oauth.failWith(KAKAO, 입력)`.
-- 동작: `oauthLogin(KAKAO, STATE)`.
-- 확인:
-  - `응답(andExpect):` 상태 502, `$.code` = `OAUTH_PROVIDER_ERROR`.
-  - `DB(countOf("member.member")):` 0. `DB(countOf("member.social_account")):` 0.
-  - `Redis(redis.keys("auth:oauth-signup:*")):` `isEmpty()`.
-
-**5. 세 제공자의 응답 파싱** — `@ParameterizedTest` 입력: `(KAKAO, "123456789")`, `(GOOGLE, "google-sub-1")`, `(NAVER, "naver-id-1")`. 준비: `oauth.givenUser(p, id, p.name().toLowerCase() + "@test.com")`.
+**3. 세 제공자의 응답 파싱** — `@ParameterizedTest` 입력: `(KAKAO, "123456789")`, `(GOOGLE, "google-sub-1")`, `(NAVER, "naver-id-1")`. 준비: `oauth.givenUser(p, id, p.name().toLowerCase() + "@test.com")`.
 - 동작: `oauthLogin(p, STATE)`.
 - 확인:
   - `응답(andExpect):` 상태 200, `$.status` = `SIGNUP_REQUIRED`, `$.email` = `{소문자 제공자}@test.com`.
   - `응답 본문(andReturn 후):` `T` = `JsonPath.read(본문, "$.signupToken")`.
   - `Redis(redisHashOf("auth:oauth-signup:" + sha256Hex(T))):` `h.fields().get("provider")` = `p.name()`, `h.fields().get("providerUserId")` = `id`, `h.fields().get("email")` = 위 이메일.
 
-**6. 이메일을 주지 않는 제공자** — 준비: `oauth.givenUser(KAKAO, "kakao-noemail", null)`.
+**4. 같은 소셜 계정의 제공자 이메일이 바뀌어도 같은 회원으로 로그인한다** — 준비: 2번과 같다(`socialSignup(KAKAO, "123456789", "social@test.com")`). 동작: `oauth.givenUser(KAKAO, "123456789", "changed@test.com")` 후 `oauthLogin(KAKAO, STATE)`.
+- 확인:
+  - `응답(andExpect):` 상태 200, `$.status` = `LOGGED_IN`.
+  - `응답 본문(andReturn 후):` `access` = `JsonPath.read(본문, "$.token.accessToken")`.
+  - `반환값:` `jwtProvider.parse(access).orElseThrow().memberId()` = 같은 `memberId`.
+
+**5. `state`가 없거나 빈 문자열이면 400 `INVALID_REQUEST`** — 동작: 본문에 `state`가 없는 `{"code":"x"}`와 `state`가 빈 문자열인 요청을 `POST /api/auth/oauth/kakao/login`으로 보낸다.
+- 확인:
+  - `응답(andExpect):` 두 요청 모두 상태 400, `$.code` = `INVALID_REQUEST`.
+  - `DB(countOf("member.member")):` 0. `DB(countOf("member.social_account")):` 0.
+
+**6. 알 수 없는 제공자는 400** — 동작: `POST /api/auth/oauth/facebook/login`.
+- 확인: `응답(andExpect):` 상태 400, `$.code` = `INVALID_REQUEST`.
+
+**7. 제공자 장애** — `@ParameterizedTest` 입력: `Behavior.delay(6000)`, `Behavior.serverError()`. 준비: `oauth.givenUser(KAKAO, "kakao-1", "a@test.com")`, `oauth.failWith(KAKAO, 입력)`.
+- 동작: `oauthLogin(KAKAO, STATE)`.
+- 확인:
+  - `응답(andExpect):` 상태 502, `$.code` = `OAUTH_PROVIDER_ERROR`.
+  - `DB(countOf("member.member")):` 0. `DB(countOf("member.social_account")):` 0.
+  - `Redis(redis.keys("auth:oauth-signup:*")):` `isEmpty()`.
+
+**8. 정지 회원의 소셜 로그인은 거부한다** — 준비: 2번과 같다. 동작: `changeStatus(memberId, "BANNED")` 후 `oauthLogin(KAKAO, STATE)`.
+- 확인:
+  - `응답(andExpect):` 상태 403, `$.code` = `MEMBER_BANNED`.
+  - `Redis(sessionIdsOf(memberId)):` 요청 전후 `size()`가 같다.
+
+**9. 이메일을 주지 않는 제공자** — 준비: `oauth.givenUser(KAKAO, "kakao-noemail", null)`.
 - 동작 1: `oauthLogin(KAKAO, STATE)`.
 - 확인 1:
   - `응답(andExpect):` 상태 200, `$.status` = `SIGNUP_REQUIRED`, `jsonPath("$.email").doesNotExist()`.
@@ -1273,51 +1286,38 @@ return 0
   - `응답(andExpect):` 상태 201.
   - `DB(memberIdOf("typed@test.com")):` `isNotNull()`.
 
-**7. 다른 이메일의 인증 토큰으로는 가입이 거부된다** — 준비: `oauth.givenUser(KAKAO, "123456789", "social@test.com")`, `oauthLogin(KAKAO, STATE)` 응답 본문의 `T` = `JsonPath.read(본문, "$.signupToken")`, `V = testFixtures.verificationToken("other@test.com")`.
+**10. 탈퇴한 회원의 소셜 계정으로 다시 가입한다** — 준비: 2번과 같다(`socialSignup(KAKAO, "123456789", "social@test.com")` → `memberId`), `oauthLogin(KAKAO, STATE)` 응답 본문의 `JsonPath.read(본문, "$.token.accessToken")`로 얻은 access 토큰 `token`. 동작 1: `DELETE /api/members/me`(`Bearer {token}`)로 탈퇴(가게·주문이 없어 막히지 않는다).
+- 확인 1:
+  - `응답(andExpect):` 상태 204.
+  - `DB(countOf("member.social_account")):` 0.
+- 동작 2: `oauthLogin(KAKAO, STATE)`.
+- 확인 2: `응답(andExpect):` 상태 200, `$.status` = `SIGNUP_REQUIRED`(401 `LOGIN_FAILED`가 아니다).
+
+**11. 이메일이 어디에도 없으면 가입을 거부한다** — 준비: 9번의 준비와 동작 1(`oauthLogin(KAKAO, STATE)` → `T`)까지 같다. 동작: 본문의 `email` 없이 가입 요청(`verificationToken`은 `testFixtures.verificationToken("typed@test.com")`).
+- 확인:
+  - `응답(andExpect):` 상태 400, `$.code` = `INVALID_REQUEST`.
+  - `DB(countOf("member.member")):` 0.
+
+**12. 다른 이메일의 인증 토큰으로는 가입이 거부된다** — 준비: `oauth.givenUser(KAKAO, "123456789", "social@test.com")`, `oauthLogin(KAKAO, STATE)` 응답 본문의 `T` = `JsonPath.read(본문, "$.signupToken")`, `V = testFixtures.verificationToken("other@test.com")`.
 - 동작: `verificationToken` = `V`로 가입(이메일은 가입 토큰의 `social@test.com`).
 - 확인:
   - `응답(andExpect):` 상태 400, `$.code` = `VERIFICATION_TOKEN_INVALID`.
   - `DB(countOf("member.member")):` 0. `DB(countOf("member.social_account")):` 0.
   - `Redis(redisHashOf("auth:oauth-signup:" + sha256Hex(T))):` `exists()` = true.
 
-**8. 같은 소셜 계정의 제공자 이메일이 바뀌어도 같은 회원으로 로그인한다** — 준비: 2번과 같다(`socialSignup(KAKAO, "123456789", "social@test.com")`). 동작: `oauth.givenUser(KAKAO, "123456789", "changed@test.com")` 후 `oauthLogin(KAKAO, STATE)`.
-- 확인:
-  - `응답(andExpect):` 상태 200, `$.status` = `LOGGED_IN`.
-  - `응답 본문(andReturn 후):` `access` = `JsonPath.read(본문, "$.token.accessToken")`.
-  - `반환값:` `jwtProvider.parse(access).orElseThrow().memberId()` = 같은 `memberId`.
-
-**9. 정지 회원의 소셜 로그인은 거부한다** — 준비: 2번과 같다. 동작: `changeStatus(memberId, "BANNED")` 후 `oauthLogin(KAKAO, STATE)`.
-- 확인:
-  - `응답(andExpect):` 상태 403, `$.code` = `MEMBER_BANNED`.
-  - `Redis(sessionIdsOf(memberId)):` 요청 전후 `size()`가 같다.
-
-**10. `state`가 없거나 빈 문자열이면 400 `INVALID_REQUEST`** — 동작: 본문에 `state`가 없는 `{"code":"x"}`와 `state`가 빈 문자열인 요청을 `POST /api/auth/oauth/kakao/login`으로 보낸다.
-- 확인:
-  - `응답(andExpect):` 두 요청 모두 상태 400, `$.code` = `INVALID_REQUEST`.
-  - `DB(countOf("member.member")):` 0. `DB(countOf("member.social_account")):` 0.
-
-**11. 알 수 없는 제공자는 400** — 동작: `POST /api/auth/oauth/facebook/login`.
-- 확인: `응답(andExpect):` 상태 400, `$.code` = `INVALID_REQUEST`.
-
-**12. 이메일이 어디에도 없으면 가입을 거부한다** — 준비: 6번의 준비와 동작 1(`oauthLogin(KAKAO, STATE)` → `T`)까지 같다. 동작: 본문의 `email` 없이 가입 요청(`verificationToken`은 `testFixtures.verificationToken("typed@test.com")`).
-- 확인:
-  - `응답(andExpect):` 상태 400, `$.code` = `INVALID_REQUEST`.
-  - `DB(countOf("member.member")):` 0.
-
 **13. 가입 토큰이 없으면 가입을 거부한다** — 준비: `oauth.givenUser(KAKAO, "123456789", "social@test.com")`, `oauthLogin(KAKAO, STATE)` 응답 본문의 `T` = `JsonPath.read(본문, "$.signupToken")`, `V = testFixtures.verificationToken("social@test.com")`. 동작: `redis.delete("auth:oauth-signup:" + sha256Hex(T))` 후 가입.
 - 확인:
   - `응답(andExpect):` 상태 401, `$.code` = `SIGNUP_TOKEN_INVALID`.
   - `DB(countOf("member.member")):` 0.
 
-**14. 소셜 가입 회원의 내 정보에는 비밀번호가 없다** — 준비: 2번과 같다(`socialSignup(KAKAO, "123456789", "social@test.com")` → `memberId`), `oauthLogin(KAKAO, STATE)` 응답 본문의 `JsonPath.read(본문, "$.token.accessToken")` → `token`. 동작: `GET /api/members/me`를 `Bearer {token}`으로.
-- 확인: `응답(andExpect):` 상태 200, `$.hasPassword` = false, `$.socialAccounts`가 1건(`jsonPath("$.socialAccounts", hasSize(1))`), `$.socialAccounts[0].provider` = `KAKAO`, `jsonPath("$.socialAccounts[0].linkedAt").isNotEmpty()`.
+**14. 같은 이메일의 이메일 가입 계정이 있으면 가입 거부** — 준비: `testFixtures.signup("dup@test.com")` → `existingId`(비밀번호 `pass1234`). `oauth.givenUser(KAKAO, "kakao-dup", "dup@test.com")`.
+- 동작: `oauthLogin(KAKAO, STATE)` → `SIGNUP_REQUIRED`, `T` = `JsonPath.read(본문, "$.signupToken")` → `V = testFixtures.verificationToken("dup@test.com")` → `POST /api/auth/oauth/signup` 본문 `{"signupToken":"{T}","nickname":"socialnick","name":"소셜","verificationToken":"{V}"}`.
+- 확인:
+  - `응답(andExpect):` 로그인 단계는 상태 200, `$.status` = `SIGNUP_REQUIRED`. 가입은 상태 409, `$.code` = `MEMBER_EMAIL_DUPLICATED`.
+  - `DB(countOf("member.member")):` 가입 응답 뒤 1. `DB(memberSnapshotOf(existingId)):` 가입 응답 뒤 `passwordHash()`는 요청 전 값 그대로. `DB(countOf("member.social_account")):` 가입 응답 뒤 0.
 
-**15. 탈퇴한 회원의 소셜 계정으로 다시 가입한다** — 준비: 2번과 같다(`socialSignup(KAKAO, "123456789", "social@test.com")` → `memberId`), `oauthLogin(KAKAO, STATE)` 응답 본문의 `JsonPath.read(본문, "$.token.accessToken")`로 얻은 access 토큰 `token`. 동작 1: `DELETE /api/members/me`(`Bearer {token}`)로 탈퇴(가게·주문이 없어 막히지 않는다).
-- 확인 1:
-  - `응답(andExpect):` 상태 204.
-  - `DB(countOf("member.social_account")):` 0.
-- 동작 2: `oauthLogin(KAKAO, STATE)`.
-- 확인 2: `응답(andExpect):` 상태 200, `$.status` = `SIGNUP_REQUIRED`(401 `LOGIN_FAILED`가 아니다).
+**15. 소셜 가입 회원의 내 정보에는 비밀번호가 없다** — 준비: 2번과 같다(`socialSignup(KAKAO, "123456789", "social@test.com")` → `memberId`), `oauthLogin(KAKAO, STATE)` 응답 본문의 `JsonPath.read(본문, "$.token.accessToken")` → `token`. 동작: `GET /api/members/me`를 `Bearer {token}`으로.
+- 확인: `응답(andExpect):` 상태 200, `$.hasPassword` = false, `$.socialAccounts`가 1건(`jsonPath("$.socialAccounts", hasSize(1))`), `$.socialAccounts[0].provider` = `KAKAO`, `jsonPath("$.socialAccounts[0].linkedAt").isNotEmpty()`.
 
 #### `member/web/SocialLinkTest`
 
@@ -1643,22 +1643,31 @@ return count
 
 **목록 응답**: 목록은 `GET /admin/api/members?query=&status=&cursor=&size=`(`size` 생략 시 20)이고, 항목은 응답의 `$.items[*]`(`id`, `email`, `nickname`, `name`, `status`, `banReason`, `bannedAt`, `role`, `createdAt`), 다음 페이지 표시는 `$.nextCursor`다. "alice의 role"처럼 한 회원의 값은 `$.items`에서 `email`이 `alice@test.com`인 항목을 골라 그 필드를 읽는다(JsonPath 필터 `[?(@.email == '…')]`).
 
-**1. 일반 회원은 관리자 API를 쓸 수 없다** — 준비: `signup`으로 `alice@test.com`, `bob@test.com`(→ `bobId`)을 만들고 `changeStatus(bobId, "BANNED")`. 동작: `login("alice@test.com")` 토큰으로 `GET /admin/api/members`, `POST /admin/api/members/{bobId}/unban`.
-- 확인:
-  - `응답(andExpect):` 두 요청 모두 상태 403, `$.code` = `FORBIDDEN`.
-  - `DB(memberSnapshotOf(bobId)):` `status()`가 `BANNED` 그대로.
-
-**2. 검색** — 준비: 관리자 `admin@test.com`(`adminToken`), `signup`으로 `alice@test.com`, `alan@test.com`, `bob@test.com`(→ `bobId`). 닉네임은 가입 때 이메일의 `@` 앞이 되고, `bob`은 `UPDATE member.member SET nickname = 'zebra' WHERE id = ?`로 `zebra`로 바꾼다. 동작: 관리자 토큰으로 `query`만 바꿔 호출하고, 응답 `$.items[*].email`을 본다.
+**1. 검색** — 준비: 관리자 `admin@test.com`(`adminToken`), `signup`으로 `alice@test.com`, `alan@test.com`, `bob@test.com`(→ `bobId`). 닉네임은 가입 때 이메일의 `@` 앞이 되고, `bob`은 `UPDATE member.member SET nickname = 'zebra' WHERE id = ?`로 `zebra`로 바꾼다. 동작: 관리자 토큰으로 `query`만 바꿔 호출하고, 응답 `$.items[*].email`을 본다.
 - `응답(andExpect):` `query=al` → `$.items[*].email`이 `alice@test.com`, `alan@test.com` 둘(순서 무관).
 - `응답(andExpect):` `query=bob`, `query=zeb` → `$.items[*].email`이 `bob@test.com` 하나.
 - `응답(andExpect):` `query=ice`, `query=%` → `jsonPath("$.items").isEmpty()`(항목 0건).
 - `응답(andExpect):` `query=AL` → `$.items[*].email`이 `al`과 같은 두 건.
 
-**3. 커서 페이징** — 준비: `signup`으로 `alice@test.com`, `alan@test.com`, `bob@test.com`, `carol@test.com`, 관리자 `admin@test.com`(`adminToken`)(id는 `memberIdOf("admin@test.com")`) 5명을 만들고 5명의 id를 `toString()`해 `expectedIds`로 모아 둔다. 동작: `size=2`로 호출하고, 응답 `$.nextCursor`를 `cursor`로 넘겨 다시 호출하기를 세 번 한다. 매 호출을 `.andReturn()`으로 받은 본문에서 `JsonPath.read(본문, "$.nextCursor")`(문자열, 마지막은 null)와 `JsonPath.read(본문, "$.items[*].id")`(`List<String>`)를 꺼내고, id 리스트를 한 리스트 `collected`에 모은다.
+**2. 커서 페이징** — 준비: `signup`으로 `alice@test.com`, `alan@test.com`, `bob@test.com`, `carol@test.com`, 관리자 `admin@test.com`(`adminToken`)(id는 `memberIdOf("admin@test.com")`) 5명을 만들고 5명의 id를 `toString()`해 `expectedIds`로 모아 둔다. 동작: `size=2`로 호출하고, 응답 `$.nextCursor`를 `cursor`로 넘겨 다시 호출하기를 세 번 한다. 매 호출을 `.andReturn()`으로 받은 본문에서 `JsonPath.read(본문, "$.nextCursor")`(문자열, 마지막은 null)와 `JsonPath.read(본문, "$.items[*].id")`(`List<String>`)를 꺼내고, id 리스트를 한 리스트 `collected`에 모은다.
 - 확인:
   - `응답 본문(andReturn 후):` 페이지마다 id 리스트의 크기가 2, 2, 1. 세 번째 본문의 `JsonPath.read(본문, "$.nextCursor")`가 null. `collected`가 5개이고 `containsExactlyInAnyOrderElementsOf(expectedIds)`(중복 없이 가입시킨 5명의 id와 같다).
 
-**4. 제재 → 해제 → 로그인** — 준비: 관리자 `admin@test.com`(`adminToken`), `signup("alice@test.com")` → `aliceId`, `loginTokens("alice@test.com")`로 만든 세션의 id `sidA` = `sessionIdsOf(aliceId)`의 유일한 원소(`.iterator().next()`).
+**3. 상태 필터** — 준비: `signup`으로 `alice@test.com`, `alan@test.com`, `bob@test.com`(→ `bobId`), `carol@test.com`, 관리자 `admin@test.com`(`adminToken`) 5명을 만들고 `changeStatus(bobId, "BANNED")`. 동작: 관리자 토큰으로 `status`만 바꿔 호출하고, 응답 `$.items`를 본다.
+- `응답(andExpect):` `status=BANNED` → `$.items[*].email`이 `bob@test.com` 하나. `status=ACTIVE` → `jsonPath("$.items", hasSize(4))`. `status` 없음 → `jsonPath("$.items", hasSize(5))`.
+
+**4. 목록 항목의 `role`** — 준비: 관리자 `admin@test.com`(`adminToken`), `signup("alice@test.com")`. 동작: 관리자 토큰으로 목록 호출.
+- 확인: `응답(andExpect):` `jsonPath("$.items[?(@.email == 'alice@test.com')].role")` = `USER`, `jsonPath("$.items[?(@.email == 'admin@test.com')].role")` = `ADMIN`.
+
+**5. 목록 항목의 제재 사유** — 준비: 관리자 `admin@test.com`(`adminToken`), `signup`으로 `alice@test.com`(→ `aliceId`), `carol@test.com`을 만들고 `alice`에게 ban(본문 `{"reason":"운영정책 위반"}`, 204). 동작: 관리자 토큰으로 목록 호출.
+- 확인: `응답(andExpect):` `jsonPath("$.items[?(@.email == 'alice@test.com')].banReason")` = `운영정책 위반`. `jsonPath("$.items[?(@.email == 'carol@test.com')].banReason")`의 값이 `hasItem(nullValue())`(필터 결과가 배열이다).
+
+**6. 목록 항목의 제재 시각** — 준비: 5번의 준비와 같다(`alice`, `carol`, 관리자, `alice`에게 ban). 동작: 관리자 토큰으로 목록 호출.
+- 확인:
+  - `응답 본문(andReturn 후):` 목록 호출을 `.andReturn()`으로 받아 응답 본문 문자열을 꺼내고, `JsonPath.read(본문, "$.items[?(@.email == 'alice@test.com')].bannedAt")`로 `alice` 항목의 `bannedAt`을 읽는다(필터 결과라 원소 하나짜리 `List<String>`이고 첫 원소가 값). 그 문자열을 `Instant.parse(...)`로 `Instant`로 바꾸고 `Duration.between(bannedAt, Instant.now())`가 10초보다 짧다. `jsonPath(...)` 단언 안에서는 `Instant`로 바꿀 수 없어서 `JsonPath.read`로 따로 꺼낸다.
+  - `응답(andExpect):` `jsonPath("$.items[?(@.email == 'carol@test.com')].bannedAt")`의 값이 `hasItem(nullValue())`(필터 결과가 배열이다).
+
+**7. 제재 → 해제 → 로그인** — 준비: 관리자 `admin@test.com`(`adminToken`), `signup("alice@test.com")` → `aliceId`, `loginTokens("alice@test.com")`로 만든 세션의 id `sidA` = `sessionIdsOf(aliceId)`의 유일한 원소(`.iterator().next()`).
 - 동작 1: `POST /admin/api/members/{aliceId}/ban`, 본문 `{"reason":"운영정책 위반"}`.
 - 확인 1:
   - `응답(andExpect):` 상태 204.
@@ -1671,45 +1680,36 @@ return count
   - `DB(memberSnapshotOf(aliceId)):` `status()` = `ACTIVE`, `banReason()`·`bannedAt()` 둘 다 `isNull()`.
   - `응답(andExpect):` 로그인(`POST /api/auth/login`) 상태 200, `jsonPath("$.accessToken").isNotEmpty()`.
 
-**5. 상태 전이 규칙을 어긴 제재·해제 거부** — 준비: 관리자 `admin@test.com`(`adminToken`), `signup`으로 `alice@test.com`(→ `aliceId`), `bob@test.com`(→ `bobId`)을 만들고 `changeStatus(bobId, "BANNED")`. 모두 `Bearer {adminToken}`.
+**8. 제재 이벤트는 `BANNED` 알림이 된다** — 준비: 관리자 `admin@test.com`(`adminToken`), `signup("alice@test.com")` → `aliceId`. 동작: 7번의 동작 1과 같은 ban 호출 후 `outboxRelay.relayOnce()`.
+- 확인: `DB(notificationRowsOf):` `Eventually.await(5초, ...)` 안에서 `notificationRowsOf(aliceId)`가 1건이고 그 행의 `type()`이 `BANNED`다(Kafka 소비가 비동기라 기다린다).
+
+**9. 제재 사유가 비어 있으면 400** — 준비: 관리자 `admin@test.com`(`adminToken`), `signup("alice@test.com")` → `aliceId`. 동작: `alice`에게 ban, 본문 `{"reason":""}`, `Bearer {adminToken}`.
+- 확인:
+  - `응답(andExpect):` 상태 400, `$.code` = `INVALID_REQUEST`.
+  - `DB(memberSnapshotOf(aliceId)):` `status()`가 `ACTIVE` 그대로.
+
+**10. 없는 회원을 제재하면 404** — 준비: 관리자 `admin@test.com`(`adminToken`). 동작: 가입하지 않은 임의 id(`Ids.newId()`)로 ban, `Bearer {adminToken}`, 본문 `{"reason":"스팸"}`.
+- 확인: `응답(andExpect):` 상태 404, `$.code` = `MEMBER_NOT_FOUND`.
+
+**11. 상태 전이 규칙을 어긴 제재·해제 거부** — 준비: 관리자 `admin@test.com`(`adminToken`), `signup`으로 `alice@test.com`(→ `aliceId`), `bob@test.com`(→ `bobId`)을 만들고 `changeStatus(bobId, "BANNED")`. 모두 `Bearer {adminToken}`.
 - 이미 제재된 `bob`에게 ban(본문 `{"reason":"중복"}`):
   - `응답(andExpect):` 상태 409, `$.code` = `INVALID_STATE_TRANSITION`.
   - `outbox(OutboxAssert.rows("member.member-banned.v1")):` 거부 응답 뒤 0건(준비의 `changeStatus`는 outbox를 쓰지 않는다).
 - 정지가 아닌 `alice`에게 unban: `응답(andExpect):` 상태 409, `$.code` = `INVALID_STATE_TRANSITION`.
 
-**6. 토큰 없이 관리자 API를 부르면 401** — 동작: `Authorization` 헤더 없이 `GET /admin/api/members`.
-- 확인: `응답(andExpect):` 상태 401, `$.code` = `UNAUTHORIZED`.
-
-**7. 상태 필터** — 준비: `signup`으로 `alice@test.com`, `alan@test.com`, `bob@test.com`(→ `bobId`), `carol@test.com`, 관리자 `admin@test.com`(`adminToken`) 5명을 만들고 `changeStatus(bobId, "BANNED")`. 동작: 관리자 토큰으로 `status`만 바꿔 호출하고, 응답 `$.items`를 본다.
-- `응답(andExpect):` `status=BANNED` → `$.items[*].email`이 `bob@test.com` 하나. `status=ACTIVE` → `jsonPath("$.items", hasSize(4))`. `status` 없음 → `jsonPath("$.items", hasSize(5))`.
-
-**8. 목록 항목의 `role`** — 준비: 관리자 `admin@test.com`(`adminToken`), `signup("alice@test.com")`. 동작: 관리자 토큰으로 목록 호출.
-- 확인: `응답(andExpect):` `jsonPath("$.items[?(@.email == 'alice@test.com')].role")` = `USER`, `jsonPath("$.items[?(@.email == 'admin@test.com')].role")` = `ADMIN`.
-
-**9. 제재 이벤트는 `BANNED` 알림이 된다** — 준비: 관리자 `admin@test.com`(`adminToken`), `signup("alice@test.com")` → `aliceId`. 동작: 4번의 동작 1과 같은 ban 호출 후 `outboxRelay.relayOnce()`.
-- 확인: `DB(notificationRowsOf):` `Eventually.await(5초, ...)` 안에서 `notificationRowsOf(aliceId)`가 1건이고 그 행의 `type()`이 `BANNED`다(Kafka 소비가 비동기라 기다린다).
-
-**10. 없는 회원을 제재하면 404** — 준비: 관리자 `admin@test.com`(`adminToken`). 동작: 가입하지 않은 임의 id(`Ids.newId()`)로 ban, `Bearer {adminToken}`, 본문 `{"reason":"스팸"}`.
-- 확인: `응답(andExpect):` 상태 404, `$.code` = `MEMBER_NOT_FOUND`.
-
-**11. 제재 사유가 비어 있으면 400** — 준비: 관리자 `admin@test.com`(`adminToken`), `signup("alice@test.com")` → `aliceId`. 동작: `alice`에게 ban, 본문 `{"reason":""}`, `Bearer {adminToken}`.
-- 확인:
-  - `응답(andExpect):` 상태 400, `$.code` = `INVALID_REQUEST`.
-  - `DB(memberSnapshotOf(aliceId)):` `status()`가 `ACTIVE` 그대로.
-
-**12. 목록 항목의 제재 사유** — 준비: 관리자 `admin@test.com`(`adminToken`), `signup`으로 `alice@test.com`(→ `aliceId`), `carol@test.com`을 만들고 `alice`에게 ban(본문 `{"reason":"운영정책 위반"}`, 204). 동작: 관리자 토큰으로 목록 호출.
-- 확인: `응답(andExpect):` `jsonPath("$.items[?(@.email == 'alice@test.com')].banReason")` = `운영정책 위반`. `jsonPath("$.items[?(@.email == 'carol@test.com')].banReason")`의 값이 `hasItem(nullValue())`(필터 결과가 배열이다).
-
-**13. 제재된 회원의 로그인 거절에 사유가 있다** — 준비: 관리자 `admin@test.com`(`adminToken`), `signup("alice@test.com")` → `aliceId`, `alice`에게 ban(본문 `{"reason":"운영정책 위반"}`, 204). 동작: `POST /api/auth/login` 본문 `{"email":"alice@test.com","password":"pass1234"}`.
+**12. 제재된 회원의 로그인 거절에 사유가 있다** — 준비: 관리자 `admin@test.com`(`adminToken`), `signup("alice@test.com")` → `aliceId`, `alice`에게 ban(본문 `{"reason":"운영정책 위반"}`, 204). 동작: `POST /api/auth/login` 본문 `{"email":"alice@test.com","password":"pass1234"}`.
 - 확인: `응답(andExpect):` 로그인 응답 상태 403, `$.code` = `MEMBER_BANNED`, `$.details.reason` = `운영정책 위반`.
 
-**14. 목록 항목의 제재 시각** — 준비: 12번의 준비와 같다(`alice`, `carol`, 관리자, `alice`에게 ban). 동작: 관리자 토큰으로 목록 호출.
-- 확인:
-  - `응답 본문(andReturn 후):` 목록 호출을 `.andReturn()`으로 받아 응답 본문 문자열을 꺼내고, `JsonPath.read(본문, "$.items[?(@.email == 'alice@test.com')].bannedAt")`로 `alice` 항목의 `bannedAt`을 읽는다(필터 결과라 원소 하나짜리 `List<String>`이고 첫 원소가 값). 그 문자열을 `Instant.parse(...)`로 `Instant`로 바꾸고 `Duration.between(bannedAt, Instant.now())`가 10초보다 짧다. `jsonPath(...)` 단언 안에서는 `Instant`로 바꿀 수 없어서 `JsonPath.read`로 따로 꺼낸다.
-  - `응답(andExpect):` `jsonPath("$.items[?(@.email == 'carol@test.com')].bannedAt")`의 값이 `hasItem(nullValue())`(필터 결과가 배열이다).
-
-**15. 사유 없이 BANNED가 된 회원의 로그인 거절** — 준비: `signup("bob@test.com")` → `bobId`, `changeStatus(bobId, "BANNED")`(사유 없이 BANNED). 동작: `bob`으로 `POST /api/auth/login` 본문 `{"email":"bob@test.com","password":"pass1234"}`.
+**13. 사유 없이 BANNED가 된 회원의 로그인 거절** — 준비: `signup("bob@test.com")` → `bobId`, `changeStatus(bobId, "BANNED")`(사유 없이 BANNED). 동작: `bob`으로 `POST /api/auth/login` 본문 `{"email":"bob@test.com","password":"pass1234"}`.
 - 확인: `응답(andExpect):` 로그인 응답 상태 403, `$.code` = `MEMBER_BANNED`, `jsonPath("$.details.reason").doesNotExist()`.
+
+**14. 토큰 없이 관리자 API를 부르면 401** — 동작: `Authorization` 헤더 없이 `GET /admin/api/members`.
+- 확인: `응답(andExpect):` 상태 401, `$.code` = `UNAUTHORIZED`.
+
+**15. 일반 회원은 관리자 API를 쓸 수 없다** — 준비: `signup`으로 `alice@test.com`, `bob@test.com`(→ `bobId`)을 만들고 `changeStatus(bobId, "BANNED")`. 동작: `login("alice@test.com")` 토큰으로 `GET /admin/api/members`, `POST /admin/api/members/{bobId}/unban`.
+- 확인:
+  - `응답(andExpect):` 두 요청 모두 상태 403, `$.code` = `FORBIDDEN`.
+  - `DB(memberSnapshotOf(bobId)):` `status()`가 `BANNED` 그대로.
 
 #### `member/web/LoginLockTest`
 
@@ -1752,7 +1752,7 @@ return count
     - `Redis(redisStringOf(K)):` 이 요청 직후 `value()` = `"5"` 그대로(올바른 비밀번호 요청 뒤와 같다).
 
 **6. 잠금 시간은 첫 실패에 걸고 5번째 실패에서 다시 건다** — 준비: 회원 `lock@test.com`(`signup`, 비밀번호 `pass1234` → `memberId`). 동작: 틀린 비밀번호로 1번 → 3번 더(합쳐 4번) → `redisTemplate.expire(K, Duration.ofSeconds(60))`로 `K`의 남은 시간을 60초로 줄임 → 5번째.
-- 확인: `Redis(redisStringOf(K)):` 1번째 직후 `ttlSeconds()`가 1~900. 5번째 직후 `ttlSeconds()`가 890~900(60초로 줄였던 시간이 15분으로 다시 걸렸다).
+- 확인: `Redis(redisStringOf(K)):` 1번째 직후 `ttlSeconds()`가 1\~900. 5번째 직후 `ttlSeconds()`가 890\~900(60초로 줄였던 시간이 15분으로 다시 걸렸다).
 
 **7. 실패 응답에 남은 횟수가 있다** — 준비: 회원 `lock@test.com`(`signup`, 비밀번호 `pass1234` → `memberId`). 동작: 틀린 비밀번호로 4번.
 - 확인: `응답(andExpect):` 매번 상태 401, `$.code` = `LOGIN_FAILED`, `$.details.remainingAttempts`가 4, 3, 2, 1.
@@ -1785,4 +1785,4 @@ return count
 ---
 
 ## Part 4 완료
-- [ ] `v0.4.0` 릴리스, Part 5 문서 다듬기
+- [x] `v0.4.0` 릴리스, Part 5 문서 다듬기

@@ -62,10 +62,10 @@
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
 | `insertReview(UUID productId, int rating, int likeCount, String status, String content, Instant createdAt)` → `UUID` | JDBC `INSERT INTO review.review (id, order_line_id, product_id, member_id, rating, content, like_count, status, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`. `id`·`order_line_id`·`member_id`는 `Ids.newId()`, `updated_at` = `created_at` | `ReviewSummaryTest` |
-| `reviewSummariesOf(UUID productId)` → `List<ReviewSummaryRow>` | JDBC `SELECT period_end, summary, source_review_count, model FROM review.review_summary WHERE product_id = ? ORDER BY period_end`. `ReviewSummaryRow`는 `support/`의 record `(LocalDate periodEnd, String summary, int sourceReviewCount, String model)`이고 행 수는 `.size()`, 없으면 빈 목록 | `ReviewSummaryTest` 1·2·5·7·9번 |
-| `insertReviewStat(UUID productId, int reviewCount, long ratingSum, int r1, int r2, int r3, int r4, int r5)` → `void` | JDBC `INSERT INTO review.product_review_stat (product_id, review_count, rating_sum, r1, r2, r3, r4, r5, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, now())` | `ReviewSummaryTest` 6번 |
-| `insertReviewSummary(UUID productId, LocalDate periodEnd, String summary)` → `void` | JDBC `INSERT INTO review.review_summary (id, product_id, period_end, summary, source_review_count, model, created_at) VALUES (?, ?, ?, ?, 1, 'test', now())`. `id`는 `Ids.newId()` | `ReviewSummaryTest` 6번 |
-| `FakeOpenAiServer.chatUserPrompts()` → `List<String>` | 받은 `/v1/chat/completions` 요청마다 `messages` 중 `role`이 `user`인 것의 `content` 텍스트를 받은 순서대로 모은다. 호출 건수는 `.size()`, 프롬프트는 `.get(0)`처럼 읽는다(`content`가 문자열인지 배열인지는 서버를 만들 때 실제 요청을 보고 정한다. 확인 필요) | `ReviewSummaryTest` 1~5·8·9번 |
+| `reviewSummariesOf(UUID productId)` → `List<ReviewSummaryRow>` | JDBC `SELECT period_end, summary, source_review_count, model FROM review.review_summary WHERE product_id = ? ORDER BY period_end`. `ReviewSummaryRow`는 `support/`의 record `(LocalDate periodEnd, String summary, int sourceReviewCount, String model)`이고 행 수는 `.size()`, 없으면 빈 목록 | `ReviewSummaryTest` 1·2·6·7·8번 |
+| `insertReviewStat(UUID productId, int reviewCount, long ratingSum, int r1, int r2, int r3, int r4, int r5)` → `void` | JDBC `INSERT INTO review.product_review_stat (product_id, review_count, rating_sum, r1, r2, r3, r4, r5, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, now())` | `ReviewSummaryTest` 9번 |
+| `insertReviewSummary(UUID productId, LocalDate periodEnd, String summary)` → `void` | JDBC `INSERT INTO review.review_summary (id, product_id, period_end, summary, source_review_count, model, created_at) VALUES (?, ?, ?, ?, 1, 'test', now())`. `id`는 `Ids.newId()` | `ReviewSummaryTest` 9번 |
+| `FakeOpenAiServer.chatUserPrompts()` → `List<String>` | 받은 `/v1/chat/completions` 요청마다 `messages` 중 `role`이 `user`인 것의 `content` 텍스트를 받은 순서대로 모은다. 호출 건수는 `.size()`, 프롬프트는 `.get(0)`처럼 읽는다(`content`가 문자열인지 배열인지는 서버를 만들 때 실제 요청을 보고 정한다. 확인 필요) | `ReviewSummaryTest` 1·3~8번 |
 
 헬퍼를 쓰는 방법은 다음과 같다.
 - 방금 호출 하나만 실패시키는 `openAi.failNext("/v1/chat/completions", 1)`이 필요하다(이름은 권장안. 해당 경로에 앞으로 `n`번 오는 요청만 500으로 응답하고 호출마다 남은 횟수를 하나씩 줄이며, `reset()`이 남은 횟수를 비운다).
@@ -84,13 +84,11 @@
 - 둘째 호출 뒤 DB(reviewSummariesOf(Pa)): `.size()`가 1.
 - 둘째 호출 뒤 가짜 서버 요청(openAi.chatUserPrompts()): `.size()`가 정확히 1.
 
-**2. 전월에 새 리뷰가 없는 상품은 호출하지 않는다** — 준비: 상품 세 개.
-- `Pb`: `ACTIVE` 리뷰 1개, `2026-08-31T23:59:59+09:00`.
-- `Pc`: `ACTIVE` 리뷰 1개, `2026-10-01T00:00:00+09:00`.
-- `Pd`: `DELETED` 리뷰 1개, `2026-09-15T12:00+09:00`.
-- 동작: `summarizeMonth(YearMonth.of(2026, 9))`.
-- 반환값: 0.
-- 가짜 서버 요청(openAi.chatUserPrompts()): `.size()`가 0.
+**2. 전월 리뷰로 요약 한 건이 저장된다** — 준비: 1번과 같은 준비. 동작: `summarizeMonth(YearMonth.of(2026, 9))`를 한 번 호출. `r = reviewSummariesOf(Pa).get(0)`으로 읽는다.
+- DB(reviewSummariesOf(Pa)): `r.sourceReviewCount()` = 3.
+- DB(reviewSummariesOf(Pa)): `r.summary()` = `FakeOpenAiServer.SUMMARY`.
+- DB(reviewSummariesOf(Pa)): `r.periodEnd()` = `LocalDate.of(2026, 9, 30)`(말일 포함이 후보. 문서에 없다. 확인 필요).
+- DB(reviewSummariesOf(Pa)): `r.model()` = 설정 `spring.ai.openai.chat.options.model` 값(문서에 없다. 확인 필요).
 
 **3. 리뷰 100개인 상품도 프롬프트는 40개 이하** — 준비: 상품 `Pe`에 `ACTIVE` 리뷰 100개. `i` = 1~100:
 - `content` = `"리뷰본문-" + 3자리 0패딩 i`(예: `리뷰본문-007`). 단 `i` = 100은 `"리뷰본문-100 " + "힣"×500`.
@@ -107,34 +105,36 @@
 - 가짜 서버 요청(openAi.chatUserPrompts().get(0)): 3번과 같은 방법으로 모은 `번호들`의 `size()`가 정확히 12이다.
 - 가짜 서버 요청(openAi.chatUserPrompts().get(0)): `new HashSet<>(번호들)`이 `{001~012}`와 같다.
 
-**5. 한 상품이 실패해도 다른 상품은 요약된다** — 준비: 상품 `Pg`, `Ph`에 각각 9월 `ACTIVE` 리뷰 2개. `failed` = 두 ID 중 `UUID.toString()` 기준 작은 쪽, `ok` = 큰 쪽. `openAi.failNext("/v1/chat/completions", 1)`.
+**5. 리뷰 본문은 200자까지만 프롬프트에 넣는다** — 준비: 3번과 같은 준비. 동작: `summarizeMonth(YearMonth.of(2026, 9))`.
+- 가짜 서버 요청(openAi.chatUserPrompts().get(0)): `.chars().filter(c -> c == '힣').count()`가 정확히 191(100번 리뷰의 본문은 200자까지만: 앞의 `"리뷰본문-100 "` 9자 + 191자).
+
+**6. 전월에 새 리뷰가 없는 상품은 호출하지 않는다** — 준비: 상품 세 개.
+- `Pb`: `ACTIVE` 리뷰 1개, `2026-08-31T23:59:59+09:00`.
+- `Pc`: `ACTIVE` 리뷰 1개, `2026-10-01T00:00:00+09:00`.
+- `Pd`: `DELETED` 리뷰 1개, `2026-09-15T12:00+09:00`.
+- 동작: `summarizeMonth(YearMonth.of(2026, 9))`.
+- 반환값: 0.
+- 가짜 서버 요청(openAi.chatUserPrompts()): `.size()`가 0.
+
+**7. 한 상품이 실패해도 다른 상품은 요약된다** — 준비: 상품 `Pg`, `Ph`에 각각 9월 `ACTIVE` 리뷰 2개. `failed` = 두 ID 중 `UUID.toString()` 기준 작은 쪽, `ok` = 큰 쪽. `openAi.failNext("/v1/chat/completions", 1)`.
 - 동작: `summarizeMonth(YearMonth.of(2026, 9))`.
 - 반환값: `summarizeMonth` 호출이 예외 없이 끝나고 반환값이 1.
 - DB(reviewSummariesOf(ok)): `.size()`가 1.
 - DB(reviewSummariesOf(failed)): `.isEmpty()`가 true.
 - 가짜 서버 요청(openAi.chatUserPrompts()): `.size()`가 2.
 
-**6. 최신 요약이 리뷰 통계 응답에 들어간다** (추가) — 준비: 상품 `Pa`(1번 준비의 리뷰 3개를 넣고 `summarizeMonth(YearMonth.of(2026, 9))`를 한 번 호출해 9월 요약을 만든다) + `insertReviewStat(Pa, 3, 11, 0, 1, 0, 1, 1)` + `insertReviewSummary(Pa, LocalDate.of(2026, 8, 31), "8월 요약")`. 동작: `GET /api/products/{Pa}/review-stats`(Authorization 없이).
-- 응답(andExpect): 상태 200.
-- 응답(andExpect): `jsonPath("$.latestSummary")`의 요약 문장 = `FakeOpenAiServer.SUMMARY`(8월 요약 `"8월 요약"`이 아니라 `period_end`가 가장 늦은 9월 요약). `latestSummary`의 JSON 키 이름은 문서에 없다(확인 필요, 후보 `$.latestSummary.summary`·`$.latestSummary.periodEnd`).
-- 요약이 하나도 없는 상품: `insertReviewStat`만 넣은 다른 상품 `Pz`로 같은 요청을 보낸다. 응답(andExpect): `jsonPath("$.latestSummary").value(nullValue())`.
-
-**7. 전월 리뷰로 요약 한 건이 저장된다** — 준비: 1번과 같은 준비. 동작: `summarizeMonth(YearMonth.of(2026, 9))`를 한 번 호출. `r = reviewSummariesOf(Pa).get(0)`으로 읽는다.
-- DB(reviewSummariesOf(Pa)): `r.sourceReviewCount()` = 3.
-- DB(reviewSummariesOf(Pa)): `r.summary()` = `FakeOpenAiServer.SUMMARY`.
-- DB(reviewSummariesOf(Pa)): `r.periodEnd()` = `LocalDate.of(2026, 9, 30)`(말일 포함이 후보. 문서에 없다. 확인 필요).
-- DB(reviewSummariesOf(Pa)): `r.model()` = 설정 `spring.ai.openai.chat.options.model` 값(문서에 없다. 확인 필요).
-
-**8. 리뷰 본문은 200자까지만 프롬프트에 넣는다** — 준비: 3번과 같은 준비. 동작: `summarizeMonth(YearMonth.of(2026, 9))`.
-- 가짜 서버 요청(openAi.chatUserPrompts().get(0)): `.chars().filter(c -> c == '힣').count()`가 정확히 191(100번 리뷰의 본문은 200자까지만: 앞의 `"리뷰본문-100 "` 9자 + 191자).
-
-**9. 실패한 상품은 다시 돌리면 요약된다** — 준비: 5번의 준비와 동작(첫 호출까지). 동작: `summarizeMonth(YearMonth.of(2026, 9))`를 한 번 더 호출.
+**8. 실패한 상품은 다시 돌리면 요약된다** — 준비: 7번의 준비와 동작(첫 호출까지). 동작: `summarizeMonth(YearMonth.of(2026, 9))`를 한 번 더 호출.
 - 두 번째 호출의 반환값: 1.
 - 두 번째 호출 뒤 DB(reviewSummariesOf(failed)): `.size()`가 1(첫 호출 뒤에는 비어 있었다).
 - 두 번째 호출 뒤 DB(reviewSummariesOf(ok)): `.size()`가 그대로 1(첫 호출 뒤에도 1이었다).
 - 두 번째 호출 뒤 가짜 서버 요청(openAi.chatUserPrompts()): `.size()`가 첫 호출분 2건을 합쳐 총 3.
 
+**9. 최신 요약이 리뷰 통계 응답에 들어간다** (추가) — 준비: 상품 `Pa`(1번 준비의 리뷰 3개를 넣고 `summarizeMonth(YearMonth.of(2026, 9))`를 한 번 호출해 9월 요약을 만든다) + `insertReviewStat(Pa, 3, 11, 0, 1, 0, 1, 1)` + `insertReviewSummary(Pa, LocalDate.of(2026, 8, 31), "8월 요약")`. 동작: `GET /api/products/{Pa}/review-stats`(Authorization 없이).
+- 응답(andExpect): 상태 200.
+- 응답(andExpect): `jsonPath("$.latestSummary")`의 요약 문장 = `FakeOpenAiServer.SUMMARY`(8월 요약 `"8월 요약"`이 아니라 `period_end`가 가장 늦은 9월 요약). `latestSummary`의 JSON 키 이름은 문서에 없다(확인 필요, 후보 `$.latestSummary.summary`·`$.latestSummary.periodEnd`).
+- 요약이 하나도 없는 상품: `insertReviewStat`만 넣은 다른 상품 `Pz`로 같은 요청을 보낸다. 응답(andExpect): `jsonPath("$.latestSummary").value(nullValue())`.
+
 **추가 항목**
-- 리뷰 임베딩(`review-created` 구독 → 리뷰 벡터 저장)으로 대표 리뷰 고르기: 리뷰 벡터의 평균(중심)에 가까운 리뷰를 고르면 "가장 흔한 의견"을 대표로 넣을 수 있다
+- 리뷰 임베딩(5-1은 `review-created`를 발행하지 않아서 `review` 모듈이 `review.review-created.v1`을 발행하도록 더한 뒤 구독 → 리뷰 벡터 저장)으로 대표 리뷰 고르기: 리뷰 벡터의 평균(중심)에 가까운 리뷰를 고르면 "가장 흔한 의견"을 대표로 넣을 수 있다
 
 **리뷰 때 물어볼 것**: 리뷰가 너무 많으면 무엇을 프롬프트에 넣나? 왜 그렇게 골랐나?

@@ -71,75 +71,26 @@ class SignupVerificationTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("인증코드를 확인하면 인증 토큰을 받는다.")
-    void confirmCodeIssuesVerificationToken() throws Exception {
+    @DisplayName("Redis에 인증코드 원문을 저장하지 않는다.")
+    void redisDoesNotStoreRawCode() throws Exception {
         // Given
         String email = "new@test.com";
 
+        SignupEmailRequest request = new SignupEmailRequest(email);
+
+        // When & Then
         mockMvc.perform(post("/api/auth/signup/email-verifications")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new SignupEmailRequest(email))))
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isAccepted());
 
         List<SentMail> sent = mailSender.sent();
         String code = sent.get(0).body().split("인증코드: ")[1];
 
-        SignupEmailConfirmRequest request = new SignupEmailConfirmRequest(email, code);
-
-        // When & Then
-        MvcResult result = mockMvc.perform(post("/api/auth/signup/email-verifications/confirm")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.verificationToken").exists())
-                .andReturn();
-
-        String verificationToken = JsonPath.read(result.getResponse().getContentAsString(), "$.verificationToken");
-
-        RedisString redisString = testFixtures.redisStringOf("auth:signup-verified:" + TestFixtures.sha256Hex(verificationToken));
-        assertThat(redisString.value()).isEqualTo("new@test.com");
-        assertThat(redisString.ttlSeconds()).isBetween(1L, 1800L);
-
-        assertThat(testFixtures.emailAuthSnapshotOf(EmailCodePurpose.VERIFY_EMAIL, "new@test.com").codeExists()).isFalse();
-    }
-
-    @Test
-    @DisplayName("인증 토큰으로 가입한다.")
-    void signupWithVerificationToken() throws Exception {
-        // Given
-        String email = "new@test.com";
-
-        mockMvc.perform(post("/api/auth/signup/email-verifications")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new SignupEmailRequest(email))))
-                .andExpect(status().isAccepted());
-
-        List<SentMail> sent = mailSender.sent();
-        String code = sent.get(0).body().split("인증코드: ")[1];
-
-        MvcResult result = mockMvc.perform(post("/api/auth/signup/email-verifications/confirm")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new SignupEmailConfirmRequest(email, code))))
-                .andExpect(status().isOk())
-                .andReturn();
-
-        String verificationToken = JsonPath.read(result.getResponse().getContentAsString(), "$.verificationToken");
-
-        SignupRequest request = new SignupRequest(email, "pass1234", "newbie", "뉴비", verificationToken);
-
-        // When & Then
-        MvcResult result2 = mockMvc.perform(post("/api/auth/signup")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isCreated())
-                .andReturn();
-
-        SignupResponse response = objectMapper.readValue(result2.getResponse().getContentAsString(), SignupResponse.class);
-
-        MemberSnapshot s = testFixtures.memberSnapshotOf(response.memberId());
-        assertThat(s.email()).isEqualTo(email);
-
-        assertThat(testFixtures.redisStringOf("auth:signup-verified:" + TestFixtures.sha256Hex(verificationToken)).exists()).isFalse();
+        EmailAuthSnapshot s = testFixtures.emailAuthSnapshotOf(EmailCodePurpose.VERIFY_EMAIL, email);
+        assertThat(s.fieldNames()).containsExactlyInAnyOrder("codeHash", "attempts");
+        assertThat(s.codeHash()).isNotEqualTo(code);
+        assertThat(redisTemplate.keys("auth:*")).allMatch(key -> !key.contains(code));
     }
 
     @Test
@@ -207,6 +158,122 @@ class SignupVerificationTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("인증코드 발송을 실패한다. (이미 가입된 이메일, MEMBER_EMAIL_DUPLICATED)")
+    void sendToRegisteredEmailFails() throws Exception {
+        // Given
+        String email = "done@test.com";
+        testFixtures.signup(email);
+
+        SignupEmailRequest request = new SignupEmailRequest(email);
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/signup/email-verifications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("MEMBER_EMAIL_DUPLICATED"));
+
+        List<SentMail> sent = mailSender.sent();
+        assertThat(sent).isEmpty();
+
+        assertThat(redisTemplate.keys("auth:email-*")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("인증코드를 확인하면 인증 토큰을 받는다.")
+    void confirmCodeIssuesVerificationToken() throws Exception {
+        // Given
+        String email = "new@test.com";
+
+        mockMvc.perform(post("/api/auth/signup/email-verifications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new SignupEmailRequest(email))))
+                .andExpect(status().isAccepted());
+
+        List<SentMail> sent = mailSender.sent();
+        String code = sent.get(0).body().split("인증코드: ")[1];
+
+        SignupEmailConfirmRequest request = new SignupEmailConfirmRequest(email, code);
+
+        // When & Then
+        MvcResult result = mockMvc.perform(post("/api/auth/signup/email-verifications/confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.verificationToken").exists())
+                .andReturn();
+
+        String verificationToken = JsonPath.read(result.getResponse().getContentAsString(), "$.verificationToken");
+
+        RedisString redisString = testFixtures.redisStringOf("auth:signup-verified:" + TestFixtures.sha256Hex(verificationToken));
+        assertThat(redisString.value()).isEqualTo("new@test.com");
+        assertThat(redisString.ttlSeconds()).isBetween(1L, 1800L);
+
+        assertThat(testFixtures.emailAuthSnapshotOf(EmailCodePurpose.VERIFY_EMAIL, "new@test.com").codeExists()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Redis에 인증 토큰 원문을 저장하지 않는다.")
+    void redisDoesNotStoreRawVerificationToken() throws Exception {
+        // Given
+        String email = "new@test.com";
+
+        mockMvc.perform(post("/api/auth/signup/email-verifications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new SignupEmailRequest(email))))
+                .andExpect(status().isAccepted());
+
+        List<SentMail> sent = mailSender.sent();
+        String code = sent.get(0).body().split("인증코드: ")[1];
+
+        SignupEmailConfirmRequest request = new SignupEmailConfirmRequest(email, code);
+
+        // When & Then
+        MvcResult result = mockMvc.perform(post("/api/auth/signup/email-verifications/confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String verificationToken = JsonPath.read(result.getResponse().getContentAsString(), "$.verificationToken");
+
+        Set<String> keys = redisTemplate.keys("auth:*");
+        assertThat(keys).allMatch(key -> !key.contains(verificationToken));
+        assertThat(keys)
+                .filteredOn(key -> redisTemplate.type(key) == DataType.STRING)
+                .allMatch(key -> !verificationToken.equals(redisTemplate.opsForValue().get(key)));
+    }
+
+    @Test
+    @DisplayName("인증코드 확인을 실패한다. (만료된 코드, EMAIL_CODE_INVALID)")
+    void confirmExpiredCodeFails() throws Exception {
+        // Given
+        String email = "new@test.com";
+
+        SignupEmailRequest request = new SignupEmailRequest(email);
+
+        mockMvc.perform(post("/api/auth/signup/email-verifications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isAccepted())
+                .andReturn();
+
+        List<SentMail> sent = mailSender.sent();
+        String code = sent.get(0).body().split("인증코드: ")[1];
+
+        redisTemplate.delete("auth:email-code:" + EmailCodePurpose.VERIFY_EMAIL + ":" + email);
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/signup/email-verifications/confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new SignupEmailConfirmRequest(email, code))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("EMAIL_CODE_INVALID"));
+
+        assertThat(redisTemplate.keys("auth:signup-verified:*")).isEmpty();
+    }
+
+    @Test
     @DisplayName("인증코드 확인을 실패한다. (5번 틀린 뒤 맞는 코드, EMAIL_CODE_INVALID)")
     void confirmAfterFiveWrongAttemptsFails() throws Exception {
         // Given
@@ -252,77 +319,61 @@ class SignupVerificationTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("인증코드 확인을 실패한다. (만료된 코드, EMAIL_CODE_INVALID)")
-    void confirmExpiredCodeFails() throws Exception {
+    @DisplayName("인증 토큰으로 가입한다.")
+    void signupWithVerificationToken() throws Exception {
         // Given
         String email = "new@test.com";
 
-        SignupEmailRequest request = new SignupEmailRequest(email);
-
         mockMvc.perform(post("/api/auth/signup/email-verifications")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isAccepted())
-                .andReturn();
-
-        List<SentMail> sent = mailSender.sent();
-        String code = sent.get(0).body().split("인증코드: ")[1];
-
-        redisTemplate.delete("auth:email-code:" + EmailCodePurpose.VERIFY_EMAIL + ":" + email);
-
-        // When & Then
-        mockMvc.perform(post("/api/auth/signup/email-verifications/confirm")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new SignupEmailConfirmRequest(email, code))))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("EMAIL_CODE_INVALID"));
-
-        assertThat(redisTemplate.keys("auth:signup-verified:*")).isEmpty();
-    }
-
-    @Test
-    @DisplayName("Redis에 인증코드 원문을 저장하지 않는다.")
-    void redisDoesNotStoreRawCode() throws Exception {
-        // Given
-        String email = "new@test.com";
-
-        SignupEmailRequest request = new SignupEmailRequest(email);
-
-        // When & Then
-        mockMvc.perform(post("/api/auth/signup/email-verifications")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
+                        .content(objectMapper.writeValueAsString(new SignupEmailRequest(email))))
                 .andExpect(status().isAccepted());
 
         List<SentMail> sent = mailSender.sent();
         String code = sent.get(0).body().split("인증코드: ")[1];
 
-        EmailAuthSnapshot s = testFixtures.emailAuthSnapshotOf(EmailCodePurpose.VERIFY_EMAIL, email);
-        assertThat(s.fieldNames()).containsExactlyInAnyOrder("codeHash", "attempts");
-        assertThat(s.codeHash()).isNotEqualTo(code);
-        assertThat(redisTemplate.keys("auth:*")).allMatch(key -> !key.contains(code));
-    }
+        MvcResult result = mockMvc.perform(post("/api/auth/signup/email-verifications/confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new SignupEmailConfirmRequest(email, code))))
+                .andExpect(status().isOk())
+                .andReturn();
 
-    @Test
-    @DisplayName("인증코드 발송을 실패한다. (이미 가입된 이메일, MEMBER_EMAIL_DUPLICATED)")
-    void sendToRegisteredEmailFails() throws Exception {
-        // Given
-        String email = "done@test.com";
-        testFixtures.signup(email);
+        String verificationToken = JsonPath.read(result.getResponse().getContentAsString(), "$.verificationToken");
 
-        SignupEmailRequest request = new SignupEmailRequest(email);
+        SignupRequest request = new SignupRequest(email, "pass1234", "newbie", "뉴비", verificationToken);
 
         // When & Then
-        mockMvc.perform(post("/api/auth/signup/email-verifications")
+        MvcResult result2 = mockMvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("MEMBER_EMAIL_DUPLICATED"));
+                .andExpect(status().isCreated())
+                .andReturn();
 
-        List<SentMail> sent = mailSender.sent();
-        assertThat(sent).isEmpty();
+        SignupResponse response = objectMapper.readValue(result2.getResponse().getContentAsString(), SignupResponse.class);
 
-        assertThat(redisTemplate.keys("auth:email-*")).isEmpty();
+        MemberSnapshot s = testFixtures.memberSnapshotOf(response.memberId());
+        assertThat(s.email()).isEqualTo(email);
+
+        assertThat(testFixtures.redisStringOf("auth:signup-verified:" + TestFixtures.sha256Hex(verificationToken)).exists()).isFalse();
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @DisplayName("가입을 실패한다. (인증 토큰 없음, INVALID_REQUEST)")
+    void signupWithoutTokenFails(String verificationToken) throws Exception {
+        // Given
+        String email = "new@test.com";
+
+        SignupRequest request = new SignupRequest(email, "pass1234", "newbie", "뉴비", verificationToken);
+
+        // When & Then
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        assertThat(testFixtures.countOf("member.member")).isEqualTo(0);
     }
 
     @Test
@@ -361,25 +412,6 @@ class SignupVerificationTest extends IntegrationTestSupport {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VERIFICATION_TOKEN_INVALID"));
-
-        assertThat(testFixtures.countOf("member.member")).isEqualTo(0);
-    }
-
-    @ParameterizedTest
-    @NullAndEmptySource
-    @DisplayName("가입을 실패한다. (인증 토큰 없음, INVALID_REQUEST)")
-    void signupWithoutTokenFails(String verificationToken) throws Exception {
-        // Given
-        String email = "new@test.com";
-
-        SignupRequest request = new SignupRequest(email, "pass1234", "newbie", "뉴비", verificationToken);
-
-        // When & Then
-        mockMvc.perform(post("/api/auth/signup")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
 
         assertThat(testFixtures.countOf("member.member")).isEqualTo(0);
     }
@@ -448,37 +480,5 @@ class SignupVerificationTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.code").value("VERIFICATION_TOKEN_INVALID"));
 
         assertThat(testFixtures.countOf("member.member")).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("Redis에 인증 토큰 원문을 저장하지 않는다.")
-    void redisDoesNotStoreRawVerificationToken() throws Exception {
-        // Given
-        String email = "new@test.com";
-
-        mockMvc.perform(post("/api/auth/signup/email-verifications")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new SignupEmailRequest(email))))
-                .andExpect(status().isAccepted());
-
-        List<SentMail> sent = mailSender.sent();
-        String code = sent.get(0).body().split("인증코드: ")[1];
-
-        SignupEmailConfirmRequest request = new SignupEmailConfirmRequest(email, code);
-
-        // When & Then
-        MvcResult result = mockMvc.perform(post("/api/auth/signup/email-verifications/confirm")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk())
-                .andReturn();
-
-        String verificationToken = JsonPath.read(result.getResponse().getContentAsString(), "$.verificationToken");
-
-        Set<String> keys = redisTemplate.keys("auth:*");
-        assertThat(keys).allMatch(key -> !key.contains(verificationToken));
-        assertThat(keys)
-                .filteredOn(key -> redisTemplate.type(key) == DataType.STRING)
-                .allMatch(key -> !verificationToken.equals(redisTemplate.opsForValue().get(key)));
     }
 }

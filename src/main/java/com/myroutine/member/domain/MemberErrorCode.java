@@ -18,7 +18,9 @@ public enum MemberErrorCode implements ErrorCode {
     OAUTH_PROVIDER_ERROR(HttpStatus.BAD_GATEWAY, "소셜 로그인 제공자와 통신하지 못했습니다."),
     SIGNUP_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "가입 시간이 만료되었습니다. 다시 시도해 주세요."),
     SOCIAL_ACCOUNT_ALREADY_LINKED(HttpStatus.CONFLICT, "이미 연결된 소셜 계정입니다."),
-    ACCOUNT_LOCKED(HttpStatus.LOCKED, "로그인 시도가 많아 잠시 잠겼습니다.");
+    ACCOUNT_LOCKED(HttpStatus.LOCKED, "로그인 시도가 많아 잠시 잠겼습니다."),
+    INQUIRY_NOT_FOUND(HttpStatus.NOT_FOUND, "문의를 찾을 수 없습니다."),
+    INQUIRY_ALREADY_ANSWERED(HttpStatus.CONFLICT, "답변이 등록된 문의는 수정하거나 삭제할 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;

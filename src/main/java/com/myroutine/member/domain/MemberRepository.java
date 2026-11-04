@@ -3,6 +3,7 @@ package com.myroutine.member.domain;
 import org.springframework.data.domain.Limit;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -23,4 +24,6 @@ public interface MemberRepository {
     List<Member> findForAdminFirstPage(String keyword, MemberStatus status, Limit limit);
 
     List<Member> findForAdminNextPage(String keyword, MemberStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit);
+
+    List<Member> findAllByIdIn(Collection<UUID> ids);
 }

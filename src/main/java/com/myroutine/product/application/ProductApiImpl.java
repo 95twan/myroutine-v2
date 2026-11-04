@@ -3,10 +3,7 @@ package com.myroutine.product.application;
 import com.myroutine.common.error.BusinessException;
 import com.myroutine.common.error.CommonErrorCode;
 import com.myroutine.common.model.Ids;
-import com.myroutine.product.api.ProductApi;
-import com.myroutine.product.api.ProductForCheckout;
-import com.myroutine.product.api.ReleaseReason;
-import com.myroutine.product.api.ReserveItem;
+import com.myroutine.product.api.*;
 import com.myroutine.product.domain.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -201,5 +198,12 @@ class ProductApiImpl implements ProductApi {
         if (stockRepository.restore(productId, quantity, now) == 0) {
             throw new IllegalStateException("재고 복원에 실패했습니다. orderId=" + orderId + ", productId=" + productId + ", refundId=" + refundId);
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ProductSummaryView> getOnSaleSummaries(Collection<UUID> productIds) {
+        List<ProductListRow> rows = productRepository.findOnSaleByIds(productIds);
+        return rows.stream().map(ProductSummaryView::from).toList();
     }
 }

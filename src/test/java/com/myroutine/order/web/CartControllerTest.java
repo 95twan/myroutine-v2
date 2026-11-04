@@ -121,6 +121,22 @@ class CartControllerTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("장바구니 담기를 실패한다. (존재하지 않는 상품)")
+    void addItemWithNonExistentProduct() throws Exception {
+        // Given
+        String token = testFixtures.token("test@test.com");
+        AddCartItemRequest request = new AddCartItemRequest(Ids.newId(), 5);
+
+        // When & Then
+        mockMvc.perform(post("/api/cart/items")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("CART_PRODUCT_NOT_FOUND"));
+    }
+
+    @Test
     @DisplayName("상품 가격을 바꾸면 장바구니 조회에도 바뀐 가격이 반영된다.")
     void getCartWithChangedPrice() throws Exception {
         // Given
@@ -242,6 +258,57 @@ class CartControllerTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("장바구니 항목이 늘어도 조회의 쿼리 수는 같다.")
+    void getCartQueryCountIsConstant() throws Exception {
+        // Given
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        UUID memberId = testFixtures.signup("test@test.com");
+        String token = testFixtures.login("test@test.com");
+        UUID shopId = testFixtures.openShop(memberId, "1111111111");
+        for (int i = 0; i < 2; i++) {
+            UUID productId = testFixtures.registerProduct(memberId, shopId, 10000, 200);
+            AddCartItemRequest request = new AddCartItemRequest(productId, 1);
+            mockMvc.perform(post("/api/cart/items")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+        }
+
+        // When & Then
+        statistics.clear();
+
+        mockMvc.perform(get("/api/cart")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(2)));
+
+        long first = statistics.getPrepareStatementCount();
+
+        for (int i = 0; i < 18; i++) {
+            UUID productId = testFixtures.registerProduct(memberId, shopId, 10000, 200);
+            AddCartItemRequest request = new AddCartItemRequest(productId, 1);
+            mockMvc.perform(post("/api/cart/items")
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isCreated());
+        }
+
+        statistics.clear();
+
+        mockMvc.perform(get("/api/cart")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(20)));
+
+        long second = statistics.getPrepareStatementCount();
+
+        assertThat(first).isGreaterThan(0);
+        assertThat(first).isEqualTo(second);
+    }
+
+    @Test
     @DisplayName("다른 회원의 장바구니 항목 수량 변경을 실패한다. (내 장바구니의 항목이 아님)")
     void changeQuantityOfOthersItem() throws Exception {
         // Given
@@ -310,73 +377,6 @@ class CartControllerTest extends IntegrationTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(1)))
                 .andExpect(jsonPath("$.items[0].quantity").value(5));
-    }
-
-    @Test
-    @DisplayName("장바구니 담기를 실패한다. (존재하지 않는 상품)")
-    void addItemWithNonExistentProduct() throws Exception {
-        // Given
-        String token = testFixtures.token("test@test.com");
-        AddCartItemRequest request = new AddCartItemRequest(Ids.newId(), 5);
-
-        // When & Then
-        mockMvc.perform(post("/api/cart/items")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("CART_PRODUCT_NOT_FOUND"));
-    }
-
-    @Test
-    @DisplayName("장바구니 항목이 늘어도 조회의 쿼리 수는 같다.")
-    void getCartQueryCountIsConstant() throws Exception {
-        // Given
-        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
-        UUID memberId = testFixtures.signup("test@test.com");
-        String token = testFixtures.login("test@test.com");
-        UUID shopId = testFixtures.openShop(memberId, "1111111111");
-        for (int i = 0; i < 2; i++) {
-            UUID productId = testFixtures.registerProduct(memberId, shopId, 10000, 200);
-            AddCartItemRequest request = new AddCartItemRequest(productId, 1);
-            mockMvc.perform(post("/api/cart/items")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isCreated());
-        }
-
-        // When & Then
-        statistics.clear();
-
-        mockMvc.perform(get("/api/cart")
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items", hasSize(2)));
-
-        long first = statistics.getPrepareStatementCount();
-
-        for (int i = 0; i < 18; i++) {
-            UUID productId = testFixtures.registerProduct(memberId, shopId, 10000, 200);
-            AddCartItemRequest request = new AddCartItemRequest(productId, 1);
-            mockMvc.perform(post("/api/cart/items")
-                            .header("Authorization", "Bearer " + token)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isCreated());
-        }
-
-        statistics.clear();
-
-        mockMvc.perform(get("/api/cart")
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items", hasSize(20)));
-
-        long second = statistics.getPrepareStatementCount();
-
-        assertThat(first).isGreaterThan(0);
-        assertThat(first).isEqualTo(second);
     }
 
     @Test

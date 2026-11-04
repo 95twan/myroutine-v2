@@ -200,7 +200,7 @@
 1. `OpenShopService.open`이 한 트랜잭션에서 `shop` 행과 `common.outbox_event` 행(`READY`)을 함께 INSERT한다 — `OutboxPublisher.publish`가 outbox 행을 넣는다.
 2. 1초마다 `OutboxRelayJob` → `OutboxRelay.relayOnce()`가 `READY` 행을 집어(선점) Kafka 토픽 `shop.shop-opened.v1`로 보내고, 성공하면 `SENT`로 바꾼다.
 3. member 모듈의 `MemberShopEventConsumer`(`@KafkaListener`)가 같은 토픽에서 메시지를 받아 `EventEnvelopes.parse`로 풀고 `MemberRoleService.grantSeller`를 부른다.
-- 1~2 사이, 2~3 사이 어디서 서버가 죽어도 outbox 행이나 Kafka 메시지가 남아 있어 이어서 처리된다.
+- 1\~2 사이, 2\~3 사이 어디서 서버가 죽어도 outbox 행이나 Kafka 메시지가 남아 있어 이어서 처리된다.
 
 ### 할 일
 
@@ -773,7 +773,7 @@ void onShopOpened(String message) {
 
 #### `shop/web/CloseShopTest`
 
-공통 준비: 판매자 `seller@test.com`(`signup` → `sellerId`), 가게 A `shopA = openShop(sellerId, "1111111111")`. 상품·구매자·판매자 역할은 쓰는 케이스가 각자 준비한다. 폐업 요청(1~6번)은 `DELETE /api/shops/{shopId}`, `Authorization: Bearer {판매자 토큰}`(`login("seller@test.com")`, `Idempotency-Key` 없음)이고, 1~6번은 준비 끝에 `OutboxAssert.clear()`를 한다.
+공통 준비: 판매자 `seller@test.com`(`signup` → `sellerId`), 가게 A `shopA = openShop(sellerId, "1111111111")`. 상품·구매자·판매자 역할은 쓰는 케이스가 각자 준비한다. 폐업 요청(1\~6번)은 `DELETE /api/shops/{shopId}`, `Authorization: Bearer {판매자 토큰}`(`login("seller@test.com")`, `Idempotency-Key` 없음)이고, 1\~6번은 준비 끝에 `OutboxAssert.clear()`를 한다.
 
 **1. 진행 중 가게주문이 있으면 거부** — 준비: 상품 `product1`(`registerProduct(sellerId, shopA, 1000, 10)`), 구매자 `buyer@test.com`(`signup` → `buyerId`) → `createPaidOrder(buyerId, product1Id)` → `OutboxAssert.clear()`. 동작: 가게 A 폐업 요청.
 - 응답(andExpect): 상태 422, `$.code` = `SHOP_HAS_ACTIVE_ORDERS`.
@@ -1062,7 +1062,7 @@ void onShopOpened(String message) {
 | 클래스 | 케이스 | 주입받는 것 |
 |---|---|---|
 | `PaymentEventPublishingTest` | 1~5, 13 | `TestFixtures`, `OutboxAssert`, `ObjectMapper`, `OrderPaymentApplier`, `OrderReconcileService`, `OrderExpirationService`, `MockMvc`(5번) |
-| `FulfillmentEventPublishingTest` | 6~8, 14~16 | `TestFixtures`, `OutboxAssert`, `RefundCompleter`, `RefundRecoveryService`, `MockMvc`(품목 취소 요청) |
+| `FulfillmentEventPublishingTest` | 6\~8, 14\~16 | `TestFixtures`, `OutboxAssert`, `RefundCompleter`, `RefundRecoveryService`, `MockMvc`(품목 취소 요청) |
 | `ConfirmEventPublishingTest` | 9~12, 17 | `TestFixtures`, `OutboxAssert`, `AutoConfirmService`, `MockMvc`(구매확정 요청), `@MockitoSpyBean OrderEventPublisher` |
 
 order 클래스 공통 준비: 판매자 `seller@test.com`(`signup` → `sellerId`), 가게 `shopId = openShop(sellerId, "1111111111")`, 구매자 `buyer@test.com`(`signup` → `buyerId`), 상품 `product1`(`product1Id = registerProduct(sellerId, shopId, 1000, 10)`). `product2`(2000)·`product3`(3000)은 쓰는 케이스(1·7·9·11번)가 같은 방법으로 더 만든다.

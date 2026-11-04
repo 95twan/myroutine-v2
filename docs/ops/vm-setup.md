@@ -1,6 +1,7 @@
 # 운영 환경 VM 준비 가이드 (Proxmox + Docker + Actions runner)
 
-> 버전 0.7 · 2026-10-30 · `.env`에 소셜 로그인용 `KAKAO_*`·`GOOGLE_*`·`NAVER_*`(클라이언트 ID·시크릿·redirect URI)를 더했다(로드맵 4-3)
+> 버전 0.8 · 2026-11-01 · 8-1 배포 뒤 관리자 계정을 만드는 절차를 더했다(ADMIN 승격 기능이 없어 DB에서 `role`을 바꾼다)
+> 0.7 · 2026-10-30 · `.env`에 소셜 로그인용 `KAKAO_*`·`GOOGLE_*`·`NAVER_*`(클라이언트 ID·시크릿·redirect URI)를 더했다(로드맵 4-3)
 > 0.6 · 2026-10-29 · `.env`에 Gmail SMTP 발송용 `MAIL_USERNAME`·`MAIL_PASSWORD`를 더했다(로드맵 4-2)
 > 0.5 · 2026-10-21 · `.env` 표에 `STORAGE_PRESIGN_ENDPOINT`를 더했다(외부 공개용 설정, 로드맵 3-0). 외부 공개 전에는 비워 두고, 공개 때는 `CORS_ALLOWED_ORIGINS`에도 공개 주소를 더한다
 > 0.4 · 2026-10-14 · MinIO를 NAS로 이전했다(ADR-011 §8): VM 디스크·ufw 9000 규칙·`STORAGE_*` 주소·백업 범위를 고쳤다
@@ -263,6 +264,24 @@ sudo bash -c 'cd /home/runner/actions-runner && ./svc.sh status'
 | [ ] 스냅샷 | `base-ready` 스냅샷이 있다 |
 
 이 목록을 통과하면 1-11의 "S2. 앱 이미지"부터 진행한다.
+
+### 8-1. 배포 뒤: 관리자 계정 만들기
+
+가입 API로는 `USER`만 만들어진다. ADMIN으로 올리는 기능은 없어서(로드맵 3-4b, [ADR-006](../adr/ADR-006-auth.md)) DB에서 `role`을 직접 바꾼다. 운영 DB는 호스트 포트를 열지 않으므로([ADR-011 §5](../adr/ADR-011-ops-practice-environment.md)) postgres 컨테이너 안에서 `psql`을 실행한다.
+
+1. 관리자로 쓸 계정을 일반 가입 API로 만든다(이메일 인증 포함). 이메일은 소문자로 저장된다.
+2. VM에 SSH로 접속해 컨테이너 안의 `psql`로 들어간다. `POSTGRES_USER`는 컨테이너에 이미 들어 있는 값(`.env`의 `SPRING_DATASOURCE_USERNAME`)이라 따로 적지 않는다.
+   ```bash
+   docker exec -it "$(docker ps -qf name=postgres)" sh -c 'psql -U "$POSTGRES_USER" -d my_routine'
+   ```
+   `docker ps -qf name=postgres`가 아무것도 돌려주지 않거나 여러 개면 `docker ps`로 postgres 컨테이너 이름을 확인해 `docker exec -it {이름} sh -c '...'`로 쓴다.
+3. `psql` 안에서 실행한다.
+   ```sql
+   UPDATE member.member SET role = 'ADMIN' WHERE email = '관리자@이메일' RETURNING id, email, role;
+   ```
+   한 행이 `ADMIN`으로 나오면 된다. 0행이면 이메일이 틀린 것이다. `\q`로 나온다.
+4. **그 계정으로 다시 로그인한다.** 역할은 토큰에 담기므로 바꾸기 전에 받은 토큰은 계속 `USER`다. 토큰 버전(`token_version`)은 올릴 필요가 없다.
+- 확인: 새 토큰으로 `GET /admin/api/members`가 200이면 된다(403이면 아직 `USER` 토큰이다).
 
 ## 9. 이후: 쿠버네티스로 가게 되면
 

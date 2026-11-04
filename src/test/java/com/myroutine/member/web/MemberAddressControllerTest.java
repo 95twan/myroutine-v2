@@ -106,6 +106,29 @@ class MemberAddressControllerTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("배송지 등록을 실패한다. (우편번호 형식 오류)")
+    void registerWithInvalidZipcode() throws Exception {
+        // Given
+        String token = testFixtures.token("test@test.com");
+        AddressRequest request = new AddressRequest(
+                "recipient1",
+                "010-9999-9999",
+                "9794",
+                "address1",
+                "address2",
+                false
+        );
+
+        // When & Then
+        mockMvc.perform(post("/api/members/me/addresses")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
     @DisplayName("배송지를 기본으로 변경하면 이전 기본 배송지가 해제된다.")
     void updateAddressToDefault() throws Exception {
         // Given
@@ -226,6 +249,49 @@ class MemberAddressControllerTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("배송지 목록은 기본 배송지가 첫 번째다.")
+    void getAddressesDefaultFirst() throws Exception {
+        // Given
+        String token = testFixtures.token("test@test.com");
+        AddressRequest request = new AddressRequest(
+                "recipient1",
+                "010-9999-9999",
+                "97940",
+                "address1",
+                "address2",
+                true
+        );
+
+        mockMvc.perform(post("/api/members/me/addresses")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+
+        AddressRequest request2 = new AddressRequest(
+                "recipient2",
+                "010-8888-8888",
+                "97941",
+                "address3",
+                "address4",
+                false
+        );
+
+        mockMvc.perform(post("/api/members/me/addresses")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request2)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        // When & Then
+        mockMvc.perform(get("/api/members/me/addresses")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].isDefault").value(true));
+    }
+
+    @Test
     @DisplayName("배송지 삭제를 실패한다. (다른 회원의 배송지)")
     void deleteAddressOfOtherMember() throws Exception {
         // Given
@@ -270,72 +336,6 @@ class MemberAddressControllerTest extends IntegrationTestSupport {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("MEMBER_ADDRESS_NOT_FOUND"));
 
-    }
-
-    @Test
-    @DisplayName("배송지 목록은 기본 배송지가 첫 번째다.")
-    void getAddressesDefaultFirst() throws Exception {
-        // Given
-        String token = testFixtures.token("test@test.com");
-        AddressRequest request = new AddressRequest(
-                "recipient1",
-                "010-9999-9999",
-                "97940",
-                "address1",
-                "address2",
-                true
-        );
-
-        mockMvc.perform(post("/api/members/me/addresses")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isCreated());
-
-        AddressRequest request2 = new AddressRequest(
-                "recipient2",
-                "010-8888-8888",
-                "97941",
-                "address3",
-                "address4",
-                false
-        );
-
-        mockMvc.perform(post("/api/members/me/addresses")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request2)))
-                .andExpect(status().isCreated())
-                .andReturn();
-
-        // When & Then
-        mockMvc.perform(get("/api/members/me/addresses")
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].isDefault").value(true));
-    }
-
-    @Test
-    @DisplayName("배송지 등록을 실패한다. (우편번호 형식 오류)")
-    void registerWithInvalidZipcode() throws Exception {
-        // Given
-        String token = testFixtures.token("test@test.com");
-        AddressRequest request = new AddressRequest(
-                "recipient1",
-                "010-9999-9999",
-                "9794",
-                "address1",
-                "address2",
-                false
-        );
-
-        // When & Then
-        mockMvc.perform(post("/api/members/me/addresses")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
     @Test
