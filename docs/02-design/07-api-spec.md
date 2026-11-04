@@ -1,6 +1,7 @@
 # 07. API 명세 (Stage 1)
 
 > 엔드포인트 목록과 핵심 API의 요청·응답 계약. 필드 단위 상세는 구현 시 springdoc(OpenAPI)로 생성하고, 이 문서와 어긋나면 이 문서를 갱신한다.
+> 2026-11-03 · 답변 전 문의 수정·삭제 `PATCH`·`DELETE /api/inquiries/{id}`(로드맵 5-3)
 > 2026-11-01 · 내 리뷰 조회 `GET /api/reviews/mine`, 리뷰 목록의 `likedByMe`, 지운 리뷰 요청의 404와 빈 통계 응답, 검색 결과를 상품 요약 모양으로(ADR-013), 문의 상세·관리자 문의 목록의 응답 필드(로드맵 5-1·5-2·5-4)
 > 2026-10-31 · 로그인 실패 401 `LOGIN_FAILED`에 `details.remainingAttempts`, 5번째 실패부터 423 `ACCOUNT_LOCKED`, 관리자 회원 목록에 제재 시각 `bannedAt`(로드맵 4-4)
 > 2026-10-31 · 평점 통계 응답의 최신 요약(`latestSummary`)을 5-1에서 빼고 SUB-6(서브)에서 더하게 했다
@@ -75,7 +76,7 @@
 | GET/POST/PATCH/DELETE | `/api/members/me/addresses[/{id}]` | U | 배송지 | FR-MEM-05 |
 | DELETE | `/api/members/me` | U | 탈퇴 (조건 검증) | FR-MEM-06 |
 | GET/POST | `/api/inquiries` | U | 문의 작성, 내 문의 목록(최신순, 항목에 답변 시각 `answeredAt`) | FR-MEM-08 |
-| GET | `/api/inquiries/{id}` | O | 내 문의 상세. 답변 `answer{content, createdAt}`(답변 전 null), 답변한 관리자는 내려주지 않음 | FR-MEM-08 |
+| GET/PATCH/DELETE | `/api/inquiries/{id}` | O | GET: 내 문의 상세. 답변 `answer{content, createdAt}`(답변 전 null), 답변한 관리자는 내려주지 않음. PATCH(`title`·`content` 선택)·DELETE: 답변 전(`OPEN`)만, 답변이 있으면 409 `INQUIRY_ALREADY_ANSWERED` | FR-MEM-08 |
 | GET | `/admin/api/members` | A | 회원 검색. 항목에 제재 사유 `banReason`과 제재 시각 `bannedAt`(BANNED가 아니면 null) | FR-MEM-07 |
 | POST | `/admin/api/members/{id}/ban`, `/unban` | A | 제재 | FR-MEM-07 |
 | GET | `/admin/api/inquiries` | A | 문의 목록 `?status=`(생략하면 전체), 오래된 순. 항목에 작성자 `memberId`·`memberEmail`·`memberNickname`, 본문, 답변 `answer{adminId, content, createdAt}` | FR-MEM-08 |

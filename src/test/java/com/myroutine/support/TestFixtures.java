@@ -53,6 +53,33 @@ public class TestFixtures {
     private final ConfirmPurchaseService confirmPurchaseService;
     private final ObjectMapper objectMapper;
 
+    public List<InquirySnapshot> inquiriesOf(UUID memberId) {
+        List<UUID> ids = jdbcTemplate.queryForList(
+                "SELECT id FROM member.inquiry WHERE member_id = ? ORDER BY created_at", UUID.class, memberId);
+        return ids.stream().map(this::inquiryOf).toList();
+    }
+
+    public InquirySnapshot inquiryOf(UUID inquiryId) {
+        List<InquirySnapshot.Answer> answers = jdbcTemplate.query("SELECT admin_id, content FROM member.inquiry_answer WHERE inquiry_id = ? ORDER BY created_at",
+                (rs, rowNum) -> new InquirySnapshot.Answer(
+                        rs.getObject("admin_id", UUID.class),
+                        rs.getString("content")
+                ),
+                inquiryId);
+
+        return jdbcTemplate.query("SELECT member_id, title, content, status FROM member.inquiry WHERE id = ?",
+                        (rs, rowNum) -> new InquirySnapshot(
+                                rs.getObject("member_id", UUID.class),
+                                rs.getString("title"),
+                                rs.getString("content"),
+                                rs.getString("status"),
+                                answers
+                        ),
+                        inquiryId).stream()
+                .findFirst()
+                .orElse(null);
+    }
+
     public ProductSearchDoc productSearchDocOf(UUID productId) throws Exception {
         String url = "http://" + IntegrationTestSupport.es.getHttpHostAddress() + "/products/_doc/" + productId;
         HttpResponse<String> response = HttpClient.newHttpClient().send(

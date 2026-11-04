@@ -1,6 +1,7 @@
 # Part 5. 리뷰 · 검색 · 문의
 
-> 버전 0.38 · 2026-11-03 · 자동완성을 관련도순으로, 점수가 같으면 이름 오름차순으로 정렬하게 했다. 동점인 이름의 순서가 색인 순서에 따라 달라졌다
+> 버전 0.39 · 2026-11-03 · 5-3에 답변 전 문의 수정(`PATCH /api/inquiries/{id}`)·삭제(`DELETE /api/inquiries/{id}`)와 에러 코드 `INQUIRY_ALREADY_ANSWERED`를 더했다. 삭제와 답변이 동시에 오면 `answer`가 문의 행을 잠가서, 삭제가 먼저 끝난 뒤 답변 INSERT가 FK 위반 500이 되지 않게 한다
+> 0.38 · 2026-11-03 · 자동완성을 관련도순으로, 점수가 같으면 이름 오름차순으로 정렬하게 했다. 동점인 이름의 순서가 색인 순서에 따라 달라졌다
 > 0.37 · 2026-11-03 · 검색 분석기가 감탄사와 일반 부사를 버리지 않게 했다. nori가 `마스크팩 세트`의 `마스크`·`팩`을 감탄사·부사로 판단해 버려서 `마스크팩`으로 찾지 못했다. 완료 확인에 케이스를 더했다
 > 0.36 · 2026-11-03 · 자동완성이 상품명과 검색어의 공백을 무시하고 맞추게 했다. `허브티`로도 `허브 티백`이 나온다. 분석기에 `remove_whitespace` 문자 필터를 더하고 완료 확인에 케이스를 더했다
 > 0.35 · 2026-11-03 · 자동완성이 서로 다른 상품명을 최대 10개 돌려주도록 `collapse`를 더했다. 매핑에 하위 필드 `name.keyword`를 추가하고 완료 확인에 케이스를 더했다
@@ -57,6 +58,7 @@
 | `REVIEW_EDIT_EXPIRED` | 409 | 작성 후 30일이 지나 수정할 수 없습니다. | `ReviewErrorCode` | 5-1 |
 | `SEARCH_UNAVAILABLE` | 503 | 검색을 일시적으로 사용할 수 없습니다. | `SearchErrorCode` | 5-2 |
 | `INQUIRY_NOT_FOUND` | 404 | 문의를 찾을 수 없습니다. | `MemberErrorCode` | 5-3 |
+| `INQUIRY_ALREADY_ANSWERED` | 409 | 답변이 등록된 문의는 수정하거나 삭제할 수 없습니다. | `MemberErrorCode` | 5-3 |
 
 ---
 
@@ -1095,12 +1097,14 @@ public class ElasticsearchTimeoutConfig {
 
 ## 5-3. 1:1 문의 (S)
 
-**목표**: 회원 문의, 관리자 답변.
+**목표**: 회원 문의(답변 전 수정·삭제), 관리자 답변.
 
 **정책 (이 단계에서 정함)**
 - 제재된 회원은 로그인부터 막히므로(1-4) 문의도 쓸 수 없다. 제재 회원 문의 허용은 추가 항목으로 둔다(FR-MEM-07 "문의 외 기능 사용 불가"의 문의 예외는 이번 범위에서 뺀다).
 - 본인 목록은 최신순, 관리자 목록은 오래된 순(답변 대기열)이다. 관리자 목록은 `status`를 생략하면 전체다.
 - 관리자 목록은 문의 본문·작성자(ID·이메일·닉네임)·답변을 함께 내려줘 관리자 상세 API를 두지 않는다. 본인에게는 답변한 관리자를 내려주지 않는다.
+- 본인은 답변 전(`OPEN`)인 문의만 수정·삭제할 수 있다. 삭제는 행을 지운다(상태를 두지 않는다). 답변이 달린 문의는 기록으로 남아 수정·삭제하면 409 `INQUIRY_ALREADY_ANSWERED`다.
+- 문의 하나에 답변은 하나다(추가 답변·재문의 없음). 문의를 주문·상품과 연결하는 필드도 없다(필요하면 본문에 적는다).
 
 ### 할 일
 
@@ -1114,12 +1118,13 @@ public class ElasticsearchTimeoutConfig {
 
 | 클래스 | 규격 |
 |---|---|
-| `InquiryStatus` | `OPEN`, `ANSWERED`. `Inquiry`가 쓴다 |
-| `Inquiry` | entity. 위 `member.inquiry` 컬럼과 1:1(`@Version` 포함). `static Inquiry write(UUID memberId, String title, String content)` → `id = Ids.newId()`, `status = OPEN`. `InquiryAnswer answer(UUID adminId, String content)` → 상태를 `OPEN → ANSWERED`로 바꾸고 `InquiryAnswer.write(id, adminId, content)`로 만든 답변을 반환한다(`InquiryStatus`에 전이표 `Map<InquiryStatus, Set<InquiryStatus>>`(`OPEN`만 `ANSWERED`로 갈 수 있다)와 `transitTo(to)`를 두고 `answer`가 `status.transitTo(ANSWERED)`를 부른다. 허용되지 않은 전이는 `BusinessException(INVALID_STATE_TRANSITION)`이라 이미 `ANSWERED`면 409. Part 1 규칙 C). `InquiryService`가 쓴다 |
+| `InquiryStatus` | 상태 enum. 허용 전이: `OPEN → {ANSWERED}`, `ANSWERED → {}`. `ShopStatus`처럼 `transitTo(to)`가 허용 밖이면 `INVALID_STATE_TRANSITION`(409)을 던진다(Part 1 규칙 C). 그래서 이미 `ANSWERED`인 문의에 다시 답변하면 409다. `Inquiry`가 쓴다 |
+| `Inquiry` | entity. 위 `member.inquiry` 컬럼과 1:1(`@Version` 포함). `static Inquiry write(UUID memberId, String title, String content)` → `id = Ids.newId()`, `status = OPEN`. `InquiryAnswer answer(UUID adminId, String content)` → `status = status.transitTo(ANSWERED)`로 상태를 바꾸고 `InquiryAnswer.write(id, adminId, content)`로 만든 답변을 반환한다. `void edit(String title, String content)` → `validateEditable()` 뒤 `null`이 아닌 값만 바꾼다(Part 1 규칙 E). `void validateEditable()` → 상태가 `OPEN`이 아니면 `BusinessException(INQUIRY_ALREADY_ANSWERED)`(수정·삭제는 상태 전이가 아니라 전이표를 거치지 않는다. 삭제는 서비스가 `validateEditable`을 그대로 부른다). `InquiryService`가 쓴다 |
 | `InquiryAnswer` | entity. 위 `member.inquiry_answer`와 1:1(수정이 없어 `BaseTimeEntity` 없이 `@CreatedDate Instant createdAt`만 둔다, Part 1 규칙 B). `static InquiryAnswer write(UUID inquiryId, UUID adminId, String content)` → `id = Ids.newId()`. `Inquiry`는 답변을 필드로 들지 않고(`@OneToMany`·`@OneToOne` 없이 UUID로만 참조) `answer`가 만들어 반환하며, `InquiryService.answer`가 `InquiryAnswerRepository.save`로 저장한다. 같은 문의에 동시에 두 답변이 오면 `uk_inquiry_answer_inquiry` 위반이 최후 방어선이다(규칙 D). `answer`가 쓴다 |
-| `MemberErrorCode` | 기존 enum에 `INQUIRY_NOT_FOUND`를 추가한다(값·메시지는 위 Z 표). `InquiryService`가 던진다 |
-| `InquiryRepository` | `Optional<Inquiry> findByIdAndMemberId(UUID id, UUID memberId)`, 본인 목록 keyset(`member_id`, `created_at desc, id desc`, 첫·다음 페이지), 관리자 목록 keyset(`created_at`, `id` 오름차순, 첫·다음 페이지. `status`로 거르는 것과 전체 두 벌). 이름·인자는 권장안으로 `OrderRepository.findByMemberFirstPage(UUID memberId, Limit limit)`·`findByMemberNextPage(UUID memberId, Instant cursorCreatedAt, UUID cursorId, Limit limit)`와 같은 모양이다: `findByMemberFirstPage`·`findByMemberNextPage`(최신순), 관리자용 `findByStatusFirstPage(InquiryStatus status, Limit limit)`·`findByStatusNextPage(InquiryStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit)`와 `status`를 생략했을 때의 `findAllFirstPage(Limit limit)`·`findAllNextPage(Instant cursorCreatedAt, UUID cursorId, Limit limit)`(모두 오래된 순). 인덱스는 위 마이그레이션. `InquiryService`가 쓴다 |
+| `MemberErrorCode` | 기존 enum에 `INQUIRY_NOT_FOUND`·`INQUIRY_ALREADY_ANSWERED`를 추가한다(값·메시지는 위 Z 표). `InquiryService`·`Inquiry`가 던진다 |
+| `InquiryRepository` | `Inquiry save(Inquiry inquiry)`(`InquiryService.write`가 새 문의를 저장한다), `Optional<Inquiry> findByIdAndMemberId(UUID id, UUID memberId)`, `Optional<Inquiry> findByIdForUpdate(UUID id)`(`answer` 전용. 2-8 `OrderRepository.findByIdForUpdate`와 같은 모양으로 `@Lock(PESSIMISTIC_WRITE)` + `@Query`), `void delete(Inquiry inquiry)`, 본인 목록 keyset(`member_id`, `created_at desc, id desc`, 첫·다음 페이지), 관리자 목록 keyset(`created_at`, `id` 오름차순, 첫·다음 페이지. `status`로 거르는 것과 전체 두 벌). 이름·인자는 권장안으로 `OrderRepository.findByMemberFirstPage(UUID memberId, Limit limit)`·`findByMemberNextPage(UUID memberId, Instant cursorCreatedAt, UUID cursorId, Limit limit)`와 같은 모양이다: `findByMemberFirstPage`·`findByMemberNextPage`(최신순), 관리자용 `findByStatusFirstPage(InquiryStatus status, Limit limit)`·`findByStatusNextPage(InquiryStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit)`와 `status`를 생략했을 때의 `findAllFirstPage(Limit limit)`·`findAllNextPage(Instant cursorCreatedAt, UUID cursorId, Limit limit)`(모두 오래된 순). 인덱스는 위 마이그레이션. `InquiryService`가 쓴다 |
 | `InquiryAnswerRepository` | `InquiryAnswer save(InquiryAnswer answer)`, `Optional<InquiryAnswer> findByInquiryId(UUID inquiryId)`(상세 조회가 답변을 읽는다), `List<InquiryAnswer> findByInquiryIdIn(Collection<UUID> inquiryIds)`(목록 한 페이지의 답변을 한 번에 읽는다. 문의마다 읽으면 N+1). `InquiryService`가 쓴다 |
+| `MemberRepository` | 기존 인터페이스에 `List<Member> findAllByIdIn(Collection<UUID> ids)`를 추가한다. 관리자 목록 한 페이지의 작성자를 한 번에 읽는다(`CartItemRepository.findAllByIdInAndCartId`와 같은 이름 규칙의 파생 쿼리라 `JpaMemberRepository`에 구현을 더하지 않는다). `InquiryService`가 쓴다 |
 
 **3) member.infrastructure**
 
@@ -1133,13 +1138,20 @@ public class ElasticsearchTimeoutConfig {
 |---|---|
 | `InquiryResult` | 본인 목록 항목. `record (UUID id, String title, InquiryStatus status, Instant createdAt, Instant answeredAt)`. `answeredAt`은 답변의 `createdAt`이고 답변 전이면 `null`이다(`findByInquiryIdIn`으로 채운다). `InquiryService`의 반환이다 |
 | `InquiryDetailResult` | 상세. `record (UUID id, String title, String content, InquiryStatus status, Instant createdAt, Answer answer)`. 중첩 `record Answer(String content, Instant createdAt)`이고 답변이 없으면 `answer`는 `null`이다(`adminId`는 내려주지 않는다). `InquiryService`의 반환이다 |
-| `AdminInquiryResult` | 관리자 목록 항목. `record (UUID id, UUID memberId, String memberEmail, String memberNickname, String title, String content, InquiryStatus status, Instant createdAt, Answer answer)`. 중첩 `record Answer(UUID adminId, String content, Instant createdAt)`이고 답변이 없으면 `null`이다. 답변은 `findByInquiryIdIn`으로, 작성자 이메일·닉네임은 페이지의 `member_id`로 `MemberRepository`에서 한 번에 읽는다(같은 모듈이라 허용). `InquiryService`의 반환이다 |
+| `AdminInquiryResult` | 관리자 목록 항목. `record (UUID id, UUID memberId, String memberEmail, String memberNickname, String title, String content, InquiryStatus status, Instant createdAt, Answer answer)`. 중첩 `record Answer(UUID adminId, String content, Instant createdAt)`이고 답변이 없으면 `null`이다. 답변은 `findByInquiryIdIn`으로, 작성자 이메일·닉네임은 페이지의 `member_id`로 `MemberRepository.findAllByIdIn`에서 한 번에 읽는다(같은 모듈이라 허용). `InquiryService`의 반환이다 |
 
 | 클래스 | 메서드 |
 |---|---|
-| `InquiryService` | 메서드 이름은 권장안: `UUID write(UUID memberId, ...)`(→ `inquiryId`) / `CursorPage<InquiryResult> getMine(UUID memberId, String cursor, int size)` / `InquiryDetailResult getMine(UUID memberId, UUID inquiryId)`(답변 포함. `findByIdAndMemberId`, 남의 문의·없는 문의 모두 404 `INQUIRY_NOT_FOUND`) / `CursorPage<AdminInquiryResult> getForAdmin(InquiryStatus status, String cursor, int size)`(관리자. `status`가 `null`이면 전체) / `@Transactional void answer(UUID adminId, UUID inquiryId, String content)`(문의가 없으면 404 `INQUIRY_NOT_FOUND`. `inquiry.answer(adminId, content)`가 반환한 `InquiryAnswer`를 `InquiryAnswerRepository.save`로 저장한다) |
+| `InquiryService` | 메서드 이름은 권장안: `UUID write(UUID memberId, ...)`(→ `inquiryId`) / `CursorPage<InquiryResult> getMine(UUID memberId, String cursor, int size)` / `InquiryDetailResult getMine(UUID memberId, UUID inquiryId)`(답변 포함. `findByIdAndMemberId`, 남의 문의·없는 문의 모두 404 `INQUIRY_NOT_FOUND`) / `CursorPage<AdminInquiryResult> getForAdmin(InquiryStatus status, String cursor, int size)`(관리자. `status`가 `null`이면 전체) / `@Transactional void answer(UUID adminId, UUID inquiryId, String content)`(`findByIdForUpdate`로 읽는다. 문의가 없으면 404 `INQUIRY_NOT_FOUND`. `inquiry.answer(adminId, content)`가 반환한 `InquiryAnswer`를 `InquiryAnswerRepository.save`로 저장한다) / `@Transactional InquiryDetailResult edit(UUID memberId, UUID inquiryId, EditInquiryCommand command)`(`findByIdAndMemberId`로 읽고, 남의 문의·없는 문의는 404 `INQUIRY_NOT_FOUND`. `inquiry.edit(title, content)`가 상태를 검사하고 바꾼다. `OPEN`만 수정되므로 반환의 `answer`는 항상 `null`) / `@Transactional void delete(UUID memberId, UUID inquiryId)`(`findByIdAndMemberId`로 읽고, 남의 문의·없는 문의는 404 `INQUIRY_NOT_FOUND`. `inquiry.validateEditable()`을 부른 뒤 `InquiryRepository.delete`) |
 
-- 목록 정렬은 인덱스 `(member_id, created_at DESC, id DESC)`·`(status, created_at, id)`에 맞춘다. 본인 목록은 최신순(`ORDER BY created_at DESC, id DESC`). 관리자 목록은 오래된 문의가 먼저(`ORDER BY created_at, id`)이고 다음 페이지 조건은 `created_at > :cursorCreatedAt OR (created_at = :cursorCreatedAt AND id > :cursorId)`다. 둘 다 `Limit.of(size + 1)`로 읽어 `size`보다 많이 받으면 `size`번째 항목의 `new Cursor(createdAt, id).encode()`를 `nextCursor`로 하는 커서 페이징이다
+| 클래스 | 규격 |
+|---|---|
+| `EditInquiryCommand` | `record (String title, String content)`. 둘 다 선택이고 `null`이면 바꾸지 않는다. `InquiryService.edit`의 입력 |
+
+- 목록의 답변은 한 페이지의 문의 ID로 `findByInquiryIdIn`을 한 번 부르고, 결과를 `Map<UUID, InquiryAnswer>`(키는 `inquiryId`, 값은 그 문의의 답변)로 만들어 문의마다 `get`한다. 답변이 없는 문의는 키가 없어 `null`이다. 문의 하나에 답변은 하나(`uk_inquiry_answer_inquiry`)라 `Collectors.toMap`이 중복 키로 실패하지 않는다. 관리자 목록의 작성자(`memberId → Member`)도 같은 방식이다. JOIN으로 읽지 않는 이유: `Inquiry`가 답변을 연관으로 들지 않아(Part 1 규칙 B) JOIN은 엔티티 조인과 projection record가 필요하고, 목록 쿼리가 6벌(본인/관리자 × 첫·다음 쪽 × `status` 유무)이라 전부에 JOIN과 projection이 붙는다. IN 조회는 쿼리가 목록 1개 + 연관 종류당 1개(본인 1+1, 관리자 1+2)로 페이지 크기와 무관해서 행마다 읽는 N+1이 아니고, `SellerOrderQueryService`의 `findLinesByShopOrderIdIn`과 같은 방식이다
+- **수정·삭제와 답변의 경합**: `answer`는 문의 행을 잠그고 읽고(`findByIdForUpdate`), `edit`·`delete`는 잠그지 않고 읽는다. 수정은 `answer`와 같은 행을 UPDATE하므로 `answer`가 먼저 잠그면 수정의 UPDATE가 풀리길 기다렸다가 버전 충돌(409 `CONFLICT_RETRY`)이고, `answer`가 커밋한 뒤에 읽은 수정은 `validateEditable`이 409 `INQUIRY_ALREADY_ANSWERED`다. 수정이 먼저 커밋되면 `answer`는 바뀐 문의에 그대로 답한다. 삭제는 다음과 같다. ① 삭제가 먼저 커밋되면 `answer`의 잠금 조회가 행을 못 찾아 404 `INQUIRY_NOT_FOUND`다. ② `answer`가 먼저 잠그면 `delete`의 `DELETE ... WHERE id = ? AND version = ?`가 잠금이 풀리길 기다렸다가 버전이 올라가 0행이 되어 `OptimisticLockingFailureException`(409 `CONFLICT_RETRY`)이고, `answer`가 커밋한 뒤에 읽은 `delete`는 `validateEditable`이 409 `INQUIRY_ALREADY_ANSWERED`다. 잠금이 없으면 `answer`가 읽은 뒤 삭제가 커밋되고, `answer`의 답변 INSERT가 `fk` 위반(`DataIntegrityViolationException`, 500)으로 끝난다
+
+- 목록 정렬은 인덱스 `(member_id, created_at DESC, id DESC)`·`(status, created_at, id)`에 맞춘다. `status`를 생략한 관리자 전체 목록은 어느 인덱스도 `ORDER BY created_at, id`를 받쳐 주지 못하지만(`status`가 인덱스 맨 앞이다) 관리자 문의 목록 규모라 별도 인덱스를 두지 않는다. 본인 목록은 최신순(`ORDER BY created_at DESC, id DESC`). 관리자 목록은 오래된 문의가 먼저(`ORDER BY created_at, id`)이고 다음 페이지 조건은 `created_at > :cursorCreatedAt OR (created_at = :cursorCreatedAt AND id > :cursorId)`다. 둘 다 `Limit.of(size + 1)`로 읽어 `size`보다 많이 받으면 `size`번째 항목의 `new Cursor(createdAt, id).encode()`를 `nextCursor`로 하는 커서 페이징이다
 
 **5) member.web**
 
@@ -1149,6 +1161,8 @@ public class ElasticsearchTimeoutConfig {
 | `GET /api/inquiries?cursor=&size=` | 본인 | `size`는 기본 20·`@Min(1) @Max(50)` | 200 `CursorPage<InquiryResponse(id, title, status, createdAt, answeredAt)>`, 최신순 |
 | `GET /api/inquiries/{id}` | 본인 | | 200 `InquiryDetailResponse(id, title, content, status, createdAt, answer)`. `answer`는 `{content, createdAt}` 또는 `null`. 남의 문의 → 404 |
 | `GET /admin/api/inquiries?status=&cursor=&size=` | ADMIN | `InquiryStatus status`(생략 가능), `size`는 기본 20·`@Min(1) @Max(50)` | 200 `CursorPage<AdminInquiryResponse(id, memberId, memberEmail, memberNickname, title, content, status, createdAt, answer)>`, 오래된 순. `answer`는 `{adminId, content, createdAt}` 또는 `null` |
+| `PATCH /api/inquiries/{id}` | 본인 | `EditInquiryRequest(@Pattern(regexp = ".*\\S.*") @Size(max=100) title, @Pattern(regexp = ".*\\S.*") @Size(max=2000) content)`, 둘 다 선택(Part 1 규칙 E) | 200 `InquiryDetailResponse`(`answer`는 항상 `null`). 남의 문의·없는 문의 → 404 `INQUIRY_NOT_FOUND`, 답변이 있으면 409 `INQUIRY_ALREADY_ANSWERED` |
+| `DELETE /api/inquiries/{id}` | 본인 | | 204. 남의 문의·없는 문의 → 404 `INQUIRY_NOT_FOUND`, 답변이 있으면 409 `INQUIRY_ALREADY_ANSWERED` |
 | `POST /admin/api/inquiries/{id}/answer` | ADMIN | `@NotBlank @Size(max=2000) content` | 204 |
 
 - 컨트롤러 클래스 이름은 문서에 없다(권장: 본인용 `InquiryController`, 관리자용 `AdminInquiryController`). 요청자 ID는 `@CurrentMember UUID`로 받고 관리자 API는 `/admin/api/**`의 ADMIN 권한으로 막는다
@@ -1161,8 +1175,8 @@ public class ElasticsearchTimeoutConfig {
 
 | 메서드 | 만드는 방법 | 쓰는 곳 |
 |---|---|---|
-| `inquiryOf(UUID inquiryId)` → `InquirySnapshot` | JDBC 쿼리 2개로 한 번에 읽는다: `member.inquiry`의 `member_id`·`title`·`content`·`status`, `member.inquiry_answer`의 `admin_id`·`content`(해당 `inquiry_id`, 생성 순). `InquirySnapshot`은 `support/`의 record `(UUID memberId, String title, String content, String status, List<Answer> answers)`이고 `Answer`는 `(UUID adminId, String content)`. 문의 행이 없으면 `null` | `InquiryTest` 6·8번 |
-| `inquiriesOf(UUID memberId)` → `List<InquirySnapshot>` | `member.inquiry`에서 `member_id = ?`인 행을 `created_at` 순으로 읽어 각각 `inquiryOf`와 같은 모양으로 만든다. 회원의 문의 전체이고 문의 행 수는 `.size()` | `InquiryTest` 1·2번 |
+| `inquiryOf(UUID inquiryId)` → `InquirySnapshot` | JDBC 쿼리 2개로 한 번에 읽는다: `member.inquiry`의 `member_id`·`title`·`content`·`status`, `member.inquiry_answer`의 `admin_id`·`content`(해당 `inquiry_id`, 생성 순). `InquirySnapshot`은 `support/`의 record `(UUID memberId, String title, String content, String status, List<Answer> answers)`이고 `Answer`는 `(UUID adminId, String content)`. 문의 행이 없으면 `null` | `InquiryTest` 6·8·15·16·17·19번, `InquiryConcurrencyTest` |
+| `inquiriesOf(UUID memberId)` → `List<InquirySnapshot>` | `member.inquiry`에서 `member_id = ?`인 행을 `created_at` 순으로 읽어 각각 `inquiryOf`와 같은 모양으로 만든다. 회원의 문의 전체이고 문의 행 수는 `.size()` | `InquiryTest` 1·2·18번 |
 
 이미 있는 헬퍼: `signup`, `login`, `void changeRole(UUID memberId, String role)`(JDBC로 `member.member.role`을 바꾼다).
 
@@ -1225,11 +1239,44 @@ public class ElasticsearchTimeoutConfig {
 **14. 관리자 API는 일반 회원에게 막힌다** (추가) — 준비: `user1`이 `Q1`을 작성. 동작: `user1` 토큰으로 `GET /admin/api/inquiries?status=OPEN`과 `POST /admin/api/inquiries/{Q1}/answer`.
 - 응답(andExpect): 두 요청 모두 상태 403, `$.code` = `FORBIDDEN`.
 
+**15. 답변 전 문의를 수정한다** — 준비: `user1`이 `Q1`을 작성. 동작: `user1`이 `PATCH /api/inquiries/{Q1}`에 `{"title":"배송이 많이 늦어요"}`(`content` 생략).
+- 응답(andExpect): 상태 200, `$.title` = `"배송이 많이 늦어요"`, `$.content` = 작성 때 본문, `$.status` = `OPEN`, `jsonPath("$.answer").value(nullValue())`.
+- DB(inquiryOf(Q1)): `title()` = `"배송이 많이 늦어요"`, `content()` = 작성 때 본문, `status()` = `OPEN`(`content`를 생략하면 바꾸지 않는다).
+
+**16. 수정 입력 검증** (추가) — 준비: `user1`이 `Q1`을 작성. 동작: `user1`이 `PATCH /api/inquiries/{Q1}`에 `title` 빈 문자열 / `title` 공백만 `"   "` / `title` `"가"×101` / `content` 빈 문자열 / `content` `"가"×2001`로 각각 요청.
+- 응답(andExpect): 모두 상태 400, `$.code` = `INVALID_REQUEST`. DB(inquiryOf(Q1)): `title()`·`content()`는 작성 때 그대로.
+- `title` `"가"×100`·`content` `"가"×2000` → 응답(andExpect): 상태 200.
+
+**17. 남의 문의는 수정·삭제할 수 없다** — 준비: `user1`이 `Q1`을 작성. 동작·확인:
+- `user2` 토큰으로 `PATCH /api/inquiries/{Q1}`(`{"title":"바꾼 제목"}`) → 응답(andExpect): 상태 404, `$.code` = `INQUIRY_NOT_FOUND`.
+- `user2` 토큰으로 `DELETE /api/inquiries/{Q1}` → 응답(andExpect): 상태 404, `$.code` = `INQUIRY_NOT_FOUND`.
+- `user1` 토큰으로 `DELETE /api/inquiries/{Ids.newId()}` → 응답(andExpect): 상태 404, `$.code` = `INQUIRY_NOT_FOUND`.
+- DB(inquiryOf(Q1)): 행이 있고 `title()` = `"배송이 늦어요"`, `content()` = 작성 때 본문.
+
+**18. 답변 전 문의를 삭제한다** — 준비: `user1`이 `Q1`을 작성. 동작: `user1`이 `DELETE /api/inquiries/{Q1}`.
+- 응답(andExpect): 상태 204.
+- DB(inquiriesOf(user1)): `.size()` = 0.
+- 응답(andExpect): `user1` 토큰으로 `GET /api/inquiries/{Q1}` → 상태 404, `$.code` = `INQUIRY_NOT_FOUND`.
+
+**19. 답변된 문의는 수정·삭제할 수 없다** — 준비: `user1`이 `Q1`을 작성하고 `admin`이 답변한다. 동작·확인:
+- `user1` 토큰으로 `PATCH /api/inquiries/{Q1}`(`{"title":"바꾼 제목"}`) → 응답(andExpect): 상태 409, `$.code` = `INQUIRY_ALREADY_ANSWERED`.
+- `user1` 토큰으로 `DELETE /api/inquiries/{Q1}` → 응답(andExpect): 상태 409, `$.code` = `INQUIRY_ALREADY_ANSWERED`.
+- DB(inquiryOf(Q1)): `title()` = `"배송이 늦어요"`, `status()` = `ANSWERED`, `answers()` 1개.
+
+#### `member/application/InquiryConcurrencyTest`
+
+**1. 삭제와 답변이 동시에 와도 한쪽만 성공하고 데이터가 어긋나지 않는다** (`@RepeatedTest(10)`) — 준비: `user1`이 `inquiryService.write`로 `Q1`을 작성한다. 동작: 스레드 2개가 `CountDownLatch`로 동시에 출발해 하나는 `inquiryService.delete(user1, Q1)`, 하나는 `inquiryService.answer(adminId, Q1, "확인 후 오늘 중 안내드리겠습니다.")`를 부른다(`adminId`는 `Ids.newId()`로 충분하다. 서비스는 관리자 존재를 확인하지 않는다).
+- 성공은 정확히 1건. 실패한 쪽의 예외는 삭제 쪽이면 `ObjectOptimisticLockingFailureException` 또는 `BusinessException(INQUIRY_ALREADY_ANSWERED)`, 답변 쪽이면 `BusinessException(INQUIRY_NOT_FOUND)`이다. `DataIntegrityViolationException`은 없다.
+- 삭제가 성공했으면 DB: `inquiryOf(Q1)`이 `null`이고 `JdbcTemplate`으로 센 `member.inquiry_answer`의 `inquiry_id = Q1` 행이 0개. 답변이 성공했으면 DB: `inquiryOf(Q1)`의 `status()` = `ANSWERED`, `answers()` 1개.
+- 겹침이 매번 일어나지 않아 10회 반복한다. `answer`의 `findByIdForUpdate`를 `findById`로 바꾸면 `DataIntegrityViolationException`으로 실패하는 회차가 나오는지 확인한다(락 판단은 실험으로).
+
 **추가 항목**
 - 문의 답변 알림: 답변하면 문의한 회원에게 이메일을 보낸다(제목 "문의에 답변이 등록되었습니다", 본문에 문의 제목). `InquiryService.answer`가 같은 트랜잭션에서 outbox로 `member.inquiry-answered.v1`(`InquiryAnsweredEvent(UUID inquiryId, UUID memberId, String title)`)을 발행하고, notification이 4-4의 `MemberBannedEvent`와 같은 모양으로 구독한다(`MemberTopics` 상수, `MemberTopicConfig`의 본 토픽·`.dlt` 빈, `NotificationType.INQUIRY_ANSWERED`, `NotificationComposer.compose(InquiryAnsweredEvent)`, `NotificationEventConsumer` 메서드). 하면 요구사항 FR-NTF-01과 [이벤트 카탈로그](../02-design/05-events.md)에 더한다
 - 제재 회원도 문의 쓰기: 로그인은 허용하고 토큰에 `st: "BANNED"`를 넣어, 필터가 허용 목록(`/api/inquiries/**`, `GET /api/members/me`, 로그아웃·갱신) 외 요청을 403 `MEMBER_BANNED`로 막는다. 1-4·4-4의 "제재 → 로그인 403" 테스트가 "로그인 200 + 체크아웃 403"으로 바뀐다
 
-**리뷰 때 물어볼 것**: 문의와 답변을 한 테이블이 아니라 둘로 나눈 이유는?
+**리뷰 때 물어볼 것**
+- 문의와 답변을 한 테이블이 아니라 둘로 나눈 이유는?
+- 삭제와 답변이 동시에 오면 `answer`에 잠금이 없을 때 무슨 일이 생기나?
 
 ---
 
