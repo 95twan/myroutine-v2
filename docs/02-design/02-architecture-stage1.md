@@ -26,7 +26,7 @@ flowchart TB
   App --> OAI[OpenAI]
   App --> S3[MinIO<br/>S3 호환 객체 저장소]
   App --> SMTP[메일]
-  App -. JSON 로그 .-> LS[Logstash] --> ESL[(Elasticsearch<br/>logs-*)] --> KIB[Kibana]
+  App -. JSON 로그 .-> LS[Logstash] --> ESL[(Elasticsearch<br/>myroutine-logs-*)] --> KIB[Kibana]
   PROM[Prometheus] -. /actuator/prometheus 수집 .-> App
   PROM --> GRAF[Grafana]
 ```
@@ -157,7 +157,7 @@ com.myroutine
 | minio (`chainguard/minio`) | 상품 이미지 객체 저장소(S3 호환, 1-10). 공식 `minio/minio` 이미지가 2026-09-11 Docker Hub에서 삭제되어 Chainguard 빌드를 쓴다. 로컬은 `latest`, 운영은 digest로 고정(1-11) |
 | redis | 세션, 인증코드, rate limit, 캐시, tokenVersion |
 | kafka (KRaft, 단일 브로커) | 이벤트 |
-| elasticsearch | 검색(`products`) + 로그(`logs-*`) 인덱스 |
+| elasticsearch | 검색(`products`) + 로그(`myroutine-logs-*`) 인덱스 |
 | logstash, kibana | 로그 수집·조회 (ELK) — compose 프로필 `observability` |
 | prometheus, grafana | 메트릭·대시보드·알림 — compose 프로필 `observability` |
 | pg-fake | 부하 테스트용 Toss Fake. 테스트용 가짜 PG 서버(`FakePgServer`)에 main을 붙여 컨테이너로 띄움. 지연·실패 비율을 환경변수로 설정 |

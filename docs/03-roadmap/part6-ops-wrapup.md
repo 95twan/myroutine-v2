@@ -1,6 +1,7 @@
 # Part 6. 관측 · 운영 · 마무리
 
-> 버전 0.32 · 2026-10-31 · 구독·취향 추천·월간 리뷰 요약을 로드맵에서 빼서([서브](../04-sub/README.md)) Part 6에서 구독·OpenAI 의존을 걷어냈다: 6-1 `LogSafetyTest`의 빌링키 등록, 6-2 `openai_call_seconds`, 6-4 `subscriptionCycles()`(INV-08)·S5·S7의 구독 단계. 옮긴 내용은 서브 문서의 "Part 6에 더할 것"에 있다
+> 버전 0.33 · 2026-11-04 · 6-1·6-2를 실제로 띄워 확인한 값으로 다시 썼다: 로그 인덱스 `myroutine-logs-*`, Logstash 포트 5044, INFO 필터와 로그 문장 추가, UNKNOWN 나이의 `created_at` 기준, DLT 알림의 `offset` 식. 6-3 목록 조회·`size`·실행 로그 `action`·`AdminDltService`를 확정했다
+> 0.32 · 2026-10-31 · 구독·취향 추천·월간 리뷰 요약을 로드맵에서 빼서([서브](../04-sub/README.md)) Part 6에서 구독·OpenAI 의존을 걷어냈다: 6-1 `LogSafetyTest`의 빌링키 등록, 6-2 `openai_call_seconds`, 6-4 `subscriptionCycles()`(INV-08)·S5·S7의 구독 단계. 옮긴 내용은 서브 문서의 "Part 6에 더할 것"에 있다
 > 0.31 · 2026-10-28 · 6-1 `LogSafetyTest`의 가입을 4-2의 가입 전 인증(발송 → 확인 → 인증 토큰으로 가입)으로 바꾸고 인증 토큰도 로그에 없어야 할 값에 더했다
 > 0.30 · 2026-10-27
 > 0.26 · 2026-10-23 · 6-3 구현물 2번 `reconcileOne`: 이미 있는 `private boolean reconcileOne`을 `public OrderStatus`로 열고 반환을 바꾼다
@@ -26,68 +27,344 @@
 
 ## Part 6 공통 규칙
 
-- 관측 스택(Logstash, Kibana, Prometheus, Grafana)은 docker-compose **`observability` 프로필**로 띄운다: `docker compose --profile observability up -d`. 평소 개발에는 띄우지 않는다(메모리).
-- 설정 파일은 모두 리포에 둔다: `docker/logstash/`, `docker/kibana/`, `docker/prometheus/`, `docker/grafana/provisioning/`. 화면에서 만든 대시보드·검색은 **JSON으로 내보내 커밋**한다.
+- 관측 스택(Logstash, Kibana, Prometheus, Grafana)은 docker-compose **`observability` 프로필**로 띄운다: `docker compose --env-file .env.local -f docker/docker-compose.yml --profile observability up -d`. 프로필을 주지 않으면 기존 5개 서비스만 뜬다. 평소 개발에는 띄우지 않는다(메모리). 이미지는 Logstash·Kibana·Prometheus·Grafana를 합쳐 약 6.5GB다.
+- 설정 파일은 모두 리포에 둔다: `docker/logstash/`, `docker/kibana/`, `docker/prometheus/`, `docker/grafana/provisioning/`. 화면에서 만든 대시보드·검색은 **파일로 내보내 커밋**한다.
 - 6-3의 운영 API는 모두 `/admin/api/**`(ADMIN)이다. 실행 로그 형식은 6-3 "모든 API에 공통"에 적었다.
 
 ---
 
 ## 6-1. ELK: 로그 수집과 traceId 검색 (M)
 
-**목표**: 앱 로그를 Kibana에서 검색한다. traceId 하나로 HTTP 요청 → DB → Kafka 소비 → 알림까지 한 흐름이 보인다.
+**목표**: 앱 로그를 Kibana에서 검색한다. traceId 하나로 결제 승인 → Kafka 전송 → 이벤트 처리가 시간순으로 보이고, 회원·주문으로도 찾는다.
 
-**왜 지금**: 기능이 다 모였고, 흐름이 길어져서(결제 → 이벤트 → 정산 → 알림) 로그 파일로는 따라가기 어렵다. Stage 2 성능 분석도 이것이 전제다.
+**왜 지금**: 기능이 다 모였고 흐름이 길어져서(결제 → 이벤트 → 정산 → 알림) 콘솔로는 따라가기 어렵다. 콘솔 로그는 앱을 재시작하면 사라지고, 스레드가 섞여 찍힌다. Stage 2 성능 분석도 이것이 전제다.
 
-**새로 등장**: Logstash(로그 수신·가공) → Elasticsearch(저장) → Kibana(검색·화면), logstash-logback-encoder(로그를 JSON으로)
+**전체 그림**
+
+```mermaid
+flowchart LR
+  subgraph 앱
+    C["log.info(...)"] --> L[logback]
+    L --> CON[콘솔: 사람이 읽는 줄]
+    L --> TCP[TCP appender: JSON 한 줄]
+  end
+  TCP -- "TCP 5044" --> LS[Logstash]
+  LS --> ES[("Elasticsearch<br/>myroutine-logs-날짜")]
+  ES --> K[Kibana 화면]
+```
+
+앱은 로그를 콘솔에 찍는 동시에 JSON으로 Logstash에 보낸다. Logstash는 받은 것을 ES에 넣고, Kibana는 ES를 검색하는 화면이다. ES는 5-2에서 띄운 것을 같이 쓰고 인덱스로만 나눈다.
+
+**새로 등장**
+
+| 개념 | 한 줄 설명 |
+|---|---|
+| logback | Boot의 기본 로깅 구현체. `log.info`를 받아 설정된 appender들에게 넘긴다 |
+| appender | 로그를 내보내는 곳 하나. 콘솔 appender는 이미 있고, TCP로 보내는 appender를 더한다 |
+| encoder | 로그 한 건을 바이트로 바꾸는 규칙. `LogstashEncoder`는 JSON 한 줄로 바꾼다 |
+| 구조화 로그 | 문장 대신 필드(`level`, `traceId` 등)로 남긴 로그. "traceId가 X인 행만" 같은 검색이 된다 |
+| Logstash | 로그를 받아 ES로 넘기는 중계 프로그램. 입력 → 출력을 적은 설정 파일 하나로 동작한다 |
+| 인덱스 | ES에서 문서를 모아 두는 단위(5-2의 `products`와 같다). 로그는 날짜별로 하나씩 생긴다 |
+| Kibana | ES를 검색하는 화면. 코드를 쓰지 않고 브라우저에서 쓴다 |
+| 데이터 뷰 | Kibana가 어떤 인덱스들을 볼지 정의한 것. `myroutine-logs-*`로 날짜별 인덱스를 묶어 본다 |
+| KQL | Kibana 검색창의 쿼리 문법. `traceId : "abc" and level : "ERROR"` |
+| MDC | 스레드마다 들고 있는 `Map<String, String>`(`org.slf4j.MDC`). 값을 넣어 두면 그 스레드에서 찍는 모든 로그에 필드로 붙는다 |
+
+**로그 한 건의 모양**
+
+같은 로그가 콘솔에는 이렇게 찍힌다(`logging.pattern.level`이 대괄호 안에 traceId를 넣는다).
+
+```text
+2026-11-04T18:39:01.403+09:00  INFO [01a1a5ed-1857-7451-b4ac-017189e9c479] 95120 --- [myroutine] [io-28080-exec-1] c.m.payment.infrastructure.TossClient    : pg confirm paymentId=01a1a5ed-... result=Approved reason= latencyMs=6
+```
+
+Logstash로는 이렇게 간다. MDC 값이 최상위 필드가 되고, 이 모양 그대로 ES 문서가 된다.
+
+```json
+{
+  "@timestamp": "2026-11-04T09:43:45.622Z",
+  "@version": "1",
+  "message": "pg confirm paymentId=01a1a5f1-... result=Approved reason= latencyMs=30",
+  "logger_name": "com.myroutine.payment.infrastructure.TossClient",
+  "thread_name": "http-nio-28080-exec-4",
+  "level": "INFO",
+  "level_value": 20000,
+  "traceId": "01a1a5f1-6e7e-7872-a89b-02fd32abc230",
+  "memberId": "01a1a5f1-6a37-70c8-ae60-26279c1763b0",
+  "orderId": "01a1a5f1-6a75-76b4-9bd6-f03397b76910",
+  "app": "myroutine"
+}
+```
+
+| 필드 | 값 | 어디서 오나 |
+|---|---|---|
+| `@timestamp`, `@version`, `message`, `logger_name`, `thread_name`, `level`, `level_value` | 항상 있다 | `LogstashEncoder` 기본 필드 |
+| `stack_trace` | 예외를 함께 남긴 로그에만 있다. 스택 전체가 문자열로 들어간다 | `LogstashEncoder` 기본 필드 |
+| `traceId`, `memberId`, `orderId`, `job`, `eventId` | 그 시점 MDC에 있는 것만 있다 | MDC |
+| `app` | `myroutine` | `customFields`(아래 1)) |
+| `tags` | Spring 내부 로그에 `COMMONS-LOGGING`이 붙는다. 무시한다 | logback 마커 |
 
 **정책 (이 단계에서 정함)**
-- 콘솔 로그는 지금처럼 사람이 읽는 형식, Logstash로 보내는 로그는 JSON. Logstash 전송은 Spring 프로필 `elk`일 때만(로컬에서 `local,elk`로 실행).
-- 로그 인덱스: `logs-myroutine-YYYY.MM.dd`. 보관 기간은 로컬이라 정하지 않는다.
+- 콘솔은 지금처럼 사람이 읽는 형식, Logstash로 보내는 로그는 JSON이다. Logstash 전송은 Spring 프로필 `elk`일 때만이다(로컬에서 `local,elk`로 실행).
+- Logstash로는 **INFO 이상만** 보낸다. `local` 프로필은 SQL(`DEBUG`)과 바인드 값(`TRACE`)을 콘솔에 찍는데, 이것까지 보내면 결제 승인 요청 하나의 145행 중 144행이 SQL과 바인드 값이고 해시된 값까지 ES에 쌓인다.
+- 로그 인덱스는 `myroutine-logs-YYYY.MM.dd`이고 데이터 뷰는 `myroutine-logs-*`다. **이름을 `logs-`로 시작하면 안 된다.** ES에 기본으로 있는 인덱스 템플릿 `logs-*-*`와 맞아 data stream이 되는데, data stream은 `create` 쓰기만 받아서 Logstash의 쓰기가 전부 400으로 거절되고 로그가 한 건도 저장되지 않는다(`only write ops with an op_type of create are allowed in data streams`).
+- Logstash 입력 포트는 `5044`다. macOS는 AirPlay 수신기가 5000번을 쓴다. `localhost:5000`은 컨테이너를 publish해도 AirPlay가 응답해(`403 AirTunes`) 연결은 성공하고 로그만 사라진다.
+- 보관 기간은 로컬이라 정하지 않는다. 지울 때는 인덱스 이름을 그대로 적는다(`*`를 쓴 삭제는 ES가 거절한다, 아래 "직접 확인하는 명령").
+
+**무엇을 로그로 남기나**
+
+Kibana는 찍힌 로그만 보여 준다. 지금 코드의 `log.info`는 5곳뿐이라, INFO만 보내면 결제 승인 요청을 찾아도 `TossClient` 1행만 나오고 HTTP 요청과 consumer 처리는 보이지 않는다. 반대로 `JobRunner`는 할 일이 없어도 잡마다 INFO를 찍어서 아무 요청이 없어도 분당 수십 행이 쌓인다. 그래서 아래 다섯 곳을 고친다. 실행으로 확인한 결과, 평소 로그량은 **분당 103행 → 0행**(`local,elk`, 요청 없을 때)이 되고 결제 승인 하나의 검색 결과는 145행에서 아래 "traceId로 무엇이 보이나"의 4행이 된다.
+
+| 위치 | 문장 | 왜 |
+|---|---|---|
+| `common.web.TraceIdFilter` `finally` | `log.info("http {} {} status={} {}ms", request.getMethod(), request.getRequestURI(), response.getStatus(), 경과ms)` | 요청 하나마다 시작점이 생긴다. `getRequestURI()`는 쿼리 문자열을 포함하지 않아 값이 새지 않는다. 이 필터는 관리 포트(8081)에 걸리지 않아서 Prometheus 수집과 헬스체크는 로그를 만들지 않는다 |
+| `common.inbox.InboxGuard.runOnce` | `action.run()` 다음 줄에 `log.info("event handled consumer={} type={}", consumer, envelope.eventType())` | consumer가 무엇을 처리했는지 남긴다. `EventContext.run` 안이라 봉투의 `traceId`·`eventId`가 붙는다 |
+| `common.outbox.OutboxRelay` 성공 | `count++` 앞에 `log.info("outbox sent eventId={} topic={} originTraceId={}", row.id, row.topic, row.traceId)` | 릴레이는 잡이라 자기 traceId를 쓴다. 메시지에 원래 traceId를 남겨 검색으로 잇는다. `@Slf4j`를 더한다 |
+| `common.outbox.OutboxRelay` 실패 | `catch` 첫 줄에 `log.warn("Failed to send outbox event. eventId={} attempts={}", row.id, row.attempts + 1, e)` | 지금은 `last_error`에만 남고 로그가 없다. 마지막 인자가 예외면 `stack_trace` 필드로 들어간다 |
+| `notification.application.NotificationDispatcher` 성공 | `count++` 앞에 `log.info("notification sent notificationId={} type={} memberId={}", notification.getId(), notification.getType(), notification.getMemberId())` | 메일이 실제로 나갔는지 찾는다. 잡이라 메시지의 `memberId`로 찾는다 |
+| `common.job.JobRunner` | `if (ran)`을 `if (ran && count.get() > 0)`으로, `else`를 `else if (!ran)`로 바꾼다. 처리 건수 0이면 아무것도 찍지 않는다 | 릴레이는 1초마다 돈다. 하루 8만 6천 행이 "0건 처리"다 |
+
+**traceId로 무엇이 보이나**
+
+결제 승인 요청 하나를 실제로 돌린 결과다. `T`는 승인 응답 헤더 `X-Request-Id`, 쿼리는 `traceId : "T" or message : "T"`다.
+
+| 시각 | `logger_name` 끝 | `message` | 다른 필드 |
+|---|---|---|---|
+| 33.758 | `TossClient` | `pg confirm paymentId=… result=Approved reason= latencyMs=6` | `memberId`, `orderId` |
+| 33.777 | `TraceIdFilter` | `http POST /api/orders/{orderId}/payment/confirm status=200 111ms` | `memberId` |
+| 34.208 | `OutboxRelay` | `outbox sent eventId=… topic=order.order-paid.v1 originTraceId=T` | `job` = `outbox-relay`, `traceId`는 잡의 값 |
+| 34.215 | `InboxGuard` | `event handled consumer=notification.order-paid type=OrderPaidEvent` | `eventId` |
+
+HTTP 행은 요청이 끝날 때 찍히므로 그 안에서 일어난 PG 호출보다 뒤에 나온다. 단계마다 traceId가 어떻게 이어지는지는 다음과 같다.
+
+| 단계 | traceId | 찾는 법 |
+|---|---|---|
+| HTTP 요청, 그 안의 PG 호출 | `T` | `traceId : "T"` |
+| 릴레이의 Kafka 전송 | 잡 실행마다 새 값(`JobRunner`) | `message : "T"`(`originTraceId`) |
+| consumer | `T`(봉투에서 복원) | `traceId : "T"` |
+| 알림 발송 잡 | 잡 실행마다 새 값 | `message : "회원ID"`. 체크아웃과 승인은 서로 다른 HTTP 요청이라 traceId도 다르다. 주문 하나를 끝까지 보려면 `orderId`로 찾는다 |
 
 ### 할 일
 
-**구현 순서**: 1) 의존성·`logback-spring.xml` → 2) MDC(`memberId` → `orderId`) → 3) `docker/logstash`·compose·Kibana 저장 검색 → 4) 민감정보 점검(`LogSafetyTest`).
+**구현 순서**: 1) 의존성·`logback-spring.xml` → 2) 로그 문장 → 3) MDC(`memberId` → `orderId`) → 4) `docker/logstash`·compose → 5) Kibana 저장 검색 → 6) 테스트(`LogFlowTest`, `LogSafetyTest`).
 
 **1) 의존성·설정** — `build.gradle`, `src/main/resources/logback-spring.xml`
-- `implementation 'net.logstash.logback:logstash-logback-encoder:9.0'` — 2026-10-09 Maven Central 최신. 9.0의 pom은 `tools.jackson.core:jackson-databind`(Jackson 3)와 `logback-core` 1.5.x에 의존해 Boot 4.1.1(Jackson 3.1.5, Logback 1.5.38)과 맞는다. Boot BOM이 관리하지 않아 버전을 적는다
-- `src/main/resources/logback-spring.xml`: `<springProfile name="elk">`에 `LogstashTcpSocketAppender`(destination `${LOGSTASH_HOST:-localhost}:5000`, `LogstashEncoder`), 그 외에는 Boot 기본 콘솔. 콘솔 패턴은 `application.yaml`의 `logging.pattern.level: "%5p [%X{traceId:-}]"`를 그대로 둔다
-  - **왜 이 파일인가**: logback 설정은 `logback.xml`로도 쓸 수 있지만 `<springProfile>`(프로필에 따라 설정을 나누는 태그)은 Boot가 읽는 `logback-spring.xml`에서만 된다. 이 파일을 두면 Boot의 로깅 자동 설정을 대신하므로, 기본 콘솔 설정을 직접 불러와야 한다.
-  - **구성(위에서 아래로)**
-    1. `<include resource="org/springframework/boot/logging/logback/defaults.xml"/>` — Boot의 기본 콘솔 패턴 변수(`CONSOLE_LOG_PATTERN`)를 정의한다. 이 패턴이 위 `logging.pattern.level`을 쓴다
-    2. `<include resource="org/springframework/boot/logging/logback/console-appender.xml"/>` — `CONSOLE` appender를 만든다(두 파일 모두 Boot 4.1.1 jar에서 확인). `base.xml`은 파일 appender까지 붙이므로 쓰지 않는다
-    3. `<springProfile name="elk">` 안에 `LogstashTcpSocketAppender`(`net.logstash.logback.appender`) 하나를 선언하고 `<destination>`, `<encoder class="net.logstash.logback.encoder.LogstashEncoder">`를 넣는다
-    4. `<root level="INFO">`에 `CONSOLE`은 항상, 위 appender는 `elk` 프로필 블록 안에서만 `appender-ref`로 붙인다
-  - Logstash가 꺼져 있어도 앱은 기동한다. 그동안의 로그는 전송되지 않을 수 있다(확인 필요: 재접속 주기·버퍼 동작은 라이브러리 README로 확인)
-- JSON 필드: `@timestamp`, `level`, `logger_name`, `message`, `stack_trace`, MDC 전부(`traceId`, `memberId`, `orderId`, `job`, `eventId`), `app: myroutine`
-  - `LogstashEncoder`는 위 필드 중 `app`을 뺀 나머지와 MDC를 기본으로 JSON 한 줄에 담는다(확인 필요: 기본 필드 이름은 logstash-logback-encoder 9.0 README로 확인). 직접 정하는 것은 `app`뿐이고, `LogstashEncoder`의 `<customFields>{"app":"myroutine"}</customFields>`로 넣는다
 
-**2) MDC 보강** — `common.web`·`common.security`·`common.job`·`common.outbox`·`order.application`
+의존성은 `implementation 'net.logstash.logback:logstash-logback-encoder:9.0'` 한 줄이다. Boot BOM이 관리하지 않아 버전을 적는다(2026-11-04 Maven Central 최신, Boot 4.1.1에서 실행 확인). 이 라이브러리가 `LogstashTcpSocketAppender`와 `LogstashEncoder`를 준다.
 
-MDC는 SLF4J가 스레드마다 들고 있는 `Map<String, String>`이다. 인코더가 로그 한 줄을 쓸 때 현재 스레드의 MDC를 필드로 붙이므로, 값을 넣어 두면 그 사이에 찍힌 모든 로그에 따라붙는다. 값은 문자열만 되고(UUID는 `.toString()`), **스레드를 넘어가지 않으며**(Kafka listener·스케줄러 스레드는 따로 넣어야 한다), 안 지우면 스레드 풀의 다음 작업에 남는다. 그래서 넣는 곳마다 빼는 곳이 짝으로 있다. `traceId`는 1-3(`TraceIdFilter`)·2-5(`JobRunner`)·3-1·3-2(`EventContext`, `InboxGuard`가 이를 부른다)에서 이미 넣고 있고, 이 단계에서 새로 넣는 것은 `memberId`와 `orderId`다.
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+    <springProfile name="elk">
+        <appender name="LOGSTASH" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
+            <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+                <level>INFO</level>
+            </filter>
+            <destination>${LOGSTASH_HOST:-localhost}:5044</destination>
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <customFields>{"app":"myroutine"}</customFields>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="LOGSTASH"/>
+        </root>
+    </springProfile>
+</configuration>
+```
+
+| 부분 | 이유 |
+|---|---|
+| 파일 이름 `logback-spring.xml` | `<springProfile>`은 Boot가 읽는 이 이름에서만 된다. `logback.xml`이면 Boot보다 먼저 읽혀서 프로필을 모른다 |
+| `defaults.xml`, `console-appender.xml` | 이 파일을 두면 Boot의 기본 로깅 설정을 대신한다. 두 줄로 기본 콘솔 패턴과 `CONSOLE` appender를 다시 불러온다. 그래서 `application.yaml`의 `logging.pattern.level`과 `logging.level.*`은 그대로 동작한다 |
+| `<root>` 두 번 | 같은 root에 appender가 더해진다. `elk` 프로필이 아니면 아래 블록이 없는 것과 같아 콘솔만 남는다 |
+| `ThresholdFilter` | 이 appender로 들어오는 로그 중 INFO 미만을 버린다. 콘솔에는 그대로 찍힌다 |
+| `${LOGSTASH_HOST:-localhost}` | logback의 기본값 문법이다. 환경변수가 없으면 `localhost`다 |
+| `customFields` | 모든 로그에 붙일 고정 필드를 JSON으로 적는다 |
+
+Logstash가 꺼졌을 때의 동작은 아래와 같다. 앱은 어느 경우에도 정상이고 콘솔 로그는 남는다.
+
+| 상황 | 동작 |
+|---|---|
+| Logstash가 꺼진 채 앱 시작 | 앱은 그대로 뜬다. 콘솔에 `Log destination localhost/<unresolved>:5044: connection failed`가 찍힌다 |
+| 앱이 도는 중 Logstash 중단 | 콘솔에 `Waiting 29999ms before attempting reconnection`이 찍히고 30초마다 다시 접속한다(`reconnectionDelay` 기본값) |
+| 중단 중의 로그 | 유실될 수 있다. 중단 중 요청 5건을 보내고 Logstash를 다시 띄웠을 때 5건 모두 ES에 들어오지 않았고, 그 뒤의 3건은 들어왔다. 로그는 메모리 큐(`ringBufferSize` 기본 8192건)를 거치는 비동기 전송이라 요청은 느려지지 않는다 |
+
+**2) 로그 문장** — 위 "무엇을 로그로 남기나" 표의 다섯 곳을 고친다. 메시지 안의 `{}`는 값으로 채워지고, `message` 필드에 그대로 들어가 KQL로 찾을 수 있다. `TraceIdFilter`는 `try` 앞에서 `long start = System.nanoTime()`을 재고, 경과는 `(System.nanoTime() - start) / 1_000_000`이다. `@Slf4j`를 더한다.
+
+**3) MDC 보강** — `common.web`·`common.security`·`order.application`
+
+값은 문자열만 되고(UUID는 `.toString()`), **스레드를 넘어가지 않으며**(Kafka listener·스케줄러 스레드는 따로 넣어야 한다), 안 지우면 스레드 풀의 다음 작업에 남는다. 그래서 넣는 곳마다 빼는 곳이 짝으로 있다. `traceId`·`job`·`eventId`는 이미 있고, 이 단계에서 새로 넣는 것은 `memberId`와 `orderId`다.
 
 | 키 | 넣는 곳 | 빼는 곳 |
 |---|---|---|
-| `traceId` | `common.web.TraceIdFilter`, `common.job.JobRunner`, `common.outbox.EventContext` (`common.inbox.InboxGuard`가 안에서 부른다, 이미 있음) | `common.outbox.EventContext`의 finally |
-| `memberId` | `common.security.JwtAuthenticationFilter` 인증 성공 직후 | `common.web.TraceIdFilter`의 finally에서 함께 제거 |
-| `orderId` | 주문 흐름 서비스(`order.application`의 `ConfirmPaymentService`, `OrderPaymentApplier`, `CancelOrderLineService`, 만료·대사 잡의 주문별 처리)가 `MDC.putCloseable`로 넣는다(아래 `orderId`) | try-with-resources가 제거 |
-| `job` | `common.job.JobRunner` (이미 있음) | |
+| `traceId` | `TraceIdFilter`, `JobRunner`, `EventContext` (이미 있음) | 각자의 `finally` |
+| `job` | `JobRunner` (이미 있음) | `JobRunner`의 `finally` |
+| `eventId` | `EventContext` (이미 있음, `InboxGuard`가 안에서 부른다) | `EventContext`의 `finally` |
+| `memberId` | `JwtAuthenticationFilter` 인증 성공 직후 | `TraceIdFilter`의 `finally` |
+| `orderId` | 주문 흐름의 가장 바깥 메서드(아래) | try-with-resources가 지운다 |
 
-- **`memberId`**: `JwtAuthenticationFilter.doFilterInternal`에서 `jwtProvider.parse(token).ifPresent(claims -> ...)` 람다 안, `SecurityContextHolder`에 인증을 넣는 줄 바로 뒤에 `MDC.put("memberId", claims.memberId().toString())`을 더한다(`AuthClaims`는 `record (UUID memberId, String role)`). 빼는 곳은 `TraceIdFilter.doFilterInternal`의 `finally`에 `MDC.remove("memberId")` 한 줄 추가 — `TraceIdFilter`가 `HIGHEST_PRECEDENCE`라 보안 필터보다 바깥에서 요청 전체를 감싸므로 거기서 지우면 된다. 토큰이 없거나 틀린 요청은 이 줄을 지나지 않으니 `memberId`가 비어 있다(익명 요청)
-- **`orderId`**: `try (MDC.MDCCloseable ignored = MDC.putCloseable("orderId", orderId.toString())) { ... }`. `putCloseable`은 값을 넣고, try 블록이 끝나면(예외 포함) `close()`가 **그 키를 지운다**. 주문을 처리하는 메서드 본문 전체를 이 블록으로 감싼다. 건별 반복(만료·대사 잡의 `for (UUID id : ids)`)은 주문마다 블록을 열고 닫아야 다음 주문 로그에 앞 주문 ID가 남지 않는다
-  - 주의: `close()`는 **이전 값을 복원하지 않고 지우기만 한다**. `ConfirmPaymentService`가 연 블록 안에서 `OrderPaymentApplier`가 같은 키로 다시 열면, 안쪽이 닫히는 순간 바깥 구간의 `orderId`도 사라진다. 어느 쪽을 열지(가장 바깥 한 곳만 열기, 이미 같은 값이면 열지 않기 등)는 문서에 없다(확인 필요)
+- **`memberId`**: `JwtAuthenticationFilter.doFilterInternal`의 `ifPresent` 람다 안, `SecurityContextHolder.getContext().setAuthentication(authenticatedToken)` 바로 다음 줄에 `MDC.put("memberId", claims.memberId().toString())`을 더한다. 토큰 버전이 맞을 때만 지나는 자리다(`AuthClaims`는 `record (UUID sessionId, UUID memberId, String role, int tokenVersion)`). 빼는 곳은 `TraceIdFilter`의 `finally`에 `MDC.remove("memberId")` 한 줄이다. `TraceIdFilter`가 `HIGHEST_PRECEDENCE`라 보안 필터 바깥에서 요청 전체를 감싸므로 거기서 지우면 된다. `http` 로그를 찍는 줄보다 뒤에 지워야 그 행에 `memberId`가 붙는다. 토큰이 없거나 틀린 요청은 비어 있다.
+- **`orderId`**: `MDC.putCloseable`은 값을 넣고, try 블록이 끝나면(예외 포함) `close()`가 **그 키를 지운다**. `MDCCloseable`은 `close()`만 있는 타입이고 `ignored`는 쓰지 않는 변수라는 표시다.
 
-**3) docker** — `docker/logstash/pipeline/logstash.conf`, `docker/docker-compose.yml`, `docker/kibana/saved-objects.ndjson`
-- `docker/logstash/pipeline/logstash.conf`: `input { tcp { port => 5000 codec => json_lines } }` → `output { elasticsearch { hosts => ["http://elasticsearch:9200"] index => "logs-myroutine-%{+YYYY.MM.dd}" } }`
-  - 흐름: 앱의 appender가 로그 1건을 JSON 한 줄로 TCP 5000에 보낸다 → `json_lines` 코덱이 줄 단위로 JSON을 이벤트로 풀어 필드로 만든다 → `elasticsearch` output이 색인 이름 날짜를 이벤트의 `@timestamp`(UTC)로 채워 저장한다. 그래서 한국 시간 새벽 로그는 전날 날짜 색인에 들어간다
-  - `http://elasticsearch:9200`은 인증 없는 접속이다. 5-2가 ES를 `xpack.security.enabled=false`로 띄우기 때문에 이대로 된다. 컨테이너끼리는 compose 서비스 이름(`elasticsearch`)으로 접속한다
-- compose: `docker.elastic.co/logstash/logstash:9.4.8`(5000), `docker.elastic.co/kibana/kibana:9.4.8`(5601) — ES(5-2)와 같은 버전
-  - Logstash는 `./docker/logstash/pipeline`을 컨테이너의 파이프라인 디렉터리로 마운트한다(확인 필요: 마운트 경로는 `logstash:9.4.8` 이미지 문서로 확인). 5000은 호스트에 publish해야 호스트에서 도는 앱의 `localhost:5000`이 닿는다. Kibana는 환경변수로 ES 주소(`ELASTICSEARCH_HOSTS=http://elasticsearch:9200`)를 준다(확인 필요: 변수 이름)
-- Kibana: 데이터 뷰 `logs-myroutine-*`, 저장 검색 3개 — "traceId로 흐름 보기"(`traceId : "..."`, 시간 오름차순, 열 level·logger·message·job), "ERROR만", "결제 UNKNOWN"(`message : "UNKNOWN" and logger_name : *payment*`) → `docker/kibana/saved-objects.ndjson`로 내보내기
-  - 쿼리는 Kibana 검색창의 KQL이고 `traceId`·`logger_name`·`message`·`job`은 위 JSON 필드 이름이다. "ERROR만"은 `level : "ERROR"`. 내보내기는 Kibana 화면의 저장된 객체(Saved Objects) 관리에서 하고 `.ndjson`(줄마다 JSON 한 개)으로 받는다(확인 필요: 9.4 화면의 메뉴 위치)
+  ```java
+  try (MDC.MDCCloseable ignored = MDC.putCloseable("orderId", orderId.toString())) {
+      // 주문을 처리한다
+  }
+  ```
 
-**4) 민감정보 점검** — 테스트 `common/LogSafetyTest`(완료 확인): 아래 테스트로 확인하고, 걸리면 로그 문장을 고친다
-- 점검 대상은 **로그 문장(`log.info("...", 값)`의 인자와 예외 메시지)**이다. 토큰·비밀번호·인증코드·빌링키·`authKey`·`paymentKey`가 인자로 들어간 곳, 요청·응답 바디를 통째로 찍는 곳이 후보다. 고치는 방법은 값을 빼거나 앞 몇 글자만 남기는 것이다
-- 테스트 방식: `@ExtendWith(OutputCaptureExtension.class)`를 달면 메서드 파라미터로 `CapturedOutput output`을 받는다. 콘솔 출력을 보므로 JSON 인코더와 무관하게 같은 로그 문장을 검사한다. 값과 단언은 완료 확인에 적었다
+  `close()`는 이전 값을 복원하지 않고 지우기만 하므로, 같은 키를 안쪽에서 다시 열면 안쪽이 닫히는 순간 바깥 구간의 `orderId`도 사라진다. 그래서 **가장 바깥 한 곳에서만 연다.**
+
+  | 여는 곳 | 범위 |
+  |---|---|
+  | `ConfirmPaymentService.confirm` | 메서드 본문 전체 |
+  | `CancelOrderLineService.cancel` | 메서드 본문 전체 |
+  | `OrderExpirationService.expireBatch` | `for (UUID orderId : orderIds)` 안에서 주문마다 |
+  | `OrderReconcileService.reconcileBatch` | `for (UUID orderId : ids)` 안에서 주문마다. 기존 `try`를 `try (…)`로 바꾸면 된다 |
+
+  `OrderPaymentApplier`는 위 메서드들 안에서 불리므로 열지 않는다. `http` 행은 이 블록이 닫힌 뒤에 찍혀서 `orderId` 필드가 없지만, 경로에 주문 ID가 있어 `message`로 찾힌다.
+
+**4) docker** — `docker/logstash/pipeline/logstash.conf`, `docker/docker-compose.yml`
+
+`docker/logstash/pipeline/logstash.conf`:
+
+```text
+input { tcp { port => 5044 codec => json_lines } }
+output { elasticsearch { hosts => ["http://elasticsearch:9200"] index => "myroutine-logs-%{+YYYY.MM.dd}" } }
+```
+
+| 부분 | 뜻 |
+|---|---|
+| `tcp { port => 5044 }` | 이 포트로 들어오는 연결을 받는다 |
+| `codec => json_lines` | 줄 단위로 JSON을 풀어 필드로 만든다. appender가 보내는 모양과 같다 |
+| `hosts` | 컨테이너끼리는 compose 서비스 이름으로 접속한다. 5-2가 ES 보안을 껐기 때문에 인증이 없다 |
+| `%{+YYYY.MM.dd}` | 이벤트의 `@timestamp`(UTC)로 날짜를 채운다. 그래서 한국 시간 새벽 로그는 전날 날짜 인덱스에 들어간다 |
+
+`docker/docker-compose.yml`에 서비스 둘을 더한다. 경로 `./logstash/...`는 compose 파일 기준이다.
+
+```yaml
+  logstash:
+    image: docker.elastic.co/logstash/logstash:9.4.8
+    profiles: [observability]
+    restart: unless-stopped
+    environment:
+      LS_JAVA_OPTS: -Xms256m -Xmx256m
+      XPACK_MONITORING_ENABLED: "false"
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+    ports:
+      - "127.0.0.1:5044:5044"
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:9.4.8
+    profiles: [observability]
+    restart: unless-stopped
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      TELEMETRY_OPTIN: "false"
+    ports:
+      - "127.0.0.1:5601:5601"
+    depends_on:
+      - elasticsearch
+```
+
+| 부분 | 뜻 |
+|---|---|
+| 이미지 태그 `9.4.8` | ES(5-2)와 같은 버전이어야 한다 |
+| `profiles: [observability]` | `--profile observability`를 줄 때만 뜬다. 주지 않으면 기존 5개 서비스만 뜬다 |
+| `/usr/share/logstash/pipeline` | 이미지가 파이프라인을 읽는 폴더다. 마운트하면 이미지의 기본 파이프라인을 대신한다 |
+| `LS_JAVA_OPTS` | Logstash 기본 힙은 1GB다. 이 정도 로그량에는 256MB로 충분했다 |
+| `XPACK_MONITORING_ENABLED` | 쓰지 않는 자체 모니터링 수집을 끈다 |
+| `TELEMETRY_OPTIN` | Kibana의 사용 통계 전송을 끈다. 기본은 켜져 있다 |
+
+실행과 메모리는 다음과 같다. 앱은 `elk` 프로필을 더해 띄운다.
+
+```bash
+docker compose --env-file .env.local -f docker/docker-compose.yml --profile observability up -d
+./gradlew bootRun --args='--spring.profiles.active=local,elk'
+docker compose --env-file .env.local -f docker/docker-compose.yml --profile observability stop   # 끌 때
+```
+
+| 서비스 | 메모리(실측) | 이미지 크기 |
+|---|---|---|
+| Logstash | 약 600MiB | 1.53GB |
+| Kibana | 약 1.0GiB(뜰 때 1.8GiB) | 2.76GB |
+
+6-2의 Prometheus·Grafana까지 모두 띄워도 Docker Desktop 메모리 8GB 안에 들어간다. 운영 VM에 올릴지는 [구현 때 정할 것](pending-decisions.md)의 6-1 행에서 정한다.
+
+**5) Kibana 저장 검색** — `docker/kibana/saved-objects.ndjson`
+
+처음에는 화면에서 만들고, 만든 결과를 파일로 내보내 커밋한다. 파일이 있으면 Kibana를 새로 띄워도 가져오기 한 번으로 복구된다.
+
+1. **데이터 뷰**: `http://localhost:5601` → 왼쪽 위 메뉴 → Stack Management → Kibana → Data Views → Create data view. Name `myroutine-logs`, Index pattern `myroutine-logs-*`, Timestamp field `@timestamp`.
+2. **검색**: 메뉴 → Discover. 데이터 뷰를 `myroutine-logs`로 고르고, 오른쪽 위 시간 범위를 넓히고(기본 15분), 검색창에 KQL을 넣는다. 왼쪽 필드 목록의 `+`로 열을 고르고, 표의 `@timestamp` 머리글로 오름차순 정렬한 뒤 오른쪽 위 Save로 저장한다.
+3. **내보내기**: Stack Management → Kibana → Saved Objects → 위 검색들을 체크 → Export(`Include related objects`를 켜면 데이터 뷰도 같이 나간다) → 받은 `.ndjson`(줄마다 JSON 한 개)을 `docker/kibana/saved-objects.ndjson`로 옮긴다.
+4. **가져오기**: 같은 화면의 Import, 또는 아래 명령이다.
+
+   ```bash
+   curl -s -XPOST "localhost:5601/api/saved_objects/_import?overwrite=true" -H 'kbn-xsrf: true' -F file=@docker/kibana/saved-objects.ndjson
+   ```
+
+| 저장 검색 이름 | KQL | 열 |
+|---|---|---|
+| traceId로 흐름 보기 | `traceId : "T" or message : "T"` (쓸 때 `T`를 바꾼다) | `level`, `logger_name`, `message`, `job` |
+| 회원으로 찾기 | `memberId : "M" or message : "M"` | 위와 같음 |
+| 주문으로 찾기 | `orderId : "O" or message : "O"` | 위와 같음 |
+| ERROR만 | `level : "ERROR"` | `level`, `logger_name`, `message`, `traceId` |
+| 결제 UNKNOWN | `message : "Unknown" and logger_name : *payment*` | `level`, `logger_name`, `message`, `traceId`, `orderId` |
+
+KQL 읽는 법은 다음과 같다. 문자열 필드는 소문자로 잘려 색인되므로 대소문자를 가리지 않고, 큰따옴표는 단어들이 그 순서로 붙어 있는 것을 찾는다.
+
+| 쿼리 | 뜻 |
+|---|---|
+| `traceId : "01a1a5f1-6e7e-…"` | 그 값이 들어 있는 행 |
+| `message : "http POST"` | 메시지에 이 구절이 있는 행 |
+| `logger_name : *myroutine*` | 앱 코드의 로그만. Kafka가 멈추면 `NetworkClient`의 WARN이 쌓이므로(8분에 약 2만 행) 이걸로 거른다 |
+| `level : "ERROR" and logger_name : *payment*` | 둘 다 맞는 행. `or`, `not`도 쓴다 |
+| `stack_trace : *` | 예외가 있는 행 |
+
+화면의 `Your data is not secure` 창은 5-2가 ES 보안을 꺼서 뜨는 것이고 Dismiss로 닫는다. 로컬은 `127.0.0.1`에만 열려 있다.
+
+**직접 확인하는 명령**
+
+구현 중 ES 상태는 터미널에서 본다. zsh는 `?`를 특수문자로 읽으므로 주소를 큰따옴표로 감싼다.
+
+```bash
+E=http://localhost:9200
+
+curl -s "$E/_cat/indices/myroutine-logs-*?v&h=index,docs.count,store.size"   # 날짜별 인덱스와 건수
+curl -s "$E/myroutine-logs-*/_search?size=1&sort=@timestamp:desc&pretty"     # 가장 최근 로그 1건
+
+# 앱 없이 Logstash → ES 경로만 확인한다. 몇 초 뒤 검색된다
+printf '{"message":"hello","level":"INFO","app":"manual"}\n' | nc -w 1 localhost 5044
+curl -s "$E/myroutine-logs-*/_search?q=app:manual&pretty"
+
+curl -s -XDELETE "$E/myroutine-logs-2026.11.04"    # 인덱스 삭제. myroutine-logs-* 처럼 *를 쓰면 ES가 거절한다
+```
+
+**문제가 생겼을 때**
+
+| 증상 | 원인 | 확인 |
+|---|---|---|
+| 콘솔에 `Log destination … connection failed` | Logstash가 꺼져 있거나 아직 뜨는 중이다(뜨는 데 수십 초 걸린다) | `docker compose ... logs logstash`에 `Pipelines running`이 있는지 |
+| 인덱스가 안 생기거나 건수가 0 | 인덱스 이름이 `logs-`로 시작한다. Logstash 로그에 `Could not index event … data streams`가 나온다 | `docker compose ... logs logstash \| grep "Could not index"` |
+| Discover가 비어 있다 | 시간 범위가 좁다(기본 15분) | 오른쪽 위 시간 범위를 넓힌다 |
+| 앱 로그가 안 들어오는데 수동 `nc`는 들어온다 | 앱을 `elk` 프로필 없이 띄웠다 | 시작 로그의 `profiles are active` 줄 |
+| SQL이 Kibana에 보인다 | `ThresholdFilter`가 빠졌다 | `logger_name : *hibernate*` |
+
+**6) 테스트** — 완료 확인 `common/LogFlowTest`, `common/LogSafetyTest`
+
+민감정보 점검 대상은 **로그 문장(`log.info("...", 값)`의 인자와 예외 메시지)**이다. 토큰·비밀번호·인증코드·`authKey`·`paymentKey`가 인자로 들어간 곳, 요청·응답 바디를 통째로 찍는 곳이 후보이고, 고치는 방법은 값을 빼거나 앞 몇 글자만 남기는 것이다. `@ExtendWith(OutputCaptureExtension.class)`를 달면 메서드 파라미터로 `CapturedOutput output`을 받는다. 콘솔 출력을 보므로 JSON 인코더와 무관하게 같은 로그 문장을 검사한다.
+
+`LogMailSender`(`@Profile("!prod")`)는 메일 본문 앞 100자를 찍으므로 로컬에서는 인증코드가 콘솔과 Kibana에 남는다(`send mail to …, body: 인증코드: 370394`). 로컬에서 메일 없이 코드를 읽는 수단이라 그대로 둔다. 운영의 `SmtpMailSender`는 본문을 로그에 남기지 않는다. 테스트에서는 `FakeMailSender`가 대신 주입되므로 `LogSafetyTest`로는 잡히지 않는다.
 
 ### 완료 확인
 
@@ -95,7 +372,30 @@ MDC는 SLF4J가 스레드마다 들고 있는 `Map<String, String>`이다. 인�
 - 테스트의 로그: `CapturedOutput output`의 `output.getAll()`(그때까지 콘솔에 찍힌 전체 문자열).
 - 응답: MockMvc `jsonPath`. 요청의 traceId는 응답 헤더 `X-Request-Id`(`TraceIds.HEADER`).
 - DB: JDBC. 가짜 PG가 받은 요청: `pg.requests(경로 접두어)`.
-- Kibana(수동): Discover의 데이터 뷰 `logs-myroutine-*`. 한 행의 JSON 필드 이름은 이 단계 "JSON 필드"와 같다.
+- Kibana(수동): Discover의 데이터 뷰 `myroutine-logs`. 한 행의 필드 이름은 위 "로그 한 건의 모양"과 같다.
+
+#### `common/LogFlowTest` (`@ExtendWith(OutputCaptureExtension.class)` + `@AutoConfigureMockMvc` + `IntegrationTestSupport`)
+
+**1. HTTP 요청 로그** — 동작: `GET /api/products?size=1`.
+- 로그(output.getAll()): `http GET /api/products status=200`을 포함한다. `size=1`을 포함하지 않는다.
+
+**2. 이벤트 처리 로그** — 준비: 임의 `eventId`의 봉투(`TestEvent`). 동작: `inboxGuard.runOnce("test.log-flow", 봉투, () -> {})`.
+- 로그(output.getAll()): `event handled consumer=test.log-flow type=TestEvent`를 포함한다.
+
+**3. 중복 이벤트는 처리 로그를 남기지 않는다** — 준비: 2번을 마친 상태. 동작: 같은 봉투로 `runOnce` 한 번 더.
+- 로그(output.getAll()): `event handled consumer=test.log-flow`가 정확히 1번 나온다(두 번째 실행은 `duplicate event skipped`).
+
+**4. 릴레이 전송 로그** — 준비: `common.outbox_event`에 JDBC `INSERT`로 READY 행 X(컬럼은 6-2 `MetricsTest` 1번과 같고 `topic` `test.outbox-relay.v1`, `trace_id` `t-log`). 동작: `outboxRelay.relayOnce()`.
+- 로그(output.getAll()): `"outbox sent eventId=" + X`와 `originTraceId=t-log`를 포함한다.
+
+**5. 릴레이 실패 로그** — 준비: 4번과 같은 READY 행 X, `kafka.getDockerClient().pauseContainerCmd(kafka.getContainerId()).exec()`(3-1 `OutboxRelayTest`와 같다). 동작: `relayOnce()` 뒤 `unpauseContainerCmd`.
+- 로그(output.getAll()): `"Failed to send outbox event. eventId=" + X`를 포함한다.
+
+**6. 알림 발송 로그** — 준비: `notification.notification`에 PENDING 행 N을 JDBC로 넣는다(6-3 `AdminNotificationTest` 준비의 컬럼, `status` `PENDING`). 동작: `notificationDispatcher.dispatchBatch()`.
+- 로그(output.getAll()): `"notification sent notificationId=" + N`을 포함한다.
+
+**7. 잡은 처리 건수가 있을 때만 로그를 남긴다** — 동작: `jobRunner.run("test-log-zero", () -> 0)`, `jobRunner.run("test-log-three", () -> 3)`.
+- 로그(output.getAll()): `job test-log-zero processed`를 포함하지 않는다. `job test-log-three processed 3`을 포함한다.
 
 #### `common/LogSafetyTest` (`@ExtendWith(OutputCaptureExtension.class)` + `@AutoConfigureMockMvc` + `IntegrationTestSupport`)
 
@@ -114,25 +414,25 @@ MDC는 SLF4J가 스레드마다 들고 있는 `Map<String, String>`이다. 인�
 **확인할 것**
 - 로그(output.getAll()): 캡처가 비어 있지 않다. `"pg confirm paymentId=" + paymentId + " result=Approved"`를 포함한다(`paymentId`는 `jdbcTemplate.queryForObject("SELECT id FROM payment.payment WHERE order_id = ?", UUID.class, orderId)`).
 - 로그(output.getAll()): 아래 값이 하나도 들어 있지 않다: 비밀번호, 인증코드, 인증 토큰, 3·4·5번의 access 토큰 3개와 refresh 토큰 3개, `paymentKey`. 값마다 단언을 따로 두고 실패 메시지에 값 이름이 나오게 해서 어느 값이 걸렸는지 알 수 있게 한다.
-- 확인 필요: `LogMailSender`(3-5)는 메일 본문 앞 100자를 로그로 찍어 인증코드가 포함된다. 테스트에서는 `FakeMailSender`가 대신 주입되므로 이 테스트로는 잡히지 않는다. `local` 프로필에서 인증코드가 로그에 남는지는 수동으로 확인한다(4번 요청 뒤 앱 콘솔에서 인증코드 검색).
 
-#### Kibana에서 traceId로 흐름 보기 (수동)
+#### Kibana에서 흐름 보기 (수동)
 
-**준비**: `docker compose --profile observability up -d` → 앱을 프로필 `local,elk`로 실행 → 판매자·가게·상품(10,000원)과 구매자를 만든다. Kibana 주소·포트는 compose 설정에서 확인한다(`5601`은 문서에 있고 호스트 publish는 확인 필요).
+**준비**: 관측 스택을 띄우고(위 4)) 앱을 프로필 `local,elk`로 실행 → 판매자·가게·상품(10,000원)과 구매자를 만든다. Kibana는 `http://localhost:5601`이다.
 
-**동작**: 구매자가 `POST /api/orders/checkout`으로 주문을 만들고 `POST /api/orders/{id}/payment/confirm`으로 승인한다. 승인 응답의 `X-Request-Id` 값을 `T`로 적어 둔다. 릴레이(1초 주기)와 알림 발송(10초 주기)이 돌 때까지 30초 기다린다.
+**동작**: 구매자가 `POST /api/orders/checkout`으로 주문을 만들고 `POST /api/orders/{id}/payment/confirm`으로 승인한다. 승인 응답의 `X-Request-Id` 값을 `T`로, 구매자 ID를 `M`으로, 주문 ID를 `O`로 적어 둔다. 릴레이(1초 주기)와 알림 발송(10초 주기)이 돌 때까지 30초 기다린다.
 
 **확인할 것**
-- 저장된 검색 "traceId로 흐름 보기"에 KQL `traceId : "T"`를 넣으면 **시간 오름차순**으로 행이 나오고, 행마다 `app` = `myroutine`, `traceId` = `T`이다.
-- 행 중에 `logger_name`이 `TossClient`로 끝나고 `message`가 `pg confirm paymentId={결제 ID} result=Approved …`인 행이 1개다.
-- 같은 검색에서 `memberId` = 구매자 ID, `orderId` = 주문 ID 필드를 가진 행이 1개 이상이다.
-- 이벤트 소비 행(`eventId` 필드가 있고 `traceId` = `T`)이 1개 이상이다.
-- 문서가 기대하는 흐름은 "체크아웃 → 승인 → outbox 저장 → 릴레이 → consumer → 알림 발송"이다. 확인 필요: 체크아웃은 별도 HTTP 요청이고 릴레이·알림 발송은 `JobRunner`가 새 traceId를 만드는 잡이라(2-5) `T` 하나로 묶이는지는 문서만으로 확정되지 않는다. 묶이지 않는 단계가 있으면 그 단계를 찾는 방법(예: `orderId` 검색)을 이 문서에 적는다.
-- "ERROR만" 검색은 `level : "ERROR"`로 오류 없이 실행된다(0건이어도 된다). "결제 UNKNOWN" 검색은 `message : "UNKNOWN" and logger_name : *payment*`로 실행된다.
-- 검색 3개가 `docker/kibana/saved-objects.ndjson`에 있고, Kibana를 새로 띄워 그 파일을 가져오면(Saved Objects → Import) 3개 이름이 목록에 보인다.
+- "traceId로 흐름 보기"에 `T`를 넣으면 시간 오름차순으로 위 "traceId로 무엇이 보이나"의 4행이 나온다(`TossClient`, `TraceIdFilter`, `OutboxRelay`, `InboxGuard`). 행마다 `app` = `myroutine`이다. consumer가 더 있으면 `InboxGuard` 행이 더 나올 수 있다.
+- "회원으로 찾기"에 `M`을 넣으면 위 행들과 함께 `notification sent … type=ORDER_PAID memberId=M` 행이 나온다.
+- "주문으로 찾기"에 `O`를 넣으면 `TossClient` 행(`orderId` 필드)과 `http POST /api/orders/O/payment/confirm` 행(`message`)이 나온다.
+- SQL이 보이지 않는다: `logger_name : *hibernate*`가 0건이다.
+- "ERROR만"과 "결제 UNKNOWN"이 쿼리 오류 없이 실행된다(0건이어도 된다).
+- 저장 검색 5개가 `docker/kibana/saved-objects.ndjson`에 있고, Kibana를 새로 띄워 그 파일을 가져오면 5개 이름이 Saved Objects 목록에 보인다.
 - PR에 "traceId로 흐름 보기" 결과 스크린샷 1장을 붙인다.
 
-**리뷰 때 물어볼 것**: 분산 트레이싱(Tempo 등) 없이 로그로만 추적하면 무엇이 부족한가? (ADR-010)
+**리뷰 때 물어볼 것**
+- 분산 트레이싱(Tempo 등) 없이 로그로만 추적하면 무엇이 부족한가? (ADR-010)
+- 왜 Logstash로 INFO 이상만 보내는가? 잡이 0건을 처리할 때 로그를 남기지 않는 이유는?
 
 ---
 
@@ -140,34 +440,129 @@ MDC는 SLF4J가 스레드마다 들고 있는 `Map<String, String>`이다. 인�
 
 **목표**: 서비스 상태와 **정합성 지표**를 대시보드로 보고, 문제가 생기면 알림이 온다.
 
-**새로 등장**: Prometheus(메트릭 수집), Grafana(대시보드·알림), Micrometer(앱에서 메트릭 만들기: `Counter`, `Timer`, `Gauge`)
+**전체 그림**
+
+```mermaid
+flowchart LR
+  subgraph 앱
+    M["Micrometer<br/>Counter·Gauge·Timer"] --> E["/actuator/prometheus<br/>(관리 포트 8081)"]
+  end
+  P[Prometheus] -- "15초마다 GET" --> E
+  P --> D[(시계열 저장)]
+  G[Grafana] -- "PromQL 질의" --> D
+  G --> DASH[대시보드]
+  G --> ALERT[알림 규칙]
+```
+
+앱은 지금 값을 숫자로 내놓기만 한다. Prometheus가 15초마다 그 값을 가져가(pull) 시간과 함께 저장하고, Grafana는 Prometheus에 물어 그래프를 그리고 조건을 넘으면 알림을 띄운다.
+
+로그와 메트릭은 답하는 질문이 다르다.
+
+| | 로그(6-1) | 메트릭(이 단계) |
+|---|---|---|
+| 답하는 질문 | 이 요청에 무슨 일이 있었나 | 지금 얼마나 느리고 얼마나 실패하나, 쌓이고 있나 |
+| 단위 | 사건 한 건의 문장 | 시간별 숫자 |
+| 비용 | 건수에 비례해 쌓인다 | 지표 개수에 비례한다. 요청이 늘어도 크기가 거의 같다 |
+| 알림 | 맞지 않는다 | 맞다. "60초 넘게 쌓였다" 같은 조건을 건다 |
+
+**새로 등장**
+
+| 개념 | 한 줄 설명 |
+|---|---|
+| Micrometer | 앱 코드에서 지표를 만드는 라이브러리(로깅의 SLF4J에 해당). actuator에 이미 들어 있다 |
+| `MeterRegistry` | 지표를 등록하는 곳. 빈으로 주입받는다 |
+| 시계열 | 이름과 라벨 조합 하나의 (시각, 값) 목록. `saga_stuck_count{type="refund"}`가 시계열 하나다 |
+| 라벨 | 지표를 나누는 축. 값 종류가 곧 시계열 수라 회원 ID처럼 값이 많은 것은 쓰지 않는다 |
+| Prometheus | 대상 주소를 주기적으로 긁어(scrape) 시계열로 저장하는 서버 |
+| PromQL | Prometheus 쿼리 언어. 아래 "PromQL 읽는 법" |
+| Grafana | 대시보드와 알림 화면. 데이터는 저장하지 않고 Prometheus에 묻는다 |
+| 프로비저닝 | Grafana가 기동할 때 폴더의 파일을 읽어 데이터소스·대시보드·알림 규칙을 만드는 기능 |
+
+**`/actuator/prometheus` 읽는 법**
+
+Prometheus가 가져가는 것은 아래 같은 텍스트다. 한 줄이 시계열 하나의 지금 값이고, 실제 출력에서 옮겼다.
+
+```text
+# TYPE outbox_ready_count gauge
+outbox_ready_count{application="myroutine"} 0.0
+saga_stuck_count{application="myroutine",type="order_payment"} 0.0
+saga_stuck_count{application="myroutine",type="refund"} 0.0
+kafka_dlt_records_total{application="myroutine",topic="order.order-paid.v1"} 1.0
+pg_call_seconds_count{application="myroutine",operation="confirm",result="unknown"} 1
+pg_call_seconds_sum{application="myroutine",operation="confirm",result="unknown"} 0.016410375
+hikaricp_connections_active{application="myroutine",pool="HikariPool-1"} 0.0
+```
+
+| 접미사 | 뜻 |
+|---|---|
+| `_total` | Counter. 누적 횟수 |
+| `_count`, `_sum`, `_max` | Timer. 호출 횟수, 걸린 시간 합(초), 최근 최댓값 |
+| `_bucket` | Timer의 구간별 누적 횟수. `le="0.1"`은 0.1초 이하인 호출 수다. 분위수(p95)를 구하는 재료이고, 시계열 하나당 69줄이 된다 |
 
 **정책 (이 단계에서 정함)**
-- DB를 조회해서 만드는 지표(대기 건수 등)는 **스크랩할 때마다 쿼리하지 않는다**. 각 모듈의 수집기가 30초마다 계산해 `AtomicLong`에 넣고, Gauge는 그 값을 읽는다.
+- DB를 조회해서 만드는 지표(대기 건수 등)는 **스크랩할 때마다 쿼리하지 않는다**. 각 모듈의 수집기가 30초마다 계산해 `AtomicLong`에 넣고, Gauge는 그 값을 읽는다. 스크랩은 15초마다 오고, Gauge에서 직접 쿼리하면 DB가 느릴 때 스크랩까지 함께 느려진다.
 - 지표 이름·라벨은 아래 표가 기준이다(ADR-010 목록과 같게, 바뀌면 ADR도 고친다).
 
 ### 할 일
 
-**구현 순서**: 1) 노출(의존성·`application.yaml`·`SecurityConfig`) → 2) 메트릭 이름과 Micrometer 사용법 → 3)~5) 모듈별(조회 메서드 → 수집기 → Counter·Timer 연결) → 6) `StockCheckJob` → 7) 메일·OpenAI 클라이언트 Timer → 8) Prometheus·Grafana 파일·compose → 테스트(완료 확인) → 9) 장애 주입(수동).
+**구현 순서**: 1) 노출(의존성·`application.yaml`·`SecurityConfig`) → 2) 메트릭 이름과 Micrometer 사용법 → 3)~5) 모듈별(조회 메서드 → 수집기 → Counter·Timer 연결) → 6) `StockCheckJob` → 7) 메일 Timer → 8) Prometheus·Grafana 파일·compose → 테스트(완료 확인) → 9) 장애 주입(수동).
+
+아래 코드와 설정은 실험용 복사본에서 앱·Prometheus 3.15.1·Grafana 13.2.5로 실행해 확인했다. 출력과 시간은 그때 나온 값이다.
 
 **1) 노출** — `build.gradle`, `application.yaml`, `common.security.SecurityConfig`
-- 의존성 `io.micrometer:micrometer-registry-prometheus` — Micrometer가 모은 값을 Prometheus 텍스트 형식으로 내보내는 구현체다. 넣으면 `MeterRegistry` 빈이 `PrometheusMeterRegistry`로 자동 등록되고 `/actuator/prometheus`가 생긴다. 아래 수집기·타이머는 모두 이 `MeterRegistry`를 주입받아 쓴다
-- `management.endpoints.web.exposure.include: health,prometheus` — 노출할 actuator 엔드포인트 목록. `management.metrics.tags.application: myroutine` — 모든 지표에 `application="myroutine"` 라벨을 붙인다
-- `SecurityConfig`: `/actuator/prometheus` 허용(관리 포트에만 열리고 외부에 노출하지 않으므로, 1-3에서 확인했듯 같은 체인이 관리 포트에도 적용된다). 지금 `SecurityConfig`는 `/actuator/health/**`만 `permitAll()`이고 나머지는 `anyRequest().authenticated()`라서, 이 줄이 없으면 Prometheus가 401을 받는다. `.requestMatchers("/actuator/health/**").permitAll()` 옆에 같은 방식으로 더한다
-- `management.metrics.distribution.percentiles-histogram.http.server.requests: true` — p95 같은 분위수를 Grafana에서 `histogram_quantile`로 구하려면 `_bucket` 시리즈가 필요하다. HTTP 요청은 이 속성으로, Timer(아래 2))는 만들 때 `.publishPercentileHistogram()`로 켠다(확인 필요: 속성 이름과 효과는 `/actuator/prometheus` 출력에서 `_bucket`이 보이는지로 확인)
+
+의존성은 `implementation 'io.micrometer:micrometer-registry-prometheus'`다(Boot BOM이 관리해 버전을 적지 않는다). 넣으면 `MeterRegistry` 빈이 Prometheus용으로 자동 등록되고 `/actuator/prometheus`를 쓸 수 있다.
+
+```yaml
+management:
+  server:
+    port: 8081            # 이미 있다
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus     # 노출할 actuator 목록
+  metrics:
+    tags:
+      application: myroutine           # 모든 지표에 application="myroutine" 라벨을 붙인다
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true     # HTTP 요청의 _bucket을 만든다. 없으면 p95를 구할 수 없다
+```
+
+`SecurityConfig`의 `.requestMatchers("/actuator/health/**").permitAll()` 옆에 `.requestMatchers("/actuator/prometheus").permitAll()`을 더한다. 이 체인은 관리 포트에도 적용되어서, 빠지면 `curl localhost:8081/actuator/prometheus`가 `401`이고 Prometheus 대상이 `down`이 된다. 관리 포트는 외부에 노출하지 않으므로 허용해도 된다.
+
+이것만으로 HTTP 요청, JVM, HikariCP, Kafka 클라이언트 지표가 나온다. 전체는 약 4,200줄이고 그중 절반이 Kafka 클라이언트 지표다.
 
 **2) 비즈니스 메트릭**
 
-Micrometer 종류 세 가지 — 모두 주입받은 `MeterRegistry registry`로 만든다. 같은 이름·라벨로 다시 만들면 기존 것을 돌려준다
+| 타입 | 패키지 | 뜻 |
+|---|---|---|
+| `MeterRegistry` | `io.micrometer.core.instrument` | 지표 등록소. 생성자로 주입받는다 |
+| `Gauge` | 〃 | 지금 값(올라갔다 내려감): 대기 건수, 나이(초) |
+| `Counter` | 〃 | 누적 횟수(증가만) |
+| `Timer` | 〃 | 호출 한 번의 걸린 시간 |
 
-| 종류 | 언제 | 만드는 법 | 값을 바꾸는 법 |
-|---|---|---|---|
-| `Gauge` | 지금 값(올라갔다 내려감): 대기 건수, 나이(초) | `Gauge.builder("outbox_ready_count", ready, AtomicLong::doubleValue).register(registry)` — `ready`는 `AtomicLong` 필드. 라벨은 `.tag("type", "order_payment")` | 수집기가 `ready.set(n)`. Gauge는 값을 읽을 때만 `ready`를 본다 |
-| `Counter` | 누적 횟수(증가만) | `registry.counter("kafka_dlt_records_total", "topic", topic)` → `Counter` | `.increment()` |
-| `Timer` | 호출 한 번의 걸린 시간 | `Timer.Sample sample = Timer.start(registry)` → 호출 → `sample.stop(registry.timer("pg_call_seconds", "operation", op, "result", result))`. 이미 `System.nanoTime()`으로 재고 있으면 `registry.timer(...).record(나노초, TimeUnit.NANOSECONDS)` | `stop`/`record` 한 번이 1건 |
+```java
+// Gauge: 값을 담은 객체와 읽는 함수를 등록한다. 값을 바꾸는 쪽은 ready.set(n)만 한다
+private final AtomicLong ready = new AtomicLong();
+Gauge.builder("outbox_ready_count", ready, AtomicLong::doubleValue).register(registry);
+Gauge.builder("saga_stuck_count", order, AtomicLong::doubleValue).tag("type", "order_payment").register(registry);
+
+// Counter: 같은 이름·라벨로 다시 부르면 기존 것을 돌려준다
+registry.counter("kafka_dlt_records_total", "topic", record.topic()).increment();
+
+// Timer: _bucket까지 만들려면 builder로 publishPercentileHistogram()을 켠다
+Timer.builder("pg_call_seconds")
+        .tag("operation", pgMethod)
+        .tag("result", result.getClass().getSimpleName().toLowerCase())
+        .publishPercentileHistogram()
+        .register(registry)
+        .record(System.nanoTime() - start, TimeUnit.NANOSECONDS);
+```
 
 - **Gauge 함정**: Gauge는 `AtomicLong`을 약한 참조로만 잡는다. 지역 변수나 곧 버려질 객체에 두면 GC 뒤에 값이 `NaN`이 된다. 수집기 `@Component`의 **필드**에 둔다.
-- 코드에 적는 이름이 Prometheus에 나오는 이름이다(Micrometer는 `.`을 `_`로 바꾸고 Counter에 `_total`, Timer에 `_seconds`를 붙인다). 아래 표는 **Prometheus에 보이는 이름**이므로, 구현 후 `/actuator/prometheus`에서 표와 같은 이름이 나오는지 확인한다(확인 필요: `_total`·`_seconds`를 코드 이름에 이미 적었을 때 중복 접미사가 붙는지)
+- 코드에 적는 이름이 Prometheus에 나오는 이름이다. 이미 `_total`·`_seconds`로 끝나는 이름에는 접미사를 다시 붙이지 않는다(`kafka_dlt_records_total`, `pg_call_seconds_count`로 나오는 것을 확인했다).
+- Counter와 Timer는 처음 올라갈 때 나타난다. 그 전에는 `/actuator/prometheus`에 줄이 없다.
 
 | 이름 | 종류 | 계산 | 만드는 곳 |
 |---|---|---|---|
@@ -176,7 +571,7 @@ Micrometer 종류 세 가지 — 모두 주입받은 `MeterRegistry registry`로
 | `outbox_dead_count` | Gauge | `count(*) WHERE status='DEAD'` | 같음 |
 | `kafka_dlt_records_total{topic}` | Counter | DLT로 보낼 때마다 +1 | `KafkaConfig`의 recoverer를 감싸서 |
 | `payment_unknown_count` | Gauge | `status='UNKNOWN'` 결제 수 | payment `PaymentMetrics` (30초) |
-| `payment_unknown_oldest_age_seconds` | Gauge | 가장 오래된 UNKNOWN의 `now - updated_at` | 같음 |
+| `payment_unknown_oldest_age_seconds` | Gauge | 가장 오래된 UNKNOWN의 `now - created_at` (없으면 0) | 같음 |
 | `saga_stuck_count{type="order_payment"}` | Gauge | `PAYMENT_IN_PROGRESS`로 5분 넘은 주문 수 | order `OrderMetrics` (30초) |
 | `saga_stuck_count{type="refund"}` | Gauge | `APPROVED`·`PG_CANCELLED`로 10분 넘은 환불 수 | 같음 |
 | `stock_reservation_expired_total` | Counter | 만료 잡이 주문 하나를 만료시킬 때 +1 | `OrderExpirationService` |
@@ -189,39 +584,51 @@ Micrometer 종류 세 가지 — 모두 주입받은 `MeterRegistry registry`로
 1. 필드: 지표마다 `AtomicLong` 하나(초기값 0). `saga_stuck_count`는 같은 이름에 `type` 라벨만 다른 Gauge 둘이라 `AtomicLong`도 둘
 2. 생성자(주입: `MeterRegistry`와 아래 조회 수단): 필드마다 `Gauge.builder(이름, 필드, AtomicLong::doubleValue)[.tag(...)].register(registry)`
 3. `@Scheduled(fixedDelay = 30_000)` 메서드 하나(이름은 권장안 `refresh()`, **`public`** — `MetricsTest`가 직접 부른다): 쿼리 실행 → 각 필드 `set`. 쿼리 예외는 스케줄러가 로그를 남기고 다음 주기에 다시 하므로 Gauge는 직전 값을 유지한다
-4. `JobRunner`·잡 락은 쓰지 않는다. 락은 "한 인스턴스만 실행"인데, Prometheus는 인스턴스마다 긁으므로 각 인스턴스가 자기 Gauge를 계산해야 한다(확인 필요: 문서에 명시가 없다)
+4. `JobRunner`·잡 락은 쓰지 않는다. 락은 "한 인스턴스만 실행"인데, Prometheus는 인스턴스마다 긁으므로 각 인스턴스가 자기 Gauge를 계산해야 한다
 
 **3) common.outbox · common.config**
 
 | 클래스 | 규격 |
 |---|---|
-| `OutboxMetrics` (`@Component`, 권장 패키지 `common.outbox`) | 수집기(공통 모양은 위 2)). 조회 수단: `JdbcTemplate` — `common.outbox_event`는 같은 모듈 테이블. 계산: 표의 세 값. `now`는 SQL의 `now()`로 구하면 된다(릴레이도 DB 시각을 쓴다) |
-| `KafkaConfig` (기존 수정, 3-2) | `kafka_dlt_records_total{topic}` Counter를 건다. 방법은 아래 첫 항목 |
+| `OutboxMetrics` (`@Component`, 패키지 `common.outbox`) | 수집기(공통 모양은 위 2)). 조회 수단: `JdbcTemplate` — `common.outbox_event`는 같은 모듈 테이블. 나이는 `SELECT COALESCE(EXTRACT(EPOCH FROM now() - min(created_at)), 0)::bigint FROM common.outbox_event WHERE status = 'READY'`, 건수는 `queryForObject(sql, Long.class)` |
+| `KafkaConfig` (기존 수정, 3-2) | `kafka_dlt_records_total{topic}` Counter를 건다. 방법은 아래 |
 
-- `kafka_dlt_records_total{topic}`: 3-2 `KafkaConfig`가 만든 `DeadLetterPublishingRecoverer`는 `ConsumerRecordRecoverer`(= `BiConsumer<ConsumerRecord<?,?>, Exception>`)다. `DefaultErrorHandler`에 넘기기 전에 `ConsumerRecordRecoverer counting = (record, ex) -> { recoverer.accept(record, ex); registry.counter("kafka_dlt_records_total", "topic", record.topic()).increment(); }`로 감싸 넘긴다(시그니처는 spring-kafka 3.3.16 jar에서 확인, Boot 4.1.1이 쓰는 버전에서도 같은지 확인 필요). `record.topic()`은 **원본 토픽**이라 6-3 DLT API의 `{topic}`과 같은 값이다(라벨을 원본·`.dlt` 중 무엇으로 할지는 문서에 없다. 확인 필요). `KafkaConfig`가 `MeterRegistry`를 주입받는다
+`DeadLetterPublishingRecoverer`는 `ConsumerRecordRecoverer`(`org.springframework.kafka.listener`, `BiConsumer<ConsumerRecord<?,?>, Exception>`와 같은 모양)다. `DefaultErrorHandler`에 넘기기 전에 감싼다(spring-kafka 4.1.1에서 실행 확인). 메서드 파라미터에 `MeterRegistry registry`를 더한다.
+
+```java
+ConsumerRecordRecoverer counting = (record, ex) -> {
+    recoverer.accept(record, ex);
+    registry.counter("kafka_dlt_records_total", "topic", record.topic()).increment();
+};
+DefaultErrorHandler errorHandler = new DefaultErrorHandler(counting, backOff);
+```
+
+`record.topic()`은 **원본 토픽**이라(`.dlt`가 붙지 않은 `order.order-paid.v1`) 6-3 DLT API의 `{topic}`과 같은 값이다.
 
 **4) payment.domain · payment.infrastructure · payment.application**
 
 | 클래스 | 규격 |
 |---|---|
-| `PaymentRepository` (domain 순수 인터페이스, 기존 수정) | `long countByStatus(PaymentStatus status)`와 `Optional<Instant> findOldestUpdatedAtByStatus(PaymentStatus status)`를 더한다(이름·인자는 예). 대상은 `UNKNOWN` |
-| `JpaPaymentRepository` (infrastructure, 기존 수정) | 위 두 메서드를 구현한다 |
-| `PaymentMetrics` (`@Component`, application) | 수집기(공통 모양은 위 2)). 조회 수단: `PaymentRepository`. 계산: `payment_unknown_count` = `countByStatus(UNKNOWN)`, `payment_unknown_oldest_age_seconds` = `Duration.between(가장 오래된 updated_at, clock.instant()).toSeconds()`, 없으면 0 |
-| `TossClient` (infrastructure, 기존 수정, 2-3) | `pg_call_seconds{operation,result}` Timer를 건다. 방법은 아래 |
+| `PaymentRepository` (domain 순수 인터페이스, 기존 수정) | `long countByStatus(PaymentStatus status)`와 `Optional<Instant> findOldestCreatedAtByStatus(PaymentStatus status)`를 더한다. 대상은 `UNKNOWN` |
+| `JpaPaymentRepository` (infrastructure, 기존 수정) | `countByStatus`는 파생 쿼리다. 둘째는 `@Query("select min(p.createdAt) from Payment p where p.status = :status")` |
+| `PaymentMetrics` (`@Component`, application) | 수집기(공통 모양은 위 2)). 계산: `payment_unknown_count` = `countByStatus(UNKNOWN)`, `payment_unknown_oldest_age_seconds` = `Duration.between(가장 오래된 created_at, clock.instant()).toSeconds()`, 없으면 0 |
+| `TossClient` (infrastructure, 기존 수정, 2-3) | `pg_call_seconds{operation,result}` Timer를 건다. `confirm`·`cancel`·`queryByOrderId`가 이미 `start`를 재고 마지막에 `logResult(pgMethod, paymentId, result, start)`를 부르므로, `logResult` 안에서 위 2)의 `Timer.builder`를 호출한다. `MeterRegistry` 필드를 더한다 |
 
-- `pg_call_seconds{operation,result}`: `TossClient`의 `confirm`·`cancel`·`queryByOrderId`가 이미 `start`를 재고 마지막에 `logResult(pgMethod, paymentId, result, start)`를 부른다. 같은 자리에서 `registry.timer("pg_call_seconds", "operation", pgMethod, "result", ...).record(System.nanoTime() - start, TimeUnit.NANOSECONDS)`를 하면 된다. `TossClient`에 `MeterRegistry` 필드를 더한다. 라벨 값은 문서에 정해져 있지 않다(확인 필요). 로그와 대시보드가 같은 말을 쓰도록 `operation`은 `pgMethod`(`confirm`·`cancel`·`query`), `result`는 `PgResult` 종류(`Approved`·`Rejected`·`Unknown`)를 소문자로 쓰는 것을 권장한다.
+나이의 기준이 `updated_at`이 아니라 `created_at`인 이유: 대사 잡이 UNKNOWN 결제를 1분마다 다시 조회하면서 `increaseReconcileAttempts`가 `updated_at`을 갱신한다. 실제로 재 보면 `updated_at` 기준 나이는 0과 30초를 오가서 "600초 넘음" 알림이 영원히 뜨지 않고, `created_at` 기준 나이는 계속 늘어난다.
+
+라벨 값은 로그와 같은 말을 쓴다. `operation`은 `pgMethod`(`confirm`·`cancel`·`query`), `result`는 `PgResult` 종류의 소문자(`approved`·`rejected`·`unknown`)다.
 
 **5) order.domain · order.infrastructure · order.application**
 
 | 클래스 | 규격 |
 |---|---|
-| `OrderRepository` (domain 순수 인터페이스, 기존 수정) | `long countByStatusAndUpdatedAtBefore(OrderStatus status, Instant before)`를 더한다(이름·인자는 예) |
-| `RefundRepository` (domain 순수 인터페이스, 기존 수정) | `long countByStatusInAndUpdatedAtBefore(Collection<RefundStatus> statuses, Instant before)`를 더한다(이름·인자는 예) |
-| `JpaOrderRepository`·`JpaRefundRepository` (infrastructure, 기존 수정) | 위 두 메서드를 구현한다 |
-| `OrderMetrics` (`@Component`, application) | 수집기(공통 모양은 위 2)). 조회 수단: 위 두 저장소. 계산: 표의 `saga_stuck_count` 두 값을 `updated_at < now - 기준 시간`으로 센다. 기준 컬럼이 `updated_at`인 것은 2-6 `findStuckIds`·2-8b 복구 잡과 같다(문서에 컬럼이 명시되지 않아 확인 필요) |
+| `OrderRepository` (domain 순수 인터페이스, 기존 수정) | `long countByStatusAndUpdatedAtBefore(OrderStatus status, Instant before)`를 더한다 |
+| `RefundRepository` (domain 순수 인터페이스, 기존 수정) | `long countByStatusInAndUpdatedAtBefore(Collection<RefundStatus> statuses, Instant before)`를 더한다 |
+| `JpaOrderRepository`·`JpaRefundRepository` (infrastructure, 기존 수정) | 위 두 메서드는 파생 쿼리다 |
+| `OrderMetrics` (`@Component`, application) | 수집기(공통 모양은 위 2)). 계산: 표의 `saga_stuck_count` 두 값을 `updated_at < now - 기준 시간`으로 센다. 기준 컬럼이 `updated_at`인 것은 `findStuckIds`(2-6, 2-8b)와 같고, 대사는 주문의 `updated_at`을 바꾸지 않아 PG가 멈추면 이 값이 그대로 오른다 |
 | `OrderExpirationService` (application, 기존 수정) | `stock_reservation_expired_total` Counter를 건다. 방법은 아래 |
 
-- `stock_reservation_expired_total`: `OrderExpirationService.expireBatch`의 건별 루프에서 `tx.execute(s -> expireOne(id))`가 `true`를 반환한 **직후**(트랜잭션 밖)에 `increment()`. `expireOne` 안에서 올리면 롤백돼도 카운트가 남는다
+- `stock_reservation_expired_total`: `expireBatch`의 건별 루프에서 `tx.execute(s -> expireOne(orderId))`가 `true`를 반환한 **직후**(트랜잭션 밖)에 `increment()`. `expireOne` 안에서 올리면 롤백돼도 카운트가 남는다
 
 **6) product.infrastructure — 재고 정합성 점검 잡** `StockCheckJob`
 ```sql
@@ -233,46 +640,260 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 `StockCheckJob` (product.infrastructure, `@Component`) — **재고 행의 숫자가 기록(이력·예약)과 맞는지 하루에 한 번 대조하는 잡**. 다른 잡(`OrderExpirationJob` 등)과 같은 모양이다
 - **왜 필요한가**: `ck_stock_balance`(`available + reserved + sold = received`)는 한 행 안의 등식만 지킨다. 코드 버그로 `received`와 `available`을 같이 틀리게 바꾸면 CHECK는 통과하지만 이력과는 어긋난다. 이 잡이 그 어긋남을 잡는다(INV-03·04)
-- **구성**: `@Scheduled(cron = "0 0 5 * * *", zone = "Asia/Seoul")` 메서드 → `jobRunner.run("stock-check", this::check)`. `JobRunner.run`은 `Supplier<Integer>`를 받으므로 `check()`는 `int`(불일치 상품 수)를 반환한다. `check()`(이름은 권장안, `public`)가 하는 일: ① 위 SQL을 `JdbcTemplate.queryForList(sql, UUID.class)`로 실행(`List<UUID>` = 어긋난 `product_id`) ② 상품마다 `log.error("stock mismatch productId={}", id)` ③ `AtomicLong`(`stock_balance_mismatch_count`)에 `set(개수)` ④ 개수 반환
+- **구성**: `@Scheduled(cron = "${myroutine.stock-check.cron:0 0 5 * * *}", zone = "Asia/Seoul")` 메서드 → `jobRunner.run("stock-check", this::check)`. `JobRunner.run`은 `Supplier<Integer>`를 받으므로 `check()`는 `int`(불일치 상품 수)를 반환한다. `check()`(`public`)가 하는 일: ① 위 SQL을 `JdbcTemplate.queryForList(sql, UUID.class)`로 실행(`List<UUID>` = 어긋난 `product_id`) ② 상품마다 `log.error("stock mismatch productId={}", id)` ③ `AtomicLong`(`stock_balance_mismatch_count`)에 `set(개수)` ④ 개수 반환
+- **수동 실행**: cron을 설정값으로 둬서 코드 변경 없이 주기를 바꾼다. 로컬에서 `MYROUTINE_STOCKCHECK_CRON='0 * * * * *' ./gradlew bootRun ...`이면 1분마다 돈다(환경변수 이름에서 `-`는 빠진다).
 - **SQL 읽는 법**: `m.q`는 상품별 `stock_movement`의 **입고(RECEIVE)와 조정(ADJUST)** 수량 합(조정은 음수일 수 있다)이고, `s.received`와 같아야 한다. `r.q`는 상품별 `HELD`(보류 중) 예약 수량 합이고 `s.reserved`와 같아야 한다. 이력·예약이 한 건도 없는 상품은 LEFT JOIN 결과가 `NULL`이라 `COALESCE(..., 0)`로 0과 비교한다
-- 이 Gauge는 05:00 실행 때만 바뀐다. 앱을 재시작하면 다음 05:00까지 0으로 보인다.
+- 이 Gauge는 실행 때만 바뀐다. 앱을 재시작하면 다음 실행까지 0으로 보인다.
 
 **7) common.mail**
 
-- `mail_send_seconds{result}`: 메일 발송기(3-5 `common.mail.MailSender` 구현체. 호출하는 `NotificationDispatcher`에서 잴지는 확인 필요)에서 잰다. 방식은 `Timer.start` → 호출 → `stop`(예외가 나도 `finally`에서 `stop`)이며 `result` 값(`success`·`failure` 등)은 정해져 있지 않다(확인 필요)
+- `mail_send_seconds{result}`: 메일 호출처는 셋(`NotificationDispatcher`, `PasswordService`, `SignupVerificationService`)이고 구현체는 프로필별 둘(`LogMailSender`, `SmtpMailSender`)이다. 실제로 메일을 보내는 `SmtpMailSender.send`에서 잰다. 방식은 `Timer.start(registry)` → 호출 → `sample.stop(registry.timer("mail_send_seconds", "result", "success" 또는 "failure"))`(예외가 나도 `finally`에서). 운영 프로필에서만 나오므로 로컬 `/actuator/prometheus`에는 보이지 않는다. 읽는 대시보드·알림이 없어 둘지 뺄지는 착수 때 정한다.
 
-**8) Prometheus·Grafana** — `docker/docker-compose.yml`(프로필 `observability`), `docker/prometheus/prometheus.yml`, `docker/grafana/provisioning/`
-- docker-compose `prometheus`·`grafana` 서비스(프로필 `observability`, 공통 규칙): 이미지 `prom/prometheus:v3.15.0`, `grafana/grafana:13.2.3`(2026-10-09 Docker Hub의 최신 안정 태그). `docker/prometheus/prometheus.yml`을 컨테이너의 `/etc/prometheus/prometheus.yml`로, `docker/grafana/provisioning`을 컨테이너의 `/etc/grafana/provisioning`으로 마운트한다. 호스트 포트 publish는 문서에 없다(확인 필요)
-- `docker/prometheus/prometheus.yml`: 대상은 환경마다 다르다
-  - 구조: `global.scrape_interval: 15s`, `scrape_configs`에 `job_name: myroutine`, `metrics_path: /actuator/prometheus`, `static_configs[].targets`에 아래 환경별 주소. Prometheus가 그 주소로 15초마다 HTTP GET을 보내 현재 값을 가져가는 "pull" 방식이라 앱은 값을 밀어 보내지 않는다
-  - 로컬(앱은 IDE·`bootRun`으로 호스트에서 실행): `host.docker.internal:8081` — Docker Desktop(macOS)에서는 그대로 된다. Linux에서 호스트의 앱을 긁으려면 prometheus 서비스에 `extra_hosts: ["host.docker.internal:host-gateway"]`가 필요하다
-  - 운영 VM(1-11 `docker-compose.ops.yml`의 `observability` 프로필): 앱도 컨테이너이므로 `app:8081`(관리 포트는 호스트에 publish하지 않지만 같은 compose 네트워크에서는 닿는다). 파일을 둘로 두거나(`prometheus.yml`, `prometheus.ops.yml`) 대상만 바꾼다
-- `docker/grafana/provisioning/datasources/prometheus.yml`, `docker/grafana/provisioning/dashboards/`의 provider 설정 yml 1개와 `*.json` 3개(서비스 개요, 결제·정합성, Kafka·Outbox)
-  - 프로비저닝은 Grafana가 기동할 때 이 디렉터리를 읽어 데이터소스·대시보드를 자동으로 만드는 기능이다. 데이터소스 파일은 `apiVersion: 1`, `datasources:`에 `name: Prometheus`, `type: prometheus`, `url: http://prometheus:9090`(compose 서비스 이름), `isDefault: true`
-  - 대시보드 JSON을 읽게 하려면 같은 `dashboards/` 디렉터리에 provider 설정 yml(`providers:`에 `type: file`, `options.path`로 JSON이 있는 컨테이너 경로)이 있어야 한다. JSON만 두면 로드되지 않는다(확인 필요: Grafana 13 문서의 형식)
-  - 대시보드 JSON은 화면에서 패널을 만든 뒤 대시보드 설정의 JSON Model(또는 Export)을 복사해 파일로 저장한다(공통 규칙)
-  - **서비스 개요**: 요청률·에러율·p95(`http_server_requests_seconds`), JVM 힙, HikariCP 활성 커넥션, Kafka consumer lag
-    - Boot 4.1.1은 Kafka consumer·producer 팩토리에 Micrometer 리스너(`MicrometerConsumerListener`)를 자동으로 붙인다(jar로 확인)
-    - Kafka 클라이언트 지표 `records-lag-max`는 Prometheus에서 `kafka_consumer_fetch_manager_records_lag_max`로 보일 것으로 예상한다(확인 필요: `/actuator/prometheus` 출력에서 `lag`로 검색해 실제 이름을 쓴다)
-  - **결제·정합성**: `payment_unknown_*`, `saga_stuck_count`, `stock_balance_mismatch_count`, `pg_call_seconds` p95·결과별 비율, `stock_reservation_expired_total` 증가율
-  - **Kafka·Outbox**: `outbox_*`, `kafka_dlt_records_total`
-- `docker/grafana/provisioning/alerting/rules.yml` (Grafana 알림 규칙을 파일로)
-  - 규칙 하나 = "Prometheus에 PromQL을 묻고(`조건` 열) → 결과가 임계값을 넘으면(`> 0` 등) → 그 상태가 `지속`만큼 이어지면 Firing". `즉시`는 대기 시간 0, `2분`·`5분`은 규칙의 `for` 값이다
-  - 파일 형식(`groups[].rules[]`의 `data` 쿼리·`condition`·`for`)은 손으로 쓰기 번거롭다. 화면에서 규칙을 만들고 내보내기(Export)한 YAML을 이 파일로 쓰는 편이 쉽다(확인 필요: Grafana 13 화면의 내보내기 위치와 프로비저닝 형식)
-  - 라벨이 다른 시계열은 알림도 따로 뜬다(`saga_stuck_count`는 `type`별로 두 알림 인스턴스)
+**8) Prometheus·Grafana** — `docker/docker-compose.yml`, `docker/prometheus/prometheus.yml`, `docker/grafana/provisioning/`
 
-| 알림 | 조건 | 지속 |
+```yaml
+  prometheus:
+    image: prom/prometheus:v3.15.1
+    profiles: [observability]
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  grafana:
+    image: grafana/grafana:13.2.5
+    profiles: [observability]
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+```
+
+`GF_`로 시작하는 환경변수는 Grafana 설정이다. `GF_ANALYTICS_*`는 사용 통계 전송과 업데이트 확인을 끈다. 메모리는 Prometheus 약 110MiB, Grafana 약 460MiB~950MiB(실측)이고, 데이터는 컨테이너 안에 저장되어 `down`하면 사라진다(로컬이라 볼륨을 두지 않는다).
+
+`docker/prometheus/prometheus.yml`:
+
+```yaml
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: myroutine
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8081"]
+```
+
+컨테이너 안에서 호스트의 앱에 닿는 주소가 `host.docker.internal`이다(Docker Desktop은 그대로 된다). Linux에서 호스트의 앱을 긁으려면 prometheus 서비스에 `extra_hosts: ["host.docker.internal:host-gateway"]`가 필요하다. 앱도 컨테이너인 운영 compose에서는 대상이 `app:8081`이다. Prometheus가 지표마다 `job="myroutine"`, `instance="host.docker.internal:8081"` 라벨을 더한다.
+
+`docker/grafana/provisioning/datasources/prometheus.yml`. `uid`를 고정해야 대시보드·알림 파일에서 가리킬 수 있다.
+
+```yaml
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+```
+
+`docker/grafana/provisioning/dashboards/provider.yml`. JSON 파일만 두면 읽지 않는다. 이 파일이 "이 폴더의 JSON을 대시보드로 올려라"는 설정이다.
+
+```yaml
+apiVersion: 1
+providers:
+  - name: myroutine
+    type: file
+    folder: MyRoutine
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+```
+
+대시보드는 같은 폴더의 `overview.json`, `payment.json`, `kafka.json` 세 파일이다. 아래 최소 형식을 손으로 쓸 수 있다. 패널 위치는 `gridPos`(가로 24칸)로 정하고, `targets[].legendFormat`의 `{{topic}}`은 라벨 값으로 채워진다.
+
+```json
+{
+  "uid": "myroutine-kafka",
+  "title": "Kafka·Outbox",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-30m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Outbox READY",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "outbox_ready_count", "legendFormat": "ready",
+          "datasource": { "type": "prometheus", "uid": "prometheus" } }
+      ]
+    }
+  ]
+}
+```
+
+화면에서 고쳤다면(`allowUiUpdates`) 대시보드 오른쪽 세로 막대의 Export로 받거나, 아래 명령으로 받아 파일을 덮어쓴다.
+
+```bash
+curl -s -u admin:admin "localhost:3000/api/dashboards/uid/myroutine-kafka" | python3 -c "import json,sys;print(json.dumps(json.load(sys.stdin)['dashboard'],ensure_ascii=False,indent=2))" > docker/grafana/provisioning/dashboards/kafka.json
+```
+
+세 대시보드의 패널과 쿼리는 다음과 같다. 모두 실제 데이터로 실행해 확인했다. `단위`는 `fieldConfig.defaults.unit` 값이다.
+
+| 대시보드 | 패널 | `expr` | 범례 | 단위 |
+|---|---|---|---|---|
+| 서비스 개요 | 요청률 | `sum(rate(http_server_requests_seconds_count[1m]))` | `req/s` | `reqps` |
+| | 에러율 | `sum(rate(http_server_requests_seconds_count{outcome="SERVER_ERROR"}[5m])) / sum(rate(http_server_requests_seconds_count[5m])) or vector(0)` | `5xx` | `percentunit` |
+| | p95 응답 시간 | `histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket[5m])))` | `p95` | `s` |
+| | JVM 힙 | `sum(jvm_memory_used_bytes{area="heap"})`, `sum(jvm_memory_max_bytes{area="heap"})` | `used`, `max` | `bytes` |
+| | HikariCP | `hikaricp_connections_active`, `hikaricp_connections_max` | `active`, `max` | `short` |
+| | Kafka consumer lag | `sum by (topic) (kafka_consumer_fetch_manager_records_lag{topic=~".+\\..+"})` | `{{topic}}` | `short` |
+| 결제·정합성 | UNKNOWN 결제 수 | `payment_unknown_count` | `unknown` | `short` |
+| | 가장 오래된 UNKNOWN | `payment_unknown_oldest_age_seconds` | `age` | `s` |
+| | 정체 Saga | `saga_stuck_count` | `{{type}}` | `short` |
+| | 재고 불일치 | `stock_balance_mismatch_count` | `mismatch` | `short` |
+| | PG 호출 p95 | `histogram_quantile(0.95, sum by (le, operation) (rate(pg_call_seconds_bucket[5m])))` | `{{operation}}` | `s` |
+| | PG 결과별 비율 | `sum by (result) (rate(pg_call_seconds_count[5m])) / ignoring(result) group_left sum(rate(pg_call_seconds_count[5m]))` | `{{result}}` | `percentunit` |
+| | 재고 예약 만료 | `increase(stock_reservation_expired_total[5m])` | `expired` | `short` |
+| Kafka·Outbox | Outbox READY | `outbox_ready_count` | `ready` | `short` |
+| | Outbox 가장 오래된 행 | `outbox_oldest_age_seconds` | `age` | `s` |
+| | Outbox DEAD | `outbox_dead_count` | `dead` | `short` |
+| | DLT 적재(5분) | `kafka_dlt_records_total - (kafka_dlt_records_total offset 5m or kafka_dlt_records_total * 0)` | `{{topic}}` | `short` |
+
+**PromQL 읽는 법**
+
+Prometheus 화면(`http://localhost:9090`)이나 Grafana의 Explore에서 쿼리를 바로 돌려 볼 수 있다. 터미널에서는 `curl -s -G "localhost:9090/api/v1/query" --data-urlencode 'query=outbox_ready_count'`다.
+
+| 쿼리 | 뜻 |
+|---|---|
+| `outbox_ready_count` | 시계열의 지금 값 |
+| `saga_stuck_count{type="refund"}` | 라벨로 거른다 |
+| `kafka_consumer_fetch_manager_records_lag{topic=~".+\\..+"}` | `=~`는 정규식. 여기서는 토픽 이름에 `.`이 있는 것만 |
+| `rate(x_total[5m])` | 최근 5분간 초당 증가량. Counter는 누적값이라 그대로 그리면 계속 오르기만 해서 항상 `rate`로 본다 |
+| `increase(x_total[5m])` | 최근 5분간 증가량(`rate` × 300) |
+| `sum by (topic) (...)` | 라벨 `topic`별로 합친다. `by`에 없는 라벨은 사라진다 |
+| `histogram_quantile(0.95, sum by (le) (rate(x_bucket[5m])))` | 최근 5분간 p95. `le`는 `_bucket`의 구간 라벨이라 `by`에 꼭 남긴다 |
+| `A or vector(0)` | `A`에 값이 없으면 0 |
+| `x offset 5m` | 5분 전 값 |
+
+실제로 부딪히는 함정은 다음과 같다.
+
+| 함정 | 무슨 일이 일어나나 | 대응 |
 |---|---|---|
-| DLT 적재 | `increase(kafka_dlt_records_total[5m]) > 0` | 즉시 |
-| Outbox 지연 | `outbox_oldest_age_seconds > 60` | 2분 |
-| Outbox DEAD | `outbox_dead_count > 0` | 즉시 |
-| 결제 확인 지연 | `payment_unknown_oldest_age_seconds > 600` | 즉시 |
-| 정체 Saga | `saga_stuck_count > 0` | 5분 |
-| 재고 불일치 | `stock_balance_mismatch_count > 0` | 즉시 |
+| 처음 나타난 Counter | Counter는 처음 올라갈 때 값 1로 등장한다. `increase`·`rate`는 이전 값이 없어 그 증가를 세지 못한다. DLT에 메시지가 들어가 지표가 1인데 `increase(kafka_dlt_records_total[5m])`는 0이고 알림이 뜨지 않았다 | 놓치면 안 되는 지표는 `x - (x offset 5m or x * 0)`로 쓴다. 5분 전 값이 없으면 0으로 쳐서 등장 자체를 증가로 센다. 같은 실행에 새 라벨 조합이 처음 나타날 때도 같다 |
+| 값이 없는 쿼리 | 5xx가 한 번도 없으면 에러율 시계열이 없어 패널이 `No data`다 | `or vector(0)`을 붙인다 |
+| Kafka 지표의 토픽 이름 | 같은 토픽이 `shop.shop-opened.v1`과 `shop_shop-opened_v1` 두 벌로 나와 합치면 두 배가 된다 | `{topic=~".+\\..+"}`로 `.`이 있는 쪽만 남긴다 |
+| `_lag_max` | fetch가 없는 토픽은 `NaN`이다 | 파티션별 `records_lag`를 합친다 |
+| 호출이 없는 구간의 비율·분위수 | 분모가 0이라 `NaN`이고 패널이 비어 보인다 | 정상이다. 호출이 있으면 그려진다 |
 
+**알림 규칙** — `docker/grafana/provisioning/alerting/rules.yml`
+
+규칙 하나는 "Prometheus에 PromQL을 묻고(`A`) → 결과가 임계값을 넘으면(`C`) → 그 상태가 `for`만큼 이어지면 Firing"이다. 아래는 그대로 동작하는 파일의 머리와 규칙 하나다. 나머지 규칙은 `uid`, `title`, `expr`, `params`, `for`만 다르다.
+
+```yaml
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: myroutine
+    folder: MyRoutine
+    interval: 30s
+    rules:
+      - uid: outbox-lag
+        title: Outbox 지연
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: outbox_oldest_age_seconds
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [60]}
+```
+
+| 부분 | 뜻 |
+|---|---|
+| `interval: 30s` | 그룹의 규칙을 30초마다 평가한다 |
+| `datasourceUid: prometheus` | 위 데이터소스의 `uid`다 |
+| `instant: true` | 범위가 아니라 지금 값 하나를 묻는다 |
+| `__expr__`, `type: threshold` | Grafana 내장 계산. `A`가 `gt`(초과) `60`인지 본다 |
+| `noDataState: OK` | **꼭 둔다.** Counter는 처음 올라가기 전에는 시계열이 없어서, 기본값이면 평소에 경보 상태가 된다. `OK`면 `Normal (NoData)`로 조용하다 |
+| `for` | 조건이 이만큼 이어져야 Firing이다. 그동안 `Pending`이다. 즉시는 `0s`다 |
+
+| 알림 | 조건(`expr` / 임계값) | `for` |
+|---|---|---|
+| DLT 적재 | `kafka_dlt_records_total - (kafka_dlt_records_total offset 5m or kafka_dlt_records_total * 0)` / `gt 0` | `0s` |
+| Outbox 지연 | `outbox_oldest_age_seconds` / `gt 60` | `2m` |
+| Outbox DEAD | `outbox_dead_count` / `gt 0` | `0s` |
+| 결제 확인 지연 | `payment_unknown_oldest_age_seconds` / `gt 600` | `0s` |
+| 정체 Saga | `saga_stuck_count` / `gt 0` | `5m` |
+| 재고 불일치 | `stock_balance_mismatch_count` / `gt 0` | `0s` |
+
+- 상태는 `Normal` → `Pending`(조건 충족, `for` 대기) → `Firing`(화면 표기, API의 `state`는 `Alerting`) → 조건이 풀리면 `Normal`이다.
+- 라벨이 다른 시계열은 알림도 따로 뜬다(`saga_stuck_count`는 `type`별로 두 인스턴스).
+- 문제가 생기고 알림이 뜨기까지 수집기 30초 + 스크랩 15초 + 평가 30초, 최대 약 75초가 더 걸린다.
+- 파일로 올린 규칙은 화면에서 고칠 수 없다. 파일을 고치고 `docker compose ... --profile observability restart grafana`로 다시 읽는다. 현재 규칙을 YAML로 보려면 `curl -s -u admin:admin "localhost:3000/api/v1/provisioning/alert-rules/export?format=yaml"`이다.
+- 시작 직후 로그의 `Failed to evaluate rule … plugin not registered`는 플러그인이 뜨기 전의 일시적 재시도다.
 - 알림 전달 채널은 로컬이라 두지 않는다(Grafana 화면에서 Firing 상태로 확인).
 
-**9) 장애 주입으로 확인 (수동)** — Kafka 중단, 결제 불확실, 재고 불일치 3가지의 주입·기대·복구는 완료 확인 "수동 확인: 장애 주입 3가지"에 있다
+**직접 확인하는 명령**
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' localhost:8081/actuator/prometheus    # 200이어야 한다
+curl -s localhost:8081/actuator/prometheus | grep -E '^(outbox_|saga_stuck_count)'
+curl -s "localhost:9090/api/v1/targets" | python3 -c "import json,sys;[print(t['scrapeUrl'],t['health'],t.get('lastError')) for t in json.load(sys.stdin)['data']['activeTargets']]"
+curl -s -u admin:admin "localhost:3000/api/search?type=dash-db"                # 대시보드 목록
+curl -s -u admin:admin "localhost:3000/api/prometheus/grafana/api/v1/rules"    # 규칙과 상태
+```
+
+화면은 다음과 같다. Grafana는 `http://localhost:3000`(admin/admin)이다.
+
+| 보려는 것 | 위치 |
+|---|---|
+| 수집 대상이 살아 있는지 | Prometheus → Status → Target health |
+| 쿼리 실험 | Grafana → Explore |
+| 대시보드 | Grafana → Dashboards → MyRoutine |
+| 알림 규칙과 상태 | Grafana → Alerting → Alert rules → Grafana-managed → MyRoutine → myroutine |
+
+**문제가 생겼을 때**
+
+| 증상 | 원인 | 확인 |
+|---|---|---|
+| Target이 `down`, `401` | `SecurityConfig`에 허용이 없다 | `curl -i localhost:8081/actuator/prometheus` |
+| Target이 `down`, `connection refused` | 앱이 꺼져 있거나 주소가 틀렸다 | `prometheus.yml`의 `targets` |
+| 지표가 안 보인다 | Counter·Timer는 처음 올라갈 때 나타난다 | 해당 동작을 한 번 한다 |
+| 대시보드가 안 보인다 | `provider.yml`이 없거나 JSON이 깨졌다 | `docker compose ... logs grafana \| grep -i provisioning` |
+| `DLT 적재`가 평소에 경보 상태 | `noDataState: OK`가 빠졌다 | 규칙 파일 |
+| DLT에 들어갔는데 알림이 없다 | `increase`를 썼다(위 "함정") | Prometheus에서 지표 값과 `increase` 값을 비교한다 |
+
+**9) 장애 주입으로 확인 (수동)** — Kafka 중단, 결제 불확실, 재고 불일치, DLT의 주입·기대·복구는 완료 확인 "수동 확인: 장애 주입"에 있다
 
 ### 완료 확인
 
@@ -280,7 +901,7 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 - 테스트의 메트릭: 주입받은 `MeterRegistry registry`에서 Gauge는 `registry.get("이름").gauge().value()`, 라벨이 있으면 `registry.get("이름").tag("키", "값").gauge()`, Counter는 `.counter().count()`. `/actuator/prometheus`는 MockMvc로 부를 수 없다(관리 포트 8081).
 - 수집기 실행: `OutboxMetrics`·`PaymentMetrics`·`OrderMetrics`의 `refresh()`를 테스트가 직접 부른다(테스트 프로필은 `myroutine.scheduling.enabled=false`(2-5)라 `@Scheduled`가 돌지 않는다).
 - Counter는 같은 Spring 컨텍스트의 다른 테스트가 올려 둔 값이 남아 있을 수 있다. 동작 전에 `count()`를 읽어 두고 증가분으로 비교한다. Counter는 처음 올라갈 때 등록되므로 그 전에는 `registry.get(...)`이 예외를 던진다. 동작 전 값은 `registry.find("이름").tag("키", "값").counter()`가 null이면 0, 아니면 `count()`로 읽는다. Gauge는 `refresh()`가 값을 덮어쓰므로 절댓값으로 비교한다.
-- 수동 확인의 화면: Prometheus(Targets, Graph), Grafana(Dashboards, Alerting). 호스트 포트는 compose 설정에서 확인한다(문서에 없다, 확인 필요).
+- 수동 확인의 화면과 명령: 위 "직접 확인하는 명령".
 
 #### `common/MetricsTest` (`IntegrationTestSupport`)
 
@@ -311,11 +932,11 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 - 반환값: `expireBatch()` = 2.
 - 메트릭(registry): `registry.get("stock_reservation_expired_total").counter().count()` - `before` = 2.0.
 
-**6. 결제 수집기 Gauge 값** — 준비: 판매자·가게·상품(`registerProduct(sellerId, shopId, 1000, 10)`)과 구매자 1명. `pg.on("/v1/payments/confirm", Behavior.delay(1000))` + `createPendingOrder(구매자 ID, 상품 ID)` → `confirmPayment(구매자 ID, orderId)`(응답 202). 다른 주문 하나는 `pg.on("/v1/payments/confirm", Behavior.approve())`로 되돌린 뒤 `createPaidOrder`로 만들어 `APPROVED` 결제를 하나 더 둔다. JDBC로 UNKNOWN 결제(첫 주문의 `orderId`)의 `updated_at`을 지금 - 90초로 바꾼다(`UPDATE payment.payment SET updated_at = ? WHERE order_id = ?`).
+**6. 결제 수집기 Gauge 값** — 준비: 판매자·가게·상품(`registerProduct(sellerId, shopId, 1000, 10)`)과 구매자 1명. `pg.on("/v1/payments/confirm", Behavior.delay(1000))` + `createPendingOrder(구매자 ID, 상품 ID)` → `confirmPayment(구매자 ID, orderId)`(응답 202). 다른 주문 하나는 `pg.on("/v1/payments/confirm", Behavior.approve())`로 되돌린 뒤 `createPaidOrder`로 만들어 `APPROVED` 결제를 하나 더 둔다. JDBC로 UNKNOWN 결제(첫 주문의 `orderId`)의 `created_at`을 지금 - 90초로 바꾼다(`UPDATE payment.payment SET created_at = ? WHERE order_id = ?`). `updated_at`은 그대로 지금 근처라, `updated_at`을 기준으로 잘못 구현하면 나이가 0 근처로 나온다.
 - 동작: `paymentMetrics.refresh()`.
 - 메트릭(registry): Gauge `payment_unknown_count` 값 = 1.0 / `payment_unknown_oldest_age_seconds` 값은 90.0 이상 100.0 미만.
 
-#### `product/application/StockCheckJobTest` (`OutputCaptureExtension` + `IntegrationTestSupport`)
+#### `product/infrastructure/StockCheckJobTest` (`OutputCaptureExtension` + `IntegrationTestSupport`)
 
 `check()`를 직접 부른다. 준비: 판매자·가게·상품(`registerProduct(sellerId, shopId, 1000, 10)` → `product.stock` `received` 10·`available` 10·`reserved` 0·`sold` 0, `stock_movement`에 `RECEIVE` 10 1행).
 
@@ -337,32 +958,33 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 
 #### 수동 확인: 노출과 대시보드
 
-**준비**: `docker compose --profile observability up -d` → 앱을 프로필 `local`로 실행 → 가입·결제 승인·품목 취소로 요청을 몇 건 보낸다 → 1분 기다린다.
+**준비**: 관측 스택을 띄우고 앱을 프로필 `local`로 실행 → 가입·결제 승인·품목 취소로 요청을 몇 건 보낸다 → 1분 기다린다.
 
-- 노출: `curl -s -o /dev/null -w '%{http_code}' localhost:8081/actuator/prometheus` = `200`. `curl -s localhost:8081/actuator/prometheus | grep -E '^(outbox_|payment_unknown|saga_stuck_count|stock_balance_mismatch_count|stock_reservation_expired_total|kafka_dlt_records_total|pg_call_seconds)'` 출력에 위 지표표의 이름이 모두 나오고 `_total_total`·`_seconds_seconds` 같은 중복 접미사가 없다. `kafka_dlt_records_total`·`stock_reservation_expired_total`·`pg_call_seconds_*`는 처음 한 번 올라간 뒤부터 나온다. 모든 줄에 `application="myroutine"` 라벨이 있다.
-- 분위수: 같은 출력에 `http_server_requests_seconds_bucket`이 있다.
-- Kafka 지표: 같은 출력에서 `lag`로 검색한 줄의 실제 이름을 적어 서비스 개요 대시보드의 consumer lag 패널 쿼리와 같은지 본다.
-- Prometheus: Status → Targets에서 대상 `myroutine`(주소는 로컬 `host.docker.internal:8081`)이 `UP`. 쿼리 `outbox_ready_count`가 값 1개를 돌려준다.
-- Grafana: 데이터소스 `Prometheus`의 "Save & test"가 성공한다. Dashboards에 3개(서비스 개요, 결제·정합성, Kafka·Outbox)가 파일에서 자동으로 보이고, 각 패널이 쿼리 오류(빨간 표시) 없이 열린다. Alerting → Alert rules에 6개(DLT 적재, Outbox 지연, Outbox DEAD, 결제 확인 지연, 정체 Saga, 재고 불일치)가 있고 평시 상태가 `Normal`이다.
+- 노출: `curl -s -o /dev/null -w '%{http_code}' localhost:8081/actuator/prometheus` = `200`. `curl -s localhost:8081/actuator/prometheus | grep -E '^(outbox_|payment_unknown|saga_stuck_count|stock_balance_mismatch_count|stock_reservation_expired_total|kafka_dlt_records_total|pg_call_seconds)'` 출력에 위 지표표의 이름이 나오고 `_total_total`·`_seconds_seconds` 같은 중복 접미사가 없다. `kafka_dlt_records_total`·`stock_reservation_expired_total`·`pg_call_seconds_*`는 처음 한 번 올라간 뒤부터 나온다. 그 줄들에 `application="myroutine"` 라벨이 있다.
+- 분위수: 같은 출력에 `http_server_requests_seconds_bucket`과 `pg_call_seconds_bucket`이 있다.
+- Prometheus: Status → Target health에서 대상 `myroutine`(주소는 로컬 `host.docker.internal:8081`)이 `UP`. 쿼리 `outbox_ready_count`가 값 1개를 돌려준다.
+- Grafana: `curl -s -u admin:admin "localhost:3000/api/datasources/uid/prometheus/health"`의 `message`가 `Successfully queried`로 시작한다. Dashboards의 MyRoutine 폴더에 3개(서비스 개요, 결제·정합성, Kafka·Outbox)가 파일에서 자동으로 보이고, 각 패널이 쿼리 오류(빨간 표시) 없이 열린다. Alerting → Alert rules에 6개(DLT 적재, Outbox 지연, Outbox DEAD, 결제 확인 지연, 정체 Saga, 재고 불일치)가 있고 평시 상태가 `Normal`이다(`DLT 적재`는 첫 DLT 전까지 `Normal (NoData)`).
 
-#### 수동 확인: 장애 주입 3가지
+#### 수동 확인: 장애 주입
 
-공통: 앱·관측 스택이 떠 있고 위 6개 알림이 `Normal`인 상태에서 시작한다. Firing은 아래 대기 시간만큼 기다린 뒤 본다. 각 시나리오는 Grafana Alerting 화면의 해당 규칙이 `Firing`이 되는 것을 확인하고, 복구한 뒤 `Normal`로 돌아오는 것을 확인한다. PR에 `Firing` 화면과 복구 후 화면 스크린샷을 시나리오마다 붙인다.
+공통: 앱·관측 스택이 떠 있고 위 6개 알림이 `Normal`인 상태에서 시작한다. Firing은 아래 시간만큼 기다린 뒤 본다. 각 시나리오는 Grafana Alerting 화면의 해당 규칙이 `Firing`이 되는 것을 확인하고, 복구한 뒤 `Normal`로 돌아오는 것을 확인한다. PR에 `Firing` 화면과 복구 후 화면 스크린샷을 시나리오마다 붙인다. 시간은 Kafka·결제·재고를 함께 주입해 30초 간격으로 기록한 값이다.
 
-| # | 주입 | 기대 | 복구와 해제 확인 |
+| # | 주입 | 기대(실측 시간) | 복구와 해제 확인 |
 |---|---|---|---|
-| 1 | `docker compose stop kafka` 후 outbox 행이 생기는 요청 2건(가입 2건) | "Outbox 지연"(`outbox_oldest_age_seconds > 60`, 2분 지속) Firing: 행 생성 뒤 약 4분 안. 같은 시각 Prometheus 쿼리 `outbox_ready_count` ≥ 1 | `docker compose start kafka` → Prometheus 쿼리 `outbox_ready_count` 0, 규칙 `Normal`(2분 안) |
-| 2 | 로컬 실행 설정 `myroutine.toss.base-url`을 `http://10.255.255.1`로 바꿔 앱을 다시 띄우고 결제 승인 1건 | 승인 응답 202, Prometheus 쿼리 `payment_unknown_count` = 1. "결제 확인 지연"(`payment_unknown_oldest_age_seconds > 600`) Firing: 약 10분 뒤 | `base-url`을 되돌려 앱 재기동 → 대사 잡(1분 주기)이 결제를 확정 → Prometheus 쿼리 `payment_unknown_count` 0, 규칙 `Normal` |
-| 3 | 로컬 DB에서 `UPDATE product.stock SET received = received + 5, available = available + 5 WHERE product_id = ?` 후 재고 점검 잡 실행 | Prometheus 쿼리 `stock_balance_mismatch_count` = 1, "재고 불일치" Firing(지속 즉시) | UPDATE를 되돌리고(`- 5`) 점검 잡 재실행 → Prometheus 쿼리 `stock_balance_mismatch_count` 0, 규칙 `Normal` |
+| 1 | `docker compose --env-file .env.local -f docker/docker-compose.yml stop kafka` 후 outbox 행이 생기는 요청 2건(가입 2건) | 약 2분에 "Outbox 지연" `Pending`. 약 2분 30초에 행이 `DEAD`가 되어 `outbox_ready_count` 0, `outbox_dead_count` 2(실패마다 `send`가 최대 5초 막히고 10초 뒤 재시도, 10번째에 `DEAD`, 3-1). 약 3분에 **"Outbox DEAD" Firing**, "Outbox 지연"은 조건이 풀려 `Normal`로 돌아간다 | `docker compose ... start kafka`만으로는 `DEAD`가 풀리지 않는다. 6-3 `POST /admin/api/outbox/{id}/retry`(이 단계에서는 `UPDATE common.outbox_event SET status='READY', attempts=0, next_attempt_at=now(), updated_at=now() WHERE status='DEAD'`) → 행이 `SENT`, 규칙 `Normal` |
+| 2 | 로컬 실행 설정 `myroutine.toss.base-url`을 `http://10.255.255.1`로 바꿔(환경변수 `MYROUTINE_TOSS_BASEURL`, `-`는 빠진다) 앱을 다시 띄우고 결제 승인 1건 | 승인 응답 202, `payment_unknown_count` = 1. `payment_unknown_oldest_age_seconds`가 재시도와 상관없이 계속 오른다. 약 10분에 "결제 확인 지연" Firing. "정체 Saga"(`order_payment`)도 함께 약 6분에 `Pending`, 약 11분에 Firing | `base-url`을 되돌려 앱 재기동 → 대사 잡(1분 주기)이 결제를 끝낸다 → `payment_unknown_count` 0, 규칙 `Normal` |
+| 3 | 로컬 DB에서 `UPDATE product.stock SET received = received + 5, available = available + 5 WHERE product_id = ?`, 앱은 `MYROUTINE_STOCKCHECK_CRON='0 * * * * *'`로 실행 | 약 1분에 `stock_balance_mismatch_count` = 1, 약 1분 30초에 "재고 불일치" Firing. 콘솔에 `stock mismatch productId=` | UPDATE를 되돌린다(`- 5`) → 다음 점검 뒤 `stock_balance_mismatch_count` 0, 규칙 `Normal` |
+| 4 | outbox에 내용이 빈 행을 넣는다: `INSERT INTO common.outbox_event (id, aggregate_type, aggregate_id, event_type, topic, payload, status, attempts, next_attempt_at, created_at, updated_at) VALUES (gen_random_uuid(), 'TEST', gen_random_uuid(), 'OrderPaidEvent', 'order.order-paid.v1', '{}'::jsonb, 'READY', 0, now(), now(), now())` | consumer가 실패해 DLT로 간다. 약 30초에 `kafka_dlt_records_total{topic="order.order-paid.v1"}` = 1, 평가 뒤 "DLT 적재" Firing | 5분 뒤 `offset`이 따라잡아 조건이 풀리고 규칙 `Normal` |
 
-확인 필요 (아래 셋은 구현 전에 정한다)
-- 시나리오 1: Kafka가 멈춘 동안 릴레이가 같은 행에서 10번 실패하면(실패마다 `send`가 최대 5초 막히고 10초 뒤 재시도, 약 2분 30초) 행이 `DEAD`가 된다(3-1). 그러면 `outbox_ready_count`가 줄어 "Outbox 지연" 조건이 사라지고 "Outbox DEAD"가 Firing될 수 있다. 어느 알림이 뜨는지 실측해 이 표에 적고, `DEAD`가 된 행은 Kafka를 되살려도 6-3 `POST /admin/api/outbox/{id}/retry`를 해야 READY로 돌아온다.
-- 시나리오 2: 대사 잡이 같은 UNKNOWN 결제를 1분마다 다시 조회하며 `increaseReconcileAttempts`가 `payment.updated_at`을 매번 갱신한다(2-6). `payment_unknown_oldest_age_seconds`가 `updated_at` 기준이면 이 값이 600초를 넘기 전에 0으로 돌아가 알림이 뜨지 않는다. 안 뜨면 이 때문이다. 기준 컬럼을 `created_at`으로 바꿀지 정한다.
-- 시나리오 3: 재고 점검 잡을 실행하는 방법이 문서에 없다(확인 필요: 05:00을 기다림, 로컬에서 cron 임시 변경, 별도 트리거 중 하나를 정한다).
+직접 보지 못한 시간이 셋 있다. 구현 후 이 시나리오에서 실제 시간을 본다.
+- "결제 확인 지연"의 10분 Firing: 기록을 7분에서 멈췄다. 그때까지 `created_at` 기준 나이가 초당 1씩 오르는 것까지 봤다.
+- "정체 Saga"의 11분 Firing: 같은 이유로 `Pending`까지 봤다.
+- "DLT 적재"의 5분 뒤 `Normal`: Firing까지 봤고, 쿼리 모양상 5분이 지나면 값이 0이 되어 풀린다.
 
 **리뷰 때 물어볼 것**
 - 정합성이 깨지면 어떻게 알 수 있나? 알림 임계값은 어떻게 정했나?
 - Gauge에서 매번 DB를 조회하면 무엇이 문제인가?
+- `increase`로 쓴 알림은 어떤 경우에 놓치나?
 
 ---
 
@@ -382,8 +1004,8 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 
 **모든 API에 공통**
 - **인가**: 컨트롤러에서 따로 검사하지 않는다. 3-4가 `SecurityConfig`에 넣은 `.requestMatchers("/admin/**").hasRole("ADMIN")` 한 줄이 맡는다. 일반 회원은 403(`FORBIDDEN`)
-- **실행 로그**: 쓰기 API(retry·replay·reconcile·run)는 메서드 첫 부분에서 `log.info("admin action={} target={} by={}", action, target, memberId)`를 남긴다. `memberId`는 컨트롤러 파라미터 `@CurrentMember UUID memberId`, `target`은 대상 식별자(outbox id, `topic/partition/offset`, paymentId 등)다. `action`에 쓸 문자열은 정해져 있지 않다(확인 필요, 권장: API별 `outbox-retry`·`dlt-replay` 같은 고정 문자열)
-- **목록 API**(outbox·payments·refunds·notifications): `cursor`가 없으면(`null`·빈 값은 `decode`에 넘기지 않는다) 첫 페이지, 있으면 `Cursor.decode(cursor)`로 `Cursor(Instant createdAt, UUID id)`를 얻어 그 뒤부터 읽는다. `size + 1`건을 읽어 `size`건만 `CursorPage<T>(items, nextCursor)`로 돌려주고, 다음 커서는 `size`번째 항목의 `new Cursor(createdAt, id).encode()`다(마지막 페이지면 `nextCursor = null`). `size`의 기본값·최대값은 이 표에 없다(확인 필요)
+- **실행 로그**: 쓰기 API(retry·replay·reconcile·run)는 메서드 첫 부분에서 `log.info("admin action={} target={} by={}", action, target, memberId)`를 남긴다. `memberId`는 컨트롤러 파라미터 `@CurrentMember UUID memberId`, `target`은 대상 식별자(outbox id, `topic/partition/offset`, orderId, refundId, notificationId, period)다. `action`은 API별 고정 문자열로 `outbox-retry`, `dlt-replay`, `payment-reconcile`, `refund-retry`, `notification-retry`, `settlement-run`이다
+- **목록 API**(outbox·payments·refunds·notifications): `cursor`가 없으면(`null`·빈 값은 `decode`에 넘기지 않는다) 첫 페이지, 있으면 `Cursor.decode(cursor)`로 `Cursor(Instant createdAt, UUID id)`를 얻어 그 뒤부터 읽는다. `size + 1`건을 읽어 `size`건만 `CursorPage<T>(items, nextCursor)`로 돌려주고, 다음 커서는 `size`번째 항목의 `new Cursor(createdAt, id).encode()`다(마지막 페이지면 `nextCursor = null`). `size`는 다른 목록 API와 같이 기본 20·`@Min(1) @Max(50)`이고, 정렬은 `created_at, id` 오름차순(오래된 것부터 처리한다)이다
 - **없는 대상**이거나 **상태가 맞지 않을 때**의 응답은 아래 각 API에서 확인 필요로 모았다. 존재하는 코드는 `NOT_FOUND`(404), `INVALID_STATE_TRANSITION`(409)이다
 
 **1) order.domain · order.infrastructure**
@@ -392,7 +1014,7 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 |---|---|
 | `RefundStatus` (기존 수정, 2-8) | 전이표에 `FAILED → APPROVED`(관리자 재시도)를 더한다 |
 | `Refund` (기존 수정, 2-8) | `retryPgCancel()`을 더한다 — "FAILED가 아니면 거부하고, FAILED → APPROVED로 바꾸면서 `pgAttempts`를 1 올리는" 메서드다. `pg_attempts` 칸과 `Refund.pgIdempotencyKey()`(키 형식은 아래 "PG 멱등 키")는 2-8에서 만든다. `refunds` `retry`가 부른다 |
-| `RefundRepository` (domain 순수 인터페이스, 기존 수정) | `status`별 커서 조회를 더한다. 이름·인자는 문서에 없다(확인 필요). 커서·`size + 1`은 위 "모든 API에 공통"의 목록 규칙. `refunds` 목록 API가 쓴다 |
+| `RefundRepository` (domain 순수 인터페이스, 기존 수정) | `findByStatusFirstPage(RefundStatus status, Limit limit)`, `findByStatusNextPage(RefundStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit)`을 더한다. 5-3 `InquiryRepository`의 관리자 목록과 같은 모양이다. 커서·`size + 1`은 위 "모든 API에 공통"의 목록 규칙. `refunds` 목록 API가 쓴다 |
 | `JpaRefundRepository` (infrastructure, 기존 수정) | 위 조회를 구현한다 |
 
 **2) order.application**
@@ -426,7 +1048,7 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 
 | 클래스 | 규격 |
 |---|---|
-| `PaymentRepository` (domain 순수 인터페이스, 기존 수정) | `status`별 커서 조회를 더한다. 이름·인자는 문서에 없다(확인 필요). 커서·`size + 1`은 위 "모든 API에 공통"의 목록 규칙 |
+| `PaymentRepository` (domain 순수 인터페이스, 기존 수정) | `findByStatusFirstPage(PaymentStatus status, Limit limit)`, `findByStatusNextPage(PaymentStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit)`을 더한다. 커서·`size + 1`은 위 "모든 API에 공통"의 목록 규칙 |
 | `JpaPaymentRepository` (infrastructure, 기존 수정) | 위 조회를 구현한다 |
 | `AdminPaymentController` | `GET /admin/api/payments?status=UNKNOWN&cursor=` — 결제 목록 |
 
@@ -436,7 +1058,7 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 
 | 클래스 | 규격 |
 |---|---|
-| `NotificationRepository` (domain 순수 인터페이스, 기존 수정, 3-5) | `status`별 커서 조회를 더한다. 이름·인자는 문서에 없다(확인 필요). 커서·`size + 1`은 위 "모든 API에 공통"의 목록 규칙 |
+| `NotificationRepository` (domain 순수 인터페이스, 기존 수정, 3-5) | `findByStatusFirstPage(NotificationStatus status, Limit limit)`, `findByStatusNextPage(NotificationStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit)`을 더한다. 커서·`size + 1`은 위 "모든 API에 공통"의 목록 규칙 |
 | `JpaNotificationRepository` (infrastructure, 기존 수정) | 위 조회를 구현한다 |
 | `AdminNotificationController` | `GET /admin/api/notifications?status=FAILED&cursor=` · `POST /admin/api/notifications/{id}/retry` — FAILED → PENDING, `attempts = 0` |
 
@@ -449,13 +1071,13 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 |---|---|
 | `AdminOutboxController` | `GET /admin/api/outbox?status=DEAD&cursor=` — DEAD 행 목록(id, topic, aggregateId, attempts, lastError, createdAt) / `POST /admin/api/outbox/{id}/retry` — DEAD → READY, `attempts = 0`, `next_attempt_at = now` |
 | `AdminDltController` | `GET /admin/api/dlt/{topic}?limit=50` — 짧게 쓰는 `KafkaConsumer`(그룹 없이 `assign`)로 `{topic}.dlt` 각 파티션 끝에서 최대 limit개 읽기 → `(partition, offset, key, value 앞 500자, 예외 헤더)` / `POST /admin/api/dlt/{topic}/{partition}/{offset}/replay` — 그 레코드 하나를 읽어 원래 토픽(`.dlt` 제거)으로 같은 key·value를 `send().get()` |
-| `AdminDltService` | 요청마다 `KafkaConsumer`를 만들어 쓰는 코드를 컨트롤러가 직접 할지 별도 서비스(권장 `AdminDltService`)로 둘지는 문서에 없다(확인 필요). 순서는 아래 `DLT` |
+| `AdminDltService` (`common.web`) | 요청마다 `KafkaConsumer`를 만들어 쓰는 코드를 컨트롤러에서 분리한다. 순서는 아래 `DLT` |
 
 **outbox** (common)
 - 목록: `common.outbox_event`에서 `status = :status`인 행을 `created_at, id` 기준으로 읽는다(`JdbcTemplate`). 응답 항목은 `(UUID id, String topic, UUID aggregateId, int attempts, String lastError, Instant createdAt)` 한 record(이름 권장안 `AdminOutboxResponse`)
 - `retry`: `UPDATE common.outbox_event SET status = 'READY', attempts = 0, next_attempt_at = now(), updated_at = now() WHERE id = :id AND status = 'DEAD'`. 1행이면 성공이고 다음 `relayOnce()`(1초 주기)가 집어 간다. 0행이면 id가 없거나 DEAD가 아니다. `WHERE status = 'DEAD'`가 같은 요청을 두 번 보내도(두 번째는 이미 READY/SENT라 0행) 안전하게 하는 장치다
 
-**DLT** (common) — Kafka의 DLT 토픽(3-2가 `{원본토픽}.dlt`로 보낸 실패 메시지)을 읽고 되돌려 보낸다. 경로의 `{topic}`은 **원본 토픽 이름**(예: `shop.shop-opened.v1`)이고 실제로 읽는 토픽이 `{topic}.dlt`다. 두 API 모두 요청마다 `KafkaConsumer<String, String>`을 새로 만들어 `try-with-resources`로 닫는다. 속성은 `bootstrap.servers`(앱과 같은 주소), key·value `StringDeserializer`, `enable.auto.commit=false`이고 **`group.id`는 주지 않는다**(그룹에 속하지 않고 `assign`으로 파티션을 직접 지정하므로 오프셋을 저장하지 않고 운영 consumer에 영향이 없다). 만드는 방법(`KafkaProperties`로 속성을 얻을지 직접 쓸지)은 문서에 없다(확인 필요)
+**DLT** (common) — Kafka의 DLT 토픽(3-2가 `{원본토픽}.dlt`로 보낸 실패 메시지)을 읽고 되돌려 보낸다. 경로의 `{topic}`은 **원본 토픽 이름**(예: `shop.shop-opened.v1`)이고 실제로 읽는 토픽이 `{topic}.dlt`다. 두 API 모두 요청마다 `KafkaConsumer<String, String>`을 새로 만들어 `try-with-resources`로 닫는다. 속성은 `bootstrap.servers`(앱과 같은 주소), key·value `StringDeserializer`, `enable.auto.commit=false`이고 **`group.id`는 주지 않는다**(그룹에 속하지 않고 `assign`으로 파티션을 직접 지정하므로 오프셋을 저장하지 않고 운영 consumer에 영향이 없다). `bootstrap.servers`는 `KafkaProperties`(`org.springframework.boot.kafka.autoconfigure`)를 주입받아 `getBootstrapServers()`로 얻는다
 - 목록 `GET /admin/api/dlt/{topic}?limit=50`
   1. `consumer.partitionsFor(dltTopic)`(`List<PartitionInfo>`) → 파티션마다 `new TopicPartition(dltTopic, info.partition())` → `consumer.assign(그 목록)`
   2. `consumer.beginningOffsets(tps)`, `consumer.endOffsets(tps)`(둘 다 `Map<TopicPartition, Long>`) → 파티션마다 `start = Math.max(begin, end - limit)`로 `consumer.seek(tp, start)`
@@ -471,12 +1093,12 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 
 | API | 처리 |
 |---|---|
-| `POST /admin/api/settlements/run?period=yyyy-MM` | `SettlementService.run(YearMonth)`을 실행 → 200 `SettlementRunResult(int settledShops, int paid, int payoutFailed)`. 컨트롤러는 3-4가 만들고 이 단계는 인가(`AdminAuthorizationTest` 11번)만 확인한다 |
+| `POST /admin/api/settlements/run?period=yyyy-MM` | `SettlementService.run(YearMonth)`을 실행 → 200 `SettlementRunResult(int settledShops, int paid, int payoutFailed)`. 컨트롤러는 3-4가 만들었고, 이 단계는 `@CurrentMember UUID memberId` 파라미터와 실행 로그 한 줄(`action` = `settlement-run`, `target` = period)을 더하고 인가(`AdminAuthorizationTest` 11번)를 확인한다 |
 
 **8) 테스트 보조** — `src/test/`
 
 - `AdminDltTest`가 쓰는 "플래그로 성공하게 바꿀 수 있는 테스트 리스너"(규격은 완료 확인 `AdminDltTest` 준비)
-- `AdminOutboxTest`의 DEAD 행을 만드는 방법은 문서에 없다(확인 필요: JDBC로 `status = 'DEAD'`로 바꾸는 방법이 있다)
+- `AdminOutboxTest`의 DEAD 행은 JDBC `INSERT`로 만든다(완료 확인 1번). 릴레이를 10번 실패시키지 않는다
 
 **9) 문서** — `docs/runbook.md` (Claude)
 
@@ -722,7 +1344,7 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 | 자동 구매확정 | `autoConfirmService.confirmBatch()` → `int` (수동 확정 API를 써도 된다) | 2-10 |
 | 정산 | `settlementService.run(YearMonth month)` → `SettlementRunResult(int settledShops, int paid, int payoutFailed)` (지급까지 포함) | 3-4 |
 | 알림 발송 | `notificationDispatcher.dispatchBatch()` → `int`(`SENT`로 바꾼 알림 수) | 3-5 |
-| Kafka 중단·재개 | `kafka.getDockerClient().pauseContainerCmd(kafka.getContainerId()).exec()` / `unpauseContainerCmd` | 3-1 `OutboxRelayTest`. `kafka` 필드가 `IntegrationTestSupport`의 package-private이면 `e2e` 패키지에서 못 쓴다 — 접근을 열지 헬퍼를 둘지는 확인 필요 |
+| Kafka 중단·재개 | `kafka.getDockerClient().pauseContainerCmd(kafka.getContainerId()).exec()` / `unpauseContainerCmd` | 3-1 `OutboxRelayTest`. `kafka`는 `IntegrationTestSupport`의 `protected static` 필드라 `e2e` 패키지의 하위 클래스에서 바로 쓴다 |
 
 `run`만 인자(정산 대상 월)를 받고 나머지는 인자가 없다
 
@@ -903,7 +1525,7 @@ develop → main PR을 **merge commit**으로 합치고(squash 아님), main에 
    - 열어서 볼 것: 소개, 아키텍처 다이어그램(Mermaid), 실행 방법(인프라 → 앱 → 관측 스택 순서), 운영 환경(VM)과 배포 흐름, 문서 안내, 핵심 설계 요약(정합성·동시성), 테스트로 증명한 것 목록의 7개 절이 각각 있다.
    - 링크: `grep -oE '\]\((docs/[^)#]+)' README.md | sed 's/](//' | sort -u | while read p; do test -e "$p" || echo "깨짐: $p"; done`의 표준 출력이 빈 문자열이다.
    - 증명 목록: 항목마다 적힌 테스트 클래스 이름 `X`에 대해 `find src/test -name 'X.java'`가 정확히 1건이다.
-   - 실행 방법: 새 폴더에 `git clone` 후 README의 명령만 순서대로 실행해 앱이 뜨고 `curl -s localhost:8081/actuator/health`가 `{"status":"UP"}`를 돌려준다. 관측 스택은 `docker compose --profile observability up -d` 뒤 Grafana 대시보드 3개가 보인다.
+   - 실행 방법: 새 폴더에 `git clone` 후 README의 명령만 순서대로 실행해 앱이 뜨고 `curl -s localhost:8081/actuator/health`가 `{"status":"UP"}`를 돌려준다. 관측 스택은 `docker compose --env-file .env.local -f docker/docker-compose.yml --profile observability up -d` 뒤 Grafana 대시보드 3개가 보인다.
 2. **회고** `docs/retrospectives/stage1.md`: 절 4개(설계와 달라진 점과 이유, 리뷰에서 반복된 지적, 어려웠던 점, 다시 한다면)가 있고 각 절에 항목이 1개 이상이다. "달라진 점"의 항목마다 근거 문서(ADR 또는 로드맵 버전 줄) 링크가 있다.
 3. **이력서 bullet 초안**: 문장마다 링크가 1개 이상이고 링크 대상이 존재한다(테스트 클래스 파일, ADR, 수치의 출처). 수치가 있는 문장은 그 수치를 낸 측정·테스트 결과가 링크 대상에 있다.
 4. **Stage 2 준비 문서**: 시드 데이터 규모(건수)와 생성 방식이 있고, k6 시나리오 목록에 NFR-PERF-01~07이 각각 1개 이상의 시나리오로 연결된다(`grep -oE 'NFR-PERF-0[1-7]' {문서} | sort -u`가 7줄). 합격 기준 값은 [요구사항 NFR 표](../01-requirements/README.md)의 값(예: NFR-PERF-01 p95 < 200ms, 에러율 < 0.1%)과 같다.
