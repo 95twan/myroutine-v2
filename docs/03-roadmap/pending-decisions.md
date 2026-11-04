@@ -56,8 +56,7 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 |---|---|
 | `member.ban_reason`, `member.withdrawn_at`, `social_account.provider_email` | 쓰기만 하고 읽지 않는다(`withdrawn_at`은 테스트에서만 확인) |
 | `shop_order.completed_at` | 판매자 응답은 `shippedAt`·`deliveredAt`만 내려준다 |
-| `refund.completed_at`, `refund.member_id`, `payment_cancel.reason`·`failure_code` | 쓰기만 하고 읽지 않는다 |
-| `settlement.payout_attempts` | 증가만 하는 카운터. 감사 목적이면 이유를 ERD에 적는다 |
+| `refund.completed_at`, `refund.member_id`, `payment_cancel.reason` | 쓰기만 하고 읽지 않는다 |
 | `notification.version`·`channel`·`member_id` | 쓰기가 모두 native SQL이라 `version`은 쓰는 곳이 없다 |
 | `subscription.end_reason`, `billing_key.deleted_at`, `product_embedding.model`, `review_summary.source_review_count`·`model` | 쓰기만 하고 읽지 않는다 |
 
@@ -67,7 +66,6 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 |---|---|
 | `payment.method`와 `GET /api/payments`(FR-PAY-08) | `payment.method`(그리고 이를 나르는 `PgResult.Approved.method`·`PgOutcome.method`)는 이 API에서만 읽을 수 있는데 이 API를 구현하는 로드맵 단계가 없다 |
 | `GET /api/billing-keys/{id}` | 단건 조회는 로드맵에 구현이 없다(목록·삭제·등록만 있다) |
-| `SettlementRunResult.paid`·`payoutFailed` | `SettlementJob`은 `settledShops`만 쓴다. `payoutAll()` 반환 타입이 문서에 없는 문제와 함께 정한다 |
 | `SubscriptionResult`의 `consecutiveFailures`·`pendingUnitPrice`·`pendingEffectiveDate` 등 | 응답 필드가 문서에 정해져 있지 않다 |
 
 ### 문서 표기
@@ -122,10 +120,7 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 | 6-2 | A | `pg_call_seconds`의 라벨 값과 메일 계측 위치. 권장안을 문서에 적었다(`operation`은 `pgMethod`, `result`는 `PgResult` 종류의 소문자, 메일은 `SmtpMailSender`) | 6-2 payment.infrastructure, common.mail | 사용자 확인 |
 | 6-2 | A | 재고 점검 잡의 수동 실행. 권장안(cron을 설정값으로, `MYROUTINE_STOCKCHECK_CRON`)을 문서에 적었고 실행으로 확인했다. 대안은 별도 트리거 API | 6-2 `StockCheckJob`, 완료 확인 "수동 확인: 장애 주입" | 사용자 확인 |
 | 6-2 | A | `payment_unknown_oldest_age_seconds`의 기준 컬럼. 권장안 `created_at`을 문서에 적었다(실측: `updated_at` 기준은 0과 30초를 오가 알림이 뜨지 않는다) | 6-2 payment.application(`PaymentMetrics`) | 사용자 확인 |
-| 6-3 | A | DLT 목록 `limit`이 파티션별인지 전체 상한인지·최대값·내려줄 헤더 | 6-3 common.web (DLT) | 사용자 결정 |
-| 6-3 | A | 환불·알림 목록 응답 항목 필드 | 6-3 order.web, notification.web, 완료 확인 | 사용자 결정 |
-| 6-3 | A | 쓰기 API의 `Idempotency-Key` 요구 여부(WHERE 상태 가드로 충분한지 포함) | 6-3 완료 확인 공통 준비 | 사용자 결정 |
-| 6-3 | A | 대상 없음·상태 불일치 응답 코드, 쓰기 API 성공 응답 상태·본문, DLT 목록 응답 모양. 반품 환불이 재시도해도 계속 `FAILED`로 남는 경우를 닫는 방법 | 6-3 모든 API에 공통, order.web, common.web, 완료 확인 | 사용자가 한 번에 결정 |
+| 6-3 | A | 반품 환불이 재시도해도 계속 `FAILED`로 남는 경우를 닫는 방법 | 6-3 order.web | 사용자 결정 |
 | 6-3 | B | Toss가 같은 멱등 키의 실패 응답을 어떻게 처리하는지 | 6-3 order.web | Toss 문서·샌드박스 |
 | 6-4 | B | Consumer 재접속 시간(await 30초 적정성) | 6-4 완료 확인 장애 시나리오(`KafkaOutageE2ETest`) | 측정 |
 | 6-5 | A | v1.0.0 때 `v0.6.0` 태그를 따로 찍을지(git-policy 7절은 Part 6 완료 시 `v0.6.0`) | 6-5 릴리스, 완료 확인 | 사용자 결정 후 git-policy와 맞춤 |

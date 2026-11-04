@@ -1,6 +1,8 @@
 # Part 6. 관측 · 운영 · 마무리
 
-> 버전 0.33 · 2026-11-04 · 6-1·6-2를 실제로 띄워 확인한 값으로 다시 썼다: 로그 인덱스 `myroutine-logs-*`, Logstash 포트 5044, INFO 필터와 로그 문장 추가, UNKNOWN 나이의 `created_at` 기준, DLT 알림의 `offset` 식. 6-3 목록 조회·`size`·실행 로그 `action`·`AdminDltService`를 확정했다
+> 버전 0.35 · 2026-11-04 · Part 6 앞에 6-0(문의 수정의 여러 줄 내용)을 더했다: 문의 수정의 `content`가 줄바꿈을 받는다
+> 0.34 · 2026-11-04 · 6-3의 쓰기 API 응답과 목록 항목을 정하고 `GET /admin/api/dlt`, `GET /admin/api/settlements`를 더했다. 정산 수동 실행은 끝난 달만 받는다(이번 달로 실행하면 그달의 나머지 품목이 영구히 정산되지 않는다)
+> 0.33 · 2026-11-04 · 6-1·6-2를 실제로 띄워 확인한 값으로 다시 썼다: 로그 인덱스 `myroutine-logs-*`, Logstash 포트 5044, INFO 필터와 로그 문장 추가, UNKNOWN 나이의 `created_at` 기준, DLT 알림의 `offset` 식. 6-3 목록 조회·`size`·실행 로그 `action`·`AdminDltService`를 확정했다
 > 0.32 · 2026-10-31 · 구독·취향 추천·월간 리뷰 요약을 로드맵에서 빼서([서브](../04-sub/README.md)) Part 6에서 구독·OpenAI 의존을 걷어냈다: 6-1 `LogSafetyTest`의 빌링키 등록, 6-2 `openai_call_seconds`, 6-4 `subscriptionCycles()`(INV-08)·S5·S7의 구독 단계. 옮긴 내용은 서브 문서의 "Part 6에 더할 것"에 있다
 > 0.31 · 2026-10-28 · 6-1 `LogSafetyTest`의 가입을 4-2의 가입 전 인증(발송 → 확인 → 인증 토큰으로 가입)으로 바꾸고 인증 토큰도 로그에 없어야 할 값에 더했다
 > 0.30 · 2026-10-27
@@ -17,6 +19,7 @@
 
 | 단계 | 제목 | 크기 |
 |---|---|---|
+| 6-0 | 문의 수정의 여러 줄 내용 | S |
 | 6-1 | ELK: 로그 수집과 traceId 검색 | M |
 | 6-2 | Prometheus · Grafana: 메트릭 · 대시보드 · 알림 | L |
 | 6-3 | 운영 API | M |
@@ -30,6 +33,54 @@
 - 관측 스택(Logstash, Kibana, Prometheus, Grafana)은 docker-compose **`observability` 프로필**로 띄운다: `docker compose --env-file .env.local -f docker/docker-compose.yml --profile observability up -d`. 프로필을 주지 않으면 기존 5개 서비스만 뜬다. 평소 개발에는 띄우지 않는다(메모리). 이미지는 Logstash·Kibana·Prometheus·Grafana를 합쳐 약 6.5GB다.
 - 설정 파일은 모두 리포에 둔다: `docker/logstash/`, `docker/kibana/`, `docker/prometheus/`, `docker/grafana/provisioning/`. 화면에서 만든 대시보드·검색은 **파일로 내보내 커밋**한다.
 - 6-3의 운영 API는 모두 `/admin/api/**`(ADMIN)이다. 실행 로그 형식은 6-3 "모든 API에 공통"에 적었다.
+
+---
+
+## 6-0. 문의 수정의 여러 줄 내용 (S)
+
+**목표**: 여러 줄로 쓴 문의를 여러 줄 내용 그대로 고칠 수 있다.
+
+**왜 지금**: 5-3 규격의 결함이다. 문의를 쓸 때는 `@NotBlank`라 여러 줄이 되는데, 고칠 때만 400 `INVALID_REQUEST`(`details.content`: "공백만 입력할 수 없습니다.")가 된다. 프론트 리포 `myroutine-web`의 `e2e/inquiries.spec.ts`가 이 문제를 `test.fail`로 잡고 기다린다. 한 줄 수정이라 6-1의 로그 변경과 섞이기 전에 끝낸다.
+
+**원인**: `@Pattern`은 값 전체가 식과 맞아야 통과한다. 정규식의 `.`은 기본으로 줄바꿈과 맞지 않아서, `.*\S.*`는 줄바꿈이 하나라도 있으면 거절한다. `(?s)`는 `.`이 줄바꿈과도 맞게 하는 옵션이다. 두 식을 실행한 결과는 다음과 같다.
+
+| 값 | `.*\S.*` | `(?s).*\S.*` |
+|---|---|---|
+| `한 줄` | 통과 | 통과 |
+| `첫 줄\n둘째 줄` | 거절 | 통과 |
+| `\n앞에 줄바꿈`, `끝 줄바꿈\n` | 거절 | 통과 |
+| ` \n `, `\n`, `   `, 빈 문자열 | 거절 | 거절 |
+
+**정책 (이 단계에서 정함)**
+- `EditInquiryRequest`의 `content`만 바꾼다. `title`은 한 줄 입력이라 줄바꿈을 계속 거절한다.
+- 같은 식을 쓰는 다른 요청(가게·배송지·프로필·상품 이름)도 모두 한 줄 필드라 그대로 둔다. 상품 설명(`description`)은 이 식을 쓰지 않는다.
+- API 경로와 응답 모양은 그대로다.
+
+### 할 일
+
+**구현 순서**: 1) `EditInquiryRequest` → 테스트.
+
+`member.web.EditInquiryRequest`의 `content`에서 `regexp`만 `"(?s).*\\S.*"`로 바꾼다. `message`와 `@Size(max = 2000)`은 그대로다. `@NotBlank`로 바꾸면 안 된다. `@NotBlank`는 `null`도 막아서, 제목만 고치는 요청(`content` 생략)이 400이 된다.
+
+### 완료 확인
+
+#### `member/web/InquiryTest`
+
+기존 클래스에 더한다. 준비는 5-3의 준비 A이고, `user1`이 `Q1`을 작성한 상태에서 `PATCH /api/inquiries/{Q1}`를 보낸다. 본문은 `objectMapper.writeValueAsString(new EditInquiryRequest(제목, 내용))`으로 만들면 줄바꿈이 JSON의 `\n`으로 들어간다.
+
+**1. 여러 줄 내용으로 수정한다** — 동작: 내용 `"첫 줄\n둘째 줄"`(제목 `null`).
+- 응답(andExpect): 상태 200, `$.content` = `"첫 줄\n둘째 줄"`.
+- DB(inquiryOf(Q1)): `content()` = `"첫 줄\n둘째 줄"`.
+
+**2. 공백과 줄바꿈만 있는 내용은 거절한다** — 동작: 내용 `" \n "`(제목 `null`).
+- 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`, `$.details.content` = `공백만 입력할 수 없습니다.`.
+- DB(inquiryOf(Q1)): `content()` = 작성 때 본문.
+
+**3. 제목의 줄바꿈은 계속 거절한다** — 동작: 제목 `"첫 줄\n둘째 줄"`(내용 `null`).
+- 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`, `$.details.title` = `공백만 입력할 수 없습니다.`.
+- DB(inquiryOf(Q1)): `title()` = 작성 때 제목.
+
+**리뷰 때 물어볼 것**: `.*\S.*`는 왜 여러 줄을 거절하나? 여기서 `@NotBlank`를 쓰면 무엇이 깨지나?
 
 ---
 
@@ -995,18 +1046,32 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 **정책 (이 단계에서 정함)**
 - FAILED 환불 재시도를 위해 환불 상태 전이에 `FAILED → APPROVED`(관리자 재시도)를 추가한다([상태머신 §4](../02-design/04-state-machines.md) 갱신).
 - DLT 재처리는 같은 메시지를 **원래 토픽으로 다시 보내는 것**이다. consumer가 `InboxGuard`로 멱등이라 두 번 재처리해도 결과는 한 번이다.
+- 지급에 실패한 정산은 `GET /admin/api/settlements?status=PAYOUT_FAILED`로 보고, 끝난 달로 `POST /admin/api/settlements/run`을 다시 불러 재지급한다. `run`의 `payoutAll`이 기간과 상관없이 `PAYOUT_FAILED`를 모두 다시 지급하고, 이미 정산한 달이면 새 정산은 만들지 않는다. 별도 재지급 API는 두지 않는다.
+- 정산 수동 실행은 **끝난 달만** 받는다. 이번 달로 실행하면 그 시점까지의 품목으로 가게의 정산 행이 생기고, 그달에 나중에 확정된 품목은 다음 실행에서 `insertIfAbsent`가 0행(`uk_settlement_shop_period`)이라 건너뛰어 영구히 정산되지 않는다.
 
 ### 할 일
 
-**구현 순서**: 1) `RefundStatus`·`Refund.retryPgCancel()` → 2) `OrderReconcileService.reconcileOne` → 3) → 4) → 5) → 6)(각 절에서 목록 조회 쿼리 → 컨트롤러 순) → 8) 테스트 보조 → 테스트(완료 확인). 7)은 3-4가 만든 컨트롤러라 만들 것이 없고, 9) `docs/runbook.md`는 Claude가 쓴다.
+**구현 순서**: 1) `RefundStatus`·`Refund.retryPgCancel()` → 2) `OrderReconcileService.reconcileOne`·`AdminRefundService` → 3) → 4) → 5) → 6) → 7)(각 절에서 목록 조회 쿼리 → 컨트롤러 순) → 8) 테스트 보조 → 테스트(완료 확인). 9) `docs/runbook.md`는 Claude가 쓴다.
 
 이름·시그니처는 권장안이다. API별 처리 순서는 각 절에 있다.
 
 **모든 API에 공통**
 - **인가**: 컨트롤러에서 따로 검사하지 않는다. 3-4가 `SecurityConfig`에 넣은 `.requestMatchers("/admin/**").hasRole("ADMIN")` 한 줄이 맡는다. 일반 회원은 403(`FORBIDDEN`)
 - **실행 로그**: 쓰기 API(retry·replay·reconcile·run)는 메서드 첫 부분에서 `log.info("admin action={} target={} by={}", action, target, memberId)`를 남긴다. `memberId`는 컨트롤러 파라미터 `@CurrentMember UUID memberId`, `target`은 대상 식별자(outbox id, `topic/partition/offset`, orderId, refundId, notificationId, period)다. `action`은 API별 고정 문자열로 `outbox-retry`, `dlt-replay`, `payment-reconcile`, `refund-retry`, `notification-retry`, `settlement-run`이다
-- **목록 API**(outbox·payments·refunds·notifications): `cursor`가 없으면(`null`·빈 값은 `decode`에 넘기지 않는다) 첫 페이지, 있으면 `Cursor.decode(cursor)`로 `Cursor(Instant createdAt, UUID id)`를 얻어 그 뒤부터 읽는다. `size + 1`건을 읽어 `size`건만 `CursorPage<T>(items, nextCursor)`로 돌려주고, 다음 커서는 `size`번째 항목의 `new Cursor(createdAt, id).encode()`다(마지막 페이지면 `nextCursor = null`). `size`는 다른 목록 API와 같이 기본 20·`@Min(1) @Max(50)`이고, 정렬은 `created_at, id` 오름차순(오래된 것부터 처리한다)이다
-- **없는 대상**이거나 **상태가 맞지 않을 때**의 응답은 아래 각 API에서 확인 필요로 모았다. 존재하는 코드는 `NOT_FOUND`(404), `INVALID_STATE_TRANSITION`(409)이다
+- **`Idempotency-Key`**: 쓰기 API는 요구하지 않는다. 두 번 눌러도 상태 전이 조건과 `InboxGuard`가 막는다.
+- **목록 API**(outbox·payments·refunds·notifications·settlements): `status`는 필수이고 enum으로 받는다. 없거나 틀린 값이면 400 `INVALID_REQUEST`다(1-3 `GlobalExceptionHandler` 변환표). `cursor`가 없으면(`null`·빈 값은 `decode`에 넘기지 않는다) 첫 페이지, 있으면 `Cursor.decode(cursor)`로 `Cursor(Instant createdAt, UUID id)`를 얻어 그 뒤부터 읽는다. `size + 1`건을 읽어 `size`건만 `CursorPage<T>(items, nextCursor)`로 돌려주고, 다음 커서는 `size`번째 항목의 `new Cursor(createdAt, id).encode()`다(마지막 페이지면 `nextCursor = null`). `size`는 다른 목록 API와 같이 기본 20·`@Min(1) @Max(50)`이고, 정렬은 `created_at, id` 오름차순(오래된 것부터 처리한다)이다
+- **쓰기 API의 응답**은 아래 표와 같다. outbox·알림 재시도는 조건부 `UPDATE`가 없는 ID와 상태 불일치 모두 0행을 돌려주므로, 0행이면 존재 여부를 한 번 더 읽어 404와 409를 나눈다.
+
+| API | 성공 | 없는 대상 | 상태가 맞지 않음 |
+|---|---|---|---|
+| `POST /admin/api/outbox/{id}/retry` | 204 | 404 `NOT_FOUND` | 409 `INVALID_STATE_TRANSITION`(`DEAD`가 아님) |
+| `POST /admin/api/dlt/{topic}/{partition}/{offset}/replay` | 204(브로커가 받은 뒤) | 404 `NOT_FOUND`(없는 토픽·offset) | 없다. 다시 보내도 안전하다 |
+| `POST /admin/api/payments/{orderId}/reconcile` | 200 `{orderId, status}` | 404 `ORDER_NOT_FOUND` | 없다. 처리된 주문과 결제가 없는 주문은 현재 상태를 200으로 준다 |
+| `POST /admin/api/refunds/{id}/retry` | 200 `RefundResponse`(`COMPLETED`), 202 `RefundResponse`(`APPROVED`, PG 결과가 불확실해 복구 잡이 마무리한다), 다시 실패하면 502 `PG_ERROR` | 404 `REFUND_NOT_FOUND` | 409 `INVALID_STATE_TRANSITION`(`FAILED`가 아님), 동시 요청은 409 `CONFLICT_RETRY` |
+| `POST /admin/api/notifications/{id}/retry` | 204 | 404 `NOT_FOUND` | 409 `INVALID_STATE_TRANSITION`(`FAILED`가 아님) |
+| `POST /admin/api/settlements/run?period=` | 200 `SettlementRunResult` | 해당 없음 | 400 `INVALID_REQUEST`(`details.period`, 끝나지 않은 달) |
+
+환불 재시도의 200·202·502는 구매자 품목 취소(`POST /api/orders/{id}/lines/{lineId}/cancel`)와 같은 약속이다. 재시도가 다시 실패하는 것은 정상 흐름이라 500이 아니다.
 
 **1) order.domain · order.infrastructure**
 
@@ -1014,16 +1079,20 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 |---|---|
 | `RefundStatus` (기존 수정, 2-8) | 전이표에 `FAILED → APPROVED`(관리자 재시도)를 더한다 |
 | `Refund` (기존 수정, 2-8) | `retryPgCancel()`을 더한다 — "FAILED가 아니면 거부하고, FAILED → APPROVED로 바꾸면서 `pgAttempts`를 1 올리는" 메서드다. `pg_attempts` 칸과 `Refund.pgIdempotencyKey()`(키 형식은 아래 "PG 멱등 키")는 2-8에서 만든다. `refunds` `retry`가 부른다 |
+| `OrderRepository` (domain 순수 인터페이스, 기존 수정) | `List<OrderLine> findLinesByIdIn(Collection<UUID> lineIds)`를 더한다. 환불 목록이 품목 이름을 한 번에 읽는다 |
 | `RefundRepository` (domain 순수 인터페이스, 기존 수정) | `findByStatusFirstPage(RefundStatus status, Limit limit)`, `findByStatusNextPage(RefundStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit)`을 더한다. 5-3 `InquiryRepository`의 관리자 목록과 같은 모양이다. 커서·`size + 1`은 위 "모든 API에 공통"의 목록 규칙. `refunds` 목록 API가 쓴다 |
-| `JpaRefundRepository` (infrastructure, 기존 수정) | 위 조회를 구현한다 |
+| `JpaOrderRepository`·`JpaRefundRepository` (infrastructure, 기존 수정) | 위 조회를 구현한다 |
 
 **2) order.application**
 
 | 클래스 | 메서드 |
 |---|---|
 | `OrderReconcileService` (기존 수정) | `public OrderStatus reconcileOne(UUID orderId)` — 기존 `private boolean reconcileOne(UUID)`를 열고 반환을 바꾼다. `payments reconcile`(3)) API와 `reconcileBatch`가 쓴다 |
+| `AdminRefundService` (새로 만든다) | `getRefunds(RefundStatus status, String cursor, int size)`(목록), `RefundResult retry(UUID refundId)`. 내용은 아래 **refunds** |
 
-- 처리 내용(`paymentApi.find` → `APPROVED`·`FAILED`는 `closeConfirmed`, `IN_PROGRESS`·`UNKNOWN`은 `closeByQuery`(`queryPgOutcome` → `applyOutcome`), `CANCELLED`는 `failOrder`, 완료 실패 시 보상)는 그대로다.
+- 먼저 주문을 읽는다. 없으면 `BusinessException(ORDER_NOT_FOUND)`다.
+- `paymentApi.find`가 비어 있으면(결제 전 주문) 주문의 현재 상태를 돌려준다. 지금의 `log.error`는 주문이 `PAYMENT_IN_PROGRESS`일 때만 남긴다. 그 상태에 결제가 없는 것만 비정상이고, 관리자가 결제 전 주문을 누른 것은 오류가 아니다.
+- 나머지 처리 내용(`APPROVED`·`FAILED`는 `closeConfirmed`, `IN_PROGRESS`·`UNKNOWN`은 `closeByQuery`(`queryPgOutcome` → `applyOutcome`), `CANCELLED`는 `failOrder`, 완료 실패 시 보상)는 그대로이고, 끝나면 주문의 현재 상태를 돌려준다.
 - `reconcileBatch`는 반환된 `OrderStatus`가 `PAID`·`PAYMENT_FAILED`일 때 처리 건수에 센다.
 
 **3) order.web** — 컨트롤러 이름은 문서에 없다(권장: `AdminReconcileController`, `AdminRefundController`)
@@ -1031,7 +1100,7 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 | 클래스 | 규격 |
 |---|---|
 | `AdminReconcileController` | `POST /admin/api/payments/{orderId}/reconcile` — 그 주문만 바로 대사(2-6 로직) → 200 `{orderId, status}`(처리 뒤 주문 상태). `payment` → `order` 호출은 허용 방향이 아니므로 대사 API는 order 모듈에 둔다 |
-| `AdminRefundController` | `GET /admin/api/refunds?status=FAILED&cursor=` · `POST /admin/api/refunds/{id}/retry` — FAILED → APPROVED → `refundProcessor.process` |
+| `AdminRefundController` | `GET /admin/api/refunds?status=FAILED&cursor=&size=` → `CursorPage<AdminRefundResponse>` · `POST /admin/api/refunds/{id}/retry` → 200·202 `RefundResponse`(`OrderController`의 품목 취소와 같이 `COMPLETED`면 200, 아니면 202) |
 
 **payments reconcile** (order 모듈 관리자 컨트롤러) — 대사 잡이 30초 이상 멈춘 주문을 1분마다 처리하는 일을, 운영자가 **주문 하나에 대해 바로** 하는 API다
 1. `reconcileOne(UUID orderId)`(2)에서 연 메서드): `OrderReconcileService`는 클래스에 `@Transactional`이 없고 `TransactionTemplate`을 쓴다. `queryPgOutcome`·`cancel`이 트랜잭션 밖 전용이므로 컨트롤러나 `reconcileOne` 자체에 `@Transactional`을 붙이면 안 된다
@@ -1040,8 +1109,8 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 4. 조회도 불확실했거나 다른 흐름이 이미 처리했으면 `reconcileOne`은 그 시점의 상태(예: `PAYMENT_IN_PROGRESS`)를 돌려준다
 
 **refunds** (order 모듈)
-- 목록: 응답 항목의 필드는 이 문서에 정해져 있지 않다(확인 필요, `Refund` 컬럼 기준으로 id·orderId·orderLineId·amount·상태·실패 사유 등)
-- `retry`: ① 트랜잭션(`tx.execute`)에서 환불을 읽어 `retryPgCancel()`(1)에서 더한 메서드)을 부른다. 같은 환불에 재시도를 두 번 눌러도 두 번째는 이미 `APPROVED`라 거부된다 ② 트랜잭션 밖에서 `refundProcessor.process(refundId)`(2-8, `RefundStatus` 반환) — APPROVED이므로 `needsPgCancel()`이 참이라 PG 취소부터 다시 한다
+- 목록: `AdminRefundResponse(UUID id, UUID orderId, UUID orderLineId, String productName, long amount, String reasonType, String reason, String failureCode, int pgAttempts, Instant createdAt, Instant updatedAt)`. 한 쪽을 읽은 뒤 `findLinesByIdIn`으로 품목 이름을, `paymentApi.findCancelFailureCodes`(아래 4))로 실패 코드를 한 번에 읽어 `Map`으로 붙인다. `failureCode`는 그 환불의 마지막 PG 취소 코드다. 키가 `refund.pgIdempotencyKey()`이고 재시도마다 `-r{n}`이 붙으므로 현재 키가 마지막 시도다. 없으면 `null`이다. `Refund`에 실패 사유 칸이 없어서, `NOT_CANCELABLE_AMOUNT`처럼 다시 해도 안 되는 실패인지 이 값으로 판단한다
+- `retry`: ① 트랜잭션(`tx.execute`)에서 환불을 읽어(없으면 `BusinessException(REFUND_NOT_FOUND)`) `retryPgCancel()`(1)에서 더한 메서드)을 부른다. 같은 환불에 재시도를 두 번 눌러도 두 번째는 이미 `APPROVED`라 거부된다 ② 트랜잭션 밖에서 `refundProcessor.process(refundId)`(2-8, `RefundStatus` 반환) — APPROVED이므로 `needsPgCancel()`이 참이라 PG 취소부터 다시 한다 ③ `CancelOrderLineService.cancel`의 `switch`와 같게 `COMPLETED`·`APPROVED`는 `RefundResult`, `FAILED`는 `BusinessException(PG_ERROR)`. ①은 이미 커밋됐고 `FAILED`로 돌아간 것도 커밋되므로 502여도 `pgAttempts`는 남는다
 - **PG 멱등 키**: 재시도는 새 키로 Toss까지 간다. 2-6 `PaymentApi.cancel`은 같은 키의 `payment_cancel` 행이 이미 `FAILED`면 PG를 부르지 않고 `FAILED`를 재생하므로, `process`가 쓰는 `refund.pgIdempotencyKey()`(2-8)가 `pgAttempts`가 1 이상이면 `refundId-r{pgAttempts}`로 달라진다. 그래서 `AdminRefundRetryTest`("가짜 PG를 정상으로 → retry → COMPLETED")가 통과한다. Toss가 같은 키의 실패 응답을 어떻게 다루는지는 확인하지 못해(확인 필요) 같은 키를 재사용하지 않는 쪽으로 정했다.
 
 **4) payment.domain · payment.infrastructure · payment.web** — 컨트롤러 이름은 문서에 없다(권장: `AdminPaymentController`)
@@ -1050,9 +1119,11 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 |---|---|
 | `PaymentRepository` (domain 순수 인터페이스, 기존 수정) | `findByStatusFirstPage(PaymentStatus status, Limit limit)`, `findByStatusNextPage(PaymentStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit)`을 더한다. 커서·`size + 1`은 위 "모든 API에 공통"의 목록 규칙 |
 | `JpaPaymentRepository` (infrastructure, 기존 수정) | 위 조회를 구현한다 |
-| `AdminPaymentController` | `GET /admin/api/payments?status=UNKNOWN&cursor=` — 결제 목록 |
+| `PaymentCancelRepository` (domain, 기존 수정) | `List<PaymentCancel> findByIdempotencyKeyIn(Collection<String> keys)`를 더한다 |
+| `PaymentApi`·`PaymentApiImpl` (기존 수정) | `Map<String, String> findCancelFailureCodes(Collection<String> idempotencyKeys)`를 더한다. 키는 멱등 키, 값은 `failure_code`이고 코드가 없는 행은 뺀다. 환불 목록(order)이 쓴다 |
+| `AdminPaymentController` | `GET /admin/api/payments?status=UNKNOWN&cursor=&size=` → `CursorPage<AdminPaymentResponse>` |
 
-응답 항목은 `(UUID id, UUID orderId, long amount, int reconcileAttempts, Instant updatedAt)`
+`AdminPaymentResponse(UUID id, UUID orderId, String pgOrderId, long amount, int reconcileAttempts, Instant createdAt, Instant updatedAt)`. `createdAt`은 얼마나 밀렸는지 보는 값이고(`updatedAt`은 대사마다 바뀐다), `pgOrderId`는 대사로도 결과를 모를 때 Toss 상점 관리자에서 찾는 주문번호다. `paymentKey`는 로그에도 남기지 않는 값이라 내려주지 않는다.
 
 **5) notification.domain · notification.infrastructure · notification.web** — 컨트롤러 이름은 문서에 없다(권장: `AdminNotificationController`)
 
@@ -1060,32 +1131,35 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 |---|---|
 | `NotificationRepository` (domain 순수 인터페이스, 기존 수정, 3-5) | `findByStatusFirstPage(NotificationStatus status, Limit limit)`, `findByStatusNextPage(NotificationStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit)`을 더한다. 커서·`size + 1`은 위 "모든 API에 공통"의 목록 규칙 |
 | `JpaNotificationRepository` (infrastructure, 기존 수정) | 위 조회를 구현한다 |
-| `AdminNotificationController` | `GET /admin/api/notifications?status=FAILED&cursor=` · `POST /admin/api/notifications/{id}/retry` — FAILED → PENDING, `attempts = 0` |
+| `AdminNotificationController` | `GET /admin/api/notifications?status=FAILED&cursor=&size=` → `CursorPage<AdminNotificationResponse>` · `POST /admin/api/notifications/{id}/retry` → 204 — FAILED → PENDING, `attempts = 0` |
 
-- 목록: 응답 항목의 필드는 정해져 있지 않다(확인 필요, `notification` 컬럼 기준 id·type·recipient·attempts·lastError·updatedAt 등)
-- `retry`: `UPDATE notification.notification SET status = 'PENDING', attempts = 0, updated_at = now() WHERE id = :id AND status = 'FAILED'`(`version` 컬럼이 있으므로 `version + 1`도 함께, 다른 UPDATE 규칙과 같게). FAILED의 `next_attempt_at`은 마지막 실패 때의 과거 값이라 다음 `dispatchBatch`(10초 주기)가 바로 집어 간다
+- 목록: `AdminNotificationResponse(UUID id, UUID memberId, String type, String recipient, String title, int attempts, String lastError, Instant createdAt, Instant updatedAt)`. 본문은 판단에 필요 없어 뺀다
+- `retry`: `UPDATE notification.notification SET status = 'PENDING', attempts = 0, updated_at = now() WHERE id = :id AND status = 'FAILED'`(`version` 컬럼이 있으므로 `version + 1`도 함께, 다른 UPDATE 규칙과 같게). FAILED의 `next_attempt_at`은 마지막 실패 때의 과거 값이라 다음 `dispatchBatch`(10초 주기)가 바로 집어 간다. 0행이면 `NotificationRepository.existsById`(더한다)로 404와 409를 나눈다
 
 **6) common.web** — 패키지는 문서에 없어 `common.web`을 권장한다(테스트 `AdminOutboxTest`·`AdminDltTest`가 `common/web`에 있다). 클래스 이름은 문서에 없다(권장: `AdminOutboxController`, `AdminDltController`)
 
 | 클래스 | 규격 |
 |---|---|
-| `AdminOutboxController` | `GET /admin/api/outbox?status=DEAD&cursor=` — DEAD 행 목록(id, topic, aggregateId, attempts, lastError, createdAt) / `POST /admin/api/outbox/{id}/retry` — DEAD → READY, `attempts = 0`, `next_attempt_at = now` |
-| `AdminDltController` | `GET /admin/api/dlt/{topic}?limit=50` — 짧게 쓰는 `KafkaConsumer`(그룹 없이 `assign`)로 `{topic}.dlt` 각 파티션 끝에서 최대 limit개 읽기 → `(partition, offset, key, value 앞 500자, 예외 헤더)` / `POST /admin/api/dlt/{topic}/{partition}/{offset}/replay` — 그 레코드 하나를 읽어 원래 토픽(`.dlt` 제거)으로 같은 key·value를 `send().get()` |
+| `OutboxStatus` (`common.outbox`, 새로 만든다) | `READY`, `PROCESSING`, `SENT`, `DEAD`. `outbox_event`는 `JdbcTemplate`이라 enum이 없어서, 목록 파라미터를 검증하려고 만든다 |
+| `AdminOutboxController` | `GET /admin/api/outbox?status=DEAD&cursor=&size=` — 행 목록 / `POST /admin/api/outbox/{id}/retry` → 204 — DEAD → READY, `attempts = 0`, `next_attempt_at = now` |
+| `AdminDltController` | `GET /admin/api/dlt` → `DltTopicResponse[]` / `GET /admin/api/dlt/{topic}?limit=50` → `DltRecordResponse[]` / `POST /admin/api/dlt/{topic}/{partition}/{offset}/replay` → 204 |
 | `AdminDltService` (`common.web`) | 요청마다 `KafkaConsumer`를 만들어 쓰는 코드를 컨트롤러에서 분리한다. 순서는 아래 `DLT` |
 
 **outbox** (common)
 - 목록: `common.outbox_event`에서 `status = :status`인 행을 `created_at, id` 기준으로 읽는다(`JdbcTemplate`). 응답 항목은 `(UUID id, String topic, UUID aggregateId, int attempts, String lastError, Instant createdAt)` 한 record(이름 권장안 `AdminOutboxResponse`)
-- `retry`: `UPDATE common.outbox_event SET status = 'READY', attempts = 0, next_attempt_at = now(), updated_at = now() WHERE id = :id AND status = 'DEAD'`. 1행이면 성공이고 다음 `relayOnce()`(1초 주기)가 집어 간다. 0행이면 id가 없거나 DEAD가 아니다. `WHERE status = 'DEAD'`가 같은 요청을 두 번 보내도(두 번째는 이미 READY/SENT라 0행) 안전하게 하는 장치다
+- `retry`: `UPDATE common.outbox_event SET status = 'READY', attempts = 0, next_attempt_at = now(), updated_at = now() WHERE id = :id AND status = 'DEAD'`. 1행이면 성공이고 다음 `relayOnce()`(1초 주기)가 집어 간다. 0행이면 `SELECT EXISTS(...)`로 id가 없으면 404, 있으면 409다. `WHERE status = 'DEAD'`가 같은 요청을 두 번 보내도(두 번째는 이미 READY/SENT라 0행) 안전하게 하는 장치다
 
-**DLT** (common) — Kafka의 DLT 토픽(3-2가 `{원본토픽}.dlt`로 보낸 실패 메시지)을 읽고 되돌려 보낸다. 경로의 `{topic}`은 **원본 토픽 이름**(예: `shop.shop-opened.v1`)이고 실제로 읽는 토픽이 `{topic}.dlt`다. 두 API 모두 요청마다 `KafkaConsumer<String, String>`을 새로 만들어 `try-with-resources`로 닫는다. 속성은 `bootstrap.servers`(앱과 같은 주소), key·value `StringDeserializer`, `enable.auto.commit=false`이고 **`group.id`는 주지 않는다**(그룹에 속하지 않고 `assign`으로 파티션을 직접 지정하므로 오프셋을 저장하지 않고 운영 consumer에 영향이 없다). `bootstrap.servers`는 `KafkaProperties`(`org.springframework.boot.kafka.autoconfigure`)를 주입받아 `getBootstrapServers()`로 얻는다
-- 목록 `GET /admin/api/dlt/{topic}?limit=50`
-  1. `consumer.partitionsFor(dltTopic)`(`List<PartitionInfo>`) → 파티션마다 `new TopicPartition(dltTopic, info.partition())` → `consumer.assign(그 목록)`
+**DLT** (common) — Kafka의 DLT 토픽(3-2가 `{원본토픽}.dlt`로 보낸 실패 메시지)을 읽고 되돌려 보낸다. 경로의 `{topic}`은 **원본 토픽 이름**(예: `shop.shop-opened.v1`)이고 실제로 읽는 토픽이 `{topic}.dlt`다. 토픽 존재 확인은 `consumer.listTopics()`(`Map<String, List<PartitionInfo>>`, 토픽 이름 → 파티션 목록)로 한다. `partitionsFor`는 쓰지 않는다. 기본 설정(`allow.auto.create.topics=true`)에서 없는 토픽을 물으면 브로커가 그 토픽을 만들 수 있다. 두 API 모두 요청마다 `KafkaConsumer<String, String>`을 새로 만들어 `try-with-resources`로 닫는다. 속성은 `bootstrap.servers`(앱과 같은 주소), key·value `StringDeserializer`, `enable.auto.commit=false`이고 **`group.id`는 주지 않는다**(그룹에 속하지 않고 `assign`으로 파티션을 직접 지정하므로 오프셋을 저장하지 않고 운영 consumer에 영향이 없다). `bootstrap.servers`는 `KafkaProperties`(`org.springframework.boot.kafka.autoconfigure`)를 주입받아 `getBootstrapServers()`로 얻는다
+- 토픽 목록 `GET /admin/api/dlt` — 어느 토픽에 쌓였는지 알아야 아래 목록을 부를 수 있어서 둔다
+  1. `consumer.listTopics()`에서 `.dlt`로 끝나는 토픽만 고른다 → 파티션마다 `TopicPartition`을 만들어 `consumer.beginningOffsets(tps)`, `consumer.endOffsets(tps)`
+  2. 토픽마다 `end - begin`의 합이 `recordCount`다. 0인 토픽은 빼고, `DltTopicResponse(String topic, long recordCount)`를 이름순으로 돌려준다. `topic`은 `.dlt`를 뺀 원본 이름이다. 재처리해도 기록을 지우지 않으므로 이 값은 줄지 않는다
+- 기록 목록 `GET /admin/api/dlt/{topic}?limit=50` — `limit`은 **파티션마다**이고 기본 50, `@Min(1) @Max(100)`이다
+  1. `consumer.listTopics().get(dltTopic)`이 `null`이면 404 `NOT_FOUND`다. 파티션마다 `new TopicPartition(dltTopic, info.partition())` → `consumer.assign(그 목록)`
   2. `consumer.beginningOffsets(tps)`, `consumer.endOffsets(tps)`(둘 다 `Map<TopicPartition, Long>`) → 파티션마다 `start = Math.max(begin, end - limit)`로 `consumer.seek(tp, start)`
   3. `consumer.poll(Duration.ofSeconds(1))`을 반복해 `ConsumerRecord<String, String>`을 모은다. 파티션마다 `end` 직전 offset까지 읽으면 그 파티션은 끝난 것이다(`start == end`인 빈 파티션은 건너뛴다)
-  4. 레코드마다 `(partition(), offset(), key(), value()의 앞 500자, 예외 헤더)`. 예외 헤더는 3-2의 `DeadLetterPublishingRecoverer`가 붙인 것으로 `record.headers().lastHeader(KafkaHeaders.DLT_EXCEPTION_FQCN)`·`DLT_EXCEPTION_MESSAGE`의 `value()`(`byte[]`)를 `new String(bytes, UTF_8)`로 바꾼다. 헤더가 없으면 `null`
-  - `limit`이 **파티션마다**인지 전체 상한인지, 어떤 헤더를 내려줄지(스택트레이스 헤더는 길다)는 표의 문장("각 파티션 끝에서 최대 limit개")만 있다(확인 필요). 최대값도 없다
+  4. 레코드마다 `DltRecordResponse(int partition, long offset, String key, String value, Instant timestamp, String exception)`로 바꾸고 `timestamp` 내림차순(최신순)으로 돌려준다. `value`는 앞 500자다. `timestamp`는 `Instant.ofEpochMilli(record.timestamp())`로, `DeadLetterPublishingRecoverer`가 원본 시각을 물려주지 않아 DLT에 들어간 시각이다(spring-kafka 4.1.1 소스 확인). 재처리가 또 실패했는지는 같은 `key`의 새 기록이 생겼는지로 안다. `exception`은 `record.headers().lastHeader(KafkaHeaders.DLT_EXCEPTION_MESSAGE)`의 `value()`(`byte[]`)를 `new String(bytes, UTF_8)`로 바꾼 앞 500자이고, 헤더가 없으면 `null`이다
 - 재처리 `POST /admin/api/dlt/{topic}/{partition}/{offset}/replay` — 입력은 위 목록에서 본 `(partition, offset)`이다
-  1. `consumer.assign(List.of(new TopicPartition(topic + ".dlt", partition)))` → `consumer.seek(tp, offset)` → `poll`해서 `record.offset() == offset`인 레코드를 찾는다. 없으면(범위 밖·삭제됨) 대상 없음 응답
+  1. 위와 같이 `listTopics()`로 토픽을 확인한다(없으면 404). `consumer.assign(List.of(new TopicPartition(topic + ".dlt", partition)))` → `consumer.seek(tp, offset)` → `poll`해서 `record.offset() == offset`인 레코드를 찾는다. 없으면(범위 밖·삭제됨) 404 `NOT_FOUND`
   2. `kafkaTemplate.send(topic, record.key(), record.value()).get(5, TimeUnit.SECONDS)` — 3-1 릴레이가 쓰는 `KafkaTemplate<String, String>`이다. `.get()`으로 브로커 확인까지 기다린다(실패하면 예외). `record.value()`는 이벤트 봉투 JSON 그대로라 `eventId`가 같고, key는 `aggregateId`라 원래 파티션으로 간다
   3. 원본 consumer가 다시 받아 `InboxGuard`로 처리한다. 이미 처리된 이벤트면 건너뛰고, 처리에 실패했던 이벤트(그때 `processed_message` INSERT도 롤백됨)면 이번에 처리된다. **DLT의 레코드는 지우지 않으므로** 같은 레코드를 두 번 replay해도 처리 결과는 한 번이다(`AdminDltTest`가 이 경우를 본다)
 
@@ -1093,7 +1167,15 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 
 | API | 처리 |
 |---|---|
-| `POST /admin/api/settlements/run?period=yyyy-MM` | `SettlementService.run(YearMonth)`을 실행 → 200 `SettlementRunResult(int settledShops, int paid, int payoutFailed)`. 컨트롤러는 3-4가 만들었고, 이 단계는 `@CurrentMember UUID memberId` 파라미터와 실행 로그 한 줄(`action` = `settlement-run`, `target` = period)을 더하고 인가(`AdminAuthorizationTest` 11번)를 확인한다 |
+| `POST /admin/api/settlements/run?period=yyyy-MM` | 아래 `SettlementService.runManually(YearMonth)`를 실행 → 200 `SettlementRunResult(int settledShops, int paid, int payoutFailed)`. 컨트롤러는 3-4가 만들었고, 이 단계는 `@CurrentMember UUID memberId` 파라미터와 실행 로그 한 줄(`action` = `settlement-run`, `target` = period)을 더한다 |
+| `GET /admin/api/settlements?status=PAYOUT_FAILED&cursor=&size=` | 200 `CursorPage<AdminSettlementResponse(UUID id, UUID shopId, String shopName, LocalDate periodStart, LocalDate periodEnd, long netAmount, int payoutAttempts, String lastError, Instant updatedAt)>`. 지금의 정산 조회 API는 가게 주인만 부를 수 있어 관리자가 어느 가게의 어느 기간이 왜 실패했는지 볼 곳이 없다 |
+
+| 클래스 | 규격 |
+|---|---|
+| `SettlementService` (기존 수정) | `public SettlementRunResult runManually(YearMonth month)`를 더한다. `month.isBefore(YearMonth.now(clock.withZone(businessProperties.businessZone())))`가 아니면 `BusinessException(CommonErrorCode.INVALID_REQUEST, Map.of("period", "끝난 달만 실행할 수 있습니다."))`, 맞으면 `run(month)`. `run` 자체에 넣지 않는다. `SettlementJob`은 전월만 부르고, 6-4 시나리오는 이번 달 품목으로 `run`을 직접 부른다 |
+| `SettlementRepository`·`JpaSettlementRepository` (기존 수정) | `findByStatusFirstPage(SettlementStatus status, Limit limit)`, `findByStatusNextPage(SettlementStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit)`을 더한다 |
+| `SettlementQueryService` (기존 수정) | `getForAdmin(SettlementStatus status, String cursor, int size)`. 한 쪽의 `shopId`로 `shopApi.getShopNames`를 한 번 불러 이름을 붙인다 |
+| `ShopApi`·`ShopApiImpl` (shop, 기존 수정) | `Map<UUID, String> getShopNames(Collection<UUID> shopIds)`를 더한다. `shopRepository.findAllByIdIn`으로 읽는다. `requireActiveShops`는 활성 가게만 받는데, 폐업한 가게에도 지급 실패 정산이 있을 수 있어서 상태로 거르지 않는다. settlement는 이미 `shop::api`에 의존한다 |
 
 **8) 테스트 보조** — `src/test/`
 
@@ -1103,12 +1185,6 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 **9) 문서** — `docs/runbook.md` (Claude)
 
 6-2 알림마다 "의미 → 볼 곳(대시보드·Kibana 검색) → 조치(위 API)"
-
-**정해지지 않은 것(확인 필요) 정리** — 이 단계 구현 전에 정할 것
-- 대상이 없을 때·상태가 맞지 않을 때의 응답 코드(예: outbox retry 0행, DLT replay의 record 없음, 환불·알림 retry가 FAILED가 아닐 때)
-- 쓰기 API의 성공 응답 상태와 본문
-- DLT 목록의 응답 모양과 필드 이름
-- 환불·알림 목록의 항목 필드
 
 ### 완료 확인
 
@@ -1137,11 +1213,10 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
   - 중복 소비 기록: `processedCountOf(consumer, eventId)`(3-2).
 - 가짜 PG가 받은 요청: `pg.requests(경로 접두어)`. 헤더 키는 소문자(`idempotency-key`), 본문의 `cancelAmount`는 `readTree`로 읽어 `asLong()`으로 비교한다.
 - 실행 로그: 테스트 클래스에 `@ExtendWith(OutputCaptureExtension.class)`를 달고 `output.getAll()`에서 `"target=" + 대상 + " by=" + adminId` 문자열을 찾는다(로그 형식 `admin action={} target={} by={}`).
-- 아직 정해지지 않은 응답(위 "정해지지 않은 것")은 아래에서 "확인 필요"로 적었다. 테스트는 정해진 값에 맞춰 쓰고, 그 전까지는 해당 줄을 `is2xxSuccessful()`/`is4xxClientError()`로 둔다.
 
 **토큰과 상품**
 - ADMIN 토큰(`AdminAuthorizationTest`를 뺀 테스트가 쓴다): `UUID adminId = signup("admin@test.com")` → `changeRole(adminId, "ADMIN")` → `login("admin@test.com")`. 일반 회원 토큰(`AdminAuthorizationTest`): `token("user@test.com")`.
-- 쓰기 API 호출에는 `Authorization: Bearer {ADMIN 토큰}`을 붙인다. 쓰기 API의 `Idempotency-Key` 요구 여부는 문서에 없다(확인 필요).
+- 쓰기 API 호출에는 `Authorization: Bearer {ADMIN 토큰}`을 붙인다.
 - 주문·결제를 쓰는 `AdminReconcileTest`·`AdminRefundRetryTest`의 상품: 판매자 1명, 가게 1개, 상품 `product1`(1,000원)·`product2`(2,000원)·`product3`(3,000원, 재고 각 10), 구매자 1명. 각 케이스의 준비에 어떤 상품을 쓰는지 적는다.
 
 #### `common/web/AdminOutboxTest` (`@ExtendWith(OutputCaptureExtension.class)` + `IntegrationTestSupport`)
@@ -1157,7 +1232,7 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 - 응답 본문(andReturn 후): 두 본문에서 `JsonPath.read(본문, "$.items[*].id")`로 꺼낸 리스트를 합치면 `hasSize(3)`이고 `doesNotHaveDuplicates()`.
 
 **3. DEAD 행 retry → READY** — 준비: 1번의 행 X. 동작: `POST /admin/api/outbox/{X}/retry`.
-- 응답(andExpect): 상태 2xx(상태·본문은 확인 필요).
+- 응답(andExpect): 상태 204.
 - DB(outboxSnapshotOf(X)): `status()` = `READY`, `attempts()` = 0.
 - 로그(output.getAll()): `"target=" + X + " by=" + adminId`가 있다.
 
@@ -1166,12 +1241,15 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 - Kafka(testKafka.messages): `testKafka.messages("test.admin-outbox.v1", K.toString())`가 1건이고 `get(0).envelope().eventId()` = X.
 
 **5. 같은 retry 두 번** — 준비: 1번의 행 X, 테스트용 토픽 `test.admin-outbox.v1`(`NewTopic` 빈). 3번의 retry와 4번의 `relayOnce()`를 마쳐 X가 SENT인 상태에서 `outboxSnapshotOf(X)`를 읽어 둔다. 동작 1: `POST /admin/api/outbox/{X}/retry` 다시.
-- 확인 1(retry 응답 직후): 응답(andExpect) 상태 4xx(코드는 확인 필요). DB(outboxSnapshotOf(X)): 동작 전에 읽은 값과 같다.
+- 확인 1(retry 응답 직후): 응답(andExpect) 상태 409, `$.code` = `INVALID_STATE_TRANSITION`. DB(outboxSnapshotOf(X)): 동작 전에 읽은 값과 같다.
 - 동작 2: `outboxRelay.relayOnce()`.
 - 확인 2(`relayOnce()` 직후): 반환값 `relayOnce()` = 0. Kafka(testKafka.messages): `testKafka.messages("test.admin-outbox.v1", K.toString())`의 크기가 1 그대로.
 
 **6. 없는 id** — 동작: 임의의 UUID로 `POST /admin/api/outbox/{임의 UUID}/retry`.
-- 응답(andExpect): 상태 4xx(404 `NOT_FOUND`가 후보, 확인 필요).
+- 응답(andExpect): 상태 404, `$.code` = `NOT_FOUND`.
+
+**7. 목록의 `status`** — 동작: `GET /admin/api/outbox`(생략), `GET /admin/api/outbox?status=NOPE`.
+- 응답(andExpect): 둘 다 상태 400, `$.code` = `INVALID_REQUEST`.
 
 #### `common/web/AdminDltTest` (`@ExtendWith(OutputCaptureExtension.class)` + `IntegrationTestSupport`)
 
@@ -1179,21 +1257,31 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 
 **1. DLT 목록 조회** — 동작: 메시지를 보낸다 → `Eventually.await(Duration.ofSeconds(20), ...)` 안에서 `GET /admin/api/dlt/test.admin-dlt.v1?limit=50`(`.andReturn()`으로 받는다).
 - 응답(andExpect): 상태 200.
-- 응답 본문(andReturn 후): 항목 중 `key` = K인 것이 정확히 1개다(응답 모양과 필드 이름은 확인 필요. 권장: `partition`, `offset`, `key`, `value`, `exception`). 그 항목의 `value`는 보낸 봉투 JSON과 같은 문자열, 예외 헤더 값(`exception`)에 `always-fail`이 들어 있다(`DLT_EXCEPTION_MESSAGE`). 그 항목의 `partition`·`offset`을 `P`·`O`로 적어 둔다.
+- 응답 본문(andReturn 후): 응답은 배열이고 항목 중 `key` = K인 것이 정확히 1개다. 그 항목의 `value`는 보낸 봉투 JSON과 같은 문자열, `exception`에 `always-fail`이 들어 있고(`DLT_EXCEPTION_MESSAGE`), `timestamp`가 `null`이 아니다. 그 항목의 `partition`·`offset`을 `P`·`O`로 적어 둔다.
 
 **2. replay로 처리 성공** — 준비: 1번 상태. 동작: `fail = false` → `POST /admin/api/dlt/test.admin-dlt.v1/{P}/{O}/replay`.
-- 응답(andExpect): 상태 2xx(상태·본문은 확인 필요).
+- 응답(andExpect): 상태 204.
 - 로그(output.getAll()): `"target=" + "test.admin-dlt.v1/" + P + "/" + O + " by=" + adminId`.
 - 반환값(리스너 카운터 received·processed): `Eventually.await(Duration.ofSeconds(10), ...)` 안에서 `received` = 1, `processed` = 1.
 
 **3. 같은 메시지 두 번 replay → 처리 한 번** — 준비: 2번 상태. 동작: 같은 `P`·`O`로 replay를 한 번 더.
-- 응답(andExpect): 상태 2xx.
+- 응답(andExpect): 상태 204.
 - 반환값(리스너 카운터 received·processed): `Eventually.await(Duration.ofSeconds(10), ...)` 안에서 `received` = 2. 그 뒤 `processed` = 1 그대로.
 - 응답 본문(andReturn 후): `GET /admin/api/dlt/test.admin-dlt.v1?limit=50`을 다시 불러 `.andReturn()`으로 받은 본문의 항목 중 `key` = K인 것이 여전히 1개.
 
 **4. 없는 offset** — 동작: `POST /admin/api/dlt/test.admin-dlt.v1/{P}/9999/replay`(`P`는 1번과 같은 방법으로 얻는다).
-- 응답(andExpect): 상태 4xx("대상 없음", 코드는 확인 필요).
+- 응답(andExpect): 상태 404, `$.code` = `NOT_FOUND`.
 - 반환값(리스너 카운터 received): 3초 기다린 뒤에도 호출 전에 읽어 둔 값과 같다.
+
+**5. 토픽 목록** — 준비: `GET /admin/api/dlt`에서 `test.admin-dlt.v1`의 `recordCount`를 `before`로 읽는다(항목이 없으면 0. Kafka 토픽은 테스트 사이에 비워지지 않는다). 동작: 메시지를 보낸다 → `Eventually.await(Duration.ofSeconds(20), ...)` 안에서 `GET /admin/api/dlt`.
+- 응답(andExpect): 상태 200.
+- 응답 본문(andReturn 후): `topic` = `test.admin-dlt.v1`인 항목의 `recordCount` = `before` + 1이다. `.dlt`로 끝나는 `topic`이 없다.
+
+**6. 없는 토픽** — 동작: `GET /admin/api/dlt/test.no-such.v1?limit=1`, `POST /admin/api/dlt/test.no-such.v1/0/0/replay`.
+- 응답(andExpect): 둘 다 상태 404, `$.code` = `NOT_FOUND`.
+
+**7. `limit` 범위** — 동작: `GET /admin/api/dlt/test.admin-dlt.v1?limit=0`, `?limit=101`.
+- 응답(andExpect): 둘 다 상태 400, `$.code` = `INVALID_REQUEST`.
 
 #### `order/web/AdminReconcileTest` (`@ExtendWith(OutputCaptureExtension.class)` + `@AutoConfigureMockMvc` + `IntegrationTestSupport`)
 
@@ -1220,11 +1308,15 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 - 응답(andExpect): 상태 200, `$.status` = `PAID`.
 
 **5. 없는 주문** — 동작: 임의의 UUID로 reconcile.
-- 응답(andExpect): 상태 4xx(코드는 확인 필요).
+- 응답(andExpect): 상태 404, `$.code` = `ORDER_NOT_FOUND`.
 - 가짜 서버 요청(pg.requests(접두어)): `pg.requests("/v1/payments/")`의 크기 0.
 
 **6. UNKNOWN 결제 목록 조회** — 준비: 1번과 같은 준비. 동작: `GET /admin/api/payments?status=UNKNOWN`(reconcile 전).
-- 응답(andExpect): 상태 200, `$.items`의 항목 수 = 1, `$.items[0]`의 `id` = 비교 값 `snapshotOf(orderId).payment().id()`(미리 읽어 둔 값), `orderId` = orderId, `amount` = 1000, `jsonPath("$.items[0].updatedAt")`의 값이 `notNullValue()`.
+- 응답(andExpect): 상태 200, `$.items`의 항목 수 = 1, `$.items[0]`의 `id` = 비교 값 `snapshotOf(orderId).payment().id()`(미리 읽어 둔 값), `orderId` = orderId, `pgOrderId` = 체크아웃의 `pgOrderId`, `amount` = 1000, `createdAt`·`updatedAt`이 `notNullValue()`, `jsonPath("$.items[0].paymentKey").doesNotExist()`.
+
+**7. 결제가 없는 주문은 현재 상태를 준다** — 준비: `createPendingOrder(구매자 ID, product1)`(승인 전). 동작: reconcile.
+- 응답(andExpect): 상태 200, `$.status` = `PENDING_PAYMENT`.
+- 가짜 서버 요청(pg.requests(접두어)): `pg.requests("/v1/payments/")`의 크기 0.
 
 #### `order/web/AdminRefundRetryTest` (`@ExtendWith(OutputCaptureExtension.class)` + `@AutoConfigureMockMvc` + `IntegrationTestSupport`)
 
@@ -1232,36 +1324,47 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 
 **1. FAILED 환불 재시도 → COMPLETED**
 - 동작: `pg.on("/v1/payments/" + paymentKey, Behavior.approve())`로 정상 응답으로 되돌린 뒤 `POST /admin/api/refunds/{refundId}/retry`.
-- 응답(andExpect): 상태 2xx(상태·본문은 확인 필요).
+- 응답(andExpect): 상태 200, `$.refundId` = refundId, `$.status` = `COMPLETED`.
 - DB(refundRowOf(refundId)): `status()` = `COMPLETED`, `pgAttempts()` = 1.
 - 가짜 서버 요청(pg.requests(접두어)): `pg.requests("/v1/payments/" + paymentKey + "/cancel")` 총 2건. 둘째 요청 헤더 `idempotency-key` = `{refundId}-r1`.
 - DB(snapshotOf(orderId)): `s.line(product2)`, `s.line(product3)`의 `status()` = `PAID`, `refundedAmount()` = 0.
 - 로그(output.getAll()): `"target=" + refundId + " by=" + adminId`.
 
 **2. 재시도를 두 번 누르면 두 번째는 거부** — 준비: 1번 끝 상태. 동작: 같은 retry 다시.
-- 응답(andExpect): 상태 4xx(코드는 확인 필요, 후보 409 `INVALID_STATE_TRANSITION`, `$.code`).
+- 응답(andExpect): 상태 409, `$.code` = `INVALID_STATE_TRANSITION`.
 - DB(refundRowOf(refundId)): `status()` = `COMPLETED`, `pgAttempts()` = 1 그대로.
 - 가짜 서버 요청(pg.requests(접두어)): `pg.requests("/v1/payments/" + paymentKey + "/cancel")` 2건 그대로.
 - DB(paymentCancelOf(refundId + "-r1")): `status()` = `DONE` 그대로.
 - DB(snapshotOf(orderId)): `payment().cancelledAmount()` = 1000 그대로.
 
 **3. FAILED가 아닌 환불 재시도 거부** — 준비: 위 준비 대신 취소가 성공한 환불(`COMPLETED`)을 둔다(`pg` 기본 동작으로 취소). 동작: 그 환불에 retry.
-- 응답(andExpect): 상태 4xx.
+- 응답(andExpect): 상태 409, `$.code` = `INVALID_STATE_TRANSITION`.
 - DB(refundRowOf(refundId)): `status()` = `COMPLETED`, `pgAttempts()` = 0.
 - 가짜 서버 요청(pg.requests(접두어)): `pg.requests("/v1/payments/" + paymentKey + "/cancel")` 1건.
 
 **4. FAILED 환불 목록 조회** — 준비: 위 준비(`FAILED` 환불 1건). 동작: `GET /admin/api/refunds?status=FAILED`(retry 전).
-- 응답(andExpect): 상태 200, `$.items`의 항목 수 = 1, `$.items[0]`의 환불 ID 필드 = refundId(필드 이름은 확인 필요, 권장 `id`).
+- 응답(andExpect): 상태 200, `$.items`의 항목 수 = 1, `$.items[0]`의 `id` = refundId, `orderLineId` = `lineId`, `amount` = 1000, `failureCode` = `NOT_CANCELABLE_AMOUNT`, `pgAttempts` = 0, `productName`이 `notNullValue()`.
+
+**5. 재시도가 다시 실패하면 502** — 준비: 위 준비(`pg`는 계속 거절). 동작: `POST /admin/api/refunds/{refundId}/retry`.
+- 응답(andExpect): 상태 502, `$.code` = `PG_ERROR`.
+- DB(refundRowOf(refundId)): `status()` = `FAILED`, `pgAttempts()` = 1.
+
+**6. PG 결과가 불확실하면 202** — 준비: 위 준비 뒤 `pg.on("/v1/payments/" + paymentKey, Behavior.delay(1000))`. 동작: retry.
+- 응답(andExpect): 상태 202, `$.status` = `APPROVED`.
+- DB(refundRowOf(refundId)): `status()` = `APPROVED`.
+
+**7. 없는 환불** — 동작: 임의의 UUID로 retry.
+- 응답(andExpect): 상태 404, `$.code` = `REFUND_NOT_FOUND`.
 
 #### `notification/web/AdminNotificationTest` (`IntegrationTestSupport`)
 
 **준비**: `notification.notification`에 JDBC `INSERT`로 FAILED 행 N(`id` N, `member_id` `memberId`(둘 다 임의 UUID), `type` `ORDER_PAID`, `channel` `EMAIL`, `recipient` `buyer@test.com`, `title` `t`, `body` `b`, `dedup_key` 임의 문자열, `status` `FAILED`, `attempts` 5, `last_error` `smtp down`, `next_attempt_at` = 지금 - 1시간, `version` 0, `created_at`·`updated_at` = 지금)을 넣는다. N의 상태는 `notificationRowsOf(memberId).get(0)`으로 읽는다.
 
 **1. FAILED 알림 목록 조회** — 준비: 위 준비에 더해 SENT 행 1개(다른 `member_id`, 나머지 컬럼은 N과 같고 `status` `SENT`)를 넣는다. 동작: `GET /admin/api/notifications?status=FAILED`.
-- 응답(andExpect): 상태 200, `$.items`의 항목 수 = 1(SENT 행은 나오지 않는다), `$.items[0]`의 알림 ID 필드 = N(필드 이름은 확인 필요).
+- 응답(andExpect): 상태 200, `$.items`의 항목 수 = 1(SENT 행은 나오지 않는다), `$.items[0]`의 `id` = N, `type` = `ORDER_PAID`, `recipient` = `buyer@test.com`, `attempts` = 5, `lastError` = `smtp down`, `jsonPath("$.items[0].body").doesNotExist()`.
 
 **2. FAILED 알림 retry → PENDING** — 동작: `POST /admin/api/notifications/{N}/retry`.
-- 응답(andExpect): 상태 2xx.
+- 응답(andExpect): 상태 204.
 - DB(notificationRowsOf(memberId)): `get(0)`의 `status()` = `PENDING`, `attempts()` = 0, `version()` = 1.
 
 **3. retry한 알림은 다시 발송된다** — 준비: 2번의 retry를 마친 상태. 동작: `notificationDispatcher.dispatchBatch()`.
@@ -1269,8 +1372,32 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 - DB(notificationRowsOf(memberId)): `get(0).status()` = `SENT`.
 
 **4. 같은 retry 한 번 더** — 준비: 3번까지 마쳐 N이 `SENT`인 상태. 동작: `POST /admin/api/notifications/{N}/retry` 다시.
-- 응답(andExpect): 상태 4xx(코드는 확인 필요).
+- 응답(andExpect): 상태 409, `$.code` = `INVALID_STATE_TRANSITION`.
 - DB(notificationRowsOf(memberId)): `get(0).status()` = `SENT` 그대로.
+
+**5. 없는 알림** — 동작: 임의의 UUID로 retry.
+- 응답(andExpect): 상태 404, `$.code` = `NOT_FOUND`.
+
+#### `settlement/web/AdminSettlementTest` (`@AutoConfigureMockMvc` + `IntegrationTestSupport`)
+
+**준비**: ADMIN 토큰, 판매자와 가게 A(`openShop`, 이름 `shop`), `insertSettlementItems(List.of(shopA), 2, 7500, 2026-09-15 확정 시각)`, `fakePayoutGateway.failNext(1)`, 관리자가 `POST /admin/api/settlements/run?period=2026-09` → 200, `$.payoutFailed` = 1. 정산 ID는 `settlementSnapshotOf(shopA)`로 읽는다.
+
+**1. 지급 실패 정산 목록** — 동작: `GET /admin/api/settlements?status=PAYOUT_FAILED`.
+- 응답(andExpect): 상태 200, `$.items`의 항목 수 = 1, `$.items[0]`의 `shopId` = A, `shopName` = `shop`, `periodStart` = `2026-09-01`, `periodEnd` = `2026-09-30`, `netAmount` = 14250, `payoutAttempts` = 1, `lastError`가 `notNullValue()`.
+
+**2. 폐업한 가게도 이름이 나온다** — 동작: `closeShop(shopA)` → 1번의 조회.
+- 응답(andExpect): 상태 200, `$.items[0].shopName` = `shop`.
+
+**3. 같은 달로 다시 실행하면 재지급만 된다** — 동작: `POST /admin/api/settlements/run?period=2026-09`.
+- 응답(andExpect): 상태 200, `$.settledShops` = 0, `$.paid` = 1, `$.payoutFailed` = 0.
+- DB(`settlementSnapshotOf(shopA)`): `status()` = `PAID`.
+
+**4. 끝나지 않은 달은 거절한다** — 준비: 위 준비 대신 가게 A에 미정산 품목 1개를 지금 시각으로 적재한다. `thisMonth`는 `YearMonth.now(clock.withZone(businessProperties.businessZone()))`. 동작: `POST /admin/api/settlements/run?period={thisMonth}`, `?period={thisMonth.plusMonths(1)}`.
+- 응답(andExpect): 둘 다 상태 400, `$.code` = `INVALID_REQUEST`, `$.details.period`가 `notNullValue()`.
+- DB(`countOf("settlement.settlement")`): 0. DB(`unsettledItemCount()`): 1.
+
+**5. 목록의 `status`** — 동작: `GET /admin/api/settlements`(생략), `?status=NOPE`.
+- 응답(andExpect): 둘 다 상태 400, `$.code` = `INVALID_REQUEST`.
 
 #### `common/web/AdminAuthorizationTest` (`@ExtendWith(OutputCaptureExtension.class)` + `@AutoConfigureMockMvc` + `IntegrationTestSupport`)
 
@@ -1289,8 +1416,10 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 | 9 | `GET /admin/api/notifications?status=FAILED` | 〃 | 〃 |
 | 10 | `POST /admin/api/notifications/{임의 UUID}/retry` | 〃 | 〃 |
 | 11 | `POST /admin/api/settlements/run?period=2026-09` | 〃 | 〃 |
+| 12 | `GET /admin/api/dlt` | 〃 | 〃 |
+| 13 | `GET /admin/api/settlements?status=PAYOUT_FAILED` | 〃 | 〃 |
 
-- DB(outboxSnapshotOf(X)): 11개 호출을 마친 뒤 호출 전에 읽은 값과 같고 `status()` = `DEAD`다.
+- DB(outboxSnapshotOf(X)): 13개 호출을 마친 뒤 호출 전에 읽은 값과 같고 `status()` = `DEAD`다.
 - 로그(output.getAll()): `admin action=`을 포함하지 않는다(`doesNotContain("admin action=")`).
 
 **리뷰 때 물어볼 것**: 운영 API가 실수로 두 번 호출되면 안전한가? 각각 무엇이 멱등을 보장하나?
