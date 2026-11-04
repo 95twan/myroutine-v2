@@ -22,9 +22,9 @@ public class JobRunner {
             long start = System.nanoTime();
             AtomicInteger count = new AtomicInteger();
             boolean ran = jobLock.runExclusively(jobName, () -> count.set(task.get()));
-            if (ran) {
+            if (ran && count.get() > 0) {
                 log.info("job {} processed {} in {}ms", jobName, count.get(), (System.nanoTime() - start) / 1_000_000);
-            } else {
+            } else if (!ran) {
                 log.debug("job {} skipped: locked", jobName);
             }
         } catch (Exception e) {
