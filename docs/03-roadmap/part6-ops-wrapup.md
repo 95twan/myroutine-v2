@@ -398,7 +398,7 @@ docker compose --env-file .env.local -f docker/docker-compose.yml --profile obse
 | logstash에 `ports` 없음 | 앱이 `logstash:5044`로 직접 보내므로 호스트에 열 이유가 없다([ADR-011](../adr/ADR-011-ops-practice-environment.md) 5항: 앱 포트 외에는 publish하지 않는다) |
 | `app.depends_on`에 logstash 없음 | Logstash가 없어도 앱은 떠야 한다(위 "Logstash가 꺼졌을 때의 동작") |
 | kibana `5601:5601` | LAN에 연다. 집 LAN 안에서만 쓰는 VM이라 터널 없이 `http://VM주소:5601`로 본다. Kibana에는 로그인이 없어서(5-2가 ES 보안을 껐다) LAN의 모든 기기가 접속할 수 있다. 외부 접속 경로(Cloudflare Tunnel의 프록시)에는 이 포트를 연결하지 않는다 |
-| 파이프라인 마운트 | 로컬과 같은 `docker/logstash/pipeline`을 쓴다. 러너가 체크아웃한 파일을 읽으므로 첫 배포 때 `logstash`가 `Pipelines running`인지 확인한다(확인 필요) |
+| 파이프라인 마운트 | 로컬과 같은 `docker/logstash/pipeline`을 쓴다. 배포 job이 러너의 작업 폴더에 체크아웃한 파일을 읽는다. 운영 VM에서 `docker logs myroutine-ops-logstash-1`에 `Pipelines running`이 나오는 것을 확인했다 |
 
 **화면 열기**: 개발 PC 브라우저에서 `http://VM주소:5601`을 연다. 저장 검색은 한 번 가져온다: `curl -s -XPOST "VM주소:5601/api/saved_objects/_import?overwrite=true" -H 'kbn-xsrf: true' -F file=@docker/kibana/saved-objects.ndjson`. Kibana의 설정은 ES에 저장되므로 ES 볼륨이 남아 있는 한 다시 가져올 필요가 없다.
 
@@ -421,7 +421,7 @@ docker exec myroutine-ops-elasticsearch-1 curl -s -XPUT localhost:9200/_index_te
   -d '{"index_patterns":["myroutine-logs-*"],"template":{"settings":{"index.lifecycle.name":"myroutine-logs-retention"}}}'
 ```
 
-날짜별 인덱스에 쓴 로그가 실제로 지워지는지는 임시 ES에서 `min_age`를 10초, 확인 주기(`indices.lifecycle.poll_interval`)를 1초로 줄여 실행해 확인했다(인덱스가 `managed: true`로 잡히고 약 10초 뒤 사라졌다). `7d`는 문법만 확인했다. `min_age`는 인덱스가 **만들어진 시각**부터 세므로, 하루 한 개씩 생기는 인덱스는 만든 지 7일이 지난 뒤 통째로 지워진다. 그 인덱스에는 만든 시각부터 최대 하루치 로그가 들어 있으므로 로그 한 건은 6~7일 남는다. ES가 기본 10분마다 확인하므로 삭제는 몇 분 늦을 수 있다.
+날짜별 인덱스에 쓴 로그가 실제로 지워지는지는 임시 ES에서 `min_age`를 10초, 확인 주기(`indices.lifecycle.poll_interval`)를 1초로 줄여 실행해 확인했다(인덱스가 `managed: true`로 잡히고 약 10초 뒤 사라졌다). `7d` 정책은 운영 VM에서 첫 인덱스가 `managed: true`로 잡히는 것까지 확인했고, 7일 뒤의 실제 삭제는 확인하지 못했다. `min_age`는 인덱스가 **만들어진 시각**부터 세므로, 하루 한 개씩 생기는 인덱스는 만든 지 7일이 지난 뒤 통째로 지워진다. 그 인덱스에는 만든 시각부터 최대 하루치 로그가 들어 있으므로 로그 한 건은 6~7일 남는다. ES가 기본 10분마다 확인하므로 삭제는 몇 분 늦을 수 있다.
 
 **5) Kibana 저장 검색** — `docker/kibana/saved-objects.ndjson`
 
@@ -481,6 +481,7 @@ curl -s -XDELETE "$E/myroutine-logs-2026.11.04"    # 인덱스 삭제. myroutine
 | 인덱스가 안 생기거나 건수가 0 | 인덱스 이름이 `logs-`로 시작한다. Logstash 로그에 `Could not index event … data streams`가 나온다 | `docker compose ... logs logstash \| grep "Could not index"` |
 | Discover가 비어 있다 | 시간 범위가 좁다(기본 15분) | 오른쪽 위 시간 범위를 넓힌다 |
 | 앱 로그가 안 들어오는데 수동 `nc`는 들어온다 | 앱을 `elk` 프로필 없이 띄웠다 | 시작 로그의 `profiles are active` 줄 |
+| 앱은 정상인데 Kibana에 인덱스가 없다 | 파이프라인 마운트가 안 붙어 Logstash가 이미지의 기본 설정(Beats 입력, 콘솔 출력)으로 떴다. 연결은 되고 로그만 사라진다 | `docker logs <logstash 컨테이너>`에 `beats` 입력이 보이는지 |
 | SQL이 Kibana에 보인다 | `ThresholdFilter`가 빠졌다 | `logger_name : "org.hibernate.SQL" or logger_name : "org.hibernate.orm.jdbc.bind"` |
 
 **6) 테스트** — 완료 확인 `common/LogFlowTest`, `common/LogSafetyTest`
