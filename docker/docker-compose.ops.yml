@@ -5,10 +5,11 @@ services:
     image: ghcr.io/95twan/myroutine:${IMAGE_TAG:?IMAGE_TAG를 지정하세요}
     env_file: /opt/myroutine/.env
     environment:
-      SPRING_PROFILES_ACTIVE: prod
+      SPRING_PROFILES_ACTIVE: prod,elk
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_DATA_REDIS_HOST: redis
       SPRING_ELASTICSEARCH_URIS: http://elasticsearch:9200
+      LOGSTASH_HOST: logstash
     ports:
       - "8080:8080"
     restart: unless-stopped
@@ -107,6 +108,30 @@ services:
       start_period: 60s
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:9.4.8
+    restart: unless-stopped
+    environment:
+      LS_JAVA_OPTS: -Xms256m -Xmx256m
+      XPACK_MONITORING_ENABLED: "false"
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:9.4.8
+    restart: unless-stopped
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      TELEMETRY_OPTIN: "false"
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
 
 volumes:
   postgres_data:
