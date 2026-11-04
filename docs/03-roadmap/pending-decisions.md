@@ -115,8 +115,6 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 
 | 단계 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
-| 6-1 | A | 로그 문장을 더하는 범위: 요청·이벤트 처리·Kafka 전송·알림 발송 로그, 0건 잡 로그 제거, Logstash INFO 필터, `memberId`·`orderId` MDC와 저장 검색 2개. 권장안을 문서에 적었다(실측: 평소 분당 103행 → 0행, 승인 요청 145행 → 4행) | 6-1 "무엇을 로그로 남기나", MDC 보강 | 사용자 확인 |
-| 6-1·6-2 | A | 운영 VM에 관측 스택을 올릴지. 올리면 앱 프로필 `prod,elk`와 `LOGSTASH_HOST=logstash`, Prometheus 대상 `app:8081`, 화면은 `127.0.0.1` publish + SSH 터널, Grafana 비밀번호는 `.env`, 로그 인덱스를 지우는 주기가 함께 정해진다. 메모리 실측: Logstash 약 600MiB, Kibana 약 1GiB, Prometheus 약 110MiB, Grafana 약 460~950MiB | 6-1 docker, 6-2 Prometheus·Grafana, ADR-011 | 사용자 결정(권장: 올린다. VM 16GB에 들어간다) |
 | 6-2 | A | `pg_call_seconds`의 라벨 값과 메일 계측 위치. 권장안을 문서에 적었다(`operation`은 `pgMethod`, `result`는 `PgResult` 종류의 소문자, 메일은 `SmtpMailSender`) | 6-2 payment.infrastructure, common.mail | 사용자 확인 |
 | 6-2 | A | 재고 점검 잡의 수동 실행. 권장안(cron을 설정값으로, `MYROUTINE_STOCKCHECK_CRON`)을 문서에 적었고 실행으로 확인했다. 대안은 별도 트리거 API | 6-2 `StockCheckJob`, 완료 확인 "수동 확인: 장애 주입" | 사용자 확인 |
 | 6-2 | A | `payment_unknown_oldest_age_seconds`의 기준 컬럼. 권장안 `created_at`을 문서에 적었다(실측: `updated_at` 기준은 0과 30초를 오가 알림이 뜨지 않는다) | 6-2 payment.application(`PaymentMetrics`) | 사용자 확인 |
@@ -130,7 +128,7 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 
 | 문서 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
-| ADR-011 | B | VM 자원(16GB·8vCPU)이 적정한지. 로컬 실측은 위 6-1·6-2 행에 있다 | ADR-011 결정 1항(환경) | VM에 올린 뒤 실측 |
+| ADR-011 | B | VM 자원(16GB·8vCPU)이 적정한지. 로컬 실측은 로드맵 6-1 "운영 VM"과 6-2 8)에 있다 | ADR-011 결정 1항(환경) | VM에 올린 뒤 실측 |
 | ADR-012 | A | MinIO를 클러스터에 다시 올릴지 NAS의 것을 쓸지(문구 없음). 세부 항목이 제안 상태인 것은 Part 6의 6-5 행과 같은 건 | ADR-012 결정 4항(MinIO) | Stage 1.5 시작 전에 결정 |
 | ADR-012 | B | 24GB 호스트에서 멀티 노드가 가능한지, local-path PVC에서 MinIO uid 65532용 `fsGroup`이 필요한지 | ADR-012 결정 2항(클러스터), 4항(MinIO) | 실측·k3s에서 확인 |
 | ADR-012 | D | 러너 ServiceAccount의 네임스페이스 한정 RBAC | ADR-012 결정 5항(CD) | Role/RoleBinding 작성·검증 |

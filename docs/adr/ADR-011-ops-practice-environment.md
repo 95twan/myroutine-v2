@@ -1,6 +1,6 @@
 # ADR-011. 운영 환경 연습: Proxmox VM 1대 + Docker Compose, GitHub Actions self-hosted runner로 자동 배포
 
-- 상태: 승인 (2026-10-07, 개정: 쿠버네티스를 최종 목표로 기록 / 2026-10-09: "확인 필요" 항목을 공식 문서·실행으로 확인, `workflow_run` 트리거의 안전 조건과 인프라 이미지 고정 방식 추가 / 2026-10-14: 운영 MinIO를 VM에서 시놀로지 NAS(DS720+)로 이전 — §5·§6 수정, §8 추가 / 2026-10-21: 외부 접속 보류를 풀고 Cloudflare Tunnel로 연다)
+- 상태: 승인 (2026-10-07, 개정: 쿠버네티스를 최종 목표로 기록 / 2026-10-09: "확인 필요" 항목을 공식 문서·실행으로 확인, `workflow_run` 트리거의 안전 조건과 인프라 이미지 고정 방식 추가 / 2026-10-14: 운영 MinIO를 VM에서 시놀로지 NAS(DS720+)로 이전 — §5·§6 수정, §8 추가 / 2026-10-21: 외부 접속 보류를 풀고 Cloudflare Tunnel로 연다 / 2026-11-04: 관측 스택을 VM에도 올린다 — §9 추가)
 - 관련: 로드맵 [1-11](../03-roadmap/part1-foundation.md), NFR-SEC-01, [ADR-010](ADR-010-observability.md), [Git 정책 §7](../git-policy.md)
 
 ## 맥락
@@ -23,7 +23,7 @@
    - 배포 job은 GitHub Environment `ops`를 쓰고, 배포 가능한 브랜치를 `develop`·`main`으로 제한한다.
    - 러너는 전용 비root 사용자로 실행하고, VM에는 이 프로젝트 외의 중요한 데이터를 두지 않는다. (docker 그룹은 사실상 root 권한이다. VM을 격리된 용도로만 쓰는 것으로 위험을 받아들인다.)
 4. **시크릿**: 운영 `.env`는 VM의 고정 경로(예: `/opt/myroutine/.env`)에 사람이 한 번 만든다. 리포와 GitHub Secrets에는 두지 않는다(NFR-SEC-01, 공격면 축소). 배포는 이 파일을 읽기만 한다. GHCR 로그인은 워크플로의 `GITHUB_TOKEN`을 쓴다. push하는 job은 `permissions: packages: write`, pull만 하는 배포 job은 `packages: read`(GitHub 문서 "Publishing Docker images"의 예시와 같다, 2026-10-09 확인).
-5. **접속**: 집 네트워크(LAN) 안에서만. VM은 앱 포트(8080)만 LAN에 열고, DB·Redis·Kafka·ES와 actuator 관리 포트(8081)는 호스트에 publish하지 않는다(MEM-05). MinIO API(9000)는 NAS가 LAN에 연다(§8). 외부 접속은 Cloudflare Tunnel을 거치는 공개 주소로 연다(아래 "외부 접속").
+5. **접속**: 집 네트워크(LAN) 안에서만. VM은 앱 포트(8080)와 관측 화면(9항)만 LAN에 열고, DB·Redis·Kafka·ES와 actuator 관리 포트(8081)는 호스트에 publish하지 않는다(MEM-05). MinIO API(9000)는 NAS가 LAN에 연다(§8). 외부 접속은 Cloudflare Tunnel을 거치는 공개 주소로 연다(아래 "외부 접속").
 6. **데이터**: Postgres 등은 VM의 named volume, MinIO는 NAS 로컬 볼륨(§8). 백업은 Stage 1 범위 밖이고 회고에 남긴다.
    - 인프라 이미지도 고정한다: 버전 태그가 있으면 태그로(예: `pgvector/pgvector:pg17`), 태그가 `latest`뿐인 이미지(`chainguard/minio`, 2026-09-11 공식 `minio/minio` 삭제 후 사용)는 **digest**(`image@sha256:...`)로. 매일 다시 빌드되는 `latest`로 두면 롤백해도 인프라 버전이 바뀐다.
 7. **스키마와 롤백**: 롤백은 이미지만 되돌린다(Flyway는 되돌리지 않는다). 따라서 **이전 버전 앱이 새 스키마에서 동작해야** 한다. 컬럼 삭제·이름 변경 같은 파괴적 마이그레이션은 "추가 → 코드 전환 → 삭제"의 두 번 이상의 배포로 나눈다.
@@ -34,6 +34,12 @@
    - 대가: 앱이 VM과 NAS 두 장비에 의존한다(NAS가 꺼지면 업로드 실패, 앱 재시작 시 기동 실패). 실습 환경이라 받아들인다.
    - 로컬 개발·테스트(`docker/docker-compose.yml`, Testcontainers)는 그대로 로컬 MinIO를 쓴다.
    - 기존 운영 이미지 데이터는 옮기지 않고 새로 시작한다(사용자 결정, 테스트 데이터뿐).
+
+9. **관측 스택도 VM에 올린다** (2026-11-04): Logstash·Kibana(로드맵 6-1), Prometheus·Grafana(6-2)를 운영 compose에 `profiles` 없이 넣고 앱은 프로필 `prod,elk`로 띄운다. 구체 설정은 [로드맵 6-1 "운영 VM"](../03-roadmap/part6-ops-wrapup.md)과 6-2 8)에 있다.
+   - 이유: 운영 환경 연습에서 "배포한 앱을 로그와 메트릭으로 본다"까지가 한 흐름이고, Stage 2 부하 테스트의 전후 비교(Prometheus 이력)가 VM에 남아야 한다. 로컬 실측 합계가 약 2.2~2.7GiB라 VM 16GB에 들어간다.
+   - 화면은 Kibana 5601·Grafana 3000을 LAN에 열고(5항의 "앱 포트만"에 대한 예외), Prometheus 9090은 VM의 `127.0.0.1`에만 publish한다. Kibana는 로그인이 없어서 LAN의 모든 기기가 접속할 수 있으므로 LAN의 기기를 신뢰하는 것을 전제로 하고, 외부 접속 경로(프록시)에는 연결하지 않는다. Grafana 관리자 비밀번호는 VM의 `/opt/myroutine/.env`에 둔다(4항).
+   - 로그 인덱스는 ES ILM으로 7일 뒤 삭제한다. 지표는 Prometheus 기본 보관(15일)이다.
+   - 대가: ES(힙 512MB)가 앱 데이터(상품 검색)와 로그를 함께 쓴다. 로그량이 늘면 검색에 영향을 줄 수 있어 VM 실측 때 같이 본다(결정 1항).
 
 ## 고려한 대안
 | 대안 | 결정 |

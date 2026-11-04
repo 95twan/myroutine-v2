@@ -1,6 +1,8 @@
 # Part 6. 관측 · 운영 · 마무리
 
-> 버전 0.35 · 2026-11-04 · Part 6 앞에 6-0(문의 수정의 여러 줄 내용)을 더했다: 문의 수정의 `content`가 줄바꿈을 받는다
+> 버전 0.37 · 2026-11-05 · `orderId` MDC는 서비스 본문 대신 `@LogOrderId` Aspect로 넣고 요청 2곳(`confirm`·`cancel`)에 적용한다. 운영 VM의 Kibana(5601)·Grafana(3000)는 SSH 터널 없이 LAN에서 바로 연다(Prometheus는 `127.0.0.1`)
+> 0.36 · 2026-11-04 · 관측 스택(Logstash·Kibana·Prometheus·Grafana)을 운영 VM에도 올린다: 앱 프로필 `prod,elk`, 로그 인덱스는 ES ILM으로 7일 뒤 삭제한다
+> 0.35 · 2026-11-04 · Part 6 앞에 6-0(문의 수정의 여러 줄 내용)을 더했다: 문의 수정의 `content`가 줄바꿈을 받는다
 > 0.34 · 2026-11-04 · 6-3의 쓰기 API 응답과 목록 항목을 정하고 `GET /admin/api/dlt`, `GET /admin/api/settlements`를 더했다. 정산 수동 실행은 끝난 달만 받는다(이번 달로 실행하면 그달의 나머지 품목이 영구히 정산되지 않는다)
 > 0.33 · 2026-11-04 · 6-1·6-2를 실제로 띄워 확인한 값으로 다시 썼다: 로그 인덱스 `myroutine-logs-*`, Logstash 포트 5044, INFO 필터와 로그 문장 추가, UNKNOWN 나이의 `created_at` 기준, DLT 알림의 `offset` 식. 6-3 목록 조회·`size`·실행 로그 `action`·`AdminDltService`를 확정했다
 > 0.32 · 2026-10-31 · 구독·취향 추천·월간 리뷰 요약을 로드맵에서 빼서([서브](../04-sub/README.md)) Part 6에서 구독·OpenAI 의존을 걷어냈다: 6-1 `LogSafetyTest`의 빌링키 등록, 6-2 `openai_call_seconds`, 6-4 `subscriptionCycles()`(INV-08)·S5·S7의 구독 단계. 옮긴 내용은 서브 문서의 "Part 6에 더할 것"에 있다
@@ -30,7 +32,7 @@
 
 ## Part 6 공통 규칙
 
-- 관측 스택(Logstash, Kibana, Prometheus, Grafana)은 docker-compose **`observability` 프로필**로 띄운다: `docker compose --env-file .env.local -f docker/docker-compose.yml --profile observability up -d`. 프로필을 주지 않으면 기존 5개 서비스만 뜬다. 평소 개발에는 띄우지 않는다(메모리). 이미지는 Logstash·Kibana·Prometheus·Grafana를 합쳐 약 6.5GB다.
+- 관측 스택(Logstash, Kibana, Prometheus, Grafana)은 docker-compose **`observability` 프로필**로 띄운다: `docker compose --env-file .env.local -f docker/docker-compose.yml --profile observability up -d`. 프로필을 주지 않으면 기존 5개 서비스만 뜬다. 평소 개발에는 띄우지 않는다(메모리). 이미지는 Logstash·Kibana·Prometheus·Grafana를 합쳐 약 6.5GB다. 운영 VM의 `docker-compose.ops.yml`에는 프로필 없이 항상 띄운다(6-1 "운영 VM", 6-2 8)).
 - 설정 파일은 모두 리포에 둔다: `docker/logstash/`, `docker/kibana/`, `docker/prometheus/`, `docker/grafana/provisioning/`. 화면에서 만든 대시보드·검색은 **파일로 내보내 커밋**한다.
 - 6-3의 운영 API는 모두 `/admin/api/**`(ADMIN)이다. 실행 로그 형식은 6-3 "모든 API에 공통"에 적었다.
 
@@ -249,7 +251,7 @@ Logstash가 꺼졌을 때의 동작은 아래와 같다. 앱은 어느 경우에
 
 **2) 로그 문장** — 위 "무엇을 로그로 남기나" 표의 다섯 곳을 고친다. 메시지 안의 `{}`는 값으로 채워지고, `message` 필드에 그대로 들어가 KQL로 찾을 수 있다. `TraceIdFilter`는 `try` 앞에서 `long start = System.nanoTime()`을 재고, 경과는 `(System.nanoTime() - start) / 1_000_000`이다. `@Slf4j`를 더한다.
 
-**3) MDC 보강** — `common.web`·`common.security`·`order.application`
+**3) MDC 보강** — `common.web`·`common.security`·`common.logging`·`order.application`
 
 값은 문자열만 되고(UUID는 `.toString()`), **스레드를 넘어가지 않으며**(Kafka listener·스케줄러 스레드는 따로 넣어야 한다), 안 지우면 스레드 풀의 다음 작업에 남는다. 그래서 넣는 곳마다 빼는 곳이 짝으로 있다. `traceId`·`job`·`eventId`는 이미 있고, 이 단계에서 새로 넣는 것은 `memberId`와 `orderId`다.
 
@@ -259,27 +261,30 @@ Logstash가 꺼졌을 때의 동작은 아래와 같다. 앱은 어느 경우에
 | `job` | `JobRunner` (이미 있음) | `JobRunner`의 `finally` |
 | `eventId` | `EventContext` (이미 있음, `InboxGuard`가 안에서 부른다) | `EventContext`의 `finally` |
 | `memberId` | `JwtAuthenticationFilter` 인증 성공 직후 | `TraceIdFilter`의 `finally` |
-| `orderId` | 주문 흐름의 가장 바깥 메서드(아래) | try-with-resources가 지운다 |
+| `orderId` | `@LogOrderId`가 붙은 주문 요청 메서드 2곳(아래) | `LogOrderIdAspect`의 try-with-resources가 지운다 |
 
 - **`memberId`**: `JwtAuthenticationFilter.doFilterInternal`의 `ifPresent` 람다 안, `SecurityContextHolder.getContext().setAuthentication(authenticatedToken)` 바로 다음 줄에 `MDC.put("memberId", claims.memberId().toString())`을 더한다. 토큰 버전이 맞을 때만 지나는 자리다(`AuthClaims`는 `record (UUID sessionId, UUID memberId, String role, int tokenVersion)`). 빼는 곳은 `TraceIdFilter`의 `finally`에 `MDC.remove("memberId")` 한 줄이다. `TraceIdFilter`가 `HIGHEST_PRECEDENCE`라 보안 필터 바깥에서 요청 전체를 감싸므로 거기서 지우면 된다. `http` 로그를 찍는 줄보다 뒤에 지워야 그 행에 `memberId`가 붙는다. 토큰이 없거나 틀린 요청은 비어 있다.
-- **`orderId`**: `MDC.putCloseable`은 값을 넣고, try 블록이 끝나면(예외 포함) `close()`가 **그 키를 지운다**. `MDCCloseable`은 `close()`만 있는 타입이고 `ignored`는 쓰지 않는 변수라는 표시다.
+- **`orderId`**: 서비스 본문에 MDC 코드를 쓰지 않고, 메서드에 어노테이션을 붙이면 Aspect가 감싼다. 기존 `IdempotencyAspect`(`@Idempotent`)와 같은 방식이다. 새 패키지 `common.logging`에 어노테이션 `@LogOrderId`와 Aspect `LogOrderIdAspect`를 둔다.
+
+  ```java
+  @LogOrderId
+  public ConfirmResult confirm(UUID memberId, UUID orderId, ConfirmPaymentCommand command) { ... }
+  ```
+
+  Aspect는 `@Around("@annotation(com.myroutine.common.logging.LogOrderId)")`로 걸고, `MethodSignature.getParameterNames()`에서 이름이 `orderId`인 파라미터의 위치를 찾아 `pjp.getArgs()`의 그 값을 쓴다(파라미터 이름은 컴파일 때 `-parameters`로 클래스에 남아 있다). 감싸는 방법은 아래다. `MDC.putCloseable`은 값을 넣고, try 블록이 끝나면(예외 포함) `close()`가 **그 키를 지운다**. `MDCCloseable`은 `close()`만 있는 타입이고 `ignored`는 쓰지 않는 변수라는 표시다.
 
   ```java
   try (MDC.MDCCloseable ignored = MDC.putCloseable("orderId", orderId.toString())) {
-      // 주문을 처리한다
+      return pjp.proceed();
   }
   ```
 
-  `close()`는 이전 값을 복원하지 않고 지우기만 하므로, 같은 키를 안쪽에서 다시 열면 안쪽이 닫히는 순간 바깥 구간의 `orderId`도 사라진다. 그래서 **가장 바깥 한 곳에서만 연다.**
+  `close()`는 이전 값을 복원하지 않고 지우기만 하므로, 같은 키를 안쪽에서 다시 열면 안쪽이 닫히는 순간 바깥 구간의 `orderId`도 사라진다. 그래서 어노테이션은 **가장 바깥 진입 메서드에만** 붙인다.
 
-  | 여는 곳 | 범위 |
+  | 붙이는 곳 | 범위 |
   |---|---|
-  | `ConfirmPaymentService.confirm` | 메서드 본문 전체 |
-  | `CancelOrderLineService.cancel` | 메서드 본문 전체 |
-  | `OrderExpirationService.expireBatch` | `for (UUID orderId : orderIds)` 안에서 주문마다 |
-  | `OrderReconcileService.reconcileBatch` | `for (UUID orderId : ids)` 안에서 주문마다. 기존 `try`를 `try (…)`로 바꾸면 된다 |
-
-  `OrderPaymentApplier`는 위 메서드들 안에서 불리므로 열지 않는다. `http` 행은 이 블록이 닫힌 뒤에 찍혀서 `orderId` 필드가 없지만, 경로에 주문 ID가 있어 `message`로 찾힌다.
+  | `ConfirmPaymentService.confirm` | 메서드 전체 |
+  | `CancelOrderLineService.cancel` | 메서드 전체 |
 
 **4) docker** — `docker/logstash/pipeline/logstash.conf`, `docker/docker-compose.yml`
 
@@ -349,7 +354,74 @@ docker compose --env-file .env.local -f docker/docker-compose.yml --profile obse
 | Logstash | 약 600MiB | 1.53GB |
 | Kibana | 약 1.0GiB(뜰 때 1.8GiB) | 2.76GB |
 
-6-2의 Prometheus·Grafana까지 모두 띄워도 Docker Desktop 메모리 8GB 안에 들어간다. 운영 VM에 올릴지는 [구현 때 정할 것](pending-decisions.md)의 6-1 행에서 정한다.
+6-2의 Prometheus·Grafana까지 모두 띄워도 Docker Desktop 메모리 8GB 안에 들어간다.
+
+**운영 VM** — `docker/docker-compose.ops.yml`
+
+운영 VM(RAM 16GB, [ADR-011](../adr/ADR-011-ops-practice-environment.md))에도 같은 스택을 올린다. 메모리 실측 합계가 Logstash·Kibana·Prometheus·Grafana를 합쳐 약 2.2~2.7GiB라 들어간다. 운영 compose에는 `profiles`가 없으므로 배포 때마다 같이 뜬다. 로컬 compose와 다른 점은 아래와 같다.
+
+```yaml
+  app:
+    environment:
+      SPRING_PROFILES_ACTIVE: prod,elk
+      LOGSTASH_HOST: logstash
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:9.4.8
+    restart: unless-stopped
+    environment:
+      LS_JAVA_OPTS: -Xms256m -Xmx256m
+      XPACK_MONITORING_ENABLED: "false"
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:9.4.8
+    restart: unless-stopped
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      TELEMETRY_OPTIN: "false"
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+```
+
+| 부분 | 이유 |
+|---|---|
+| `SPRING_PROFILES_ACTIVE: prod,elk` | `prod`만 있던 값에 `elk`를 더한다. `elk`가 있어야 `logback-spring.xml`이 Logstash로 보낸다 |
+| `LOGSTASH_HOST: logstash` | 같은 compose 네트워크 안의 서비스 이름이다. 기본값 `localhost`는 앱 컨테이너 자신이라 닿지 않는다 |
+| logstash에 `ports` 없음 | 앱이 `logstash:5044`로 직접 보내므로 호스트에 열 이유가 없다([ADR-011](../adr/ADR-011-ops-practice-environment.md) 5항: 앱 포트 외에는 publish하지 않는다) |
+| `app.depends_on`에 logstash 없음 | Logstash가 없어도 앱은 떠야 한다(위 "Logstash가 꺼졌을 때의 동작") |
+| kibana `5601:5601` | LAN에 연다. 집 LAN 안에서만 쓰는 VM이라 터널 없이 `http://VM주소:5601`로 본다. Kibana에는 로그인이 없어서(5-2가 ES 보안을 껐다) LAN의 모든 기기가 접속할 수 있다. 외부 접속 경로(Cloudflare Tunnel의 프록시)에는 이 포트를 연결하지 않는다 |
+| 파이프라인 마운트 | 로컬과 같은 `docker/logstash/pipeline`을 쓴다. 러너가 체크아웃한 파일을 읽으므로 첫 배포 때 `logstash`가 `Pipelines running`인지 확인한다(확인 필요) |
+
+**화면 열기**: 개발 PC 브라우저에서 `http://VM주소:5601`을 연다. 저장 검색은 한 번 가져온다: `curl -s -XPOST "VM주소:5601/api/saved_objects/_import?overwrite=true" -H 'kbn-xsrf: true' -F file=@docker/kibana/saved-objects.ndjson`. Kibana의 설정은 ES에 저장되므로 ES 볼륨이 남아 있는 한 다시 가져올 필요가 없다.
+
+**로그 보관 기간**: 운영은 **7일**이다. ES의 ILM(인덱스 생명주기 관리)으로 인덱스를 자동 삭제한다. 로컬은 정하지 않는다.
+
+| 개념 | 한 줄 설명 |
+|---|---|
+| ILM 정책 | "인덱스가 만들어진 지 N일이 지나면 지운다" 같은 규칙. 이 정책은 `delete` 단계 하나뿐이다 |
+| 인덱스 템플릿 | 이름이 패턴에 맞는 인덱스가 새로 만들어질 때 설정을 자동으로 붙인다. `myroutine-logs-*`에 위 정책을 붙인다 |
+
+VM 최초 배포 **전에** 한 번 만든다. 정책과 템플릿은 ES 볼륨에 저장되므로 다시 하지 않아도 된다. 템플릿은 그 뒤에 새로 만들어지는 인덱스에만 적용된다. ES는 호스트에 열려 있지 않으므로 컨테이너 안의 curl을 쓴다. 두 명령 모두 `{"acknowledged":true}`가 나와야 한다.
+
+```bash
+docker exec myroutine-ops-elasticsearch-1 curl -s -XPUT localhost:9200/_ilm/policy/myroutine-logs-retention \
+  -H 'Content-Type: application/json' \
+  -d '{"policy":{"phases":{"delete":{"min_age":"7d","actions":{"delete":{}}}}}}'
+
+docker exec myroutine-ops-elasticsearch-1 curl -s -XPUT localhost:9200/_index_template/myroutine-logs \
+  -H 'Content-Type: application/json' \
+  -d '{"index_patterns":["myroutine-logs-*"],"template":{"settings":{"index.lifecycle.name":"myroutine-logs-retention"}}}'
+```
+
+날짜별 인덱스에 쓴 로그가 실제로 지워지는지는 임시 ES에서 `min_age`를 10초, 확인 주기(`indices.lifecycle.poll_interval`)를 1초로 줄여 실행해 확인했다(인덱스가 `managed: true`로 잡히고 약 10초 뒤 사라졌다). `7d`는 문법만 확인했다. `min_age`는 인덱스가 **만들어진 시각**부터 세므로, 하루 한 개씩 생기는 인덱스는 만든 지 7일이 지난 뒤 통째로 지워진다. 그 인덱스에는 만든 시각부터 최대 하루치 로그가 들어 있으므로 로그 한 건은 6~7일 남는다. ES가 기본 10분마다 확인하므로 삭제는 몇 분 늦을 수 있다.
 
 **5) Kibana 저장 검색** — `docker/kibana/saved-objects.ndjson`
 
@@ -409,13 +481,13 @@ curl -s -XDELETE "$E/myroutine-logs-2026.11.04"    # 인덱스 삭제. myroutine
 | 인덱스가 안 생기거나 건수가 0 | 인덱스 이름이 `logs-`로 시작한다. Logstash 로그에 `Could not index event … data streams`가 나온다 | `docker compose ... logs logstash \| grep "Could not index"` |
 | Discover가 비어 있다 | 시간 범위가 좁다(기본 15분) | 오른쪽 위 시간 범위를 넓힌다 |
 | 앱 로그가 안 들어오는데 수동 `nc`는 들어온다 | 앱을 `elk` 프로필 없이 띄웠다 | 시작 로그의 `profiles are active` 줄 |
-| SQL이 Kibana에 보인다 | `ThresholdFilter`가 빠졌다 | `logger_name : *hibernate*` |
+| SQL이 Kibana에 보인다 | `ThresholdFilter`가 빠졌다 | `logger_name : "org.hibernate.SQL" or logger_name : "org.hibernate.orm.jdbc.bind"` |
 
 **6) 테스트** — 완료 확인 `common/LogFlowTest`, `common/LogSafetyTest`
 
 민감정보 점검 대상은 **로그 문장(`log.info("...", 값)`의 인자와 예외 메시지)**이다. 토큰·비밀번호·인증코드·`authKey`·`paymentKey`가 인자로 들어간 곳, 요청·응답 바디를 통째로 찍는 곳이 후보이고, 고치는 방법은 값을 빼거나 앞 몇 글자만 남기는 것이다. `@ExtendWith(OutputCaptureExtension.class)`를 달면 메서드 파라미터로 `CapturedOutput output`을 받는다. 콘솔 출력을 보므로 JSON 인코더와 무관하게 같은 로그 문장을 검사한다.
 
-`LogMailSender`(`@Profile("!prod")`)는 메일 본문 앞 100자를 찍으므로 로컬에서는 인증코드가 콘솔과 Kibana에 남는다(`send mail to …, body: 인증코드: 370394`). 로컬에서 메일 없이 코드를 읽는 수단이라 그대로 둔다. 운영의 `SmtpMailSender`는 본문을 로그에 남기지 않는다. 테스트에서는 `FakeMailSender`가 대신 주입되므로 `LogSafetyTest`로는 잡히지 않는다.
+`LogMailSender`(`@Profile("!prod")`)는 메일 본문 앞 100자를 찍으므로 로컬에서는 인증코드가 콘솔과 Kibana에 남는다(`send mail to …, body: 인증코드: 370394`). 로컬에서 메일 없이 코드를 읽는 수단이라 그대로 둔다. 운영의 `SmtpMailSender`는 본문을 로그에 남기지 않는다. 테스트에서는 `FakeMailSender`가 대신 주입되고, 이 구현도 본문 앞 100자를 찍는다. 그래서 `LogSafetyTest`는 `FakeMailSender`가 찍은 줄을 빼고 검사한다.
 
 ### 완료 확인
 
@@ -436,7 +508,7 @@ curl -s -XDELETE "$E/myroutine-logs-2026.11.04"    # 인덱스 삭제. myroutine
 **3. 중복 이벤트는 처리 로그를 남기지 않는다** — 준비: 2번을 마친 상태. 동작: 같은 봉투로 `runOnce` 한 번 더.
 - 로그(output.getAll()): `event handled consumer=test.log-flow`가 정확히 1번 나온다(두 번째 실행은 `duplicate event skipped`).
 
-**4. 릴레이 전송 로그** — 준비: `common.outbox_event`에 JDBC `INSERT`로 READY 행 X(컬럼은 6-2 `MetricsTest` 1번과 같고 `topic` `test.outbox-relay.v1`, `trace_id` `t-log`). 동작: `outboxRelay.relayOnce()`.
+**4. 릴레이 전송 로그** — 준비: `outboxAssert.publishReady("test.outbox-relay.v1", 임의 UUID)`로 READY 행 X를 만들고 그 행의 `trace_id`를 JDBC `UPDATE`로 `t-log`로 바꾼다. 동작: `outboxRelay.relayOnce()`.
 - 로그(output.getAll()): `"outbox sent eventId=" + X`와 `originTraceId=t-log`를 포함한다.
 
 **5. 릴레이 실패 로그** — 준비: 4번과 같은 READY 행 X, `kafka.getDockerClient().pauseContainerCmd(kafka.getContainerId()).exec()`(3-1 `OutboxRelayTest`와 같다). 동작: `relayOnce()` 뒤 `unpauseContainerCmd`.
@@ -476,10 +548,21 @@ curl -s -XDELETE "$E/myroutine-logs-2026.11.04"    # 인덱스 삭제. myroutine
 - "traceId로 흐름 보기"에 `T`를 넣으면 시간 오름차순으로 위 "traceId로 무엇이 보이나"의 4행이 나온다(`TossClient`, `TraceIdFilter`, `OutboxRelay`, `InboxGuard`). 행마다 `app` = `myroutine`이다. consumer가 더 있으면 `InboxGuard` 행이 더 나올 수 있다.
 - "회원으로 찾기"에 `M`을 넣으면 위 행들과 함께 `notification sent … type=ORDER_PAID memberId=M` 행이 나온다.
 - "주문으로 찾기"에 `O`를 넣으면 `TossClient` 행(`orderId` 필드)과 `http POST /api/orders/O/payment/confirm` 행(`message`)이 나온다.
-- SQL이 보이지 않는다: `logger_name : *hibernate*`가 0건이다.
+- SQL이 보이지 않는다: `logger_name : "org.hibernate.SQL" or logger_name : "org.hibernate.orm.jdbc.bind"`가 0건이다. `*hibernate*`로 넓게 찾으면 시작할 때 찍는 INFO 로그(`HHH000…`)가 걸리므로 SQL 로거 이름으로 찾는다.
 - "ERROR만"과 "결제 UNKNOWN"이 쿼리 오류 없이 실행된다(0건이어도 된다).
 - 저장 검색 5개가 `docker/kibana/saved-objects.ndjson`에 있고, Kibana를 새로 띄워 그 파일을 가져오면 5개 이름이 Saved Objects 목록에 보인다.
 - PR에 "traceId로 흐름 보기" 결과 스크린샷 1장을 붙인다.
+
+#### 운영 VM에서 확인 (수동)
+
+**준비**: 위 "운영 VM"의 ILM 정책·템플릿 명령을 최초 배포 전에 실행하고, 이 단계를 `develop`에 머지해 자동 배포가 끝난 상태.
+
+**동작**: `http://VM주소:5601`의 Kibana에서 저장 검색을 가져온 뒤, 운영 앱에 요청을 보낸다(예: `GET /api/products`).
+
+**확인할 것**
+- "traceId로 흐름 보기"에 그 요청의 `X-Request-Id`를 넣으면 `app` = `myroutine`인 `http GET /api/products` 행이 나온다.
+- `docker exec myroutine-ops-elasticsearch-1 curl -s "localhost:9200/myroutine-logs-*/_ilm/explain"`의 인덱스마다 `"managed":true`, `"policy":"myroutine-logs-retention"`이다.
+- VM의 `free -h`에서 지금 떠 있는 상태(앱·인프라·Logstash·Kibana)의 사용 메모리를 적어 둔다. 6-2의 Prometheus·Grafana까지 올린 뒤 다시 재서 ADR-011 결정 1항의 자원 실측에 쓴다.
 
 **리뷰 때 물어볼 것**
 - 분산 트레이싱(Tempo 등) 없이 로그로만 추적하면 무엇이 부족한가? (ADR-010)
@@ -745,6 +828,18 @@ scrape_configs:
 ```
 
 컨테이너 안에서 호스트의 앱에 닿는 주소가 `host.docker.internal`이다(Docker Desktop은 그대로 된다). Linux에서 호스트의 앱을 긁으려면 prometheus 서비스에 `extra_hosts: ["host.docker.internal:host-gateway"]`가 필요하다. 앱도 컨테이너인 운영 compose에서는 대상이 `app:8081`이다. Prometheus가 지표마다 `job="myroutine"`, `instance="host.docker.internal:8081"` 라벨을 더한다.
+
+**운영 VM** — `docker/docker-compose.ops.yml`, `docker/prometheus/prometheus.ops.yml`
+
+운영 VM에도 올린다. 6-1의 "운영 VM"과 같은 방식(`profiles` 없음, 화면은 LAN에 직접 연다)이고 로컬과 다른 점은 아래와 같다.
+
+| 부분 | 운영 VM |
+|---|---|
+| Prometheus 설정 | `prometheus.yml`의 대상만 `app:8081`로 바꾼 별도 파일 `prometheus.ops.yml`을 마운트한다. 앱이 같은 compose 네트워크의 서비스라 `host.docker.internal`이 필요 없다. 이 포트는 호스트에 열지 않았으므로(ADR-011 5항) 컨테이너끼리만 닿는다 |
+| 포트 | Grafana `3000:3000`은 LAN에 열고(로그인이 있다) `http://VM주소:3000`으로 본다. Prometheus `127.0.0.1:9090`은 VM 안에서만 열고, 쿼리 실험은 Grafana의 Explore로 한다 |
+| Grafana 비밀번호 | `GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD를 지정하세요}`로 받고, 값은 VM의 `/opt/myroutine/.env`에 둔다(로컬의 `admin`을 그대로 쓰지 않는다). 키 이름은 `.env.ops.example`에 6-2 착수 때 더한다 |
+| Prometheus 데이터 | named volume `prometheus_data`를 `/prometheus`에 마운트한다. 재배포로 컨테이너가 바뀌어도 지표 이력이 남아야 Stage 2 부하 테스트의 전후를 비교할 수 있다. 보관은 Prometheus 기본(15일)을 쓴다 |
+| Grafana 데이터 | 볼륨을 두지 않는다. 데이터소스·대시보드·알림 규칙이 모두 `provisioning` 파일이라 컨테이너를 새로 만들어도 같은 상태로 뜬다 |
 
 `docker/grafana/provisioning/datasources/prometheus.yml`. `uid`를 고정해야 대시보드·알림 파일에서 가리킬 수 있다.
 
