@@ -1,6 +1,7 @@
 # Part 5. 리뷰 · 검색 · 문의
 
-> 버전 0.39 · 2026-11-03 · 5-3에 답변 전 문의 수정(`PATCH /api/inquiries/{id}`)·삭제(`DELETE /api/inquiries/{id}`)와 에러 코드 `INQUIRY_ALREADY_ANSWERED`를 더했다. 삭제와 답변이 동시에 오면 `answer`가 문의 행을 잠가서, 삭제가 먼저 끝난 뒤 답변 INSERT가 FK 위반 500이 되지 않게 한다
+> 버전 0.40 · 2026-11-04 · 5-3 문의 수정의 `content`가 줄바꿈을 받는다(`(?s).*\S.*`, 구현은 [6-0](part6-ops-wrapup.md))
+> 0.39 · 2026-11-03 · 5-3에 답변 전 문의 수정(`PATCH /api/inquiries/{id}`)·삭제(`DELETE /api/inquiries/{id}`)와 에러 코드 `INQUIRY_ALREADY_ANSWERED`를 더했다. 삭제와 답변이 동시에 오면 `answer`가 문의 행을 잠가서, 삭제가 먼저 끝난 뒤 답변 INSERT가 FK 위반 500이 되지 않게 한다
 > 0.38 · 2026-11-03 · 자동완성을 관련도순으로, 점수가 같으면 이름 오름차순으로 정렬하게 했다. 동점인 이름의 순서가 색인 순서에 따라 달라졌다
 > 0.37 · 2026-11-03 · 검색 분석기가 감탄사와 일반 부사를 버리지 않게 했다. nori가 `마스크팩 세트`의 `마스크`·`팩`을 감탄사·부사로 판단해 버려서 `마스크팩`으로 찾지 못했다. 완료 확인에 케이스를 더했다
 > 0.36 · 2026-11-03 · 자동완성이 상품명과 검색어의 공백을 무시하고 맞추게 했다. `허브티`로도 `허브 티백`이 나온다. 분석기에 `remove_whitespace` 문자 필터를 더하고 완료 확인에 케이스를 더했다
@@ -1161,7 +1162,7 @@ public class ElasticsearchTimeoutConfig {
 | `GET /api/inquiries?cursor=&size=` | 본인 | `size`는 기본 20·`@Min(1) @Max(50)` | 200 `CursorPage<InquiryResponse(id, title, status, createdAt, answeredAt)>`, 최신순 |
 | `GET /api/inquiries/{id}` | 본인 | | 200 `InquiryDetailResponse(id, title, content, status, createdAt, answer)`. `answer`는 `{content, createdAt}` 또는 `null`. 남의 문의 → 404 |
 | `GET /admin/api/inquiries?status=&cursor=&size=` | ADMIN | `InquiryStatus status`(생략 가능), `size`는 기본 20·`@Min(1) @Max(50)` | 200 `CursorPage<AdminInquiryResponse(id, memberId, memberEmail, memberNickname, title, content, status, createdAt, answer)>`, 오래된 순. `answer`는 `{adminId, content, createdAt}` 또는 `null` |
-| `PATCH /api/inquiries/{id}` | 본인 | `EditInquiryRequest(@Pattern(regexp = ".*\\S.*") @Size(max=100) title, @Pattern(regexp = ".*\\S.*") @Size(max=2000) content)`, 둘 다 선택(Part 1 규칙 E) | 200 `InquiryDetailResponse`(`answer`는 항상 `null`). 남의 문의·없는 문의 → 404 `INQUIRY_NOT_FOUND`, 답변이 있으면 409 `INQUIRY_ALREADY_ANSWERED` |
+| `PATCH /api/inquiries/{id}` | 본인 | `EditInquiryRequest(@Pattern(regexp = ".*\\S.*") @Size(max=100) title, @Pattern(regexp = "(?s).*\\S.*") @Size(max=2000) content)`, 둘 다 선택(Part 1 규칙 E) | 200 `InquiryDetailResponse`(`answer`는 항상 `null`). 남의 문의·없는 문의 → 404 `INQUIRY_NOT_FOUND`, 답변이 있으면 409 `INQUIRY_ALREADY_ANSWERED` |
 | `DELETE /api/inquiries/{id}` | 본인 | | 204. 남의 문의·없는 문의 → 404 `INQUIRY_NOT_FOUND`, 답변이 있으면 409 `INQUIRY_ALREADY_ANSWERED` |
 | `POST /admin/api/inquiries/{id}/answer` | ADMIN | `@NotBlank @Size(max=2000) content` | 204 |
 

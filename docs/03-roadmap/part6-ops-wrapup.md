@@ -1,6 +1,7 @@
 # Part 6. 관측 · 운영 · 마무리
 
-> 버전 0.34 · 2026-11-04 · 6-3의 쓰기 API 응답과 목록 항목을 정하고 `GET /admin/api/dlt`, `GET /admin/api/settlements`를 더했다. 정산 수동 실행은 끝난 달만 받는다(이번 달로 실행하면 그달의 나머지 품목이 영구히 정산되지 않는다)
+> 버전 0.35 · 2026-11-04 · Part 6 앞에 6-0(문의 수정의 여러 줄 내용)을 더했다: 문의 수정의 `content`가 줄바꿈을 받는다
+> 0.34 · 2026-11-04 · 6-3의 쓰기 API 응답과 목록 항목을 정하고 `GET /admin/api/dlt`, `GET /admin/api/settlements`를 더했다. 정산 수동 실행은 끝난 달만 받는다(이번 달로 실행하면 그달의 나머지 품목이 영구히 정산되지 않는다)
 > 0.33 · 2026-11-04 · 6-1·6-2를 실제로 띄워 확인한 값으로 다시 썼다: 로그 인덱스 `myroutine-logs-*`, Logstash 포트 5044, INFO 필터와 로그 문장 추가, UNKNOWN 나이의 `created_at` 기준, DLT 알림의 `offset` 식. 6-3 목록 조회·`size`·실행 로그 `action`·`AdminDltService`를 확정했다
 > 0.32 · 2026-10-31 · 구독·취향 추천·월간 리뷰 요약을 로드맵에서 빼서([서브](../04-sub/README.md)) Part 6에서 구독·OpenAI 의존을 걷어냈다: 6-1 `LogSafetyTest`의 빌링키 등록, 6-2 `openai_call_seconds`, 6-4 `subscriptionCycles()`(INV-08)·S5·S7의 구독 단계. 옮긴 내용은 서브 문서의 "Part 6에 더할 것"에 있다
 > 0.31 · 2026-10-28 · 6-1 `LogSafetyTest`의 가입을 4-2의 가입 전 인증(발송 → 확인 → 인증 토큰으로 가입)으로 바꾸고 인증 토큰도 로그에 없어야 할 값에 더했다
@@ -18,6 +19,7 @@
 
 | 단계 | 제목 | 크기 |
 |---|---|---|
+| 6-0 | 문의 수정의 여러 줄 내용 | S |
 | 6-1 | ELK: 로그 수집과 traceId 검색 | M |
 | 6-2 | Prometheus · Grafana: 메트릭 · 대시보드 · 알림 | L |
 | 6-3 | 운영 API | M |
@@ -31,6 +33,54 @@
 - 관측 스택(Logstash, Kibana, Prometheus, Grafana)은 docker-compose **`observability` 프로필**로 띄운다: `docker compose --env-file .env.local -f docker/docker-compose.yml --profile observability up -d`. 프로필을 주지 않으면 기존 5개 서비스만 뜬다. 평소 개발에는 띄우지 않는다(메모리). 이미지는 Logstash·Kibana·Prometheus·Grafana를 합쳐 약 6.5GB다.
 - 설정 파일은 모두 리포에 둔다: `docker/logstash/`, `docker/kibana/`, `docker/prometheus/`, `docker/grafana/provisioning/`. 화면에서 만든 대시보드·검색은 **파일로 내보내 커밋**한다.
 - 6-3의 운영 API는 모두 `/admin/api/**`(ADMIN)이다. 실행 로그 형식은 6-3 "모든 API에 공통"에 적었다.
+
+---
+
+## 6-0. 문의 수정의 여러 줄 내용 (S)
+
+**목표**: 여러 줄로 쓴 문의를 여러 줄 내용 그대로 고칠 수 있다.
+
+**왜 지금**: 5-3 규격의 결함이다. 문의를 쓸 때는 `@NotBlank`라 여러 줄이 되는데, 고칠 때만 400 `INVALID_REQUEST`(`details.content`: "공백만 입력할 수 없습니다.")가 된다. 프론트 리포 `myroutine-web`의 `e2e/inquiries.spec.ts`가 이 문제를 `test.fail`로 잡고 기다린다. 한 줄 수정이라 6-1의 로그 변경과 섞이기 전에 끝낸다.
+
+**원인**: `@Pattern`은 값 전체가 식과 맞아야 통과한다. 정규식의 `.`은 기본으로 줄바꿈과 맞지 않아서, `.*\S.*`는 줄바꿈이 하나라도 있으면 거절한다. `(?s)`는 `.`이 줄바꿈과도 맞게 하는 옵션이다. 두 식을 실행한 결과는 다음과 같다.
+
+| 값 | `.*\S.*` | `(?s).*\S.*` |
+|---|---|---|
+| `한 줄` | 통과 | 통과 |
+| `첫 줄\n둘째 줄` | 거절 | 통과 |
+| `\n앞에 줄바꿈`, `끝 줄바꿈\n` | 거절 | 통과 |
+| ` \n `, `\n`, `   `, 빈 문자열 | 거절 | 거절 |
+
+**정책 (이 단계에서 정함)**
+- `EditInquiryRequest`의 `content`만 바꾼다. `title`은 한 줄 입력이라 줄바꿈을 계속 거절한다.
+- 같은 식을 쓰는 다른 요청(가게·배송지·프로필·상품 이름)도 모두 한 줄 필드라 그대로 둔다. 상품 설명(`description`)은 이 식을 쓰지 않는다.
+- API 경로와 응답 모양은 그대로다.
+
+### 할 일
+
+**구현 순서**: 1) `EditInquiryRequest` → 테스트.
+
+`member.web.EditInquiryRequest`의 `content`에서 `regexp`만 `"(?s).*\\S.*"`로 바꾼다. `message`와 `@Size(max = 2000)`은 그대로다. `@NotBlank`로 바꾸면 안 된다. `@NotBlank`는 `null`도 막아서, 제목만 고치는 요청(`content` 생략)이 400이 된다.
+
+### 완료 확인
+
+#### `member/web/InquiryTest`
+
+기존 클래스에 더한다. 준비는 5-3의 준비 A이고, `user1`이 `Q1`을 작성한 상태에서 `PATCH /api/inquiries/{Q1}`를 보낸다. 본문은 `objectMapper.writeValueAsString(new EditInquiryRequest(제목, 내용))`으로 만들면 줄바꿈이 JSON의 `\n`으로 들어간다.
+
+**1. 여러 줄 내용으로 수정한다** — 동작: 내용 `"첫 줄\n둘째 줄"`(제목 `null`).
+- 응답(andExpect): 상태 200, `$.content` = `"첫 줄\n둘째 줄"`.
+- DB(inquiryOf(Q1)): `content()` = `"첫 줄\n둘째 줄"`.
+
+**2. 공백과 줄바꿈만 있는 내용은 거절한다** — 동작: 내용 `" \n "`(제목 `null`).
+- 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`, `$.details.content` = `공백만 입력할 수 없습니다.`.
+- DB(inquiryOf(Q1)): `content()` = 작성 때 본문.
+
+**3. 제목의 줄바꿈은 계속 거절한다** — 동작: 제목 `"첫 줄\n둘째 줄"`(내용 `null`).
+- 응답(andExpect): 상태 400, `$.code` = `INVALID_REQUEST`, `$.details.title` = `공백만 입력할 수 없습니다.`.
+- DB(inquiryOf(Q1)): `title()` = 작성 때 제목.
+
+**리뷰 때 물어볼 것**: `.*\S.*`는 왜 여러 줄을 거절하나? 여기서 `@NotBlank`를 쓰면 무엇이 깨지나?
 
 ---
 
