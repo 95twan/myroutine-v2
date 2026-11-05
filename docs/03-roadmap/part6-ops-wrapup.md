@@ -1832,7 +1832,7 @@ S5(구독)는 서브인 [구독](../04-sub/subscription.md)을 할 때 더한다
 
 **5) 릴리스** — develop → main, 태그 `v1.0.0`
 
-develop → main PR을 **merge commit**으로 합치고(squash 아님), main에 태그를 붙인 뒤 GitHub Release를 만든다. Release 노트에는 완료한 단계 목록, 주요 ADR, 알려진 한계를 쓴다.([git-policy §7](../git-policy.md#7-릴리스와-태그). 같은 표에 Part 6 완료 `v0.6.0`도 있다: 이 단계에서 `v0.6.0`을 따로 찍을지는 확인 필요)
+develop → main PR을 **merge commit**으로 합치고(squash 아님), main에 태그를 붙인 뒤 GitHub Release를 만든다. Release 노트에는 완료한 단계 목록, 주요 ADR, 알려진 한계를 쓴다. 알려진 한계에는 대사가 PG 조회 결과 `CANCELED`·`PARTIAL_CANCELED`를 승인으로 처리해, 토스 관리자 화면 등 외부에서 취소된 결제의 주문이 `PAID`가 될 수 있다는 점을 넣는다([상태 조합 7절](../02-design/10-state-combinations.md#7-확인-필요) 6번)([git-policy §7](../git-policy.md#7-릴리스와-태그). 같은 표에 Part 6 완료 `v0.6.0`도 있다: 이 단계에서 `v0.6.0`을 따로 찍을지는 확인 필요)
 
 **6) Stage 1.5 준비** (Claude 초안, 사용자 확정)
 

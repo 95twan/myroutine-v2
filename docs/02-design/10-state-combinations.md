@@ -183,7 +183,7 @@ DB는 이 조합을 막지 않는다. `ck_orders_status`, `ck_shop_order_status`
 |---|---|---|
 | 4 | 대사는 payment 행이 없거나 `PARTIAL_CANCELLED`이면 로그만 남기고 영원히 다시 시도한다(주문이 `PAYMENT_IN_PROGRESS`로 남음) | `OrderReconcileService:49, 67` |
 | 5 | `PaymentApiImpl.cancel`의 상태·잔액 검사가 `payment` 행 락 밖(첫 트랜잭션)이다. 서로 다른 키로 동시에 온 두 취소가 모두 통과할 수 있고, 두 번째는 `applyCancel`에서 예외로 롤백돼 그 `payment_cancel` 행이 `REQUESTED`/`UNKNOWN`으로 남는다(추론) | `PaymentApiImpl.java:139-144`, `:160` |
-| 6 | PG 조회 결과 `CANCELED`·`PARTIAL_CANCELED`를 `APPROVED`로 매핑한다. 우리 쪽이 `UNKNOWN`인 결제가 PG에서는 이미 취소된 경우 로컬이 `APPROVED`가 된다(추론) | `payment/infrastructure/TossClient.java:59, 81` |
+| 6 | PG 조회 결과 `CANCELED`·`PARTIAL_CANCELED`를 `APPROVED`로 매핑한다. 우리 쪽이 `UNKNOWN`인 결제가 PG에서는 이미 취소된 경우 로컬이 `APPROVED`가 된다(추론). 코드를 고치지 않고 6-5 릴리스 노트의 알려진 한계에 적는다 | `payment/infrastructure/TossClient.java:59, 81` |
 | 7 | 04 문서 §4는 "누적 취소액 ≤ 승인액은 payment의 CHECK와 **주문 행 잠금**으로 지킨다"고 쓰지만 PG 취소 반영은 `payment` 행 잠금으로 직렬화한다(로드맵 0.83) | 04-state-machines §4, `PaymentApiImpl.java:160` |
 | 8 | 04 문서에 상태머신이 없는 것: `payment_cancel`, `billing_key`, `idempotency_key`, `review`, `inquiry`, `product_embedding` | 03-erd |
 | 9 | 코드에는 쓰기만 하고 읽지 않거나 저장만 하는 값이 있다: `payment.reconcile_attempts`(상한 없이 `UNKNOWN`이 반복될 수 있음), `stock_reservation.expires_at` | `JpaPaymentRepository.java:53`, `JpaStockReservationRepository.java:19` |
