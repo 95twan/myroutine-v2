@@ -28,8 +28,6 @@
 | 단계 | 항목 | 선택지와 영향 |
 |---|---|---|
 | 2-6 | `cancel` A-2·A-3의 재조회 | `insertIfAbsent`가 1행이면 방금 만든 `REQUESTED` 행이고 `id`도 알아서 재조회가 필요 없다. 0행일 때만 읽으면 취소마다 SELECT가 하나 준다. 분기가 늘어난다 |
-| 6-2 | `PaymentMetrics`·`OrderMetrics` 조회 메서드의 `status` 인자 | 항상 상수(`UNKNOWN`, `PAYMENT_IN_PROGRESS`)다. 권장안이라 손대지 않았다 |
-| 6-2 | ADR-010의 `mail_send_seconds` Timer | 대시보드·알림 어디에도 쓰지 않고 운영 프로필(`SmtpMailSender`)에서만 나온다. 지표 이름은 ADR이 정한다. 빼면 ADR도 고친다 |
 
 ## 3. 외부 계약에서 읽는 곳이 없는 것
 
@@ -115,9 +113,6 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 
 | 단계 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
-| 6-2 | A | `pg_call_seconds`의 라벨 값과 메일 계측 위치. 권장안을 문서에 적었다(`operation`은 `pgMethod`, `result`는 `PgResult` 종류의 소문자, 메일은 `SmtpMailSender`) | 6-2 payment.infrastructure, common.mail | 사용자 확인 |
-| 6-2 | A | 재고 점검 잡의 수동 실행. 권장안(cron을 설정값으로, `MYROUTINE_STOCKCHECK_CRON`)을 문서에 적었고 실행으로 확인했다. 대안은 별도 트리거 API | 6-2 `StockCheckJob`, 완료 확인 "수동 확인: 장애 주입" | 사용자 확인 |
-| 6-2 | A | `payment_unknown_oldest_age_seconds`의 기준 컬럼. 권장안 `created_at`을 문서에 적었다(실측: `updated_at` 기준은 0과 30초를 오가 알림이 뜨지 않는다) | 6-2 payment.application(`PaymentMetrics`) | 사용자 확인 |
 | 6-3 | A | 반품 환불이 재시도해도 계속 `FAILED`로 남는 경우를 닫는 방법 | 6-3 order.web | 사용자 결정 |
 | 6-3 | B | Toss가 같은 멱등 키의 실패 응답을 어떻게 처리하는지 | 6-3 order.web | Toss 문서·샌드박스 |
 | 6-4 | B | Consumer 재접속 시간(await 30초 적정성) | 6-4 완료 확인 장애 시나리오(`KafkaOutageE2ETest`) | 측정 |
@@ -128,7 +123,7 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 
 | 문서 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
-| ADR-011 | B | VM 자원(16GB·8vCPU)이 적정한지. 로컬 실측은 로드맵 6-1 "운영 VM"과 6-2 8)에 있다 | ADR-011 결정 1항(환경) | VM에 올린 뒤 실측. 6-1까지 올린 상태(앱·인프라·Logstash·Kibana)는 `free -h`로 used 5.5GiB, available 9.6GiB, swap 사용 0이다. 6-2까지 올린 뒤 다시 잰다 |
+| ADR-011 | B | VM 자원(16GB·8vCPU)이 적정한지. 로컬 실측은 로드맵 6-1 "운영 VM"과 6-2 7)에 있다 | ADR-011 결정 1항(환경) | VM에 올린 뒤 실측. 6-1까지 올린 상태(앱·인프라·Logstash·Kibana)는 `free -h`로 used 5.5GiB, available 9.6GiB, swap 사용 0이다. 6-2까지 올린 뒤 다시 잰다 |
 | ADR-012 | A | MinIO를 클러스터에 다시 올릴지 NAS의 것을 쓸지(문구 없음). 세부 항목이 제안 상태인 것은 Part 6의 6-5 행과 같은 건 | ADR-012 결정 4항(MinIO) | Stage 1.5 시작 전에 결정 |
 | ADR-012 | B | 24GB 호스트에서 멀티 노드가 가능한지, local-path PVC에서 MinIO uid 65532용 `fsGroup`이 필요한지 | ADR-012 결정 2항(클러스터), 4항(MinIO) | 실측·k3s에서 확인 |
 | ADR-012 | D | 러너 ServiceAccount의 네임스페이스 한정 RBAC | ADR-012 결정 5항(CD) | Role/RoleBinding 작성·검증 |

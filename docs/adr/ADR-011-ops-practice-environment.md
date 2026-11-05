@@ -35,7 +35,7 @@
    - 로컬 개발·테스트(`docker/docker-compose.yml`, Testcontainers)는 그대로 로컬 MinIO를 쓴다.
    - 기존 운영 이미지 데이터는 옮기지 않고 새로 시작한다(사용자 결정, 테스트 데이터뿐).
 
-9. **관측 스택도 VM에 올린다** (2026-11-04): Logstash·Kibana(로드맵 6-1), Prometheus·Grafana(6-2)를 운영 compose에 `profiles` 없이 넣고 앱은 프로필 `prod,elk`로 띄운다. 구체 설정은 [로드맵 6-1 "운영 VM"](../03-roadmap/part6-ops-wrapup.md)과 6-2 8)에 있다.
+9. **관측 스택도 VM에 올린다** (2026-11-04): Logstash·Kibana(로드맵 6-1), Prometheus·Grafana(6-2)를 운영 compose에 `profiles` 없이 넣고 앱은 프로필 `prod,elk`로 띄운다. 구체 설정은 [로드맵 6-1 "운영 VM"](../03-roadmap/part6-ops-wrapup.md)과 6-2 7)에 있다.
    - 이유: 운영 환경 연습에서 "배포한 앱을 로그와 메트릭으로 본다"까지가 한 흐름이고, Stage 2 부하 테스트의 전후 비교(Prometheus 이력)가 VM에 남아야 한다. 로컬 실측 합계가 약 2.2~2.7GiB라 VM 16GB에 들어간다.
    - 화면은 Kibana 5601·Grafana 3000을 LAN에 열고(5항의 "앱 포트만"에 대한 예외), Prometheus 9090은 VM의 `127.0.0.1`에만 publish한다. Kibana는 로그인이 없어서 LAN의 모든 기기가 접속할 수 있으므로 LAN의 기기를 신뢰하는 것을 전제로 하고, 외부 접속 경로(프록시)에는 연결하지 않는다. Grafana 관리자 비밀번호는 VM의 `/opt/myroutine/.env`에 둔다(4항).
    - 로그 인덱스는 ES ILM으로 7일 뒤 삭제한다. 지표는 Prometheus 기본 보관(15일)이다.

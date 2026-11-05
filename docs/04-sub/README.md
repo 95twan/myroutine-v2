@@ -52,7 +52,7 @@
 |---|---|---|---|
 | `openai_call_seconds{operation,result}` | Timer | 호출마다 | OpenAI 호출부 |
 
-  - 6-2 "7) common.mail"에 설명을 더한다: OpenAI를 부르는 곳(SUB-5의 `EmbeddingModel.embed`, SUB-6의 `ChatClient` 호출부)에서 잰다. 방식은 `mail_send_seconds`와 같이 `Timer.start` → 호출 → `stop`(예외가 나도 `finally`에서 `stop`)이며 `operation`·`result` 값은 정해져 있지 않다(확인 필요).
+  - 6-2 "2) 비즈니스 메트릭"에 설명을 더한다: OpenAI를 부르는 곳(SUB-5의 `EmbeddingModel.embed`, SUB-6의 `ChatClient` 호출부)에서 잰다. 방식은 `Timer.start(registry)` → 호출 → `sample.stop(registry.timer("openai_call_seconds", "operation", ..., "result", "success" 또는 "failure"))`(예외가 나도 `finally`에서 `stop`)이며 `operation` 값은 정해져 있지 않다(확인 필요).
 
 ## 구현 때 정할 것
 
