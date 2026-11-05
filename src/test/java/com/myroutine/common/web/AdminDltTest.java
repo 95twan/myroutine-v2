@@ -157,7 +157,7 @@ class AdminDltTest extends IntegrationTestSupport {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
 
-        Thread.sleep(3000);
+        Thread.sleep(1000);
         assertThat(listener.received()).isEqualTo(receivedBefore);
     }
 

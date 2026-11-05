@@ -51,6 +51,8 @@ management:
 
 myroutine:
   business-zone: Asia/Seoul
+  kafka:
+    retry-initial-interval: 1s
   jwt:
     secret: ${JWT_SECRET}
     access-token-ttl: 15m
