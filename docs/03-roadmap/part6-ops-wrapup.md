@@ -1641,7 +1641,7 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 | `paymentsReflected()` | `APPROVED`·`PARTIAL_CANCELLED`·`CANCELLED`인 결제의 주문이 PAID이거나, 결제가 CANCELLED(보상)이고 주문이 PAYMENT_FAILED | INV-02 |
 | `stockBalance()` | `available + reserved + sold = received`, 모두 ≥ 0, `received` = `stock_movement`의 `RECEIVE`·`ADJUST` 수량 합, `reserved` = `stock_reservation`의 `HELD` 수량 합(6-2 `StockCheckJob`의 SQL이 0건) | INV-03·04 |
 | `refundLimits()` | `refunded_amount ≤ line_amount`, `cancelled_amount ≤ amount`, 주문별 COMPLETED 환불 합 ≤ 주문 총액 | INV-06 |
-| `settlementOnce()` | CONFIRMED 품목마다 `settlement_item` 정확히 1행(consumer가 따라잡은 뒤), 정산된 item은 정산 1건에만 | INV-07 |
+| `settlementOnce()` | CONFIRMED 품목마다 `settlement_item` 정확히 1행(consumer가 따라잡은 뒤). item이 두 행이 되거나 두 정산에 걸치는 것은 `uk_settlement_item_order_line`과 `settlement_id` 컬럼 하나가 막으므로 검사하지 않는다 | INV-07 |
 | `checkAll()` | 위 전부. 실패하면 어떤 행이 어긋났는지 메시지에. **INV-09**(SELLER 권한 ↔ 가게)는 최종적 일관성이라 시나리오 끝에서 바로 검사하면 consumer가 따라잡기 전에 실패할 수 있어 여기에 넣지 않는다(3-1 consumer 테스트의 `Eventually`로 확인한다) | INV-01~07 |
 
 **2) 시나리오** — `src/test/java/com/myroutine/e2e/` (각 테스트 끝에 `checkAll()`)
@@ -1709,9 +1709,9 @@ S5(구독)는 서브인 [구독](../04-sub/subscription.md)을 할 때 더한다
   - 가게·회원·상품: `shopSnapshotOf(shopId)`의 `status()`·`closedAt()`, `memberSnapshotOf(memberId).role()`, `productSnapshotOf(productId).status()`(각각 `support/`의 `ShopSnapshot`·`MemberSnapshot`·`ProductSnapshot` record).
 - 가짜 서비스: PG는 `pg.requests(경로 접두어)`(헤더 키 소문자, 본문 `cancelAmount`는 `readTree`로 읽어 `asLong()`), 메일은 `fakeMailSender.sent()`, 지급은 `fakePayoutGateway.calls()` → `List<PayoutCall>`(`record PayoutCall(UUID settlementId, UUID shopId, long amount)`, 호출 순서).
 - 비동기 반영: "릴레이+대기(조건)"은 `outboxRelay.relayOnce()` 뒤 `Eventually.await(Duration.ofSeconds(10), 조건)`이다. 조건은 아래 각 단계가 적은 DB 값이다.
-- 시나리오 클래스의 주입: `MockMvc`, `TestFixtures`, `InvariantChecker`, `JdbcTemplate`, `OutboxRelay`, `OrderExpirationService`, `OrderReconcileService`, `SettlementService`, `NotificationDispatcher`, `Clock`, `BusinessProperties`.
+- 시나리오 클래스의 주입: `MockMvc`, `TestFixtures`, `InvariantChecker`, `OutboxAssert`, `FakePayoutGateway`, `JdbcTemplate`, `OutboxRelay`, `OrderExpirationService`, `OrderReconcileService`, `SettlementService`, `NotificationDispatcher`, `Clock`, `BusinessProperties`. 클래스마다 쓰는 것만 주입한다.
 
-**시나리오 작성 규칙**: 아래 시나리오마다 새 데이터를 만든다(`IntegrationTestSupport`가 테스트마다 테이블을 비운다). 판매자·구매자는 `signup`, 가게는 `openShop`, 상품은 `registerProduct(sellerId, shopId, 가격, 10)`(재고 10)이다. 토큰은 `login(이메일)`로 받는다(`token(이메일)`은 가입까지 해서 `signup`한 이메일로 부르면 중복 가입 예외가 난다). 배송지는 `address(구매자 ID)`. 모든 요청의 `Authorization: Bearer {토큰}`, 쓰기 요청의 `Idempotency-Key`는 새 UUID(`/payment/confirm`은 `orderId`)다. 날짜 `today`는 `LocalDate.now(clock.withZone(businessProperties.businessZone()))`다. 각 시나리오의 **마지막 줄은 `invariantChecker.checkAll()`이 예외 없이 끝나는 것**이다.
+**시나리오 작성 규칙**: 아래 시나리오마다 새 데이터를 만든다(`IntegrationTestSupport`가 테스트마다 테이블을 비운다). 판매자·구매자는 `signup`, 가게는 `openShop`, 상품은 `registerProduct(sellerId, shopId, 가격, 10)`(재고 10)이다. 토큰은 `login(이메일)`로 받는다(`token(이메일)`은 가입까지 해서 `signup`한 이메일로 부르면 중복 가입 예외가 난다). 배송지는 `address(구매자 ID)`. 모든 요청의 `Authorization: Bearer {토큰}`, `@Idempotent`인 체크아웃·품목 취소의 `Idempotency-Key`는 새 UUID이고 `/payment/confirm`은 `orderId`다. 날짜 `today`는 `LocalDate.now(clock.withZone(businessProperties.businessZone()))`다. 각 시나리오의 **마지막 줄은 `invariantChecker.checkAll()`이 예외 없이 끝나는 것**이다.
 
 #### `e2e/InvariantCheckerTest` (`InvariantChecker` 자체 테스트)
 
@@ -1735,14 +1735,14 @@ S5(구독)는 서브인 [구독](../04-sub/subscription.md)을 할 때 더한다
 4. **발송·배송완료** — 가게마다 판매자 토큰으로 `POST /api/shops/{shopId}/orders/{shopOrderId}/ship`(`shopOrderId`는 `shopOrderIdOf(orderId, shopId)`) 본문 `{"carrier":"CJ대한통운","trackingNumber":"1234567890"}`, 이어서 `POST .../deliver`를 보낸다. 응답(andExpect): 두 호출 모두 상태 200. DB(snapshotOf(orderId)): `s.shopOrderStatuses()` = [`DELIVERED`, `DELIVERED`]. outbox(OutboxAssert.rows(토픽)): `order.shop-order-shipped.v1` 2건, `order.shop-order-delivered.v1` 2건.
 5. **구매확정** — 구매자 토큰으로 품목 3개 각각 `POST /api/orders/{orderId}/lines/{lineId}/confirm`을 보낸다. 응답(andExpect): 상태 200. DB(snapshotOf(orderId)): `s.shopOrderStatuses()` = [`COMPLETED`, `COMPLETED`]. outbox(OutboxAssert.rows(토픽)): `order.order-line-confirmed.v1` 3건. 동작: 릴레이+대기. DB(unsettledItemCount()): 3. DB(settlementItemSnapshotOf(orderLineIdOf(orderId, 상품))): `amount()` — `productA1` 10000, `productA2` 10000, `productB1` 30000.
 6. **정산** — `month = YearMonth.from(s.line(productA1).confirmedAt().atZone(businessProperties.businessZone()))`(`s`는 5번의 `snapshotOf`)로 `settlementService.run(month)`를 부른다. 반환값: `SettlementRunResult(settledShops=2, paid=2, payoutFailed=0)`. DB(countOf("settlement.settlement")): 2. DB(settlementSnapshotOf(shopA, month)): `grossAmount` 20000, `itemCount` 2, `status` `PAID`. DB(settlementSnapshotOf(shopB, month)): 30000, 1, `PAID`. DB(unsettledItemCount()): 0. 가짜 서버 요청(fakePayoutGateway.calls()): 2건, 호출 순서대로 `get(0).amount()` 19000, `get(1).amount()` 28500.
-7. **지급 알림** — outbox(OutboxAssert.rows(토픽)): `settlement.settlement-paid.v1` 2건. 동작: 릴레이+대기(`notificationCounts().type("SETTLEMENT_PAID")` = 2) 뒤 `dispatchBatch()`. DB(notificationCounts(), `dispatchBatch()` 직후): 최종 `type`별 건수는 3번의 `ORDER_PAID` 1·`SHOP_ORDER_RECEIVED` 2에 더해 `WELCOME` 3, `SHIPPED` 2, `DELIVERED` 2, `SETTLEMENT_PAID` 2(합계 12건)이고, `status("SENT")` = 12. DB(unsentOutboxCount()): 0.
+7. **지급 알림** — outbox(OutboxAssert.rows(토픽)): `settlement.settlement-paid.v1` 2건. 동작: 릴레이+대기(`notificationCounts()`의 `WELCOME` 3, `SHIPPED` 2, `DELIVERED` 2, `SETTLEMENT_PAID` 2. 토픽마다 consumer가 따로 돌아 앞서 보낸 이벤트의 알림도 함께 기다린다) 뒤 `dispatchBatch()`. DB(notificationCounts(), `dispatchBatch()` 직후): `status("SENT")` = 12(위 네 종류에 3번의 `ORDER_PAID` 1·`SHOP_ORDER_RECEIVED` 2를 더한 합계). DB(unsentOutboxCount()): 0.
 8. `checkAll()`.
 
 #### 시나리오 S2: `e2e/AbandonedPaymentE2ETest`
 
 **준비**: 판매자, 가게, 상품 1개(10,000원), 구매자. 동작: `POST /api/orders/checkout`(상품 1개, 수량 1) → 201 후 결제 승인을 하지 않는다. 본문의 `$.orderId`가 `orderId`.
 1. 동작: `setOrderExpired(orderId, 지금 - 1분)` → `orderExpirationService.expireBatch()`. 반환값: 1.
-2. DB(snapshotOf(orderId)): `s.status()` = `EXPIRED`. DB(cartSnapshotOf(구매자 ID)): `quantity(productId)` = 1 그대로.
+2. DB(snapshotOf(orderId)): `s.status()` = `EXPIRED`, `s.reservationStatuses()` = [`EXPIRED`]. DB(stockOf(productId)): `available` = 10, `reserved` = 0. DB(cartSnapshotOf(구매자 ID)): `quantity(productId)` = 1 그대로.
 3. outbox(OutboxAssert.rows(토픽)): `order.order-expired.v1` 1건, `get(0).payload().get("reason").asText()` = `EXPIRED`. 동작: 릴레이+대기. DB(notificationCounts()): `type("ORDER_CLOSED")` = 1.
 4. 동작: `expireBatch()` 한 번 더. 반환값: 0. outbox(OutboxAssert.rows(토픽)): `order.order-expired.v1` 1건 그대로.
 5. `checkAll()`.
@@ -1782,20 +1782,20 @@ S5(구독)는 서브인 [구독](../04-sub/subscription.md)을 할 때 더한다
 
 #### 시나리오 S7: `e2e/ShopCloseE2ETest`
 
-**준비**: 판매자 1명, 가게 1개(이 판매자의 유일한 가게), 상품 `product1` 10,000원, 구매자 1명. `createPaidOrder(구매자 ID, product1)`(가게주문 `PAID`).
+**준비**: 판매자 1명, 가게 1개(이 판매자의 유일한 가게), 상품 `product1` 10,000원, 구매자 1명. `createPaidOrder(구매자 ID, product1)`(가게주문 `PAID`). SELLER 부여는 `shop-opened` consumer가 하므로 릴레이+대기(`memberSnapshotOf(판매자 ID).role()` = `SELLER`)까지 해 둔다.
 1. **진행 중 주문** — 판매자 토큰으로 `DELETE /api/shops/{shopId}`를 보낸다. 응답(andExpect): 상태 422, `$.code` = `SHOP_HAS_ACTIVE_ORDERS`. DB(shopSnapshotOf(shopId)): `status()` = `ACTIVE`, `closedAt()` = null. outbox(OutboxAssert.rows(토픽)): `shop.shop-closed.v1`의 크기 0. DB(memberSnapshotOf(판매자 ID)): `role()` = `SELLER`. DB(productSnapshotOf(product1)): `status()` = `ON_SALE`.
 2. **주문 종결** — `product1` 주문을 발송·배송완료 API와 구매자의 구매확정 API로 끝낸다(DB(snapshotOf(orderId)): `shopOrderStatus()` = `COMPLETED`).
-3. **폐업** — `DELETE /api/shops/{shopId}`를 보낸다. 응답(andExpect): 상태 204. DB(shopSnapshotOf(shopId)): `status()` = `CLOSED`, `closedAt()`이 `isNotNull()`. outbox(OutboxAssert.rows(토픽)): `shop.shop-closed.v1` 1건. 동작: 릴레이+대기. DB(productSnapshotOf(product1)): `status()` = `DISCONTINUED`. DB(memberSnapshotOf(판매자 ID)): `role()` = `USER`. outbox(OutboxAssert.rows(토픽)): `product.product-discontinued.v1` 1건(`get(0).payload().get("reason").asText()` = `SHOP_CLOSED`).
+3. **폐업** — `DELETE /api/shops/{shopId}`를 보낸다. 응답(andExpect): 상태 204. DB(shopSnapshotOf(shopId)): `status()` = `CLOSED`, `closedAt()`이 `isNotNull()`. outbox(OutboxAssert.rows(토픽)): `shop.shop-closed.v1` 1건. 동작: 릴레이+대기(아래 두 값과, 다음 줄 `checkAll()`의 `settlementOnce()`를 위해 `unsettledItemCount()` = 1). DB(productSnapshotOf(product1)): `status()` = `DISCONTINUED`. DB(memberSnapshotOf(판매자 ID)): `role()` = `USER`. outbox(OutboxAssert.rows(토픽)): `product.product-discontinued.v1` 1건(`get(0).payload().get("reason").asText()` = `SHOP_CLOSED`).
 4. `checkAll()`.
 
 #### 장애 시나리오: `e2e/KafkaOutageE2ETest`
 
 **준비**: 판매자, 가게, 상품 2개(`productX` 10,000원·`productY` 20,000원), 구매자. 먼저 준비 단계의 이벤트(가입·가게 개설·상품 등록)를 비운다: 릴레이+대기(`unsentOutboxCount()` = 0, `notificationCounts().type("WELCOME")` = 2) → `notificationDispatcher.dispatchBatch()`로 WELCOME 알림 2건을 미리 보낸다. `kafka`는 `IntegrationTestSupport`의 컨테이너다.
-1. **중단** — `kafka.getDockerClient().pauseContainerCmd(kafka.getContainerId()).exec()`.
+1. **중단** — `kafka.getDockerClient().pauseContainerCmd(kafka.getContainerId()).exec()`. 컨테이너는 모든 테스트 클래스가 함께 쓰므로, 3-1 `OutboxRelayTest`처럼 2·3번을 `try`/`finally`로 감싸 단언이 실패해도 `unpause`가 돌게 한다.
 2. **중단 중 결제** — 주문 2건(`productX`, `productY` 각 1건)을 `POST /api/orders/checkout` → `POST /api/orders/{id}/payment/confirm`으로 승인한다. 응답(andExpect): 두 응답 모두 상태 200, `$.status` = `PAID`. outbox(OutboxAssert.rows(토픽)): `order.order-paid.v1` 2건이 모두 `status` = `READY`.
-3. **중단 중 릴레이** — 동작: `outboxRelay.relayOnce()`. 반환값: 0. outbox(OutboxAssert.rows(토픽)): `order.order-paid.v1`의 두 행은 `READY` 그대로이고 `attempts` = 1. DB(notificationCounts()): `type("ORDER_PAID")`·`.type("SHOP_ORDER_RECEIVED")` = 0.
+3. **중단 중 릴레이** — 동작: `outboxRelay.relayOnce()`(첫 행의 발행 대기로 약 5초 걸린다). 반환값: 0. outbox(OutboxAssert.rows(토픽)): `order.order-paid.v1`의 두 행은 `READY` 그대로이고, 릴레이가 첫 실패에서 멈추므로(3-1) `attempts`는 `get(0)` = 1, `get(1)` = 0이다. DB(notificationCounts()): `type("ORDER_PAID")`·`.type("SHOP_ORDER_RECEIVED")` = 0.
 4. **재개** — `unpauseContainerCmd(...)` → JDBC `UPDATE common.outbox_event SET next_attempt_at = now() - interval '1 second' WHERE status = 'READY'` → `outboxRelay.relayOnce()`. 반환값: 2.
-5. **consumer 처리 완료** — `Eventually.await(Duration.ofSeconds(30), ...)`(consumer 재접속 시간은 확인 필요): DB(notificationCounts()): `type("ORDER_PAID")` = 2, `.type("SHOP_ORDER_RECEIVED")` = 2. 반환값: `dispatchBatch()` = 4.
+5. **consumer 처리 완료** — `Eventually.await(Duration.ofSeconds(30), ...)`. 중단이 약 5초라 consumer 세션이 끊기지 않아 로컬에서는 재개 후 0.2초 안에 따라잡는다(3회 측정 129~192ms). 30초는 CI가 느릴 때의 상한이고, 조건이 맞으면 바로 끝나므로 시간을 더 쓰지 않는다: DB(notificationCounts()): `type("ORDER_PAID")` = 2, `.type("SHOP_ORDER_RECEIVED")` = 2. 반환값: `dispatchBatch()` = 4.
 6. DB(unsentOutboxCount()): 0. `checkAll()`.
 
 #### CI 실행 시간
@@ -1832,7 +1832,7 @@ S5(구독)는 서브인 [구독](../04-sub/subscription.md)을 할 때 더한다
 
 **5) 릴리스** — develop → main, 태그 `v1.0.0`
 
-develop → main PR을 **merge commit**으로 합치고(squash 아님), main에 태그를 붙인 뒤 GitHub Release를 만든다. Release 노트에는 완료한 단계 목록, 주요 ADR, 알려진 한계를 쓴다([git-policy §7](../git-policy.md#7-릴리스와-태그). 같은 표에 Part 6 완료 `v0.6.0`도 있다: 이 단계에서 `v0.6.0`을 따로 찍을지는 확인 필요)
+develop → main PR을 **merge commit**으로 합치고(squash 아님), main에 태그를 붙인 뒤 GitHub Release를 만든다. Release 노트에는 완료한 단계 목록, 주요 ADR, 알려진 한계를 쓴다.([git-policy §7](../git-policy.md#7-릴리스와-태그). 같은 표에 Part 6 완료 `v0.6.0`도 있다: 이 단계에서 `v0.6.0`을 따로 찍을지는 확인 필요)
 
 **6) Stage 1.5 준비** (Claude 초안, 사용자 확정)
 
