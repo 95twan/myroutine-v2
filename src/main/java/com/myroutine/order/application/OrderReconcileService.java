@@ -2,6 +2,7 @@ package com.myroutine.order.application;
 
 import com.myroutine.common.error.BusinessException;
 import com.myroutine.common.model.Money;
+import com.myroutine.order.domain.Order;
 import com.myroutine.order.domain.OrderErrorCode;
 import com.myroutine.order.domain.OrderRepository;
 import com.myroutine.order.domain.OrderStatus;
@@ -23,6 +24,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class OrderReconcileService {
+    private static final long STUCK_SECONDS = 30;
+
     private final OrderRepository orderRepository;
     private final PaymentApi paymentApi;
     private final OrderPaymentApplier orderPaymentApplier;
@@ -31,7 +34,7 @@ public class OrderReconcileService {
 
     public int reconcileBatch() {
         Instant now = clock.instant();
-        List<UUID> ids = orderRepository.findStuckIds(OrderStatus.PAYMENT_IN_PROGRESS, now.minusSeconds(30), Limit.of(100));
+        List<UUID> ids = orderRepository.findStuckIds(OrderStatus.PAYMENT_IN_PROGRESS, now.minusSeconds(STUCK_SECONDS), Limit.of(100));
 
         int count = 0;
 
@@ -49,10 +52,11 @@ public class OrderReconcileService {
     }
 
     public OrderStatus reconcileOne(UUID orderId) {
-        OrderStatus current = orderRepository.findById(orderId)
-                .orElseThrow(() -> new BusinessException(OrderErrorCode.ORDER_NOT_FOUND))
-                .getStatus();
-        if (current != OrderStatus.PAYMENT_IN_PROGRESS) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new BusinessException(OrderErrorCode.ORDER_NOT_FOUND));
+        OrderStatus current = order.getStatus();
+        boolean recentlyChanged = !order.getUpdatedAt().isBefore(clock.instant().minusSeconds(STUCK_SECONDS));
+        if (current != OrderStatus.PAYMENT_IN_PROGRESS || recentlyChanged) {
             return current;
         }
         Optional<PaymentView> view = paymentApi.find(orderId);

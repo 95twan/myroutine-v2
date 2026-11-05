@@ -12,6 +12,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -52,6 +53,7 @@ class AdminReconcileTest extends IntegrationTestSupport {
         pg.on("/v1/payments/confirm", Behavior.delay(1000));
         CheckoutResult order = testFixtures.createPendingOrder(buyerId, product1Id);
         UUID orderId = testFixtures.confirmPayment(buyerId, order.orderId()).orderId();
+        testFixtures.setOrderUpdatedAt(orderId, Instant.now().minusSeconds(60));
 
         // When & Then
         mockMvc.perform(post("/admin/api/payments/{orderId}/reconcile", orderId)
@@ -82,6 +84,7 @@ class AdminReconcileTest extends IntegrationTestSupport {
         pg.on("/v1/payments/confirm", Behavior.drop());
         CheckoutResult order = testFixtures.createPendingOrder(buyerId, product1Id);
         UUID orderId = testFixtures.confirmPayment(buyerId, order.orderId()).orderId();
+        testFixtures.setOrderUpdatedAt(orderId, Instant.now().minusSeconds(60));
 
         // When & Then
         mockMvc.perform(post("/admin/api/payments/{orderId}/reconcile", orderId)
@@ -112,6 +115,7 @@ class AdminReconcileTest extends IntegrationTestSupport {
         pg.on("/v1/payments/orders", Behavior.serverError());
         CheckoutResult order = testFixtures.createPendingOrder(buyerId, product1Id);
         UUID orderId = testFixtures.confirmPayment(buyerId, order.orderId()).orderId();
+        testFixtures.setOrderUpdatedAt(orderId, Instant.now().minusSeconds(60));
 
         // When & Then
         mockMvc.perform(post("/admin/api/payments/{orderId}/reconcile", orderId)
@@ -139,6 +143,7 @@ class AdminReconcileTest extends IntegrationTestSupport {
         pg.on("/v1/payments/confirm", Behavior.delay(1000));
         CheckoutResult order = testFixtures.createPendingOrder(buyerId, product1Id);
         UUID orderId = testFixtures.confirmPayment(buyerId, order.orderId()).orderId();
+        testFixtures.setOrderUpdatedAt(orderId, Instant.now().minusSeconds(60));
         mockMvc.perform(post("/admin/api/payments/{orderId}/reconcile", orderId)
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
@@ -209,5 +214,33 @@ class AdminReconcileTest extends IntegrationTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"));
         assertThat(pg.requests("/v1/payments/")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("30초 안에 바뀐 주문을 대사하면 PG를 조회하지 않고 현재 주문 상태를 돌려준다.")
+    void reconcileRecentOrderReturnsCurrentStatus() throws Exception {
+        // Given
+        UUID adminId = testFixtures.signup("admin@test.com");
+        testFixtures.changeRole(adminId, "ADMIN");
+        String token = testFixtures.login("admin@test.com");
+
+        UUID sellerId = testFixtures.signup("seller@test.com");
+        UUID shopId = testFixtures.openShop(sellerId, "1111111111");
+        UUID product1Id = testFixtures.registerProduct(sellerId, shopId, 1000, 10);
+        UUID buyerId = testFixtures.signup("buyer@test.com");
+
+        pg.on("/v1/payments/confirm", Behavior.delay(1000));
+        CheckoutResult order = testFixtures.createPendingOrder(buyerId, product1Id);
+        UUID orderId = testFixtures.confirmPayment(buyerId, order.orderId()).orderId();
+
+        // When & Then
+        mockMvc.perform(post("/admin/api/payments/{orderId}/reconcile", orderId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAYMENT_IN_PROGRESS"));
+
+        OrderSnapshot s = testFixtures.snapshotOf(orderId);
+        assertThat(s.payment().reconcileAttempts()).isEqualTo(0);
+        assertThat(pg.requests("/v1/payments/orders/")).isEmpty();
     }
 }
