@@ -100,7 +100,7 @@ stateDiagram-v2
   REJECTED --> [*]
 ```
 - `FAILED`는 활성 환불이다. 품목당 하나만 두고, 있는 동안 가게주문 발송과 같은 품목의 구매자 재취소를 막는다(6-3). 푸는 길은 재시도와 종결뿐이다.
-- 환불액 = 품목 금액 - 이미 환불된 금액. 전액 PG 부분취소다(POL-08). 주문별 누적 취소액 ≤ 승인액(INV-06)은 payment의 CHECK와 주문 행 잠금으로 지킨다.
+- 환불액 = 품목 금액 - 이미 환불된 금액. 전액 PG 부분취소다(POL-08). 주문별 누적 취소액 ≤ 승인액(INV-06)은 payment의 CHECK와 `payment` 행 잠금으로 지킨다.
 - PG 부분취소는 `payment_cancel.idempotency_key = refundId`로 호출해 재시도해도 1회만 취소된다.
 - COMPLETED 전이 트랜잭션: product `restore(orderId, productId, refId=refundId)`(movement unique로 멱등) + `order_line.refunded_amount` 증가 + 품목 CANCELLED/RETURNED + outbox `order-line-refunded`.
 

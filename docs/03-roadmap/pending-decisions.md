@@ -97,7 +97,7 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 | 2-3 | B | Toss 승인·취소·조회 API별 에러 코드 표를 대조하지 못함 | 2-3 payment.infrastructure | 개발자센터 에러 표 확인 |
 | 공통 | D | springdoc-openapi의 Boot 4 호환 버전(사용하는 단계 없음) | development-guide 1.1절 "이후 단계에서 쓸 버전" 표 | 사용 단계 착수 시 확인 |
 | 공통 | E | 격리 수준 `READ COMMITTED` 가정. `src/main`에 격리 수준 설정이 없어 기본값을 쓴다 | 08-stock-design-evolution 1절 "먼저 알아둘 전제" 표 | 확정 문장으로 교체 |
-| 상태 조합 | A·C | [10-state-combinations 7절](../02-design/10-state-combinations.md) 8건(대사가 못 닫는 경우 등. 발송 가드와 `FAILED` 환불은 6-3에서 풀었다) | 10 문서 7절 | 해당 단계 착수 때 같이 푼다 |
+| 상태 조합 | A·C | [10-state-combinations 7절](../02-design/10-state-combinations.md) 2건(04 문서에 없는 상태머신, 미구현 영역의 문서 어긋남) | 10 문서 7절 | 해당 단계 착수 때 같이 푼다 |
 
 ### Part 3
 
@@ -113,15 +113,10 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 
 | 단계 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
-| 6-5 | A | v1.0.0 때 `v0.6.0` 태그를 따로 찍을지(git-policy 7절은 Part 6 완료 시 `v0.6.0`) | 6-5 릴리스, 완료 확인 | 사용자 결정 후 git-policy와 맞춤 |
-| 6-5 | A | ADR-012 미정 항목(노드 수, 상태 서비스 위치, 도구), K-1~K-5 문서 파일 이름 | 6-5 Stage 1.5 준비, 완료 확인, ADR-012 상태 줄 | Stage 1.5 시작 전에 결정 |
 
 ### ADR·운영 문서
 
 | 문서 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
-| ADR-012 | A | MinIO를 클러스터에 다시 올릴지 NAS의 것을 쓸지(문구 없음). 세부 항목이 제안 상태인 것은 Part 6의 6-5 행과 같은 건 | ADR-012 결정 4항(MinIO) | Stage 1.5 시작 전에 결정 |
-| ADR-012 | B | 24GB 호스트에서 멀티 노드가 가능한지, local-path PVC에서 MinIO uid 65532용 `fsGroup`이 필요한지 | ADR-012 결정 2항(클러스터), 4항(MinIO) | 실측·k3s에서 확인 |
-| ADR-012 | D | 러너 ServiceAccount의 네임스페이스 한정 RBAC | ADR-012 결정 5항(CD) | Role/RoleBinding 작성·검증 |
-| ops | B | NAS: Container Manager 패키지명·메모리 기본값, 시놀로지 ACL이 `chown 65532`를 막는지, 프로젝트·방화벽·HDD 절전·스냅샷 메뉴, 호스트 9000 포트 충돌 | nas-minio 1절(준비), 2절(데이터 폴더), 3절(컨테이너 사양), 7절(한계와 알려진 점) | NAS 화면·실행으로 확인 |
+| ops | B | NAS로 옮길 때: Container Manager 패키지명·메모리 기본값, 시놀로지 ACL이 `chown 65532`를 막는지, 프로젝트·방화벽·HDD 절전·스냅샷 메뉴, 호스트 9000 포트 충돌, VM의 기존 이미지 데이터를 옮길지 | nas-minio 1절(준비), 2절(데이터 폴더), 3절(컨테이너 사양), 5절(전환 순서), 7절(한계와 알려진 점) | 옮길 때 NAS 화면·실행으로 확인 |
 | ops | B | VM: Proxmox/Ubuntu 설치 화면·LVM 체크 해제 이유, GHCR 패키지 연결·가시성, Proxmox 스토리지 추가 메뉴 | vm-setup 1-1절(만드는 순서), 6절(GitHub 저장소 설정), 7절(스냅샷과 백업) | VM·GitHub·Proxmox 화면에서 확인 |
