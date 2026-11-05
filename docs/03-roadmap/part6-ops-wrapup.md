@@ -564,7 +564,7 @@ curl -s -XDELETE "$E/myroutine-logs-2026.11.04"    # 인덱스 삭제. myroutine
 **확인할 것**
 - "traceId로 흐름 보기"에 그 요청의 `X-Request-Id`를 넣으면 `app` = `myroutine`인 `http GET /api/products` 행이 나온다.
 - `docker exec myroutine-ops-elasticsearch-1 curl -s "localhost:9200/myroutine-logs-*/_ilm/explain"`의 인덱스마다 `"managed":true`, `"policy":"myroutine-logs-retention"`이다.
-- VM의 `free -h`에서 지금 떠 있는 상태(앱·인프라·Logstash·Kibana)의 사용 메모리를 적어 둔다. 6-2의 Prometheus·Grafana까지 올린 뒤 다시 재서 ADR-011 결정 1항의 자원 실측에 쓴다.
+- VM의 `free -h`로 잰 사용 메모리는 used 5.5GiB, available 9.6GiB, swap 사용 0이다(앱·인프라·Logstash·Kibana). 6-2에서 Prometheus·Grafana를 올린 뒤의 값은 6-2의 "운영 VM"에 있다.
 
 **리뷰 때 물어볼 것**
 - 분산 트레이싱(Tempo 등) 없이 로그로만 추적하면 무엇이 부족한가? (ADR-010)
@@ -879,6 +879,8 @@ scrape_configs:
 | Grafana 비밀번호 | `GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD를 지정하세요}`로 받고, 값은 VM의 `/opt/myroutine/.env`에 둔다(로컬의 `admin`을 그대로 쓰지 않는다). 키 이름은 `.env.ops.example`에 있다 |
 | Prometheus 데이터 | named volume `prometheus_data`를 `/prometheus`에 마운트한다. 재배포로 컨테이너가 바뀌어도 지표 이력이 남아야 Stage 2 부하 테스트의 전후를 비교할 수 있다. 보관은 Prometheus 기본(15일)을 쓴다 |
 | Grafana 데이터 | 볼륨을 두지 않는다. 데이터소스·대시보드·알림 규칙이 모두 `provisioning` 파일이라 컨테이너를 새로 만들어도 같은 상태로 뜬다 |
+
+VM에 올린 뒤 `free -h`는 전체 15GiB 중 used 6.5GiB, available 8.6GiB, swap 사용 240KiB다. 6-1까지(used 5.5GiB, available 9.6GiB)보다 Prometheus·Grafana만큼 약 1GiB 늘었고, 16GB VM에 충분히 들어간다.
 
 `docker/grafana/provisioning/datasources/prometheus.yml`. `uid`를 고정해야 대시보드·알림 파일에서 가리킬 수 있다.
 
