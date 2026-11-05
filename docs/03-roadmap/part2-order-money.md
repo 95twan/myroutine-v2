@@ -1,6 +1,7 @@
 # Part 2. 주문과 돈
 
-> 버전 0.130 · 2026-10-27
+> 버전 0.131 · 2026-11-05 · 2-9 반품 재요청 금지는 `RETURN` 환불의 `REJECTED`만 본다(6-3 종결로 `REJECTED`가 된 구매자 취소 환불은 반품을 막지 않는다)
+> 0.130 · 2026-10-27
 > 0.122 · 2026-10-20 · 확인 필요 3건을 확정했다: 2-5 `JobLock`은 `RuntimeException`으로 감싼다, 2-8a `findByShopOrderIdForUpdate`는 `for no key update of o1_0`으로 주문 행만 잠근다, 2-8a `RefundResponse` 필드
 > 0.120 · 2026-10-20 · 테스트 중 스케줄러를 끄려면 `myroutine.scheduling.enabled: false`만으로는 부족하고 Spring Modulith `MomentsAutoConfiguration`의 `@EnableScheduling` 때문에 `spring.modulith.moments.enabled: false`도 필요하다
 > 0.117 · 2026-10-20 · 2-10 자동 확정 7일을 `AutoConfirmService`의 상수로 정했다(설정 프로퍼티 아님). 구현된 `OrderLine.addRefundAmount`에 맞춰 `addRefundedAmount`를 고쳤다(2-8, 2-10)
@@ -2471,7 +2472,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | `Refund` | `void reject(String reason)` | 판매자 거절 `REQUESTED → REJECTED`, `reject_reason = reason` |
 | `Order` | `void requestReturn(UUID lineId)` | `findLine(lineId).markReturnRequested()`. 주문 상태는 검사하지 않는다(`DELIVERED` 품목은 `PAID` 주문에만 있고 `PAID` 이후 주문 상태 전이가 없다. 품목 상태 검사가 막는다. [상태 조합](../02-design/10-state-combinations.md#24-불변식과-확인-방법)) |
 | `Order` | `void rejectReturn(UUID lineId)` | 품목 `RETURN_REQUESTED → DELIVERED`. 품목이 `RETURN_REQUESTED`가 아니면 `INVALID_STATE_TRANSITION`을 던지고, 맞으면 `findLine(lineId).markDelivered()`(2-7). `markDelivered`는 `SHIPPED → DELIVERED`도 허용하므로 이 검사가 없으면 `SHIPPED` 품목에도 통과한다 |
-| `RefundRepository` | `boolean existsByOrderLineIdAndStatus(UUID orderLineId, RefundStatus status)` | 그 품목에 해당 상태의 환불이 있는지. `REJECTED`로 거절 이력을 확인한다 (파생 쿼리) |
+| `RefundRepository` | `boolean existsByOrderLineIdAndReasonTypeAndStatus(UUID orderLineId, RefundReasonType reasonType, RefundStatus status)` | 그 품목에 해당 종류·상태의 환불이 있는지. `RETURN`·`REJECTED`로 반품 거절 이력을 확인한다 (파생 쿼리) |
 | `RefundRepository` | `List<Refund> findAllByShopOrderIdInOrderByCreatedAtAsc(Collection<UUID> shopOrderIds)` | 가게주문 ID들 → 그 가게주문들의 환불 전부, 생성 순 (파생 쿼리). 판매자 가게주문 응답의 `refunds`를 채운다(아래 2번). 한 건만 읽을 때도 `List.of(shopOrderId)`로 같은 메서드를 쓴다 |
 
 **2) order.application**
@@ -2485,7 +2486,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 `request` 순서 (한 트랜잭션)
 1. `Order order = findByIdAndMemberId(orderId, memberId)` — 없으면(남의 주문 포함) 404 `ORDER_NOT_FOUND`. 잠그지 않는다. 같은 품목의 동시 요청은 같은 `OrderLine` 행을 바꾸므로 `@Version` 충돌(409 `CONFLICT_RETRY`)로 한쪽이 실패한다
 2. `OrderLine line = order.findLine(lineId)` — 이 주문의 품목이 아니면(다른 주문의 품목 ID 포함) 404 `ORDER_LINE_NOT_FOUND`. 다음 3번이 `lineId`만으로 환불을 조회하므로, 이 주문의 품목인지 먼저 확인한다
-3. 그 품목에 `REJECTED` 환불이 있으면(`existsByOrderLineIdAndStatus(lineId, REJECTED)`) 409 `RETURN_NOT_ALLOWED`(한 번 거절되면 다시 요청할 수 없다. 정책)
+3. 그 품목에 `RETURN` 환불 중 `REJECTED`인 것이 있으면(`existsByOrderLineIdAndReasonTypeAndStatus(lineId, RETURN, REJECTED)`) 409 `RETURN_NOT_ALLOWED`(반품이 한 번 거절되면 다시 요청할 수 없다. 정책)
 4. `order.requestReturn(lineId)` — 품목이 `DELIVERED`가 아니면 여기서 409 `INVALID_STATE_TRANSITION`(같은 품목에 요청을 두 번 보내면 두 번째가 여기다)
 5. `refundRepository.save(Refund.requestReturn(orderId, shopOrderId, lineId, memberId, amount, reason))` — 금액 = `lineAmount - refundedAmount`(`line.refundableAmount()`), `shopOrderId = order.shopOrderOf(lineId).getId()`. 반환 `RefundResult(refundId, REQUESTED, amount)`
 
@@ -2498,7 +2499,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
    5. `refund.approve()` — `REQUESTED`가 아니면 `INVALID_STATE_TRANSITION`. 같은 환불에 승인·거절이 동시에 오면 `@Version` 충돌로 한쪽이 실패한다
 2. `RefundStatus status = refundProcessor.process(refundId)` (트랜잭션 밖. PG 취소 뒤 재고 복구·`COMPLETED`까지 진행하고, 완료 시 품목 `RETURNED`, 가게주문 재계산)
 3. 반환 규칙은 2-8과 같음(`COMPLETED` → 200, `APPROVED` → 202, `FAILED` → 서비스가 `PG_ERROR` 502)
-   - `FAILED`(PG가 취소를 명확히 거절)이면 환불은 `FAILED`로 끝나고 품목은 `RETURN_REQUESTED`로 둔다. 자동 재시도 잡은 없다. 구매자는 품목이 `DELIVERED`가 아니라 다시 요청할 수 없고, 판매자는 `REQUESTED`가 아닌 환불을 거절할 수 없다. 운영자가 6-3의 환불 재시도(`FAILED → APPROVED`)로 처리한다. 판매자는 가게주문의 `refunds`에서 `FAILED`를 볼 수 있다
+   - `FAILED`(PG가 취소를 명확히 거절)이면 환불은 `FAILED`로 끝나고 품목은 `RETURN_REQUESTED`로 둔다. 자동 재시도 잡은 없다. 구매자는 품목이 `DELIVERED`가 아니라 다시 요청할 수 없고, 판매자는 `REQUESTED`가 아닌 환불을 거절할 수 없다. 운영자가 6-3의 환불 재시도(`FAILED → APPROVED`)나 종결(`FAILED → REJECTED`, 품목 `DELIVERED`)로 처리한다. 판매자는 가게주문의 `refunds`에서 `FAILED`를 볼 수 있다
 
 `reject` 순서 (한 트랜잭션)
 1. `shopApi.verifyOwner(shopId, memberId)`, `refundRepository.findById(refundId)`(없으면 `REFUND_NOT_FOUND`), `order = findById(refund.getOrderId())`
@@ -2792,8 +2793,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | 차감이 상품 단위 | 결제 중 항목을 삭제 후 재담기하면 새 수량에서 차감 | 드문 경우, 수용 | 2-2 |
 | 재고 점유 남용 | 회원당 결제 대기 수·체크아웃 횟수 상한 없음 → 반복 점유 가능 | Part 4 이메일 인증, Part 6 모니터링, 2-2 "추가 항목" | 2-2 |
 | 지난 주문의 썸네일 | 판매자가 상품 이미지를 지우면 지난 주문의 썸네일 URL이 404가 된다 | 의도한 한계(주문은 이미지 키만 저장하고 이미지를 복사하지 않는다) | 2-2 |
-| PG가 거절한 환불(`FAILED`) | 구매자 취소는 502로 끝나고 품목은 `PAID` 그대로라 다시 취소를 요청할 수 있다(새 환불 행이 생긴다). 반품 승인 뒤 거절이면 품목이 `RETURN_REQUESTED`로 남아 구매자·판매자 모두 더 할 수 있는 것이 없다. 자동 재시도는 없다 | 운영자 재시도는 6-3. 재시도해도 계속 거절되는 환불을 닫는 방법도 6-3에서 정한다 | 2-8a, 2-9 |
-| `FAILED` 환불이 있는 품목의 발송 | 발송 가드는 진행 중 환불(`REQUESTED`·`APPROVED`·`PG_CANCELLED`)만 봐서 `FAILED` 환불이 있는 `PAID` 품목도 발송된다. 6-3에서 그 환불을 `APPROVED`로 되돌리면 이미 발송된 품목이 PG 취소될 수 있다 | 6-3에서 재시도 조건과 함께 정한다 | [상태 조합 7절](../02-design/10-state-combinations.md) 1 |
+| PG가 거절한 환불(`FAILED`) | 구매자 취소는 502로 끝나고 품목은 `PAID` 그대로다. 반품 승인 뒤 거절이면 품목이 `RETURN_REQUESTED`로 남아 구매자·판매자 모두 더 할 수 있는 것이 없다. 자동 재시도는 없다 | 운영자가 재시도하거나 종결한다(6-3). 6-3에서 `FAILED`를 활성 환불로 바꾸므로 구매자 재취소와 발송도 막힌다 | 2-8a, 2-9 |
 | 대사가 닫지 못하는 주문 | `PAYMENT_IN_PROGRESS` 주문의 payment 행이 없거나 `PARTIAL_CANCELLED`이면 대사가 로그만 남기고 매번 다시 시도한다 | 로그로 찾아 운영자가 처리. Part 6 모니터링 | 2-6, 상태 조합 7절 4 |
 | `UNKNOWN` 재조회 상한 | `reconcile_attempts`가 늘기만 하고 상한·알림이 없다 | Part 6 지표·알림 | 2-6, 상태 조합 7절 9 |
 | Toss API별 에러 표 | 불확실 코드 목록(`UNCERTAIN_CODES`)은 Toss 전체 에러 목록과만 대조했다. 승인·취소 API에만 나오는 "처리 중" 4xx 코드가 목록에 없으면 조회 대신 거절로 처리된다 | 개발자센터의 API별 에러 표와 대조한다(2-3 확인 필요) | 2-3 |

@@ -14,6 +14,7 @@ public record NotificationRow(
         String dedupKey,
         int attempts,
         Instant sentAt,
-        Instant nextAttemptAt
+        Instant nextAttemptAt,
+        long version
 ) {
 }

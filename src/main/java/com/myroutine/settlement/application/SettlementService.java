@@ -1,6 +1,8 @@
 package com.myroutine.settlement.application;
 
 import com.myroutine.common.config.BusinessProperties;
+import com.myroutine.common.error.BusinessException;
+import com.myroutine.common.error.CommonErrorCode;
 import com.myroutine.common.model.Ids;
 import com.myroutine.common.model.Money;
 import com.myroutine.common.outbox.OutboxPublisher;
@@ -17,6 +19,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Slf4j
@@ -31,6 +34,14 @@ public class SettlementService {
     private final TransactionTemplate tx;
     private final PayoutGateway payoutGateway;
     private final OutboxPublisher publisher;
+
+    public SettlementRunResult runManually(YearMonth month) {
+        YearMonth current = YearMonth.now(clock.withZone(businessProperties.businessZone()));
+        if (!month.isBefore(current)) {
+            throw new BusinessException(CommonErrorCode.INVALID_REQUEST, Map.of("period", "끝난 달만 실행할 수 있습니다."));
+        }
+        return run(month);
+    }
 
     public SettlementRunResult run(YearMonth month) {
         SettlementPeriod period = SettlementPeriod.of(month);

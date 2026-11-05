@@ -97,7 +97,7 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 | 2-3 | B | Toss 승인·취소·조회 API별 에러 코드 표를 대조하지 못함 | 2-3 payment.infrastructure | 개발자센터 에러 표 확인 |
 | 공통 | D | springdoc-openapi의 Boot 4 호환 버전(사용하는 단계 없음) | development-guide 1.1절 "이후 단계에서 쓸 버전" 표 | 사용 단계 착수 시 확인 |
 | 공통 | E | 격리 수준 `READ COMMITTED` 가정. `src/main`에 격리 수준 설정이 없어 기본값을 쓴다 | 08-stock-design-evolution 1절 "먼저 알아둘 전제" 표 | 확정 문장으로 교체 |
-| 상태 조합 | A·C | [10-state-combinations 7절](../02-design/10-state-combinations.md) 10건(발송 가드와 `FAILED` 환불, 대사가 못 닫는 경우 등) | 10 문서 7절 | 해당 단계 착수 때 같이 푼다 |
+| 상태 조합 | A·C | [10-state-combinations 7절](../02-design/10-state-combinations.md) 8건(대사가 못 닫는 경우 등. 발송 가드와 `FAILED` 환불은 6-3에서 풀었다) | 10 문서 7절 | 해당 단계 착수 때 같이 푼다 |
 
 ### Part 3
 
@@ -113,8 +113,6 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 
 | 단계 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
-| 6-3 | A | 반품 환불이 재시도해도 계속 `FAILED`로 남는 경우를 닫는 방법 | 6-3 order.web | 사용자 결정 |
-| 6-3 | B | Toss가 같은 멱등 키의 실패 응답을 어떻게 처리하는지 | 6-3 order.web | Toss 문서·샌드박스 |
 | 6-4 | B | Consumer 재접속 시간(await 30초 적정성) | 6-4 완료 확인 장애 시나리오(`KafkaOutageE2ETest`) | 측정 |
 | 6-5 | A | v1.0.0 때 `v0.6.0` 태그를 따로 찍을지(git-policy 7절은 Part 6 완료 시 `v0.6.0`) | 6-5 릴리스, 완료 확인 | 사용자 결정 후 git-policy와 맞춤 |
 | 6-5 | A | ADR-012 미정 항목(노드 수, 상태 서비스 위치, 도구), K-1~K-5 문서 파일 이름 | 6-5 Stage 1.5 준비, 완료 확인, ADR-012 상태 줄 | Stage 1.5 시작 전에 결정 |

@@ -19,4 +19,20 @@ public interface JpaRefundRepository extends JpaRepository<Refund, UUID>, Refund
             order by r.updatedAt
             """)
     List<UUID> findStuckIds(RefundStatus status, Instant before, Limit limit);
+
+    @Query("""
+            select r
+            from Refund r
+            where r.status = :status
+            order by r.createdAt, r.id
+            """)
+    List<Refund> findByStatusFirstPage(RefundStatus status, Limit limit);
+
+    @Query("""
+            select r
+            from Refund r
+            where r.status = :status and (r.createdAt > :cursorCreatedAt or (r.createdAt = :cursorCreatedAt and r.id > :cursorId))
+            order by r.createdAt, r.id
+            """)
+    List<Refund> findByStatusNextPage(RefundStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit);
 }

@@ -12,7 +12,8 @@ public enum RefundStatus {
     private static final Map<RefundStatus, Set<RefundStatus>> ALLOWED = Map.of(
             REQUESTED, Set.of(APPROVED, REJECTED),
             APPROVED, Set.of(PG_CANCELLED, FAILED),
-            PG_CANCELLED, Set.of(COMPLETED)
+            PG_CANCELLED, Set.of(COMPLETED),
+            FAILED, Set.of(APPROVED, REJECTED)
     );
 
     public RefundStatus transitTo(RefundStatus to) {

@@ -56,4 +56,20 @@ public interface JpaSettlementRepository extends JpaRepository<Settlement, UUID>
             WHERE s.status != :status AND s.shopId IN :shopIds
             """)
     boolean existsByShopIdInAndStatusNot(Collection<UUID> shopIds, SettlementStatus status);
+
+    @Query("""
+            select s
+            from Settlement s
+            where s.status = :status
+            order by s.createdAt, s.id
+            """)
+    List<Settlement> findByStatusFirstPage(SettlementStatus status, Limit limit);
+
+    @Query("""
+            select s
+            from Settlement s
+            where s.status = :status and (s.createdAt > :cursorCreatedAt or (s.createdAt = :cursorCreatedAt and s.id > :cursorId))
+            order by s.createdAt, s.id
+            """)
+    List<Settlement> findByStatusNextPage(SettlementStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit);
 }
