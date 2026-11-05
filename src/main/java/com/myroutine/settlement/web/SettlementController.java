@@ -3,15 +3,18 @@ package com.myroutine.settlement.web;
 import com.myroutine.common.security.CurrentMember;
 import com.myroutine.common.web.CursorPage;
 import com.myroutine.settlement.application.*;
+import com.myroutine.settlement.domain.SettlementStatus;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.YearMonth;
 import java.util.UUID;
 
+@Slf4j
 @RestController
 @RequiredArgsConstructor
 public class SettlementController {
@@ -45,10 +48,22 @@ public class SettlementController {
 
     @PostMapping("/admin/api/settlements/run")
     public ResponseEntity<SettlementRunResult> runSettlement(
+            @CurrentMember UUID memberId,
             @RequestParam YearMonth period
     ) {
-        SettlementRunResult result = settlementService.run(period);
+        log.info("admin action={} target={} by={}", "settlement-run", period, memberId);
+        SettlementRunResult result = settlementService.runManually(period);
         return ResponseEntity.ok().body(result);
+    }
+
+    @GetMapping("/admin/api/settlements")
+    public ResponseEntity<CursorPage<AdminSettlementResponse>> getSettlementsForAdmin(
+            @RequestParam SettlementStatus status,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "20") @Min(value = 1, message = "1 이상이어야 합니다.") @Max(value = 50, message = "50 이하여야 합니다.") int size
+    ) {
+        CursorPage<AdminSettlementResult> result = settlementQueryService.getForAdmin(status, cursor, size);
+        return ResponseEntity.ok().body(new CursorPage<>(result.items().stream().map(AdminSettlementResponse::from).toList(), result.nextCursor()));
     }
 
     @GetMapping("/api/shops/{shopId}/settlements/upcoming")

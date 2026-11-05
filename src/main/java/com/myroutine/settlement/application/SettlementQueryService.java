@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -69,6 +70,36 @@ public class SettlementQueryService {
 
         CursorPage<SettlementItemResult> cursorPage = new CursorPage<>(settlementItems.stream().map(SettlementItemResult::from).toList(), nextCursor);
         return new SettlementDetailResult(SettlementResult.from(settlement), cursorPage);
+    }
+
+    @Transactional(readOnly = true)
+    public CursorPage<AdminSettlementResult> getForAdmin(SettlementStatus status, String cursor, int size) {
+        List<Settlement> settlements;
+        if (cursor == null || cursor.isBlank()) {
+            settlements = settlementRepository.findByStatusFirstPage(status, Limit.of(size + 1));
+        } else {
+            Cursor current = Cursor.decode(cursor);
+            settlements = settlementRepository.findByStatusNextPage(status, current.createdAt(), current.id(), Limit.of(size + 1));
+        }
+
+        String nextCursor = null;
+        if (settlements.size() > size) {
+            settlements = settlements.subList(0, size);
+            Settlement last = settlements.getLast();
+            nextCursor = new Cursor(last.getCreatedAt(), last.getId()).encode();
+        }
+
+        List<UUID> shopIds = settlements.stream()
+                .map(Settlement::getShopId)
+                .distinct()
+                .toList();
+        Map<UUID, String> shopNames = shopApi.getShopNames(shopIds);
+
+        List<AdminSettlementResult> items = settlements.stream()
+                .map(settlement -> AdminSettlementResult.from(settlement, shopNames.get(settlement.getShopId())))
+                .toList();
+
+        return new CursorPage<>(items, nextCursor);
     }
 
     @Transactional(readOnly = true)
