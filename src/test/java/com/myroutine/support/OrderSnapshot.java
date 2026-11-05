@@ -14,7 +14,8 @@ public record OrderSnapshot(
         List<String> shopOrderStatuses,
         List<String> refundStatuses,
         PaymentState payment,
-        String status
+        String status,
+        List<String> reservationStatuses
 ) {
 
     public LineState line(UUID productId) {
