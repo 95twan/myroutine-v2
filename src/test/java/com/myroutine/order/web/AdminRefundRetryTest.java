@@ -356,6 +356,44 @@ class AdminRefundRetryTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("구매자 취소 환불을 종결한 품목도 발송·배송 완료 뒤 반품을 요청할 수 있다.")
+    void requestReturnAfterClosedBuyerCancelRefund() throws Exception {
+        // Given
+        UUID adminId = testFixtures.signup("admin@test.com");
+        testFixtures.changeRole(adminId, "ADMIN");
+        String adminToken = testFixtures.login("admin@test.com");
+
+        UUID sellerId = testFixtures.signup("seller@test.com");
+        UUID shopId = testFixtures.openShop(sellerId, "1111111111");
+        UUID product1Id = testFixtures.registerProduct(sellerId, shopId, 1000, 10);
+        UUID buyerId = testFixtures.signup("buyer@test.com");
+        String buyerToken = testFixtures.login("buyer@test.com");
+
+        UUID orderId = testFixtures.createPaidOrder(buyerId, product1Id);
+        UUID lineId = testFixtures.orderLineIdOf(orderId, product1Id);
+        String paymentKey = testFixtures.snapshotOf(orderId).payment().paymentKey();
+        failBuyerCancel(buyerToken, orderId, lineId, paymentKey);
+        UUID refundId = testFixtures.refundIdOf(lineId);
+        mockMvc.perform(post("/admin/api/refunds/{id}/close", refundId)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"PG에서 이미 취소됨\"}"))
+                .andExpect(status().isOk());
+        UUID shopOrderId = testFixtures.shopOrderIdOf(orderId, shopId);
+        testFixtures.shipShopOrder(sellerId, shopId, shopOrderId);
+        testFixtures.deliverShopOrder(sellerId, shopId, shopOrderId);
+
+        // When & Then
+        mockMvc.perform(post("/api/orders/{orderId}/lines/{lineId}/return-requests", orderId, lineId)
+                        .header("Authorization", "Bearer " + buyerToken)
+                        .header("Idempotency-Key", Ids.newId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ReturnRequest("상품 불량"))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("REQUESTED"));
+    }
+
+    @Test
     @DisplayName("FAILED 환불이 있는 가게주문의 발송을 실패한다. (REFUND_IN_PROGRESS)")
     void shipShopOrderWithFailedRefundFails() throws Exception {
         // Given

@@ -20,7 +20,7 @@ public interface RefundRepository {
 
     List<UUID> findStuckIds(RefundStatus status, Instant before, Limit limit);
 
-    boolean existsByOrderLineIdAndStatus(UUID orderLineId, RefundStatus status);
+    boolean existsByOrderLineIdAndReasonTypeAndStatus(UUID orderLineId, RefundReasonType reasonType, RefundStatus status);
 
     List<Refund> findAllByShopOrderIdInOrderByCreatedAtAsc(Collection<UUID> shopOrderIds);
 
