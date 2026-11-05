@@ -1,5 +1,6 @@
 # 02. Stage 1 아키텍처 — 모듈러 모놀리스
 
+> 2026-11-06 · 운영 MinIO는 VM compose에 있다. 2026-10-14의 NAS 이전은 실행하지 않았고 VM 자원이 모자랄 때 한다
 > 2026-11-01 · search가 검색 결과 항목을 product에서 읽는다(로드맵 5-2, ADR-013)
 > 2026-10-16 · 대사 호출 이름을 `queryOutcome`에서 `queryPgOutcome`으로 바꿨다(로드맵 2-6)
 > 2026-10-14 · 운영 MinIO를 NAS로 이전(ADR-011 §8)해 운영의 호스트 포트·인프라 위치 서술을 고쳤다
@@ -162,7 +163,7 @@ com.myroutine
 | prometheus, grafana | 메트릭·대시보드·알림 — compose 프로필 `observability` |
 | pg-fake | 부하 테스트용 Toss Fake. 테스트용 가짜 PG 서버(`FakePgServer`)에 main을 붙여 컨테이너로 띄움. 지연·실패 비율을 환경변수로 설정 |
 
-- 로컬은 `docker/docker-compose.yml`, 운영 연습 VM은 `docker/docker-compose.ops.yml`(1-11, [ADR-011](../adr/ADR-011-ops-practice-environment.md))이다. 운영에서는 앱도 컨테이너로 돌고, VM이 호스트에 여는 포트는 앱(8080)뿐이다. MinIO는 NAS에서 돌며 API(9000)만 LAN에 연다([ops/nas-minio.md](../ops/nas-minio.md)).
+- 로컬은 `docker/docker-compose.yml`, 운영 연습 VM은 `docker/docker-compose.ops.yml`(1-11, [ADR-011](../adr/ADR-011-ops-practice-environment.md))이다. 운영에서는 앱도 컨테이너로 돌고, VM이 LAN에 여는 포트는 앱(8080), MinIO API(9000), Kibana(5601), Grafana(3000)다. VM 자원이 모자라면 MinIO를 NAS로 옮긴다([ops/nas-minio.md](../ops/nas-minio.md)).
 
 ## 7. 테스트 전략
 | 계층 | 도구 | 대상 |

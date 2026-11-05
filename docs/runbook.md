@@ -187,3 +187,24 @@ curl -s -XPOST -H "Authorization: Bearer $TOKEN" "$BASE/admin/api/outbox/{id}/re
 ```
 
 역할은 토큰에 담기므로 ADMIN으로 바꾼 뒤에 다시 로그인해 받은 토큰을 쓴다. 본문이 필요한 `refunds/{id}/close`는 `-H 'Content-Type: application/json' -d '{"reason":"사유"}'`를 더한다.
+
+### 상품 이미지 업로드
+
+상품 이미지는 서버를 거치지 않고 MinIO에 직접 올린다(presigned URL). 판매자 토큰 `$TOKEN`, 가게 `$SHOP`, 상품 `$PRODUCT` 기준이다. 허용 형식은 `image/jpeg`·`image/png`·`image/webp`, 크기는 1바이트~5MB, 상품당 최대 10장이다.
+
+```bash
+BASE=http://localhost:8080/api/shops/$SHOP/products/$PRODUCT/images
+
+# 1. 업로드 URL 발급 (형식과 크기를 미리 알려 서명에 묶는다)
+R=$(curl -s -X POST $BASE/presigned-url \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"contentType\":\"image/png\",\"contentLength\":$(wc -c < a.png | tr -d ' ')}")
+URL=$(echo "$R" | jq -r .uploadUrl); KEY=$(echo "$R" | jq -r .objectKey)
+
+# 2. 받은 URL로 파일을 직접 PUT (Content-Type은 1번과 같아야 한다. 다르면 저장소가 403)
+curl -X PUT "$URL" -H 'Content-Type: image/png' --data-binary @a.png
+
+# 3. 올렸다고 서버에 등록 (저장소에 실제로 있는지 서버가 확인한다)
+curl -s -X POST $BASE -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"objectKey\":\"$KEY\"}"                  # 응답의 url로 인증 없이 GET할 수 있다
+```

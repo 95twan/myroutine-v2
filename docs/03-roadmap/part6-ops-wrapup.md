@@ -1,6 +1,7 @@
 # Part 6. 관측 · 운영 · 마무리
 
-> 버전 0.40 · 2026-11-05 · 6-3 즉시 대사는 주문이 30초 안에 바뀌었으면 PG를 조회하지 않고 현재 상태를 돌려준다(진행 중인 승인 요청을 실패로 확정하지 않게). 구매자 취소 환불을 종결해도 반품 요청은 막히지 않는다
+> 버전 0.41 · 2026-11-06 · 6-5는 `v0.6.0`을 따로 찍지 않고 `v1.0.0`으로 릴리스한다. Stage 1.5 준비를 빼고(k3s는 서브 SUB-9~SUB-13) 알려진 한계 네 건을 Release 노트에 적는다
+> 0.40 · 2026-11-05 · 6-3 즉시 대사는 주문이 30초 안에 바뀌었으면 PG를 조회하지 않고 현재 상태를 돌려준다(진행 중인 승인 요청을 실패로 확정하지 않게). 구매자 취소 환불을 종결해도 반품 요청은 막히지 않는다
 > 0.39 · 2026-11-05 · 6-3 환불 종결 API `POST /admin/api/refunds/{id}/close`(`FAILED → REJECTED`)를 더하고, `FAILED` 환불을 활성 환불로 본다(발송 가드·`uk_refund_order_line_active`·구매자 재취소는 인덱스 위반 409)
 > 0.38 · 2026-11-05 · 6-2에서 `mail_send_seconds` Timer를 뺐다(읽는 대시보드·알림이 없다). 운영 compose의 Grafana 비밀번호 키 `GRAFANA_ADMIN_PASSWORD`를 `.env.ops.example`에 더했다
 > 0.37 · 2026-11-05 · `orderId` MDC는 서비스 본문 대신 `@LogOrderId` Aspect로 넣고 요청 2곳(`confirm`·`cancel`)에 적용한다. 운영 VM의 Kibana(5601)·Grafana(3000)는 SSH 터널 없이 LAN에서 바로 연다(Prometheus는 `127.0.0.1`)
@@ -1812,19 +1813,19 @@ S5(구독)는 서브인 [구독](../04-sub/subscription.md)을 할 때 더한다
 
 ### 할 일
 
-**구현 순서**: 1) README → 2) 회고 → 3) 이력서 bullet → 4) Stage 2 준비 → 5) 릴리스 → 6) Stage 1.5 준비.
+**구현 순서**: 1) README → 2) 회고 → 3) 이력서 bullet → 4) Stage 2 준비 → 5) 릴리스.
 
 **1) README** — `README.md` (Claude)
 
 소개, 아키텍처 다이어그램, 실행 방법(인프라 → 앱 → 관측 스택), 운영 환경(VM)과 배포 흐름([ADR-011](../adr/ADR-011-ops-practice-environment.md)), 문서 안내, 핵심 설계 요약(정합성·동시성), 테스트로 증명한 것 목록
 
-**2) 회고** — `docs/retrospectives/stage1.md` (사용자 작성, Claude 리뷰)
+**2) 회고** — `docs/retrospectives/stage1.md` (Claude 초안, 사용자 확정)
 
 설계와 달라진 점과 이유, 리뷰에서 반복된 지적, 어려웠던 점, 다시 한다면
 
-**3) 이력서 bullet 초안** (사용자 작성, Claude 리뷰)
+**3) 이력서 bullet 초안** (Claude 초안, 사용자 확정)
 
-문장마다 근거 링크(테스트 클래스, ADR, 수치)
+로컬에만 두고 커밋하지 않는다. 항목마다 선택 이유, 장단점, 결과와 근거 링크(테스트 클래스, ADR)를 쓴다. 수치를 앞세우지 않는다
 
 **4) Stage 2 준비** (Claude 초안, 사용자 확정)
 
@@ -1832,11 +1833,7 @@ S5(구독)는 서브인 [구독](../04-sub/subscription.md)을 할 때 더한다
 
 **5) 릴리스** — develop → main, 태그 `v1.0.0`
 
-develop → main PR을 **merge commit**으로 합치고(squash 아님), main에 태그를 붙인 뒤 GitHub Release를 만든다. Release 노트에는 완료한 단계 목록, 주요 ADR, 알려진 한계를 쓴다. 알려진 한계에는 대사가 PG 조회 결과 `CANCELED`·`PARTIAL_CANCELED`를 승인으로 처리해, 토스 관리자 화면 등 외부에서 취소된 결제의 주문이 `PAID`가 될 수 있다는 점을 넣는다([상태 조합 7절](../02-design/10-state-combinations.md#7-확인-필요) 6번)([git-policy §7](../git-policy.md#7-릴리스와-태그). 같은 표에 Part 6 완료 `v0.6.0`도 있다: 이 단계에서 `v0.6.0`을 따로 찍을지는 확인 필요)
-
-**6) Stage 1.5 준비** (Claude 초안, 사용자 확정)
-
-[ADR-012](../adr/ADR-012-kubernetes-zero-downtime.md)의 "확인 필요"·미정 항목(노드 수, 상태 서비스 위치)을 확정하고 K-1~K-5 로드맵 문서로 구체화. Stage 2 Baseline은 그 이후 k3s 환경에서 측정한다
+develop → main PR을 **merge commit**으로 합치고(squash 아님), main에 태그를 붙인 뒤 GitHub Release를 만든다. Release 노트에는 완료한 단계 목록, 주요 ADR, 알려진 한계를 쓴다. 알려진 한계에는 [상태 조합 8절](../02-design/10-state-combinations.md#8-알려진-한계)의 네 건을 넣는다([git-policy §7](../git-policy.md#7-릴리스와-태그)).
 
 ### 완료 확인
 
@@ -1846,16 +1843,14 @@ develop → main PR을 **merge commit**으로 합치고(squash 아님), main에 
    - 열어서 볼 것: 소개, 아키텍처 다이어그램(Mermaid), 실행 방법(인프라 → 앱 → 관측 스택 순서), 운영 환경(VM)과 배포 흐름, 문서 안내, 핵심 설계 요약(정합성·동시성), 테스트로 증명한 것 목록의 7개 절이 각각 있다.
    - 링크: `grep -oE '\]\((docs/[^)#]+)' README.md | sed 's/](//' | sort -u | while read p; do test -e "$p" || echo "깨짐: $p"; done`의 표준 출력이 빈 문자열이다.
    - 증명 목록: 항목마다 적힌 테스트 클래스 이름 `X`에 대해 `find src/test -name 'X.java'`가 정확히 1건이다.
-   - 실행 방법: 새 폴더에 `git clone` 후 README의 명령만 순서대로 실행해 앱이 뜨고 `curl -s localhost:8081/actuator/health`가 `{"status":"UP"}`를 돌려준다. 관측 스택은 `docker compose --env-file .env.local -f docker/docker-compose.yml --profile observability up -d` 뒤 Grafana 대시보드 3개가 보인다.
+   - 실행 방법: 새 폴더에 `git clone` 후 README의 명령만 순서대로 실행해 앱이 뜨고 `curl -s localhost:8081/actuator/health`의 `status`가 `UP`이다. 관측 스택은 `docker compose --env-file .env.local -f docker/docker-compose.yml --profile observability up -d` 뒤 Grafana 대시보드 3개가 보인다.
 2. **회고** `docs/retrospectives/stage1.md`: 절 4개(설계와 달라진 점과 이유, 리뷰에서 반복된 지적, 어려웠던 점, 다시 한다면)가 있고 각 절에 항목이 1개 이상이다. "달라진 점"의 항목마다 근거 문서(ADR 또는 로드맵 버전 줄) 링크가 있다.
-3. **이력서 bullet 초안**: 문장마다 링크가 1개 이상이고 링크 대상이 존재한다(테스트 클래스 파일, ADR, 수치의 출처). 수치가 있는 문장은 그 수치를 낸 측정·테스트 결과가 링크 대상에 있다.
+3. **이력서 bullet 초안**: 항목마다 선택 이유, 장단점, 결과가 있고, 근거 링크가 1개 이상이며 링크 대상이 존재한다(테스트 클래스 파일, ADR). 수치를 쓴 문장은 그 수치를 낸 측정·테스트 결과가 링크 대상에 있다.
 4. **Stage 2 준비 문서**: 시드 데이터 규모(건수)와 생성 방식이 있고, k6 시나리오 목록에 NFR-PERF-01~07이 각각 1개 이상의 시나리오로 연결된다(`grep -oE 'NFR-PERF-0[1-7]' {문서} | sort -u`가 7줄). 합격 기준 값은 [요구사항 NFR 표](../01-requirements/README.md)의 값(예: NFR-PERF-01 p95 < 200ms, 에러율 < 0.1%)과 같다.
 5. **릴리스**
    - develop → main PR: `gh pr view {번호} --json state,mergeCommit` → `state` = `MERGED`. `git cat-file -p {mergeCommit.oid}`에 `parent` 줄이 2개다.
    - 태그: `git tag -l v1.0.0` 출력이 `v1.0.0`, `git rev-parse v1.0.0^{commit}` = `git rev-parse origin/main`.
    - Release: `gh release view v1.0.0 --json tagName,body` → `tagName` = `v1.0.0`, `body`에 완료한 단계 목록, 주요 ADR, 알려진 한계 3개 절이 있다.
    - main의 CI: `gh run list --branch main --workflow CI --limit 1 --json conclusion` → `success`.
-   - 확인 필요: 이 단계에서 `v0.6.0`을 따로 찍을지.
-6. **Stage 1.5 준비**: ADR-012에서 노드 수·상태 서비스 위치가 "제안"이 아니라 확정 값으로 적혀 있고, K-1~K-5 로드맵 문서가 `docs/03-roadmap/`에 있다(파일 이름은 확인 필요).
 
-**리뷰 때 물어볼 것**: 이력서 문장마다 근거(테스트, 문서, 수치)가 있는가?
+**리뷰 때 물어볼 것**: 이력서 항목마다 선택 이유와 장단점을 근거(테스트, 문서)와 함께 설명할 수 있는가?

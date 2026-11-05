@@ -2794,9 +2794,9 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | 재고 점유 남용 | 회원당 결제 대기 수·체크아웃 횟수 상한 없음 → 반복 점유 가능 | Part 4 이메일 인증, Part 6 모니터링, 2-2 "추가 항목" | 2-2 |
 | 지난 주문의 썸네일 | 판매자가 상품 이미지를 지우면 지난 주문의 썸네일 URL이 404가 된다 | 의도한 한계(주문은 이미지 키만 저장하고 이미지를 복사하지 않는다) | 2-2 |
 | PG가 거절한 환불(`FAILED`) | 구매자 취소는 502로 끝나고 품목은 `PAID` 그대로다. 반품 승인 뒤 거절이면 품목이 `RETURN_REQUESTED`로 남아 구매자·판매자 모두 더 할 수 있는 것이 없다. 자동 재시도는 없다 | 운영자가 재시도하거나 종결한다(6-3). 6-3에서 `FAILED`를 활성 환불로 바꾸므로 구매자 재취소와 발송도 막힌다 | 2-8a, 2-9 |
-| 대사가 닫지 못하는 주문 | `PAYMENT_IN_PROGRESS` 주문의 payment 행이 없거나 `PARTIAL_CANCELLED`이면 대사가 로그만 남기고 매번 다시 시도한다 | 로그로 찾아 운영자가 처리. Part 6 모니터링 | 2-6, 상태 조합 7절 4 |
-| `UNKNOWN` 재조회 상한 | `reconcile_attempts`가 늘기만 하고 상한·알림이 없다 | Part 6 지표·알림 | 2-6, 상태 조합 7절 9 |
+| 대사가 닫지 못하는 주문 | `PAYMENT_IN_PROGRESS` 주문의 payment 행이 없거나 `PARTIAL_CANCELLED`이면 대사가 로그만 남기고 매번 다시 시도한다 | 6-2 알림 `정체 Saga`와 로그로 찾아 운영자가 처리 | 2-6, 상태 조합 8절 4 |
+| `UNKNOWN` 재조회 상한 | `reconcile_attempts`가 늘기만 하고 상한이 없다 | 6-2 알림 `결제 확인 지연`으로 찾는다 | 2-6, 상태 조합 8절 9 |
 | Toss API별 에러 표 | 불확실 코드 목록(`UNCERTAIN_CODES`)은 Toss 전체 에러 목록과만 대조했다. 승인·취소 API에만 나오는 "처리 중" 4xx 코드가 목록에 없으면 조회 대신 거절로 처리된다 | 개발자센터의 API별 에러 표와 대조한다(2-3 확인 필요) | 2-3 |
 | 결제 내역 조회 API 없음 | `payment.method`·`approved_at`을 보여 줄 `GET /api/payments`(FR-PAY-08)를 만드는 단계가 로드맵에 없다 | 단계를 추가할지 정한다 | [pending-decisions 3절](pending-decisions.md) |
-| 코드를 읽고 추론만 한 것 | 서로 다른 키로 동시에 온 두 PG 취소 중 하나의 `payment_cancel` 행이 `REQUESTED`/`UNKNOWN`으로 남을 수 있다. PG 조회의 `CANCELED`·`PARTIAL_CANCELED`를 `APPROVED`로 매핑해, 로컬 `UNKNOWN` 결제가 PG에서 이미 취소됐어도 `APPROVED`가 될 수 있다 | 테스트로 재현하지 않았다. 재현한 뒤 고친다 | 상태 조합 7절 5·6 |
+| 코드를 읽고 추론만 한 것 | 서로 다른 키로 동시에 온 두 PG 취소 중 하나의 `payment_cancel` 행이 `REQUESTED`/`UNKNOWN`으로 남을 수 있다. PG 조회의 `CANCELED`·`PARTIAL_CANCELED`를 `APPROVED`로 매핑해, 로컬 `UNKNOWN` 결제가 PG에서 이미 취소됐어도 `APPROVED`가 될 수 있다 | 테스트로 재현하지 않았다. `v1.0.0`에 안고 간다 | 상태 조합 8절 5·6 |
 | 수동·자동 구매확정 동시성 | `ConfirmConcurrencyTest`가 `@Version`의 증거가 아니라 이상 상태가 없는지만 봄 | 같은 품목을 동시에 확정하는 충돌의 방어는 `OrderLine`의 `@Version`과 `transitTo`. 증거를 얻으려면 작업 안의 대기나 spy로 두 작업이 같은 품목을 읽는 구간을 겹치게 하고, "확정에 성공한 쪽은 하나"를 단언한다 | 2-10 |
