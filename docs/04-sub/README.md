@@ -1,11 +1,12 @@
 # 서브
 
-> 버전 0.2 · 2026-11-02 · 로드맵의 옛 5-3 무중단 재색인을 옮겨 왔다(단계 ID SUB-7)
+> 버전 0.3 · 2026-11-05 · 6-1이 남긴 로그 빈 곳(알림 발송 실패, 도메인 상태 전이, JWT 거부 사유)을 SUB-8로 더했다
+> 0.2 · 2026-11-02 · 로드맵의 옛 5-3 무중단 재색인을 옮겨 왔다(단계 ID SUB-7)
 > 0.1 · 2026-10-31 · 로드맵에서 구독(옛 Part 5), 취향 추천(옛 6-4), 월간 리뷰 요약(옛 6-5)을 빼서 옮겨 오고 단계 ID를 SUB-1~SUB-6으로 붙였다
 
 [로드맵](../03-roadmap/README.md)(Part 1~6, Stage 1 `v1.0.0`)에서 뺀 기능이다. Stage 1 뒤 여유가 있을 때 하고, 시기는 그때 정한다. Stage 1.5(k3s)와 Stage 2의 선행 조건이 아니다.
 
-단계 ID는 로드맵 단계(`Part-번호`)와 겹치지 않게 `SUB-1`~`SUB-7`로 붙인다.
+단계 ID는 로드맵 단계(`Part-번호`)와 겹치지 않게 `SUB-1`~`SUB-8`로 붙인다.
 
 | 기능 | 단계 | 문서 | 요구사항 |
 |---|---|---|---|
@@ -13,12 +14,13 @@
 | 취향 추천 | SUB-5 | [취향 추천](recommendation.md) | FR-REC-01 |
 | 월간 리뷰 요약 | SUB-6 | [월간 리뷰 요약](review-summary.md) | FR-REV-03 |
 | 무중단 재색인 | SUB-7 | [무중단 재색인](search-reindex.md) | FR-SRC-02 |
+| 로그 보강 | SUB-8 | [로그 보강](log-coverage.md) | - |
 
 ## 진행 방식
 
 - 단계 하나 = 브랜치 하나 = PR 하나 = 리뷰 하나는 로드맵과 같다. 브랜치명은 `feature/sub-1-billing-key`처럼 단계 ID로 시작한다.
 - 착수("SUB-1 진행할게")를 알리면 아래 "구현 때 정할 것"의 그 단계 행을 먼저 풀고 테스트 골격을 만든다([CLAUDE.md §2](../../CLAUDE.md)).
-- 기능 하나(구독 전체, 취향 추천, 월간 리뷰 요약, 무중단 재색인)를 마칠 때마다 다음 MINOR(`v1.x.0`)로 릴리스한다([Git 정책 §7](../git-policy.md)).
+- 기능 하나(구독 전체, 취향 추천, 월간 리뷰 요약, 무중단 재색인, 로그 보강)를 마칠 때마다 다음 MINOR(`v1.x.0`)로 릴리스한다([Git 정책 §7](../git-policy.md)).
 
 ## 무엇이 새로 등장하나
 
@@ -27,6 +29,7 @@
 | SUB-1 | Toss 빌링 | 정기결제 |
 | SUB-5 | pgvector, Spring AI | 임베딩, 유사도 검색 |
 | SUB-7 | - | 이중 쓰기, alias 원자 교체 |
+| SUB-8 | - | - |
 
 ## 미결 정책
 
@@ -89,5 +92,8 @@
 | SUB-6 | D | `review_summary` 읽기 repository, 요약 `model`은 설정값, `latestSummary` JSON 키 | SUB-6 review.application, 완료 확인 | 확정 |
 | SUB-7 | A | 재색인 실패 시 `reindex()`가 예외를 던질지 | SUB-7 search.application | 사용자 결정 |
 | SUB-7 | B | alias 교체 전 `refresh`가 필요한지(기본 1초) | SUB-7 search.application | ES 실험 |
+| SUB-8 | A | 도메인 상태 전이 로그의 범위(전부 vs 돈·재고가 움직이는 전이만) | SUB-8 order·payment·settlement application | 사용자 결정 |
+| SUB-8 | A | JWT 거부 로그 레벨(`warn` vs `debug`). 만료는 정상 흐름이라 `warn`이면 로그가 넘칠 수 있다 | SUB-8 common.security | 사용자 결정 |
+| SUB-8 | D | JWT 거부 로그를 `JwtProvider`와 `JwtAuthenticationFilter` 중 어디서 찍을지, 사유 구분 방식 | SUB-8 common.security | 확정 |
 | SUB-1·SUB-3 | A | `pg_call_seconds`에 빌링 호출(`issueBillingKey`·`billingCharge`)을 포함할지와 `operation` 값 | 구독 "Part 6에 더할 것" 2) | 사용자 결정 |
 | SUB-5·SUB-6 | A | `openai_call_seconds`의 `operation`·`result` 라벨 값. ADR-010의 이 Timer를 대시보드·알림 어디에도 쓰지 않는다 | 위 "Part 6에 더할 것" | 사용자 결정(권장: 소문자 메서드명) |
