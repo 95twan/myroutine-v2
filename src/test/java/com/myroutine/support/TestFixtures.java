@@ -498,7 +498,9 @@ public class TestFixtures {
 
         List<String> status = jdbcTemplate.queryForList("SELECT status FROM orders.orders WHERE id = ?", String.class, orderId);
 
-        return new OrderSnapshot(lines, shopOrderStatuses, refundStatuses, payments.isEmpty() ? null : payments.getFirst(), status.isEmpty() ? null : status.getFirst());
+        List<String> reservationStatuses = jdbcTemplate.queryForList("SELECT status FROM product.stock_reservation WHERE order_id = ?", String.class, orderId);
+
+        return new OrderSnapshot(lines, shopOrderStatuses, refundStatuses, payments.isEmpty() ? null : payments.getFirst(), status.isEmpty() ? null : status.getFirst(), reservationStatuses);
     }
 
     public UUID orderLineIdOf(UUID orderId, UUID productId) {
@@ -878,6 +880,14 @@ public class TestFixtures {
                 },
                 memberId
         );
+    }
+
+    public int unsentOutboxCount() {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM common.outbox_event WHERE status <> 'SENT'", Integer.class);
+    }
+
+    public NotificationCounts notificationCounts() {
+        return new NotificationCounts(notificationRows());
     }
 
     public List<NotificationRow> notificationRows() {
