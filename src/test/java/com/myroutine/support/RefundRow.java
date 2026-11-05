@@ -8,6 +8,7 @@ public record RefundRow(
         long amount,
         String reason,
         String rejectReason,
-        Instant completedAt
+        Instant completedAt,
+        int pgAttempts
 ) {
 }

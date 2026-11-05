@@ -7,6 +7,10 @@ public record CartSnapshot(
         int cartCount,
         Map<UUID, Integer> quantityByProduct
 ) {
+    public int quantity(UUID productId) {
+        return quantityByProduct.getOrDefault(productId, 0);
+    }
+
     public int itemCount() {
         return quantityByProduct.size();
     }

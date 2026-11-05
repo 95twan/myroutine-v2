@@ -35,7 +35,9 @@ class RefundStatusTest {
                 Arguments.of(RefundStatus.REQUESTED, RefundStatus.REJECTED),
                 Arguments.of(RefundStatus.APPROVED, RefundStatus.PG_CANCELLED),
                 Arguments.of(RefundStatus.APPROVED, RefundStatus.FAILED),
-                Arguments.of(RefundStatus.PG_CANCELLED, RefundStatus.COMPLETED)
+                Arguments.of(RefundStatus.PG_CANCELLED, RefundStatus.COMPLETED),
+                Arguments.of(RefundStatus.FAILED, RefundStatus.APPROVED),
+                Arguments.of(RefundStatus.FAILED, RefundStatus.REJECTED)
         );
     }
 
