@@ -13,4 +13,12 @@ public interface NotificationRepository {
     List<Notification> findDue(Instant now, Limit limit);
 
     Optional<Notification> findById(UUID id);
+
+    List<Notification> findByStatusFirstPage(NotificationStatus status, Limit limit);
+
+    List<Notification> findByStatusNextPage(NotificationStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit);
+
+    boolean existsById(UUID id);
+
+    int retryFailed(UUID id, Instant now);
 }
