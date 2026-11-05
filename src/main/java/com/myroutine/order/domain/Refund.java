@@ -1,5 +1,7 @@
 package com.myroutine.order.domain;
 
+import com.myroutine.common.error.BusinessException;
+import com.myroutine.common.error.CommonErrorCode;
 import com.myroutine.common.model.BaseTimeEntity;
 import com.myroutine.common.model.Ids;
 import com.myroutine.common.model.Money;
@@ -122,6 +124,24 @@ public class Refund extends BaseTimeEntity {
     }
 
     public void reject(String reason) {
+        this.status = this.status.transitTo(RefundStatus.REJECTED);
+        this.rejectReason = reason;
+    }
+
+    public void retryPgCancel() {
+        if (this.status != RefundStatus.FAILED) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATE_TRANSITION);
+        }
+
+        this.status = this.status.transitTo(RefundStatus.APPROVED);
+        this.pgAttempts++;
+    }
+
+    public void close(String reason) {
+        if (this.status != RefundStatus.FAILED) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATE_TRANSITION);
+        }
+
         this.status = this.status.transitTo(RefundStatus.REJECTED);
         this.rejectReason = reason;
     }

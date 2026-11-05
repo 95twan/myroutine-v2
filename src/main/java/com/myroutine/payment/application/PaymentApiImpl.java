@@ -12,9 +12,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -174,5 +173,13 @@ class PaymentApiImpl implements PaymentApi {
                 }
             };
         });
+    }
+
+    @Override
+    public Map<String, String> findCancelFailureCodes(Collection<String> idempotencyKeys) {
+        List<PaymentCancel> paymentCancels = paymentCancelRepository.findByIdempotencyKeyIn(idempotencyKeys);
+        return paymentCancels.stream()
+                .filter(paymentCancel -> paymentCancel.getFailureCode() != null)
+                .collect(Collectors.toMap(PaymentCancel::getIdempotencyKey, PaymentCancel::getFailureCode));
     }
 }

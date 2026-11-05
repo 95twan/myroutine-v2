@@ -25,4 +25,8 @@ public interface RefundRepository {
     List<Refund> findAllByShopOrderIdInOrderByCreatedAtAsc(Collection<UUID> shopOrderIds);
 
     long countByStatusInAndUpdatedAtBefore(Collection<RefundStatus> statuses, Instant before);
+
+    List<Refund> findByStatusFirstPage(RefundStatus status, Limit limit);
+
+    List<Refund> findByStatusNextPage(RefundStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit);
 }

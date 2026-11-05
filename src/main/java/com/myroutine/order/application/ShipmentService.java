@@ -33,7 +33,7 @@ public class ShipmentService {
         }
         boolean exist = refundRepository.existsByShopOrderIdAndStatusIn(
                 shopOrderId,
-                List.of(RefundStatus.REQUESTED, RefundStatus.APPROVED, RefundStatus.PG_CANCELLED)
+                List.of(RefundStatus.REQUESTED, RefundStatus.APPROVED, RefundStatus.PG_CANCELLED, RefundStatus.FAILED)
         );
         if (exist) throw new BusinessException(OrderErrorCode.REFUND_IN_PROGRESS);
 

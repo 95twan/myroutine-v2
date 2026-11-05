@@ -54,4 +54,6 @@ public interface OrderRepository {
     Optional<OrderLine> findLineByIdAndMemberId(UUID lineId, UUID memberId);
 
     long countByStatusAndUpdatedAtBefore(OrderStatus status, Instant before);
+
+    List<OrderLine> findLinesByIdIn(Collection<UUID> lineIds);
 }
