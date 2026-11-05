@@ -1443,7 +1443,7 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 
 **4. 없는 offset** — 동작: `POST /admin/api/dlt/test.admin-dlt.v1/{P}/9999/replay`(`P`는 1번과 같은 방법으로 얻는다).
 - 응답(andExpect): 상태 404, `$.code` = `NOT_FOUND`.
-- 반환값(리스너 카운터 received): 3초 기다린 뒤에도 호출 전에 읽어 둔 값과 같다.
+- 반환값(리스너 카운터 received): 1초 기다린 뒤에도 호출 전에 읽어 둔 값과 같다.
 
 **5. 토픽 목록** — 준비: `GET /admin/api/dlt`에서 `test.admin-dlt.v1`의 `recordCount`를 `before`로 읽는다(항목이 없으면 0. Kafka 토픽은 테스트 사이에 비워지지 않는다). 동작: 메시지를 보낸다 → `Eventually.await(Duration.ofSeconds(20), ...)` 안에서 `GET /admin/api/dlt`.
 - 응답(andExpect): 상태 200.
