@@ -2,6 +2,7 @@ package com.myroutine.order.application;
 
 import com.myroutine.common.error.BusinessException;
 import com.myroutine.common.error.CommonErrorCode;
+import com.myroutine.common.logging.LogOrderId;
 import com.myroutine.order.domain.Order;
 import com.myroutine.order.domain.OrderErrorCode;
 import com.myroutine.order.domain.OrderRepository;
@@ -29,6 +30,7 @@ public class ConfirmPaymentService {
     private final OrderPaymentApplier orderPaymentApplier;
     private final Clock clock;
 
+    @LogOrderId
     public ConfirmResult confirm(UUID memberId, UUID orderId, ConfirmPaymentCommand command) {
         Started started = transactionTemplate.execute(status -> {
             Order order = orderRepository.findByIdAndMemberId(orderId, memberId).orElseThrow(

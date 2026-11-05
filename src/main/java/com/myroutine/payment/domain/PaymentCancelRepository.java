@@ -1,6 +1,8 @@
 package com.myroutine.payment.domain;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -14,4 +16,6 @@ public interface PaymentCancelRepository {
     int markFailed(UUID id, String failureCode, Instant now);
 
     int markUnknown(UUID id, Instant now);
+
+    List<PaymentCancel> findByIdempotencyKeyIn(Collection<String> keys);
 }

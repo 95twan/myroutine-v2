@@ -1,6 +1,6 @@
 # ADR-010. 관측성: ELK(로그) + Prometheus/Grafana(메트릭), traceId는 직접 전파
 
-- 상태: 승인 (2026-10-02, 개정: 학습 범위 제한 반영)
+- 상태: 승인 (2026-10-02, 개정: 학습 범위 제한 반영. 2026-11-04 개정: 로그 인덱스 이름과 traceId가 잇는 범위를 실측에 맞췄다. 2026-11-05 개정: 읽는 곳이 없는 `mail_send_seconds`를 뺐다)
 - 관련: NFR-OBS-01~04, [02-architecture-stage1.md §6](../02-design/02-architecture-stage1.md)
 
 ## 맥락
@@ -10,18 +10,19 @@
 
 ## 결정
 1. **로그 = ELK**: 앱은 JSON 로그(logstash-logback-encoder)를 Logstash로 보내고, Elasticsearch에 저장하고, Kibana로 조회한다.
-   - 로컬에서는 검색용 ES와 같은 클러스터를 쓰고 인덱스로 나눈다(`products` / `logs-*`). 운영이라면 분리하는 것이 맞다는 점을 기록해 둔다(로그 폭주가 검색에 영향).
+   - 로컬에서는 검색용 ES와 같은 클러스터를 쓰고 인덱스로 나눈다(`products` / `myroutine-logs-*`). `logs-`로 시작하는 이름은 ES 기본 템플릿 `logs-*-*`의 data stream이 되어 Logstash의 쓰기가 거절되므로 쓰지 않는다. 운영이라면 분리하는 것이 맞다는 점을 기록해 둔다(로그 폭주가 검색에 영향).
+   - Logstash로는 INFO 이상만 보낸다. SQL과 바인드 값은 콘솔에만 남는다.
 2. **traceId 직접 전파** (라이브러리 없이):
    - 서블릿 필터가 요청마다 traceId를 만들어 MDC에 넣고 응답 헤더 `X-Request-Id`로 돌려준다. (요청 헤더의 값을 이어 쓰는 것은 2026-10-02 덜어내기에서 선택 사항으로 돌렸다)
    - Outbox 저장 시 현재 MDC의 traceId를 이벤트 봉투에 넣고, consumer는 처리 전에 봉투의 traceId를 MDC에 복원한다. 스케줄 작업은 실행마다 새 traceId를 만든다.
-   - Kibana에서 `traceId:"..."`로 검색하면 HTTP 요청 → DB 처리 → Kafka 소비 → 알림 발송까지 한 흐름이 시간순으로 보인다.
+   - Kibana에서 `traceId : "T" or message : "T"`로 검색하면 HTTP 요청 → PG 호출 → Kafka 전송 → 이벤트 처리가 시간순으로 보인다. 릴레이와 알림 발송은 실행마다 새 traceId를 쓰는 잡이다. 릴레이는 메시지의 `originTraceId`로 잇고, 알림 발송은 메시지의 `memberId`로 찾는다.
 3. **메트릭 = Prometheus + Grafana**: actuator `/actuator/prometheus`를 Prometheus가 수집하고, Grafana로 대시보드와 알림을 만든다. 기본 지표(HTTP 지연·에러, JVM, HikariCP, Kafka consumer)에 더해 비즈니스 메트릭을 둔다.
    - `outbox_ready_count`, `outbox_oldest_age_seconds`, `outbox_dead_count`
    - `kafka_dlt_records_total{topic}`
    - `payment_unknown_count`, `payment_unknown_oldest_age_seconds`
    - `saga_stuck_count{type}` (refund APPROVED/PG_CANCELLED 지속, order PAYMENT_IN_PROGRESS 지속)
    - `stock_reservation_expired_total`, `stock_balance_mismatch_count`(재고 등식 점검)
-4. **외부 호출 지연**은 Micrometer `Timer`(actuator 기본 포함)로 직접 기록한다: `pg_call_seconds{operation, result}`, `mail_send_seconds`, `openai_call_seconds`(OpenAI를 부르는 SUB-5·SUB-6이 서브라 그 단계를 할 때 더한다).
+4. **외부 호출 지연**은 Micrometer `Timer`(actuator 기본 포함)로 직접 기록한다: `pg_call_seconds{operation, result}`, `openai_call_seconds`(OpenAI를 부르는 SUB-5·SUB-6이 서브라 그 단계를 할 때 더한다).
 5. Grafana 대시보드(서비스 개요, 결제·정합성, Kafka·Outbox)와 알림 규칙, Kibana 저장 검색은 리포의 `docker/` 아래에 파일로 둔다.
 
 ## 고려한 대안
@@ -33,7 +34,7 @@
 | Stage 2에서 도입 | Baseline 측정에 필요한 지표를 처음부터 쌓아야 전후 비교가 가능 |
 
 ## 결과
-- "어떤 요청이 어디를 거쳤나"는 Kibana의 traceId 검색으로, "얼마나 느리고 얼마나 실패하나"는 Grafana로 본다.
+- "어떤 요청이 어디를 거쳤나"는 Kibana의 traceId 검색으로, "얼마나 느리고 얼마나 실패하나"는 Grafana로 본다. 찍은 로그만 보이므로 요청·이벤트 처리·전송·발송 로그를 함께 둔다(로드맵 6-1).
 - 한계: 한 요청 안에서 어느 구간이 느린지는 로그 타임스탬프와 외부 호출 Timer로 추정해야 한다. Stage 2에서 병목 분석이 부족하다고 판단되면 이 ADR을 개정한다(그 판단 자체가 Stage 2 기록 대상).
 - 리소스: ES + Logstash + Kibana는 로컬 메모리를 많이 쓴다(수 GB). docker-compose에 프로필을 둬서 관측 스택을 선택적으로 띄운다.
 - 정합성 지표(결과미확정 결제, 정체 Saga, 재고 불일치)를 운영 대시보드로 보여줄 수 있다. 면접에서 "정합성이 깨지면 어떻게 아나요?"에 대한 답이다.

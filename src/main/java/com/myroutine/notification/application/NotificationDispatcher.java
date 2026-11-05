@@ -43,6 +43,9 @@ public class NotificationDispatcher {
                     Notification n = notificationRepository.findById(notification.getId()).orElseThrow();
                     n.markSent(now);
                 });
+
+                log.info("notification sent notificationId={} type={} memberId={}", notification.getId(), notification.getType(), notification.getMemberId());
+
                 count++;
             } catch (Exception e) {
                 log.error("Failed to dispatch notification. notificationId={}", notification.getId(), e);

@@ -1,5 +1,6 @@
 # 04. 상태머신
 
+> 2026-11-05: 환불에 관리자 종결 `FAILED → REJECTED`를 더하고 `FAILED`를 활성 환불로 정했다(발송·구매자 재취소를 막는다, 로드맵 6-3)
 > 2026-10-19: 엔티티 사이의 상태 조합과 도달 경로는 [10-state-combinations](10-state-combinations.md)로 모았다(전이는 이 문서, 조합은 그 문서)
 > 2026-10-13: 주문의 `PAYMENT_FAILED`·`EXPIRED`·`CANCELLED`는 "끝난 원인", 가게주문·품목의 `CANCELLED`는 원인과 무관한 "이행하지 않음"임을 핵심 규칙에 적었다
 > 2026-10-13: 결제 전 구매자 주문 취소를 필수 API(`POST /api/orders/{id}/cancel`, 2-4)로 올리고 상태를 **`CANCELLED`**로 분리했다(`PENDING_PAYMENT → PAYMENT_FAILED` 삭제. `PAYMENT_FAILED`는 승인 시작 뒤의 PG 거절·보상만)
@@ -94,10 +95,12 @@ stateDiagram-v2
   APPROVED --> FAILED: PG 취소 명확한 실패 (운영 알림)
   APPROVED --> APPROVED: PG 취소 결과 불확실 → 대사
   FAILED --> APPROVED: 관리자 재시도 (운영 API, 로드맵 6-3)
+  FAILED --> REJECTED: 관리자 종결 (운영 API, 로드맵 6-3)
   COMPLETED --> [*]
   REJECTED --> [*]
 ```
-- 환불액 = 품목 금액 - 이미 환불된 금액. 전액 PG 부분취소다(POL-08). 주문별 누적 취소액 ≤ 승인액(INV-06)은 payment의 CHECK와 주문 행 잠금으로 지킨다.
+- `FAILED`는 활성 환불이다. 품목당 하나만 두고, 있는 동안 가게주문 발송과 같은 품목의 구매자 재취소를 막는다(6-3). 푸는 길은 재시도와 종결뿐이다.
+- 환불액 = 품목 금액 - 이미 환불된 금액. 전액 PG 부분취소다(POL-08). 주문별 누적 취소액 ≤ 승인액(INV-06)은 payment의 CHECK와 `payment` 행 잠금으로 지킨다.
 - PG 부분취소는 `payment_cancel.idempotency_key = refundId`로 호출해 재시도해도 1회만 취소된다.
 - COMPLETED 전이 트랜잭션: product `restore(orderId, productId, refId=refundId)`(movement unique로 멱등) + `order_line.refunded_amount` 증가 + 품목 CANCELLED/RETURNED + outbox `order-line-refunded`.
 

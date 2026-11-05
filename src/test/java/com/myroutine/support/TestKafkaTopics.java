@@ -22,4 +22,19 @@ public class TestKafkaTopics {
     public NewTopic testAlwaysFailDlt() {
         return TopicBuilder.name("test.always-fail.v1.dlt").partitions(3).replicas(1).build();
     }
+
+    @Bean
+    public NewTopic testAdminOutbox() {
+        return TopicBuilder.name("test.admin-outbox.v1").partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    public NewTopic testAdminDlt() {
+        return TopicBuilder.name("test.admin-dlt.v1").partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    public NewTopic testAdminDltDlt() {
+        return TopicBuilder.name("test.admin-dlt.v1.dlt").partitions(3).replicas(1).build();
+    }
 }

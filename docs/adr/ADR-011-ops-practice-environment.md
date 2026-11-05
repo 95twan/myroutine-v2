@@ -1,6 +1,6 @@
 # ADR-011. 운영 환경 연습: Proxmox VM 1대 + Docker Compose, GitHub Actions self-hosted runner로 자동 배포
 
-- 상태: 승인 (2026-10-07, 개정: 쿠버네티스를 최종 목표로 기록 / 2026-10-09: "확인 필요" 항목을 공식 문서·실행으로 확인, `workflow_run` 트리거의 안전 조건과 인프라 이미지 고정 방식 추가 / 2026-10-14: 운영 MinIO를 VM에서 시놀로지 NAS(DS720+)로 이전 — §5·§6 수정, §8 추가 / 2026-10-21: 외부 접속 보류를 풀고 Cloudflare Tunnel로 연다)
+- 상태: 승인 (2026-10-07, 개정: 쿠버네티스를 최종 목표로 기록 / 2026-10-09: "확인 필요" 항목을 공식 문서·실행으로 확인, `workflow_run` 트리거의 안전 조건과 인프라 이미지 고정 방식 추가 / 2026-10-14: 운영 MinIO를 시놀로지 NAS(DS720+)로 옮기는 절차 추가 — §8 추가 / 2026-10-21: 외부 접속 보류를 풀고 Cloudflare Tunnel로 연다 / 2026-11-04: 관측 스택을 VM에도 올린다 — §9 추가 / 2026-11-06: 쿠버네티스 전환 시기를 서브로 옮겼다. 운영 MinIO는 NAS로 옮기지 않았으므로 §5·§6·§8을 실제 상태로 고쳤다)
 - 관련: 로드맵 [1-11](../03-roadmap/part1-foundation.md), NFR-SEC-01, [ADR-010](ADR-010-observability.md), [Git 정책 §7](../git-policy.md)
 
 ## 맥락
@@ -10,7 +10,7 @@
 - **제약**: 새로 학습할 기술은 ELK, Prometheus/Grafana, k6로 한정한다([CLAUDE.md §3](../../CLAUDE.md)). Proxmox·Docker·GitHub Actions는 이미 아는 도구다. 새로 배우는 것은 **self-hosted runner(설치·설정 정도)** 하나이고 2026-10-07 사용자가 승인했다.
 
 ## 결정
-1. **환경**: Proxmox에 Ubuntu Server VM 1대를 만들고 Docker Engine + compose로 앱과 인프라를 모두 올린다. VM 자원은 RAM 16GB·vCPU 8로 시작하고(호스트 RAM이 24GB이고 증설할 수 없어 8GB를 Proxmox·캐시용으로 남긴다. 2026-10-10 20GB에서 낮춤) 실제 사용량은 6-1(ELK) 때 측정해서 조정한다(확인 필요).
+1. **환경**: Proxmox에 Ubuntu Server VM 1대를 만들고 Docker Engine + compose로 앱과 인프라를 모두 올린다. VM 자원은 RAM 16GB·vCPU 8로 시작하고(호스트 RAM이 24GB이고 증설할 수 없어 8GB를 Proxmox·캐시용으로 남긴다. 2026-10-10 20GB에서 낮춤) 관측 스택(ELK, Prometheus, Grafana)까지 올린 상태를 `free -h`로 재면 전체 15GiB 중 used 6.5GiB, available 8.6GiB, swap 사용 240KiB로 16GB가 적정하다. 6-1까지(used 5.5GiB, available 9.6GiB) 대비 Prometheus·Grafana가 약 1GiB를 더 쓴다.
 2. **파이프라인**:
    - CI(`ci.yml`)는 지금처럼 GitHub 호스티드 러너에서 PR·push마다 `./gradlew build`.
    - CD(`cd.yml`)는 `develop`에 push되고 CI가 통과한 뒤 `workflow_run`으로 실행된다: ① 호스티드 러너가 Docker 이미지를 빌드해 GHCR에 `{sha}` 태그로 올린다 → ② VM의 self-hosted 러너가 해당 sha 이미지를 pull해 `docker compose up -d`로 교체한다 → ③ 헬스체크가 실패하면 직전 sha로 되돌린다.
@@ -23,17 +23,23 @@
    - 배포 job은 GitHub Environment `ops`를 쓰고, 배포 가능한 브랜치를 `develop`·`main`으로 제한한다.
    - 러너는 전용 비root 사용자로 실행하고, VM에는 이 프로젝트 외의 중요한 데이터를 두지 않는다. (docker 그룹은 사실상 root 권한이다. VM을 격리된 용도로만 쓰는 것으로 위험을 받아들인다.)
 4. **시크릿**: 운영 `.env`는 VM의 고정 경로(예: `/opt/myroutine/.env`)에 사람이 한 번 만든다. 리포와 GitHub Secrets에는 두지 않는다(NFR-SEC-01, 공격면 축소). 배포는 이 파일을 읽기만 한다. GHCR 로그인은 워크플로의 `GITHUB_TOKEN`을 쓴다. push하는 job은 `permissions: packages: write`, pull만 하는 배포 job은 `packages: read`(GitHub 문서 "Publishing Docker images"의 예시와 같다, 2026-10-09 확인).
-5. **접속**: 집 네트워크(LAN) 안에서만. VM은 앱 포트(8080)만 LAN에 열고, DB·Redis·Kafka·ES와 actuator 관리 포트(8081)는 호스트에 publish하지 않는다(MEM-05). MinIO API(9000)는 NAS가 LAN에 연다(§8). 외부 접속은 Cloudflare Tunnel을 거치는 공개 주소로 연다(아래 "외부 접속").
-6. **데이터**: Postgres 등은 VM의 named volume, MinIO는 NAS 로컬 볼륨(§8). 백업은 Stage 1 범위 밖이고 회고에 남긴다.
+5. **접속**: 집 네트워크(LAN) 안에서만. VM은 앱 포트(8080), MinIO API(9000), 관측 화면(9항)만 LAN에 열고, DB·Redis·Kafka·ES와 actuator 관리 포트(8081)는 호스트에 publish하지 않는다(MEM-05). 외부 접속은 Cloudflare Tunnel을 거치는 공개 주소로 연다(아래 "외부 접속").
+6. **데이터**: Postgres와 MinIO 등은 VM의 named volume이다. 백업은 Stage 1 범위 밖이고 회고에 남긴다.
    - 인프라 이미지도 고정한다: 버전 태그가 있으면 태그로(예: `pgvector/pgvector:pg17`), 태그가 `latest`뿐인 이미지(`chainguard/minio`, 2026-09-11 공식 `minio/minio` 삭제 후 사용)는 **digest**(`image@sha256:...`)로. 매일 다시 빌드되는 `latest`로 두면 롤백해도 인프라 버전이 바뀐다.
 7. **스키마와 롤백**: 롤백은 이미지만 되돌린다(Flyway는 되돌리지 않는다). 따라서 **이전 버전 앱이 새 스키마에서 동작해야** 한다. 컬럼 삭제·이름 변경 같은 파괴적 마이그레이션은 "추가 → 코드 전환 → 삭제"의 두 번 이상의 배포로 나눈다.
 
-8. **MinIO는 NAS에서 돌린다** (2026-10-14): 시놀로지 DS720+(x86_64, Container Manager)에 같은 `chainguard/minio` digest로 띄운다. 절차는 [ops/nas-minio.md](../ops/nas-minio.md).
-   - 이유: 이미지 데이터를 VM 밖으로 빼서 VM을 지우거나 되돌려도 남기고, NAS의 디스크 보호를 쓴다. VM 백업(vzdump)도 가벼워진다.
-   - 코드 변경은 없다. `STORAGE_ENDPOINT`·`STORAGE_PUBLIC_BASE_URL`(환경변수)이 NAS 주소를 가리키고, 운영 compose에서 `minio` 서비스와 `app.depends_on.minio`가 빠진다.
-   - 대가: 앱이 VM과 NAS 두 장비에 의존한다(NAS가 꺼지면 업로드 실패, 앱 재시작 시 기동 실패). 실습 환경이라 받아들인다.
+8. **MinIO는 VM compose에 두고, VM 자원이 모자라면 NAS로 옮긴다**: 옮길 곳은 시놀로지 DS720+(x86_64, Container Manager)이고 같은 `chainguard/minio` digest를 쓴다. 절차는 [ops/nas-minio.md](../ops/nas-minio.md).
+   - 옮겨서 얻는 것: VM의 메모리와 디스크가 줄고, 이미지 데이터가 VM 밖에 있어 VM을 지우거나 되돌려도 남으며, NAS의 디스크 보호를 쓴다. VM 백업(vzdump)도 가벼워진다.
+   - 코드 변경은 없다. `STORAGE_ENDPOINT`·`STORAGE_PUBLIC_BASE_URL`(환경변수)을 NAS 주소로 바꾸고, 운영 compose에서 `minio` 서비스와 `app.depends_on.minio`를 뺀다. 그러면 MinIO API(9000)는 NAS가 LAN에 연다.
+   - 옮긴 뒤의 대가: 앱이 VM과 NAS 두 장비에 의존한다(NAS가 꺼지면 업로드 실패, 앱 재시작 시 기동 실패). 실습 환경이라 받아들인다.
    - 로컬 개발·테스트(`docker/docker-compose.yml`, Testcontainers)는 그대로 로컬 MinIO를 쓴다.
    - 기존 운영 이미지 데이터는 옮기지 않고 새로 시작한다(사용자 결정, 테스트 데이터뿐).
+
+9. **관측 스택도 VM에 올린다** (2026-11-04): Logstash·Kibana(로드맵 6-1), Prometheus·Grafana(6-2)를 운영 compose에 `profiles` 없이 넣고 앱은 프로필 `prod,elk`로 띄운다. 구체 설정은 [로드맵 6-1 "운영 VM"](../03-roadmap/part6-ops-wrapup.md)과 6-2 7)에 있다.
+   - 이유: 운영 환경 연습에서 "배포한 앱을 로그와 메트릭으로 본다"까지가 한 흐름이고, Stage 2 부하 테스트의 전후 비교(Prometheus 이력)가 VM에 남아야 한다. 로컬 실측 합계가 약 2.2~2.7GiB라 VM 16GB에 들어간다.
+   - 화면은 Kibana 5601·Grafana 3000을 LAN에 열고(5항의 "앱 포트만"에 대한 예외), Prometheus 9090은 VM의 `127.0.0.1`에만 publish한다. Kibana는 로그인이 없어서 LAN의 모든 기기가 접속할 수 있으므로 LAN의 기기를 신뢰하는 것을 전제로 하고, 외부 접속 경로(프록시)에는 연결하지 않는다. Grafana 관리자 비밀번호는 VM의 `/opt/myroutine/.env`에 둔다(4항).
+   - 로그 인덱스는 ES ILM으로 7일 뒤 삭제한다. 지표는 Prometheus 기본 보관(15일)이다.
+   - 대가: ES(힙 512MB)가 앱 데이터(상품 검색)와 로그를 함께 쓴다. 로그량이 늘면 검색에 영향을 줄 수 있어 VM 실측 때 같이 본다(결정 1항).
 
 ## 고려한 대안
 | 대안 | 결정 |
@@ -43,14 +49,14 @@
 | Actions → Tailscale → SSH | 도메인 없이 되지만 Tailscale이라는 또 다른 도구를 배워야 한다 |
 | VM이 이미지를 당겨가기(cron, Watchtower) | 포트가 필요 없고 단순하지만, 배포 성공·실패가 Actions에 남지 않고 반영이 폴링 주기만큼 늦다 |
 | **self-hosted runner (채택)** | VM에서 GitHub로 나가는 연결만 쓴다. 포트·도메인이 필요 없고, 배포 결과가 Actions에 기록된다. 대가는 public 리포에서의 위 안전 장치 |
-| MinIO를 VM compose에 그대로 둠 (§8의 이전 대안) | 설정이 가장 단순하고 NAS 장애와 무관하지만, 데이터가 VM과 운명을 같이하고 VM 백업에 섞인다. NAS를 이미 갖고 있어 옮기기로 했다 |
+| MinIO를 지금 NAS로 옮김 (§8) | 데이터가 VM 밖에 남고 VM이 가벼워지지만, 앱이 두 장비에 의존하고 NAS 구성을 새로 해야 한다. VM에 두는 쪽이 설정이 가장 단순해, 자원이 모자랄 때 옮긴다 |
 | 처음부터 Kubernetes(k3s) | Stage 1 기능을 만드는 동안 클러스터 운영 부담이 겹친다. 기능이 쌓인 뒤 옮기는 쪽이 비교(compose → k8s)가 쉽다 → **최종 목표로 두고 시기는 뒤에서 정한다**(아래 "진화 경로") |
 
 ## 진화 경로: 최종 목표는 Kubernetes + 무중단 배포
 - 2026-10-07 사용자가 밝힌 최종 목표다. 원 프로젝트에서 K3s를 써 봤다(As-Is: 매니페스트가 replicas 1, HPA·Ingress·PDB 없음 — 그 결함을 고치는 것이 이번 목표의 일부).
 - **지금(1-11)은 compose + 자동 CD**로 시작한다. 그래야 파이프라인과 앱의 운영 특성(헬스체크, 환경변수 주입, graceful shutdown)을 먼저 익히고, 쿠버네티스로 옮길 때 "무엇이 좋아졌나"를 비교할 수 있다.
 - 옮기기 쉽게 **1-11에서 미리 지키는 것**: 이미지는 sha 태그, 설정은 전부 환경변수, 헬스체크 경로·포트 고정(readiness/liveness로 재사용), 앱의 종료 시 요청 마무리(`server.shutdown=graceful` — Boot 4.1.1에서는 기본값이라 따로 켜지 않는다. 단계별 최대 대기는 `spring.lifecycle.timeout-per-shutdown-phase`, 기본 30s. 2026-10-09 jar의 설정 메타데이터로 확인).
-- **시기와 세부는 [ADR-012](ADR-012-kubernetes-zero-downtime.md)**: Stage 1 완료 후, Stage 2 시작 전(2026-10-07 결정). 노드 수·상태 서비스 위치·무중단 조건·단계(K-1~K-5)는 거기서 다룬다.
+- **시기와 세부는 [ADR-012](ADR-012-kubernetes-zero-downtime.md)**: 시기는 서브(SUB-9~SUB-13)다. 노드 수·상태 서비스 위치·무중단 조건·단계는 거기서 다룬다.
 
 ## 외부 접속
 - Cloudflare Tunnel로 도메인을 VM의 프록시(nginx)에 연결한다. 2026-10-07에는 고정 주소에 Cloudflare에 등록한 도메인이 필요하고 Synology DDNS 주소는 Cloudflare에 추가할 수 없어 보류했고, 2026-10-21에 도메인 `myroutine.dev`(Cloudflare Registrar)를 구입해 보류를 풀었다. 터널은 VM에서 밖으로 나가는 연결이라 공유기 포트를 열지 않고 집 IP가 드러나지 않는다.

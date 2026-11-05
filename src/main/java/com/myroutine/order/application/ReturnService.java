@@ -26,7 +26,7 @@ public class ReturnService {
                 () -> new BusinessException(OrderErrorCode.ORDER_NOT_FOUND)
         );
         OrderLine orderLine = order.findLine(lineId);
-        if (refundRepository.existsByOrderLineIdAndStatus(lineId, RefundStatus.REJECTED)) {
+        if (refundRepository.existsByOrderLineIdAndReasonTypeAndStatus(lineId, RefundReasonType.RETURN, RefundStatus.REJECTED)) {
             throw new BusinessException(OrderErrorCode.RETURN_NOT_ALLOWED);
         }
         order.requestReturn(lineId);

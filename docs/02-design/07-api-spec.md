@@ -1,6 +1,8 @@
 # 07. API 명세 (Stage 1)
 
 > 엔드포인트 목록과 핵심 API의 요청·응답 계약. 필드 단위 상세는 구현 시 springdoc(OpenAPI)로 생성하고, 이 문서와 어긋나면 이 문서를 갱신한다.
+> 2026-11-05 · 환불 종결 `POST /admin/api/refunds/{id}/close`(`FAILED → REJECTED`), `FAILED` 환불이 있으면 발송을 409 `REFUND_IN_PROGRESS`로, 같은 품목의 구매자 재취소를 409 `DUPLICATE_RESOURCE`로 막는다(로드맵 6-3)
+> 2026-11-04 · 운영 쓰기 API의 응답과 에러, 결제·환불·알림 목록 항목, DLT 토픽 목록 `GET /admin/api/dlt`, 지급 실패 정산 조회 `GET /admin/api/settlements`. 정산 수동 실행은 끝난 달만 받는다(로드맵 6-3)
 > 2026-11-03 · 답변 전 문의 수정·삭제 `PATCH`·`DELETE /api/inquiries/{id}`(로드맵 5-3)
 > 2026-11-01 · 내 리뷰 조회 `GET /api/reviews/mine`, 리뷰 목록의 `likedByMe`, 지운 리뷰 요청의 404와 빈 통계 응답, 검색 결과를 상품 요약 모양으로(ADR-013), 문의 상세·관리자 문의 목록의 응답 필드(로드맵 5-1·5-2·5-4)
 > 2026-10-31 · 로그인 실패 401 `LOGIN_FAILED`에 `details.remainingAttempts`, 5번째 실패부터 423 `ACCOUNT_LOCKED`, 관리자 회원 목록에 제재 시각 `bannedAt`(로드맵 4-4)
@@ -48,7 +50,7 @@
 | 404 | `CART_ITEM_NOT_FOUND`, `CART_PRODUCT_NOT_FOUND`, `ORDER_LINE_NOT_FOUND`, `SHOP_ORDER_NOT_FOUND`, `REFUND_NOT_FOUND`, `PRODUCT_IMAGE_NOT_FOUND` | |
 | 409 | `IDEMPOTENCY_IN_PROGRESS`, `CONFLICT_RETRY`, `INVALID_STATE_TRANSITION` | 경합, 상태 |
 | 409 | `ORDER_EXPIRED`, `ORDER_ALREADY_PAID` | 결제 승인 시 주문 상태 불일치 |
-| 409 | `REFUND_IN_PROGRESS` | 진행 중 환불이 있는 가게주문 발송 시도 |
+| 409 | `REFUND_IN_PROGRESS` | 진행 중 환불(`FAILED` 포함)이 있는 가게주문 발송 시도 |
 | 422 | `OUT_OF_STOCK`, `PRODUCT_NOT_ON_SALE`, `SHOP_NOT_ACTIVE`, `AMOUNT_MISMATCH`, `IDEMPOTENCY_KEY_REUSED` | 비즈니스 규칙 |
 | 422 | `SHOP_HAS_ACTIVE_ORDERS`, `MEMBER_HAS_ACTIVE_RESOURCES`, `PRODUCT_NOT_SUBSCRIBABLE`, `OWN_SHOP_PRODUCT` | 폐업·탈퇴·구독 조건 |
 | 402 | `PAYMENT_FAILED` | PG 명확한 거절 |
@@ -168,15 +170,18 @@
 ### 운영 (관리자)
 | Method | Path | 설명 | 요구사항 |
 |---|---|---|---|
-| GET | `/admin/api/outbox?status=DEAD` | 발행 실패 이벤트 | NFR-REL-03 |
-| POST | `/admin/api/outbox/{id}/retry` | 재발행 | NFR-REL-03 |
-| GET | `/admin/api/dlt/{topic}` · POST `/admin/api/dlt/{topic}/{partition}/{offset}/replay` | DLT 조회·재처리 (offset은 파티션마다 따로라 파티션이 필요하다) | NFR-REL-03 |
-| GET | `/admin/api/payments?status=UNKNOWN` | 결과미확정 결제 | FR-PAY-03 |
-| POST | `/admin/api/payments/{orderId}/reconcile` | 즉시 대사 (경로 값은 orderId, 응답 `{orderId, status}`) | FR-PAY-03 |
-| GET | `/admin/api/refunds?status=FAILED` · POST `/{id}/retry` | 실패 환불 재처리 | |
+| GET | `/admin/api/outbox?status=DEAD` | 발행 실패 이벤트. `status`는 필수 | NFR-REL-03 |
+| POST | `/admin/api/outbox/{id}/retry` | 재발행. 204, 없으면 404 `NOT_FOUND`, `DEAD`가 아니면 409 `INVALID_STATE_TRANSITION` | NFR-REL-03 |
+| GET | `/admin/api/dlt` | DLT에 기록이 있는 토픽 `[{topic, recordCount}]`, 이름순. `topic`은 `.dlt`를 뺀 원본 이름 | NFR-REL-03 |
+| GET | `/admin/api/dlt/{topic}?limit=50` · POST `/admin/api/dlt/{topic}/{partition}/{offset}/replay` | DLT 조회 `[{partition, offset, key, value, timestamp, exception}]`, 최신순, `limit`은 파티션마다 1~100. 재처리 204(offset은 파티션마다 따로라 파티션이 필요하다). 없는 토픽·offset은 404 `NOT_FOUND` | NFR-REL-03 |
+| GET | `/admin/api/payments?status=UNKNOWN` | 결과미확정 결제. 항목 `{id, orderId, pgOrderId, amount, reconcileAttempts, createdAt, updatedAt}` | FR-PAY-03 |
+| POST | `/admin/api/payments/{orderId}/reconcile` | 즉시 대사 (경로 값은 orderId, 응답 `{orderId, status}`). 없는 주문 404 `ORDER_NOT_FOUND`, 처리된 주문·결제 없는 주문은 현재 상태를 200으로 | FR-PAY-03 |
+| GET | `/admin/api/refunds?status=FAILED` · POST `/{id}/retry` | 실패 환불 재처리. 항목 `{id, orderId, orderLineId, productName, amount, reasonType, reason, failureCode, pgAttempts, createdAt, updatedAt}`. 재시도는 200(`COMPLETED`)·202(`APPROVED`)·502 `PG_ERROR`, 없으면 404 `REFUND_NOT_FOUND`, `FAILED`가 아니면 409 `INVALID_STATE_TRANSITION` | |
+| POST | `/admin/api/refunds/{id}/close` | 재시도해도 PG가 거절하는 환불 종결. 본문 `{reason}`(필수, 200자 이하). 200 `RefundResponse`(`REJECTED`), 반품이면 품목이 `DELIVERED`로 돌아간다. 없으면 404 `REFUND_NOT_FOUND`, `FAILED`가 아니면 409 `INVALID_STATE_TRANSITION` | |
 | POST | `/admin/api/search/reindex` | 무중단 재색인 (alias swap). 서브 SUB-7에서 만든다 | FR-SRC-02 |
-| POST | `/admin/api/settlements/run?period=2026-09` | 정산 수동 실행 (멱등) | FR-STL-04 |
-| GET/POST | `/admin/api/notifications?status=FAILED` · `/{id}/retry` | 실패 알림 재처리 | FR-NTF-02 |
+| POST | `/admin/api/settlements/run?period=2026-09` | 정산 수동 실행 (멱등). 끝난 달만 받고 아니면 400 `INVALID_REQUEST`. `PAYOUT_FAILED` 정산도 다시 지급한다 | FR-STL-04 |
+| GET | `/admin/api/settlements?status=PAYOUT_FAILED` | 지급 실패 정산. 항목 `{id, shopId, shopName, periodStart, periodEnd, netAmount, payoutAttempts, lastError, updatedAt}`, 오래된 순 | FR-STL-04 |
+| GET/POST | `/admin/api/notifications?status=FAILED` · `/{id}/retry` | 실패 알림 재처리. 항목 `{id, memberId, type, recipient, title, attempts, lastError, createdAt, updatedAt}`. 재시도 204, 없으면 404 `NOT_FOUND`, `FAILED`가 아니면 409 `INVALID_STATE_TRANSITION` | FR-NTF-02 |
 
 ## 3. 핵심 API 계약
 
@@ -238,7 +243,7 @@ Idempotency-Key: 7c9e...
 200 { "refundId": "...", "status": "COMPLETED", "amount": 15000 }
 202 { "refundId": "...", "status": "APPROVED" }   // PG 취소 결과 확인 중
 ```
-에러: 409 `INVALID_STATE_TRANSITION`(이미 발송·취소됨), 404 `ORDER_NOT_FOUND`(없거나 본인 주문이 아님 — 남의 주문은 없는 것처럼, 2-8), 409 `DUPLICATE_RESOURCE`(같은 품목 동시 취소), 502 `PG_ERROR`(PG 취소 명확한 실패).
+에러: 409 `INVALID_STATE_TRANSITION`(이미 발송·취소됨), 404 `ORDER_NOT_FOUND`(없거나 본인 주문이 아님 — 남의 주문은 없는 것처럼, 2-8), 409 `DUPLICATE_RESOURCE`(같은 품목 동시 취소, 또는 PG가 거절한 `FAILED` 환불이 남아 있음 — 운영자 처리 뒤 가능), 502 `PG_ERROR`(PG 취소 명확한 실패).
 
 ### 3.4 POST /api/shops/{shopId}/orders/{shopOrderId}/ship
 ```json

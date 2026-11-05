@@ -159,4 +159,11 @@ public interface JpaOrderRepository extends JpaRepository<Order, UUID>, OrderRep
             where ol.id = :lineId and o.memberId = :memberId
             """)
     Optional<OrderLine> findLineByIdAndMemberId(UUID lineId, UUID memberId);
+
+    @Query("""
+            select ol
+            from OrderLine ol
+            where ol.id in :lineIds
+            """)
+    List<OrderLine> findLinesByIdIn(Collection<UUID> lineIds);
 }

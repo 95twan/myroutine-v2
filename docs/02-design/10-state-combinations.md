@@ -1,10 +1,12 @@
 # 10. 상태 조합 — 어떤 상태끼리 함께 있을 수 있고, 어떻게 거기 도달하는가
 
-> 버전 0.4 · 2026-10-20 · 2-10 규격이 `confirmLine`·`autoConfirm`에서 `recalculateShopOrder`를 부르게 정했다
+> 버전 0.6 · 2026-11-06 · 7절 4·5·6·9번은 코드를 고치지 않고 `v1.0.0`에 안고 가기로 해 8절 알려진 한계로 옮겼다
+> 0.5 · 2026-11-05 · 6-3에서 `FAILED` 환불을 활성으로 보고(발송·구매자 재취소를 막는다) 관리자 종결 `FAILED → REJECTED`를 더하기로 해 7절 1·3번을 지웠다
+> 0.4 · 2026-10-20 · 2-10 규격이 `confirmLine`·`autoConfirm`에서 `recalculateShopOrder`를 부르게 정했다
 > 0.3 · 2026-10-19 · 반품 환불 `FAILED` 때 품목 상태를 정했다(로드맵 0.98)
 > 0.2 · 2026-10-19 · `Order.rejectReturn`에 품목 `RETURN_REQUESTED` 검사를 넣기로 했다(로드맵 0.96)
 
-이 문서는 **새 결정을 내리지 않는다.** 코드(2-8b까지 구현, 2-9 작업 중)와 설계 문서([04-state-machines](04-state-machines.md), [03-erd](03-erd.md), 로드맵)에 있는 것을 조합 단위로 다시 모았다. 어긋난 곳은 7절에 "확인 필요"로 적었고 여기서 고치지 않는다.
+이 문서는 **새 결정을 내리지 않는다.** 코드(2-8b까지 구현, 2-9 작업 중)와 설계 문서([04-state-machines](04-state-machines.md), [03-erd](03-erd.md), 로드맵)에 있는 것을 조합 단위로 다시 모았다. 어긋난 곳은 7절에 "확인 필요"로, 고치지 않기로 한 것은 8절에 적었고 여기서 고치지 않는다.
 
 ## 1. 읽는 법
 
@@ -70,7 +72,7 @@
 | 조합 | 어떤 상황 | 도달 경로 | 확인 |
 |---|---|---|---|
 | `order=PAID, shopOrder=PAID, line=PAID` + 환불 `APPROVED`/`PG_CANCELLED` | 구매자가 한 품목을 취소했고 PG 취소가 진행 중이거나 응답이 불확실 | `CancelOrderLineService.cancel`(`order/application/CancelOrderLineService.java:23` 주문 행 잠금 → `:26` `verifyCancellable` → `:30` 환불 `APPROVED` 저장) → `RefundProcessor.process`(`order/application/RefundProcessor.java:25` PG 취소 → `:29` `PG_CANCELLED`). 불확실하면 `APPROVED`로 남고 `RefundRecoveryService.recoverBatch`(`:25`)가 5분 뒤 다시 처리 | 코드 |
-| `line=PAID` + 환불 `FAILED` | PG가 취소를 명확히 거절 | `RefundProcessor`(`:34` `r.fail()`). 품목은 `PAID` 그대로이고 구매자가 새 환불을 만들 수 있다 | 코드 |
+| `line=PAID` + 환불 `FAILED` | PG가 취소를 명확히 거절 | `RefundProcessor`(`:34` `r.fail()`). 품목은 `PAID` 그대로이고 `FAILED` 환불이 활성이라 구매자가 새 환불을 만들 수 없다(운영자가 재시도하거나 종결해야 한다) | 코드 |
 | `shopOrder=PAID, line=PAID+CANCELLED` | 일부 품목의 환불이 끝남 | `RefundCompleter.complete`(`order/application/RefundCompleter.java:22`): 주문 행 잠금(`:29`) → 재고 복구(`:33`) → `Order.applyRefund`(`:37`, 품목 `CANCELLED`) → 환불 `COMPLETED` | 탐색, 코드 |
 | `shopOrder=CANCELLED, line=CANCELLED+CANCELLED`, `order=PAID` | 마지막 품목의 환불이 끝남 | 같은 `applyRefund` 안에서 `recalculateShopOrder`(`Order.java:171`)가 모든 품목이 `CANCELLED`인 것을 보고 `markCancelledWithoutLines`(`ShopOrder.java:98`) | 탐색 |
 | `shopOrder=SHIPPED` | 판매자가 발송 | `ShipmentService.ship`(`order/application/ShipmentService.java:24`): 주문 행 잠금(`:26`) → 진행 중 환불(`REQUESTED`/`APPROVED`/`PG_CANCELLED`)이 있으면 거부(`:33`) → `Order.ship`(`:39`) | 코드 |
@@ -96,16 +98,16 @@ DB는 이 조합을 막지 않는다. `ck_orders_status`, `ck_shop_order_status`
 
 ### 2.5 환불 × 품목
 
-환불 한 건은 품목 한 개에 대한 것이고, 진행 중인 환불은 품목마다 1건뿐이다(`uk_refund_order_line_active`, `REQUESTED`/`APPROVED`/`PG_CANCELLED`에 대한 부분 유니크 인덱스, `db/migration/order/V202610171855__order_create_refund.sql:27`).
+환불 한 건은 품목 한 개에 대한 것이고, 진행 중인 환불은 품목마다 1건뿐이다(`uk_refund_order_line_active`, `REQUESTED`/`APPROVED`/`PG_CANCELLED`/`FAILED`에 대한 부분 유니크 인덱스, `db/migration/order/V202611051734__order_alter_refund_active_index_include_failed.sql`).
 
 | 품목 | 함께 있을 수 있는 환불 | 어떤 상황 | 확인 |
 |---|---|---|---|
 | `PENDING` | 없음 | 결제 전 | 코드 |
 | `PAID` | 없음 / `APPROVED` / `PG_CANCELLED` / `FAILED` | 환불이 진행 중이거나 PG가 거절. `COMPLETED`는 같은 트랜잭션에서 품목이 `CANCELLED`가 되므로 공존하지 않는다 | 코드 |
 | `CANCELLED` | `COMPLETED`(구매자 취소), 환불 없음(결제 전 종료), 이전의 `FAILED` | 환불이 끝났거나 결제 전에 끝남 | 코드 |
-| `SHIPPED` | 진행 중 환불 없음. 이전 `FAILED`는 있을 수 있음 | 발송 가드가 `FAILED`를 보지 않는다(7절 1번) | 코드 |
+| `SHIPPED` | 진행 중 환불 없음(`FAILED` 포함). 종결된 구매자 취소 환불(`REJECTED`)은 있을 수 있음 | 발송 가드가 `FAILED`도 막는다 | 코드 |
 | `DELIVERED` | 없음 / 이전 `FAILED` / `REJECTED` | 배송완료, 반품 거절 | `REJECTED`는 (P) |
-| `RETURN_REQUESTED` | `REQUESTED` / `APPROVED` / `PG_CANCELLED` / `FAILED` | 반품 승인 대기, 진행, PG 거절(운영자 재시도 대기) | (P) |
+| `RETURN_REQUESTED` | `REQUESTED` / `APPROVED` / `PG_CANCELLED` / `FAILED` | 반품 승인 대기, 진행, PG 거절(운영자 재시도·종결 대기) | (P) |
 | `RETURNED` | `COMPLETED`(반품) | 반품 환불 완료 | (P) |
 | `CONFIRMED` | 없음 / `REJECTED` | 구매확정 | (P) |
 
@@ -172,7 +174,7 @@ DB는 이 조합을 막지 않는다. `ck_orders_status`, `ck_shop_order_status`
 | subscription | `ACTIVE`/`PAUSED`/`SUSPENDED`/`CANCELLED`/`TERMINATED` | cycle(`ORDERED`/`PAID`/`FAILED`/`SKIPPED`)과 주문 상태가 함께 움직인다. 주문이 `PAID`면 회차 `PAID`, `PAYMENT_FAILED`면 회차 `FAILED`, 3회 연속이면 구독 `SUSPENDED` | SUB-2~SUB-4 |
 | billing_key | `ACTIVE` → `DELETED` | 활성 구독이 쓰는 키는 삭제 불가 | SUB-1 |
 | review / inquiry / product_embedding | review `ACTIVE`/`DELETED`, inquiry `OPEN`/`ANSWERED`, embedding `ACTIVE`/`INACTIVE` | 리뷰는 품목이 `CONFIRMED`일 때만 | 5-x, SUB-5 |
-| 운영 API 전이 | 환불 `FAILED` → `APPROVED`, outbox `DEAD` → `READY`, notification `FAILED` → `PENDING` | | 6-3 |
+| 운영 API 전이 | 환불 `FAILED` → `APPROVED`·`REJECTED`, outbox `DEAD` → `READY`, notification `FAILED` → `PENDING` | | 6-3 |
 
 ## 7. 확인 필요
 
@@ -180,13 +182,16 @@ DB는 이 조합을 막지 않는다. `ck_orders_status`, `ck_shop_order_status`
 
 | # | 내용 | 근거 |
 |---|---|---|
-| 1 | 발송 가드가 `FAILED` 환불을 보지 않는다. `FAILED` 환불이 있는 `PAID` 품목이 발송될 수 있고, 그 뒤 운영자가 `FAILED → APPROVED`로 되돌리면 `SHIPPED` 품목의 PG 취소가 성공하거나 활성 환불이 둘이 되어 인덱스에 걸린다 | `order/application/ShipmentService.java:33`(`REQUESTED`/`APPROVED`/`PG_CANCELLED`만 확인), `uk_refund_order_line_active` |
-| 2 | `RefundStatus`는 코드에서 `FAILED`가 종결인데 04 문서 §4는 `FAILED → APPROVED`(6-3)를 그린다 | `order/domain/RefundStatus.java:13-15`, 04-state-machines §4 |
-| 3 | 반품 승인 뒤 PG 취소가 `FAILED`이면 품목은 `RETURN_REQUESTED`로 남고 운영자가 6-3 재시도로 처리하기로 했다(로드맵 2-9, 0.98). 재시도해도 PG가 계속 거절하는 환불(예: 이미 PG에서 취소된 결제)을 닫는 방법은 아직 없다. 6-3에서 정한다 | 로드맵 2-9 `approve`, part6 6-3 |
-| 4 | 대사는 payment 행이 없거나 `PARTIAL_CANCELLED`이면 로그만 남기고 영원히 다시 시도한다(주문이 `PAYMENT_IN_PROGRESS`로 남음) | `OrderReconcileService:49, 67` |
-| 5 | `PaymentApiImpl.cancel`의 상태·잔액 검사가 `payment` 행 락 밖(첫 트랜잭션)이다. 서로 다른 키로 동시에 온 두 취소가 모두 통과할 수 있고, 두 번째는 `applyCancel`에서 예외로 롤백돼 그 `payment_cancel` 행이 `REQUESTED`/`UNKNOWN`으로 남는다(추론) | `PaymentApiImpl.java:139-144`, `:160` |
-| 6 | PG 조회 결과 `CANCELED`·`PARTIAL_CANCELED`를 `APPROVED`로 매핑한다. 우리 쪽이 `UNKNOWN`인 결제가 PG에서는 이미 취소된 경우 로컬이 `APPROVED`가 된다(추론) | `payment/infrastructure/TossClient.java:59, 81` |
-| 7 | 04 문서 §4는 "누적 취소액 ≤ 승인액은 payment의 CHECK와 **주문 행 잠금**으로 지킨다"고 쓰지만 PG 취소 반영은 `payment` 행 잠금으로 직렬화한다(로드맵 0.83) | 04-state-machines §4, `PaymentApiImpl.java:160` |
 | 8 | 04 문서에 상태머신이 없는 것: `payment_cancel`, `billing_key`, `idempotency_key`, `review`, `inquiry`, `product_embedding` | 03-erd |
-| 9 | 코드에는 쓰기만 하고 읽지 않거나 저장만 하는 값이 있다: `payment.reconcile_attempts`(상한 없이 `UNKNOWN`이 반복될 수 있음), `stock_reservation.expires_at`, `refund.pg_attempts`(증가시키는 코드가 없어 멱등 키 접미사가 쓰이지 않음) | `JpaPaymentRepository.java:53`, `JpaStockReservationRepository.java:19` |
 | 10 | 설계 문서 간 어긋남(미구현 영역): 제재 회원의 로그인과 문의 허용 방식(4-x 대 5-3), `SUSPENDED` 재개 조건(04 대 SUB-2), 진행 중 구독 주문과 구독 상태 변경(`PAUSED`/`CANCELLED`/`TERMINATED`)의 대사 처리, 정산 지급 재시도 주기(04 §7 대 3-4) | 각 단계 문서 |
+
+## 8. 알려진 한계
+
+코드를 고치지 않고 `v1.0.0`에 안고 간다. 6-5 릴리스 노트에 같은 내용을 적는다.
+
+| # | 내용 | 드러나는 곳 | 근거 |
+|---|---|---|---|
+| 4 | 대사는 payment 행이 없거나 `PARTIAL_CANCELLED`이면 에러 로그만 남기고 계속 다시 시도한다. 주문이 `PAYMENT_IN_PROGRESS`로 남고 운영자가 처리한다 | 알림 `정체 Saga`(`saga_stuck_count`), 에러 로그 | `OrderReconcileService.reconcileOne` |
+| 5 | `PaymentApiImpl.cancel`의 상태·잔액 검사가 `payment` 행 락 밖(첫 트랜잭션)이다. 서로 다른 키로 동시에 온 두 취소가 모두 통과할 수 있고, 두 번째는 `applyCancel`에서 예외로 롤백돼 그 `payment_cancel` 행이 `REQUESTED`/`UNKNOWN`으로 남는다. 코드를 읽은 추론이고 재현 테스트는 없다 | 전용 지표 없음 | `PaymentApiImpl.cancel` |
+| 6 | PG 조회 결과 `CANCELED`·`PARTIAL_CANCELED`를 `APPROVED`로 매핑한다. 우리 쪽이 `UNKNOWN`인 결제가 토스 관리자 화면 등 외부에서 이미 취소된 경우 로컬이 `APPROVED`가 되고 주문이 `PAID`가 된다. 코드를 읽은 추론이고 재현 테스트는 없다 | 없음. 토스 관리자 화면과 대조해야 안다 | `TossClient.queryByOrderId` |
+| 9 | `UNKNOWN` 재조회에 상한이 없다. `payment.reconcile_attempts`는 늘기만 하고 자동 종결로 이어지지 않아 PG가 답하지 않으면 계속 다시 조회한다 | 알림 `결제 확인 지연`(`payment_unknown_oldest_age_seconds`), 관리자 결제 조회의 `reconcileAttempts` | `JpaPaymentRepository`, `AdminPaymentResponse` |

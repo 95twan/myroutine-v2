@@ -582,9 +582,9 @@ void onShopOpened(String message) {
 |---|---|
 | `KafkaConfig` | consumer 메서드가 예외를 던졌을 때 **다시 시도하고, 끝내 안 되면 DLT(dead letter topic, 처리 못 한 메시지를 모아 두는 `{topic}.dlt` 토픽)로 옮기는** 규칙을 정한다. 이 설정이 없으면 실패한 메시지는 Spring Kafka의 기본 동작을 따른다 |
 
-- `@Bean CommonErrorHandler kafkaErrorHandler(KafkaTemplate<String, String> template)`: 빈 한 개를 만들어 반환한다. 만드는 순서는 다음과 같다.
+- `@Bean CommonErrorHandler kafkaErrorHandler(KafkaTemplate<String, String> template, @Value("${myroutine.kafka.retry-initial-interval}") Duration retryInitialInterval)`: 빈 한 개를 만들어 반환한다. 만드는 순서는 다음과 같다.
   1. `DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(template, (record, ex) -> new TopicPartition(record.topic() + ".dlt", record.partition()))` — 재시도를 다 쓴 레코드를 **같은 키·값 그대로** DLT로 보내는 객체. 람다는 "어느 토픽·파티션으로 보낼지"를 정하며, 원본과 **같은 파티션 번호**를 쓰므로 DLT도 원본처럼 파티션 3개여야 한다(아래 `NewTopic`).
-  2. `ExponentialBackOff backOff = new ExponentialBackOff(1000, 2.0)` — 첫 대기 1000ms, 이후 2배씩. `backOff.setMaxAttempts(3)`으로 재시도를 3번으로 제한한다. 그래서 **최초 1번 + 재시도 3번 = 4번 시도** 후 DLT로 간다(완료 확인 `KafkaDltTest`의 "4번 시도").
+  2. `ExponentialBackOff backOff = new ExponentialBackOff(retryInitialInterval.toMillis(), 2.0)` — 첫 대기는 `application.yaml`의 `1s`, 이후 2배씩. `application-test.yaml`은 `100ms`로 줄여 재시도 시간과 횟수는 그대로 확인하면서 테스트 대기만 줄인다. `backOff.setMaxAttempts(3)`으로 재시도를 3번으로 제한한다. 그래서 **최초 1번 + 재시도 3번 = 4번 시도** 후 DLT로 간다(완료 확인 `KafkaDltTest`의 "4번 시도").
   3. `DefaultErrorHandler errorHandler = new DefaultErrorHandler(recoverer, backOff)` — 리스너가 예외를 던지면 같은 레코드를 대기 후 다시 전달하고, 횟수를 다 쓰면 `recoverer`를 부른다.
   4. `errorHandler.addNotRetryableExceptions(JacksonException.class, IllegalArgumentException.class, BusinessException.class)` — 이 예외는 재시도 없이 **바로** DLT로 보낸다(시도 1번). 이 목록에 없는 예외(`DataAccessException`, 낙관적 락 충돌 등 일시적 오류)는 재시도 대상이다.
   5. `return errorHandler`

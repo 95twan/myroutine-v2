@@ -35,12 +35,24 @@ spring:
 management:
   server:
     port: 8081
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    tags:
+      application: myroutine
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
   health:
     elasticsearch:
       enabled: false
 
 myroutine:
   business-zone: Asia/Seoul
+  kafka:
+    retry-initial-interval: 1s
   jwt:
     secret: ${JWT_SECRET}
     access-token-ttl: 15m

@@ -2,6 +2,8 @@ package com.myroutine.payment.infrastructure;
 
 import com.myroutine.common.model.Money;
 import com.myroutine.payment.domain.PgResult;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatusCode;
@@ -15,6 +17,7 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 @Slf4j
@@ -25,6 +28,7 @@ public class TossClient {
     private static final Set<String> UNCERTAIN_CODES = Set.of("ALREADY_PROCESSED_PAYMENT", "ALREADY_PROCESSING_REQUEST", "IDEMPOTENT_REQUEST_PROCESSING");
 
     private final RestClient tossRestClient;
+    private final MeterRegistry registry;
 
     public PgResult confirm(UUID paymentId, String paymentKey, String pgOrderId, Money amount) {
         long start = System.nanoTime();
@@ -145,12 +149,21 @@ public class TossClient {
     }
 
     private void logResult(String pgMethod, UUID paymentId, PgResult result, long start) {
+        long duration = System.nanoTime() - start;
+
         String reason = switch (result) {
             case PgResult.Approved a -> "";
             case PgResult.Rejected j -> j.code();
             case PgResult.Unknown u -> u.reason();
         };
         log.info("pg {} paymentId={} result={} reason={} latencyMs={}", pgMethod, paymentId,
-                result.getClass().getSimpleName(), reason, (System.nanoTime() - start) / 1_000_000);
+                result.getClass().getSimpleName(), reason, duration / 1_000_000);
+
+        Timer.builder("pg_call_seconds")
+                .tag("operation", pgMethod)
+                .tag("result", result.getClass().getSimpleName().toLowerCase())
+                .publishPercentileHistogram()
+                .register(registry)
+                .record(duration, TimeUnit.NANOSECONDS);
     }
 }

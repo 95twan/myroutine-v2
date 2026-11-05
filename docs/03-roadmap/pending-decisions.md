@@ -28,9 +28,6 @@
 | 단계 | 항목 | 선택지와 영향 |
 |---|---|---|
 | 2-6 | `cancel` A-2·A-3의 재조회 | `insertIfAbsent`가 1행이면 방금 만든 `REQUESTED` 행이고 `id`도 알아서 재조회가 필요 없다. 0행일 때만 읽으면 취소마다 SELECT가 하나 준다. 분기가 늘어난다 |
-| 6-1 | MDC `memberId`·`orderId`와 `putCloseable` 규칙 | Kibana 저장 검색과 완료 확인 어디서도 쓰지 않는다. 지우거나 검색·테스트를 더한다 |
-| 6-2 | `PaymentMetrics`·`OrderMetrics` 조회 메서드의 `status` 인자 | 항상 상수(`UNKNOWN`, `PAYMENT_IN_PROGRESS`)다. 권장안이라 손대지 않았다 |
-| 6-2 | ADR-010의 `mail_send_seconds` Timer | 대시보드·알림 어디에도 쓰지 않는다. 지표 이름은 ADR이 정한다 |
 
 ## 3. 외부 계약에서 읽는 곳이 없는 것
 
@@ -57,8 +54,7 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 |---|---|
 | `member.ban_reason`, `member.withdrawn_at`, `social_account.provider_email` | 쓰기만 하고 읽지 않는다(`withdrawn_at`은 테스트에서만 확인) |
 | `shop_order.completed_at` | 판매자 응답은 `shippedAt`·`deliveredAt`만 내려준다 |
-| `refund.completed_at`, `refund.member_id`, `payment_cancel.reason`·`failure_code` | 쓰기만 하고 읽지 않는다 |
-| `settlement.payout_attempts` | 증가만 하는 카운터. 감사 목적이면 이유를 ERD에 적는다 |
+| `refund.completed_at`, `refund.member_id`, `payment_cancel.reason` | 쓰기만 하고 읽지 않는다 |
 | `notification.version`·`channel`·`member_id` | 쓰기가 모두 native SQL이라 `version`은 쓰는 곳이 없다 |
 | `subscription.end_reason`, `billing_key.deleted_at`, `product_embedding.model`, `review_summary.source_review_count`·`model` | 쓰기만 하고 읽지 않는다 |
 
@@ -68,7 +64,6 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 |---|---|
 | `payment.method`와 `GET /api/payments`(FR-PAY-08) | `payment.method`(그리고 이를 나르는 `PgResult.Approved.method`·`PgOutcome.method`)는 이 API에서만 읽을 수 있는데 이 API를 구현하는 로드맵 단계가 없다 |
 | `GET /api/billing-keys/{id}` | 단건 조회는 로드맵에 구현이 없다(목록·삭제·등록만 있다) |
-| `SettlementRunResult.paid`·`payoutFailed` | `SettlementJob`은 `settledShops`만 쓴다. `payoutAll()` 반환 타입이 문서에 없는 문제와 함께 정한다 |
 | `SubscriptionResult`의 `consecutiveFailures`·`pendingUnitPrice`·`pendingEffectiveDate` 등 | 응답 필드가 문서에 정해져 있지 않다 |
 
 ### 문서 표기
@@ -102,7 +97,7 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 | 2-3 | B | Toss 승인·취소·조회 API별 에러 코드 표를 대조하지 못함 | 2-3 payment.infrastructure | 개발자센터 에러 표 확인 |
 | 공통 | D | springdoc-openapi의 Boot 4 호환 버전(사용하는 단계 없음) | development-guide 1.1절 "이후 단계에서 쓸 버전" 표 | 사용 단계 착수 시 확인 |
 | 공통 | E | 격리 수준 `READ COMMITTED` 가정. `src/main`에 격리 수준 설정이 없어 기본값을 쓴다 | 08-stock-design-evolution 1절 "먼저 알아둘 전제" 표 | 확정 문장으로 교체 |
-| 상태 조합 | A·C | [10-state-combinations 7절](../02-design/10-state-combinations.md) 10건(발송 가드와 `FAILED` 환불, 대사가 못 닫는 경우 등) | 10 문서 7절 | 해당 단계 착수 때 같이 푼다 |
+| 상태 조합 | A·C | [10-state-combinations 7절](../02-design/10-state-combinations.md) 2건(04 문서에 없는 상태머신, 미구현 영역의 문서 어긋남) | 10 문서 7절 | 해당 단계 착수 때 같이 푼다 |
 
 ### Part 3
 
@@ -118,34 +113,10 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 
 | 단계 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
-| 6-1 | B | Logstash 재접속·버퍼 동작, `LogstashEncoder` 기본 필드 이름, Logstash 파이프라인 마운트 경로와 Kibana의 ES 주소 환경변수, Kibana 9.4 Saved Objects 메뉴 위치 | 6-1 의존성·설정, docker | 라이브러리 README·이미지 문서·화면 확인 |
-| 6-1 | B | 체크아웃 → 알림 흐름이 `traceId` 하나로 묶이는지(`JobRunner`가 새 `traceId` 생성) | 6-1 완료 확인 "Kibana에서 traceId로 흐름 보기" | Kibana로 실측 |
-| 6-1 | D | MDC `close()`가 복원이 아니라 삭제라 중첩 시 `orderId` 구간이 사라짐(가장 바깥에서만 열기), `LogMailSender`가 인증코드를 로그에 찍는 문제의 점검 방법 | 6-1 MDC 보강, 완료 확인 `LogSafetyTest` | 확정 |
-| 6-1 | E | Kibana 5601 호스트 publish 여부 | 6-1 docker, 완료 확인 "Kibana에서 traceId로 흐름 보기" | compose 작성 때 결정 |
-| 6-2 | A | `pg_call_seconds`·`mail_send_seconds`의 `operation`·`result` 라벨 값, 메일 계측 위치 | 6-2 payment.infrastructure, common.mail | 사용자 결정(권장: 소문자 메서드명) |
-| 6-2 | A | 재고 점검 잡을 수동 실행하는 방법(05:00 대기, cron 임시 변경, 별도 트리거) | 6-2 장애 주입으로 확인(수동), 완료 확인 "수동 확인: 장애 주입 3가지" | 사용자 결정 |
-| 6-2 | A | `payment_unknown_oldest_age_seconds`의 기준 컬럼을 `updated_at`(대사마다 갱신돼 알림이 안 뜰 수 있음)에서 `created_at`으로 바꿀지 | 6-2 비즈니스 메트릭, payment.application(`PaymentMetrics`), 완료 확인 "수동 확인: 장애 주입 3가지" | 사용자 결정(권장: `created_at`) |
-| 6-2 | B | percentiles-histogram 속성 효과, `_total`/`_seconds` 접미사 중복, 카프카 lag 지표 이름, Gauge 수집기에 잡 락을 안 쓰는 근거, `DeadLetterPublishingRecoverer` 시그니처, Grafana 13 provider·알림 규칙 YAML, Kafka 중단 시 `DEAD` 알림 이름 | 6-2 노출, 비즈니스 메트릭, common.outbox·common.config, Prometheus·Grafana, 완료 확인 "수동 확인: 장애 주입 3가지" | `/actuator/prometheus` 출력·소스·화면 확인 |
-| 6-2 | C | 기준 컬럼 `updated_at`이 2-6·2-8b 코드(`findStuckIds`)와 같은지 문서에 명시 | 6-2 order.application(`OrderMetrics`) | 코드 확인 후 명시 |
-| 6-2 | D | prometheus·grafana 호스트 포트 publish(문서에 없다) | 6-2 Prometheus·Grafana, 완료 확인 | 확정 |
-| 6-3 | A | DLT 목록 `limit`이 파티션별인지 전체 상한인지·최대값·내려줄 헤더 | 6-3 common.web (DLT) | 사용자 결정 |
-| 6-3 | A | 환불·알림 목록 응답 항목 필드 | 6-3 order.web, notification.web, 완료 확인 | 사용자 결정 |
-| 6-3 | A | 쓰기 API의 `Idempotency-Key` 요구 여부(WHERE 상태 가드로 충분한지 포함) | 6-3 완료 확인 공통 준비 | 사용자 결정 |
-| 6-3 | A | 대상 없음·상태 불일치 응답 코드, 쓰기 API 성공 응답 상태·본문, DLT 목록 응답 모양. 반품 환불이 재시도해도 계속 `FAILED`로 남는 경우를 닫는 방법 | 6-3 모든 API에 공통, order.web, common.web, 완료 확인 | 사용자가 한 번에 결정 |
-| 6-3 | B | Toss가 같은 멱등 키의 실패 응답을 어떻게 처리하는지 | 6-3 order.web | Toss 문서·샌드박스 |
-| 6-3 | D | 목록 쿼리 메서드, DLT 코드를 `AdminDltService`로, `AdminOutboxTest`는 JDBC로 `DEAD` 만들기, 실행 로그 `action` 문자열 | 6-3 모든 API에 공통, order.domain, payment.domain, notification.domain, common.web, 테스트 보조 | 확정 |
-| 6-4 | B | Consumer 재접속 시간(await 30초 적정성) | 6-4 완료 확인 장애 시나리오(`KafkaOutageE2ETest`) | 측정 |
-| 6-4 | D | e2e 패키지에서 `IntegrationTestSupport.kafka` 접근은 헬퍼 메서드로 | 6-4 시나리오, 완료 확인 `KafkaOutageE2ETest` | 확정 |
-| 6-5 | A | v1.0.0 때 `v0.6.0` 태그를 따로 찍을지(git-policy 7절은 Part 6 완료 시 `v0.6.0`) | 6-5 릴리스, 완료 확인 | 사용자 결정 후 git-policy와 맞춤 |
-| 6-5 | A | ADR-012 미정 항목(노드 수, 상태 서비스 위치, 도구), K-1~K-5 문서 파일 이름 | 6-5 Stage 1.5 준비, 완료 확인, ADR-012 상태 줄 | Stage 1.5 시작 전에 결정 |
 
 ### ADR·운영 문서
 
 | 문서 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
-| ADR-011 | B | VM 자원(16GB·8vCPU)이 적정한지 | ADR-011 결정 1항(환경) | 6-1 구현 뒤 실측 |
-| ADR-012 | A | MinIO를 클러스터에 다시 올릴지 NAS의 것을 쓸지(문구 없음). 세부 항목이 제안 상태인 것은 Part 6의 6-5 행과 같은 건 | ADR-012 결정 4항(MinIO) | Stage 1.5 시작 전에 결정 |
-| ADR-012 | B | 24GB 호스트에서 멀티 노드가 가능한지, local-path PVC에서 MinIO uid 65532용 `fsGroup`이 필요한지 | ADR-012 결정 2항(클러스터), 4항(MinIO) | 실측·k3s에서 확인 |
-| ADR-012 | D | 러너 ServiceAccount의 네임스페이스 한정 RBAC | ADR-012 결정 5항(CD) | Role/RoleBinding 작성·검증 |
-| ops | B | NAS: Container Manager 패키지명·메모리 기본값, 시놀로지 ACL이 `chown 65532`를 막는지, 프로젝트·방화벽·HDD 절전·스냅샷 메뉴, 호스트 9000 포트 충돌 | nas-minio 1절(준비), 2절(데이터 폴더), 3절(컨테이너 사양), 7절(한계와 알려진 점) | NAS 화면·실행으로 확인 |
+| ops | B | NAS로 옮길 때: Container Manager 패키지명·메모리 기본값, 시놀로지 ACL이 `chown 65532`를 막는지, 프로젝트·방화벽·HDD 절전·스냅샷 메뉴, 호스트 9000 포트 충돌, VM의 기존 이미지 데이터를 옮길지 | nas-minio 1절(준비), 2절(데이터 폴더), 3절(컨테이너 사양), 5절(전환 순서), 7절(한계와 알려진 점) | 옮길 때 NAS 화면·실행으로 확인 |
 | ops | B | VM: Proxmox/Ubuntu 설치 화면·LVM 체크 해제 이유, GHCR 패키지 연결·가시성, Proxmox 스토리지 추가 메뉴 | vm-setup 1-1절(만드는 순서), 6절(GitHub 저장소 설정), 7절(스냅샷과 백업) | VM·GitHub·Proxmox 화면에서 확인 |

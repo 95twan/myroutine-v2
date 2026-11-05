@@ -2,6 +2,7 @@ package com.myroutine.notification.infrastructure;
 
 import com.myroutine.notification.domain.Notification;
 import com.myroutine.notification.domain.NotificationRepository;
+import com.myroutine.notification.domain.NotificationStatus;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -30,4 +31,30 @@ public interface JpaNotificationRepository extends JpaRepository<Notification, U
             order by n.nextAttemptAt
             """)
     List<Notification> findDue(Instant now, Limit limit);
+
+    @Query("""
+            select n
+            from Notification n
+            where n.status = :status
+            order by n.createdAt, n.id
+            """)
+    List<Notification> findByStatusFirstPage(NotificationStatus status, Limit limit);
+
+    @Query("""
+            select n
+            from Notification n
+            where n.status = :status and (n.createdAt > :cursorCreatedAt or (n.createdAt = :cursorCreatedAt and n.id > :cursorId))
+            order by n.createdAt, n.id
+            """)
+    List<Notification> findByStatusNextPage(NotificationStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit);
+
+    @Modifying
+    @Query(
+            nativeQuery = true,
+            value = """
+            UPDATE notification.notification
+            SET status = 'PENDING', attempts = 0, updated_at = :now, version = version + 1
+            WHERE id = :id AND status = 'FAILED'
+            """)
+    int retryFailed(UUID id, Instant now);
 }

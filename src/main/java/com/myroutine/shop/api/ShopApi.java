@@ -2,6 +2,7 @@ package com.myroutine.shop.api;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public interface ShopApi {
@@ -12,4 +13,6 @@ public interface ShopApi {
     ShopContact getContact(UUID shopId);
 
     List<UUID> getShopIdsByOwner(UUID memberId);
+
+    Map<UUID, String> getShopNames(Collection<UUID> shopIds);
 }

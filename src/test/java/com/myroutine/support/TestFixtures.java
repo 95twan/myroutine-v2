@@ -488,14 +488,19 @@ public class TestFixtures {
                 "SELECT status FROM orders.refund WHERE order_id = ? ORDER BY created_at, id", String.class, orderId);
 
         List<OrderSnapshot.PaymentState> payments = jdbcTemplate.query(
-                "SELECT amount, cancelled_amount, status, payment_key FROM payment.payment WHERE order_id = ?",
+                "SELECT id, amount, cancelled_amount, status, payment_key, method, approved_at, reconcile_attempts FROM payment.payment WHERE order_id = ?",
                 (rs, rowNum) -> new OrderSnapshot.PaymentState(
-                        rs.getLong("amount"), rs.getLong("cancelled_amount"), rs.getString("status"), rs.getString("payment_key")),
+                        rs.getLong("amount"), rs.getLong("cancelled_amount"), rs.getString("status"), rs.getString("payment_key"),
+                        rs.getObject("id", UUID.class), rs.getString("method"),
+                        rs.getTimestamp("approved_at") == null ? null : rs.getTimestamp("approved_at").toInstant(),
+                        rs.getInt("reconcile_attempts")),
                 orderId);
 
         List<String> status = jdbcTemplate.queryForList("SELECT status FROM orders.orders WHERE id = ?", String.class, orderId);
 
-        return new OrderSnapshot(lines, shopOrderStatuses, refundStatuses, payments.isEmpty() ? null : payments.getFirst(), status.isEmpty() ? null : status.getFirst());
+        List<String> reservationStatuses = jdbcTemplate.queryForList("SELECT status FROM product.stock_reservation WHERE order_id = ?", String.class, orderId);
+
+        return new OrderSnapshot(lines, shopOrderStatuses, refundStatuses, payments.isEmpty() ? null : payments.getFirst(), status.isEmpty() ? null : status.getFirst(), reservationStatuses);
     }
 
     public UUID orderLineIdOf(UUID orderId, UUID productId) {
@@ -523,7 +528,7 @@ public class TestFixtures {
     }
 
     public RefundRow refundRowOf(UUID refundId) {
-        return jdbcTemplate.queryForObject("SELECT status, reason_type, amount, reason, reject_reason, completed_at FROM orders.refund WHERE id = ?",
+        return jdbcTemplate.queryForObject("SELECT status, reason_type, amount, reason, reject_reason, completed_at, pg_attempts FROM orders.refund WHERE id = ?",
                 (rs, rowNum) -> {
                     return new RefundRow(
                             rs.getString("status"),
@@ -531,10 +536,19 @@ public class TestFixtures {
                             rs.getLong("amount"),
                             rs.getString("reason"),
                             rs.getString("reject_reason"),
-                            rs.getTimestamp("completed_at") != null ? rs.getTimestamp("completed_at").toInstant() : null
+                            rs.getTimestamp("completed_at") != null ? rs.getTimestamp("completed_at").toInstant() : null,
+                            rs.getInt("pg_attempts")
                     );
                 },
                 refundId);
+    }
+
+    public PaymentCancelState paymentCancelOf(String idempotencyKey) {
+        List<PaymentCancelState> rows = jdbcTemplate.query(
+                "SELECT status, failure_code FROM payment.payment_cancel WHERE idempotency_key = ?",
+                (rs, rowNum) -> new PaymentCancelState(rs.getString("status"), rs.getString("failure_code")),
+                idempotencyKey);
+        return rows.isEmpty() ? null : rows.getFirst();
     }
 
     public ShopOrderSnapshot shopOrderSnapshotOf(UUID shopOrderId) {
@@ -842,7 +856,7 @@ public class TestFixtures {
 
     public List<NotificationRow> notificationRowsOf(UUID memberId) {
         return jdbcTemplate.query("""
-                        SELECT member_id, type, channel, recipient, title, status, attempts, last_error, dedup_key, sent_at, next_attempt_at
+                        SELECT member_id, type, channel, recipient, title, status, attempts, last_error, dedup_key, sent_at, next_attempt_at, version
                         FROM notification.notification
                         WHERE member_id = ?
                         ORDER BY created_at, id
@@ -860,16 +874,25 @@ public class TestFixtures {
                             rs.getString("dedup_key"),
                             rs.getInt("attempts"),
                             sentAt,
-                            rs.getTimestamp("next_attempt_at").toInstant()
+                            rs.getTimestamp("next_attempt_at").toInstant(),
+                            rs.getLong("version")
                     );
                 },
                 memberId
         );
     }
 
+    public int unsentOutboxCount() {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM common.outbox_event WHERE status <> 'SENT'", Integer.class);
+    }
+
+    public NotificationCounts notificationCounts() {
+        return new NotificationCounts(notificationRows());
+    }
+
     public List<NotificationRow> notificationRows() {
         return jdbcTemplate.query("""
-                        SELECT member_id, type, channel, recipient, title, status, attempts, last_error, dedup_key, sent_at, next_attempt_at
+                        SELECT member_id, type, channel, recipient, title, status, attempts, last_error, dedup_key, sent_at, next_attempt_at, version
                         FROM notification.notification
                         ORDER BY created_at, id
                         """,
@@ -886,7 +909,8 @@ public class TestFixtures {
                             rs.getString("dedup_key"),
                             rs.getInt("attempts"),
                             sentAt,
-                            rs.getTimestamp("next_attempt_at").toInstant()
+                            rs.getTimestamp("next_attempt_at").toInstant(),
+                            rs.getLong("version")
                     );
                 }
         );

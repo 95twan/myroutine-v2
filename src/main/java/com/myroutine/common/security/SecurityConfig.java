@@ -38,6 +38,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/auth/logout").authenticated()
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/actuator/health/**").permitAll()
+                        .requestMatchers("/actuator/prometheus").permitAll()
                         .requestMatchers("/api/shops/me").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/shops/*").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/products", "/api/products/*").permitAll()

@@ -89,4 +89,11 @@ class ShopApiImpl implements ShopApi {
                 .map(Shop::getId)
                 .toList();
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<UUID, String> getShopNames(Collection<UUID> shopIds) {
+        return shopRepository.findAllByIdIn(shopIds).stream()
+                .collect(Collectors.toMap(Shop::getId, Shop::getName));
+    }
 }
