@@ -1,6 +1,7 @@
 # Part 6. 관측 · 운영 · 마무리
 
-> 버전 0.37 · 2026-11-05 · `orderId` MDC는 서비스 본문 대신 `@LogOrderId` Aspect로 넣고 요청 2곳(`confirm`·`cancel`)에 적용한다. 운영 VM의 Kibana(5601)·Grafana(3000)는 SSH 터널 없이 LAN에서 바로 연다(Prometheus는 `127.0.0.1`)
+> 버전 0.38 · 2026-11-05 · 6-2에서 `mail_send_seconds` Timer를 뺐다(읽는 대시보드·알림이 없다). 운영 compose의 Grafana 비밀번호 키 `GRAFANA_ADMIN_PASSWORD`를 `.env.ops.example`에 더했다
+> 0.37 · 2026-11-05 · `orderId` MDC는 서비스 본문 대신 `@LogOrderId` Aspect로 넣고 요청 2곳(`confirm`·`cancel`)에 적용한다. 운영 VM의 Kibana(5601)·Grafana(3000)는 SSH 터널 없이 LAN에서 바로 연다(Prometheus는 `127.0.0.1`)
 > 0.36 · 2026-11-04 · 관측 스택(Logstash·Kibana·Prometheus·Grafana)을 운영 VM에도 올린다: 앱 프로필 `prod,elk`, 로그 인덱스는 ES ILM으로 7일 뒤 삭제한다
 > 0.35 · 2026-11-04 · Part 6 앞에 6-0(문의 수정의 여러 줄 내용)을 더했다: 문의 수정의 `content`가 줄바꿈을 받는다
 > 0.34 · 2026-11-04 · 6-3의 쓰기 API 응답과 목록 항목을 정하고 `GET /admin/api/dlt`, `GET /admin/api/settlements`를 더했다. 정산 수동 실행은 끝난 달만 받는다(이번 달로 실행하면 그달의 나머지 품목이 영구히 정산되지 않는다)
@@ -32,7 +33,7 @@
 
 ## Part 6 공통 규칙
 
-- 관측 스택(Logstash, Kibana, Prometheus, Grafana)은 docker-compose **`observability` 프로필**로 띄운다: `docker compose --env-file .env.local -f docker/docker-compose.yml --profile observability up -d`. 프로필을 주지 않으면 기존 5개 서비스만 뜬다. 평소 개발에는 띄우지 않는다(메모리). 이미지는 Logstash·Kibana·Prometheus·Grafana를 합쳐 약 6.5GB다. 운영 VM의 `docker-compose.ops.yml`에는 프로필 없이 항상 띄운다(6-1 "운영 VM", 6-2 8)).
+- 관측 스택(Logstash, Kibana, Prometheus, Grafana)은 docker-compose **`observability` 프로필**로 띄운다: `docker compose --env-file .env.local -f docker/docker-compose.yml --profile observability up -d`. 프로필을 주지 않으면 기존 5개 서비스만 뜬다. 평소 개발에는 띄우지 않는다(메모리). 이미지는 Logstash·Kibana·Prometheus·Grafana를 합쳐 약 6.5GB다. 운영 VM의 `docker-compose.ops.yml`에는 프로필 없이 항상 띄운다(6-1 "운영 VM", 6-2 7)).
 - 설정 파일은 모두 리포에 둔다: `docker/logstash/`, `docker/kibana/`, `docker/prometheus/`, `docker/grafana/provisioning/`. 화면에서 만든 대시보드·검색은 **파일로 내보내 커밋**한다.
 - 6-3의 운영 API는 모두 `/admin/api/**`(ADMIN)이다. 실행 로그 형식은 6-3 "모든 API에 공통"에 적었다.
 
@@ -640,7 +641,7 @@ hikaricp_connections_active{application="myroutine",pool="HikariPool-1"} 0.0
 
 ### 할 일
 
-**구현 순서**: 1) 노출(의존성·`application.yaml`·`SecurityConfig`) → 2) 메트릭 이름과 Micrometer 사용법 → 3)~5) 모듈별(조회 메서드 → 수집기 → Counter·Timer 연결) → 6) `StockCheckJob` → 7) 메일 Timer → 8) Prometheus·Grafana 파일·compose → 테스트(완료 확인) → 9) 장애 주입(수동).
+**구현 순서**: 1) 노출(의존성·`application.yaml`·`SecurityConfig`) → 2) 메트릭 이름과 Micrometer 사용법 → 3)~5) 모듈별(조회 메서드 → 수집기 → Counter·Timer 연결) → 6) `StockCheckJob` → 7) Prometheus·Grafana 파일·compose → 테스트(완료 확인) → 8) 장애 주입(수동).
 
 아래 코드와 설정은 실험용 복사본에서 앱·Prometheus 3.15.1·Grafana 13.2.5로 실행해 확인했다. 출력과 시간은 그때 나온 값이다.
 
@@ -669,6 +670,12 @@ management:
 이것만으로 HTTP 요청, JVM, HikariCP, Kafka 클라이언트 지표가 나온다. 전체는 약 4,200줄이고 그중 절반이 Kafka 클라이언트 지표다.
 
 **2) 비즈니스 메트릭**
+
+이 절에는 직접 만드는 코드가 없다. 3)~6)에서 지표를 만들 때 쓰는 도구(타입 3종, 등록하는 모양)와 만들 지표의 목록이다. 지표는 표의 "구현 절" 순서대로 해당 절에서 구현하고, 모르는 것이 나오면 여기로 돌아온다.
+
+- Gauge(지금 값): 수집기 `@Component`가 30초마다 DB를 조회해 `AtomicLong`에 넣고, Gauge는 그 값을 읽는다.
+- Counter(누적 횟수): 사건이 일어난 자리에서 `registry.counter(...).increment()`를 부른다.
+- Timer(걸린 시간): 외부 호출 한 번이 끝날 때 걸린 시간을 `record`한다.
 
 | 타입 | 패키지 | 뜻 |
 |---|---|---|
@@ -699,20 +706,19 @@ Timer.builder("pg_call_seconds")
 - 코드에 적는 이름이 Prometheus에 나오는 이름이다. 이미 `_total`·`_seconds`로 끝나는 이름에는 접미사를 다시 붙이지 않는다(`kafka_dlt_records_total`, `pg_call_seconds_count`로 나오는 것을 확인했다).
 - Counter와 Timer는 처음 올라갈 때 나타난다. 그 전에는 `/actuator/prometheus`에 줄이 없다.
 
-| 이름 | 종류 | 계산 | 만드는 곳 |
-|---|---|---|---|
-| `outbox_ready_count` | Gauge | `count(*) WHERE status='READY'` | common `OutboxMetrics` (30초) |
-| `outbox_oldest_age_seconds` | Gauge | `now - min(created_at) WHERE status='READY'` (없으면 0) | 같음 |
-| `outbox_dead_count` | Gauge | `count(*) WHERE status='DEAD'` | 같음 |
-| `kafka_dlt_records_total{topic}` | Counter | DLT로 보낼 때마다 +1 | `KafkaConfig`의 recoverer를 감싸서 |
-| `payment_unknown_count` | Gauge | `status='UNKNOWN'` 결제 수 | payment `PaymentMetrics` (30초) |
-| `payment_unknown_oldest_age_seconds` | Gauge | 가장 오래된 UNKNOWN의 `now - created_at` (없으면 0) | 같음 |
-| `saga_stuck_count{type="order_payment"}` | Gauge | `PAYMENT_IN_PROGRESS`로 5분 넘은 주문 수 | order `OrderMetrics` (30초) |
-| `saga_stuck_count{type="refund"}` | Gauge | `APPROVED`·`PG_CANCELLED`로 10분 넘은 환불 수 | 같음 |
-| `stock_reservation_expired_total` | Counter | 만료 잡이 주문 하나를 만료시킬 때 +1 | `OrderExpirationService` |
-| `stock_balance_mismatch_count` | Gauge | 아래 점검 잡의 불일치 상품 수 | product `StockCheckJob` |
-| `pg_call_seconds{operation,result}` | Timer | Toss 호출마다 | `TossClient` |
-| `mail_send_seconds{result}` | Timer | 호출마다 | 메일 발송기 |
+| 이름 | 라벨(`.tag(키, 값)`) | 종류 | 계산(뜻만 적은 줄임말. 실제 SQL은 구현 절에 있다) | 만드는 곳 | 구현 절 |
+| --- | --- | --- | --- | --- | --- |
+| `outbox_ready_count` | - | Gauge | `count(*) WHERE status='READY'` | common `OutboxMetrics` (30초) | 3) |
+| `outbox_oldest_age_seconds` | - | Gauge | READY 행 중 가장 오래된 `created_at`부터 지금까지 몇 초 (없으면 0) | 같음 | 3) |
+| `outbox_dead_count` | - | Gauge | `count(*) WHERE status='DEAD'` | 같음 | 3) |
+| `kafka_dlt_records_total` | `topic` | Counter | DLT로 보낼 때마다 +1 | `KafkaConfig`의 recoverer를 감싸서 | 3) |
+| `payment_unknown_count` | - | Gauge | `status='UNKNOWN'` 결제 수 | payment `PaymentMetrics` (30초) | 4) |
+| `payment_unknown_oldest_age_seconds` | - | Gauge | 가장 오래된 UNKNOWN 결제의 `created_at`부터 지금까지 몇 초 (없으면 0) | 같음 | 4) |
+| `saga_stuck_count` | `type` = `order_payment` | Gauge | `PAYMENT_IN_PROGRESS`로 5분 넘은 주문 수 | order `OrderMetrics` (30초) | 5) |
+| `saga_stuck_count` | `type` = `refund` | Gauge | `APPROVED`·`PG_CANCELLED`로 10분 넘은 환불 수 | 같음 | 5) |
+| `stock_reservation_expired_total` | - | Counter | 만료 잡이 주문 하나를 만료시킬 때 +1 | `OrderExpirationService` | 5) |
+| `stock_balance_mismatch_count` | - | Gauge | 아래 점검 잡의 불일치 상품 수 | product `StockCheckJob` | 6) |
+| `pg_call_seconds` | `operation`, `result` | Timer | Toss 호출마다 | `TossClient` | 4) |
 
 수집기(`OutboxMetrics`, `PaymentMetrics`, `OrderMetrics`)의 공통 모양 — 위 정책의 "30초마다 계산해 `AtomicLong`에 넣는" 일을 하는 `@Component`다. 모양은 셋이 같다
 
@@ -725,8 +731,32 @@ Timer.builder("pg_call_seconds")
 
 | 클래스 | 규격 |
 |---|---|
-| `OutboxMetrics` (`@Component`, 패키지 `common.outbox`) | 수집기(공통 모양은 위 2)). 조회 수단: `JdbcTemplate` — `common.outbox_event`는 같은 모듈 테이블. 나이는 `SELECT COALESCE(EXTRACT(EPOCH FROM now() - min(created_at)), 0)::bigint FROM common.outbox_event WHERE status = 'READY'`, 건수는 `queryForObject(sql, Long.class)` |
+| `OutboxMetrics` (`@Component`, 패키지 `common.outbox`) | 수집기(공통 모양은 위 2)). 조회 수단: `JdbcTemplate` — `common.outbox_event`는 같은 모듈 테이블. 쿼리 3개는 아래 SQL이고 모두 `jdbcTemplate.queryForObject(sql, Long.class)`로 읽는다. `@RequiredArgsConstructor`로는 Gauge 등록 코드를 넣을 수 없어 생성자를 직접 쓴다(`JdbcTemplate`, `MeterRegistry`를 받는다) |
 | `KafkaConfig` (기존 수정, 3-2) | `kafka_dlt_records_total{topic}` Counter를 건다. 방법은 아래 |
+
+```sql
+-- outbox_ready_count
+SELECT count(*) FROM common.outbox_event WHERE status = 'READY'
+-- outbox_dead_count
+SELECT count(*) FROM common.outbox_event WHERE status = 'DEAD'
+-- outbox_oldest_age_seconds
+SELECT COALESCE(EXTRACT(EPOCH FROM now() - min(created_at)), 0)::bigint
+FROM common.outbox_event WHERE status = 'READY'
+```
+
+나이 SQL은 안쪽부터 읽는다.
+
+| 부분 | 뜻 |
+|---|---|
+| `WHERE status = 'READY'` | 아직 보내지 않은 행만 |
+| `min(created_at)` | 그중 가장 오래전에 만들어진 행의 생성 시각 |
+| `now()` | PostgreSQL이 돌려주는 지금 시각(자바의 `Instant.now()`에 해당) |
+| `now() - min(created_at)` | 그 행이 쌓인 시간. `interval` 타입이다(예: `00:02:00`) |
+| `EXTRACT(EPOCH FROM ...)` | 그 시간 길이를 초 단위 숫자로 바꾼다(`00:02:00` → `120`) |
+| `COALESCE(..., 0)` | READY 행이 없으면 `min`이 `NULL`이라 결과도 `NULL`이다. 그때 0으로 바꾼다 |
+| `::bigint` | 결과를 정수로 바꾼다. 자바에서 `Long.class`로 읽기 위해서다 |
+
+알림 "Outbox 지연"(`> 60`)은 이 값, 곧 "가장 오래된 미발행 이벤트가 몇 초째 밀려 있나"를 본다.
 
 `DeadLetterPublishingRecoverer`는 `ConsumerRecordRecoverer`(`org.springframework.kafka.listener`, `BiConsumer<ConsumerRecord<?,?>, Exception>`와 같은 모양)다. `DefaultErrorHandler`에 넘기기 전에 감싼다(spring-kafka 4.1.1에서 실행 확인). 메서드 파라미터에 `MeterRegistry registry`를 더한다.
 
@@ -749,6 +779,9 @@ DefaultErrorHandler errorHandler = new DefaultErrorHandler(counting, backOff);
 | `PaymentMetrics` (`@Component`, application) | 수집기(공통 모양은 위 2)). 계산: `payment_unknown_count` = `countByStatus(UNKNOWN)`, `payment_unknown_oldest_age_seconds` = `Duration.between(가장 오래된 created_at, clock.instant()).toSeconds()`, 없으면 0 |
 | `TossClient` (infrastructure, 기존 수정, 2-3) | `pg_call_seconds{operation,result}` Timer를 건다. `confirm`·`cancel`·`queryByOrderId`가 이미 `start`를 재고 마지막에 `logResult(pgMethod, paymentId, result, start)`를 부르므로, `logResult` 안에서 위 2)의 `Timer.builder`를 호출한다. `MeterRegistry` 필드를 더한다 |
 
+- 나이 계산의 모양(비어 있으면 UNKNOWN이 없는 것이라 0): `findOldestCreatedAtByStatus(UNKNOWN).map(t -> Duration.between(t, clock.instant()).toSeconds()).orElse(0L)`. 값이 있으면 `map`이 초로 바꾸고, 비었으면 `orElse`가 0을 준다. `Clock`은 `PaymentApiImpl`처럼 주입받는다.
+- `TossClient`의 `start`는 `System.nanoTime()` 값이다. `logResult`의 `log.info` 옆에서 2)의 `Timer.builder(...)…record(System.nanoTime() - start, TimeUnit.NANOSECONDS)`를 그대로 호출하고, `result`에는 `result.getClass().getSimpleName().toLowerCase()`(`approved` 등)를 넣는다.
+
 나이의 기준이 `updated_at`이 아니라 `created_at`인 이유: 대사 잡이 UNKNOWN 결제를 1분마다 다시 조회하면서 `increaseReconcileAttempts`가 `updated_at`을 갱신한다. 실제로 재 보면 `updated_at` 기준 나이는 0과 30초를 오가서 "600초 넘음" 알림이 영원히 뜨지 않고, `created_at` 기준 나이는 계속 늘어난다.
 
 라벨 값은 로그와 같은 말을 쓴다. `operation`은 `pgMethod`(`confirm`·`cancel`·`query`), `result`는 `PgResult` 종류의 소문자(`approved`·`rejected`·`unknown`)다.
@@ -760,9 +793,17 @@ DefaultErrorHandler errorHandler = new DefaultErrorHandler(counting, backOff);
 | `OrderRepository` (domain 순수 인터페이스, 기존 수정) | `long countByStatusAndUpdatedAtBefore(OrderStatus status, Instant before)`를 더한다 |
 | `RefundRepository` (domain 순수 인터페이스, 기존 수정) | `long countByStatusInAndUpdatedAtBefore(Collection<RefundStatus> statuses, Instant before)`를 더한다 |
 | `JpaOrderRepository`·`JpaRefundRepository` (infrastructure, 기존 수정) | 위 두 메서드는 파생 쿼리다 |
-| `OrderMetrics` (`@Component`, application) | 수집기(공통 모양은 위 2)). 계산: 표의 `saga_stuck_count` 두 값을 `updated_at < now - 기준 시간`으로 센다. 기준 컬럼이 `updated_at`인 것은 `findStuckIds`(2-6, 2-8b)와 같고, 대사는 주문의 `updated_at`을 바꾸지 않아 PG가 멈추면 이 값이 그대로 오른다 |
+| `OrderMetrics` (`@Component`, application) | 수집기(공통 모양은 위 2)). 계산: 아래 표대로 센다. 기준 컬럼이 `updated_at`인 것은 `findStuckIds`(2-6, 2-8b)와 같고, 대사는 주문의 `updated_at`을 바꾸지 않아 PG가 멈추면 이 값이 그대로 오른다 |
 | `OrderExpirationService` (application, 기존 수정) | `stock_reservation_expired_total` Counter를 건다. 방법은 아래 |
 
+`OrderMetrics.refresh()`의 호출
+
+| Gauge | 호출 | 뜻 |
+|---|---|---|
+| `saga_stuck_count{type="order_payment"}` | `orderRepository.countByStatusAndUpdatedAtBefore(PAYMENT_IN_PROGRESS, clock.instant().minus(Duration.ofMinutes(5)))` | 5분 넘게 결제 중인 주문 수 |
+| `saga_stuck_count{type="refund"}` | `refundRepository.countByStatusInAndUpdatedAtBefore(List.of(APPROVED, PG_CANCELLED), clock.instant().minus(Duration.ofMinutes(10)))` | 10분 넘게 끝나지 않은 환불 수 |
+
+- `saga_stuck_count`는 `AtomicLong`이 둘(`order_payment`용, `refund`용)이다. 같은 이름에 `.tag("type", …)`만 다르게 Gauge를 두 번 등록한다(2)의 예시).
 - `stock_reservation_expired_total`: `expireBatch`의 건별 루프에서 `tx.execute(s -> expireOne(orderId))`가 `true`를 반환한 **직후**(트랜잭션 밖)에 `increment()`. `expireOne` 안에서 올리면 롤백돼도 카운트가 남는다
 
 **6) product.infrastructure — 재고 정합성 점검 잡** `StockCheckJob`
@@ -775,16 +816,13 @@ WHERE s.received <> COALESCE(m.q, 0) OR s.reserved <> COALESCE(r.q, 0)
 
 `StockCheckJob` (product.infrastructure, `@Component`) — **재고 행의 숫자가 기록(이력·예약)과 맞는지 하루에 한 번 대조하는 잡**. 다른 잡(`OrderExpirationJob` 등)과 같은 모양이다
 - **왜 필요한가**: `ck_stock_balance`(`available + reserved + sold = received`)는 한 행 안의 등식만 지킨다. 코드 버그로 `received`와 `available`을 같이 틀리게 바꾸면 CHECK는 통과하지만 이력과는 어긋난다. 이 잡이 그 어긋남을 잡는다(INV-03·04)
+- **Gauge 등록**: `StockCheckJob`도 `AtomicLong` 필드 하나를 두고 생성자에서 `Gauge.builder("stock_balance_mismatch_count", …).register(registry)`로 등록한다(`OutboxMetrics`와 같은 방식, `MeterRegistry`를 주입받는다). 다른 점은 값이 30초마다가 아니라 `check()`가 실행될 때만 바뀐다는 것이다.
 - **구성**: `@Scheduled(cron = "${myroutine.stock-check.cron:0 0 5 * * *}", zone = "Asia/Seoul")` 메서드 → `jobRunner.run("stock-check", this::check)`. `JobRunner.run`은 `Supplier<Integer>`를 받으므로 `check()`는 `int`(불일치 상품 수)를 반환한다. `check()`(`public`)가 하는 일: ① 위 SQL을 `JdbcTemplate.queryForList(sql, UUID.class)`로 실행(`List<UUID>` = 어긋난 `product_id`) ② 상품마다 `log.error("stock mismatch productId={}", id)` ③ `AtomicLong`(`stock_balance_mismatch_count`)에 `set(개수)` ④ 개수 반환
 - **수동 실행**: cron을 설정값으로 둬서 코드 변경 없이 주기를 바꾼다. 로컬에서 `MYROUTINE_STOCKCHECK_CRON='0 * * * * *' ./gradlew bootRun ...`이면 1분마다 돈다(환경변수 이름에서 `-`는 빠진다).
 - **SQL 읽는 법**: `m.q`는 상품별 `stock_movement`의 **입고(RECEIVE)와 조정(ADJUST)** 수량 합(조정은 음수일 수 있다)이고, `s.received`와 같아야 한다. `r.q`는 상품별 `HELD`(보류 중) 예약 수량 합이고 `s.reserved`와 같아야 한다. 이력·예약이 한 건도 없는 상품은 LEFT JOIN 결과가 `NULL`이라 `COALESCE(..., 0)`로 0과 비교한다
 - 이 Gauge는 실행 때만 바뀐다. 앱을 재시작하면 다음 실행까지 0으로 보인다.
 
-**7) common.mail**
-
-- `mail_send_seconds{result}`: 메일 호출처는 셋(`NotificationDispatcher`, `PasswordService`, `SignupVerificationService`)이고 구현체는 프로필별 둘(`LogMailSender`, `SmtpMailSender`)이다. 실제로 메일을 보내는 `SmtpMailSender.send`에서 잰다. 방식은 `Timer.start(registry)` → 호출 → `sample.stop(registry.timer("mail_send_seconds", "result", "success" 또는 "failure"))`(예외가 나도 `finally`에서). 운영 프로필에서만 나오므로 로컬 `/actuator/prometheus`에는 보이지 않는다. 읽는 대시보드·알림이 없어 둘지 뺄지는 착수 때 정한다.
-
-**8) Prometheus·Grafana** — `docker/docker-compose.yml`, `docker/prometheus/prometheus.yml`, `docker/grafana/provisioning/`
+**7) Prometheus·Grafana** — `docker/docker-compose.yml`, `docker/prometheus/prometheus.yml`, `docker/grafana/provisioning/`
 
 ```yaml
   prometheus:
@@ -838,7 +876,7 @@ scrape_configs:
 |---|---|
 | Prometheus 설정 | `prometheus.yml`의 대상만 `app:8081`로 바꾼 별도 파일 `prometheus.ops.yml`을 마운트한다. 앱이 같은 compose 네트워크의 서비스라 `host.docker.internal`이 필요 없다. 이 포트는 호스트에 열지 않았으므로(ADR-011 5항) 컨테이너끼리만 닿는다 |
 | 포트 | Grafana `3000:3000`은 LAN에 열고(로그인이 있다) `http://VM주소:3000`으로 본다. Prometheus `127.0.0.1:9090`은 VM 안에서만 열고, 쿼리 실험은 Grafana의 Explore로 한다 |
-| Grafana 비밀번호 | `GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD를 지정하세요}`로 받고, 값은 VM의 `/opt/myroutine/.env`에 둔다(로컬의 `admin`을 그대로 쓰지 않는다). 키 이름은 `.env.ops.example`에 6-2 착수 때 더한다 |
+| Grafana 비밀번호 | `GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD를 지정하세요}`로 받고, 값은 VM의 `/opt/myroutine/.env`에 둔다(로컬의 `admin`을 그대로 쓰지 않는다). 키 이름은 `.env.ops.example`에 있다 |
 | Prometheus 데이터 | named volume `prometheus_data`를 `/prometheus`에 마운트한다. 재배포로 컨테이너가 바뀌어도 지표 이력이 남아야 Stage 2 부하 테스트의 전후를 비교할 수 있다. 보관은 Prometheus 기본(15일)을 쓴다 |
 | Grafana 데이터 | 볼륨을 두지 않는다. 데이터소스·대시보드·알림 규칙이 모두 `provisioning` 파일이라 컨테이너를 새로 만들어도 같은 상태로 뜬다 |
 
@@ -868,7 +906,7 @@ providers:
       path: /etc/grafana/provisioning/dashboards
 ```
 
-대시보드는 같은 폴더의 `overview.json`, `payment.json`, `kafka.json` 세 파일이다. 아래 최소 형식을 손으로 쓸 수 있다. 패널 위치는 `gridPos`(가로 24칸)로 정하고, `targets[].legendFormat`의 `{{topic}}`은 라벨 값으로 채워진다.
+대시보드 하나가 JSON 파일 하나다. `overview.json`, `payment.json`, `kafka.json` 세 파일이 `provider.yml`과 같은 폴더에 있고, 패널 위치는 `gridPos` 규칙(`w:12, h:8`, `x`는 0과 12를 번갈아, 두 패널마다 `y`를 8씩)으로 정했다. 아래는 패널이 하나인 `kafka.json`의 형식이다.
 
 ```json
 {
@@ -895,13 +933,21 @@ providers:
 }
 ```
 
-화면에서 고쳤다면(`allowUiUpdates`) 대시보드 오른쪽 세로 막대의 Export로 받거나, 아래 명령으로 받아 파일을 덮어쓴다.
+JSON 필드는 다음과 같다.
 
-```bash
-curl -s -u admin:admin "localhost:3000/api/dashboards/uid/myroutine-kafka" | python3 -c "import json,sys;print(json.dumps(json.load(sys.stdin)['dashboard'],ensure_ascii=False,indent=2))" > docker/grafana/provisioning/dashboards/kafka.json
-```
+| 필드 | 뜻 |
+|---|---|
+| `uid` | 대시보드의 고정 ID. 바꾸면 다른 대시보드가 된다 |
+| `refresh` | 화면이 자동으로 새로고침되는 주기 |
+| `time` | 처음 보여 줄 시간 범위(`now-30m`은 최근 30분) |
+| `panels[].type` | 그래프 종류. 값이 시간에 따라 변하는 지표는 `timeseries`(선 그래프) |
+| `panels[].gridPos` | 패널 위치와 크기. 화면 가로를 24칸으로 본다. `x`는 왼쪽에서 몇 칸째, `y`는 위에서 몇 줄째, `w`는 가로 칸 수, `h`는 세로 줄 수다. 예시의 `x: 0, w: 12`는 왼쪽 절반이다 |
+| `panels[].fieldConfig.defaults.unit` | 값의 단위. 아래 표의 `단위` 열(`s`는 초, `percentunit`은 0~1을 %로 표시 등) |
+| `targets[].expr` | Prometheus에 묻는 PromQL. 아래 표의 `expr` 열 |
+| `targets[].legendFormat` | 그래프 선의 이름표. `{{topic}}`처럼 쓰면 시계열의 `topic` 라벨 값으로 채워진다. 선이 여러 개일 때 구분하려고 쓴다 |
+| `targets[].refId` | 한 패널 안에서 쿼리를 구분하는 이름(`A`, `B`, …). 쿼리가 둘이면 `B`를 더한다 |
 
-세 대시보드의 패널과 쿼리는 다음과 같다. 모두 실제 데이터로 실행해 확인했다. `단위`는 `fieldConfig.defaults.unit` 값이다.
+세 파일의 패널과 쿼리는 다음과 같다(표의 한 행이 `panels`의 객체 하나). 쿼리는 모두 실제 데이터로 실행해 확인했다. `단위`는 `fieldConfig.defaults.unit` 값이다.
 
 | 대시보드 | 패널 | `expr` | 범례 | 단위 |
 |---|---|---|---|---|
@@ -951,6 +997,14 @@ Prometheus 화면(`http://localhost:9090`)이나 Grafana의 Explore에서 쿼리
 
 **알림 규칙** — `docker/grafana/provisioning/alerting/rules.yml`
 
+알림 규칙은 "이 숫자가 이 값을 넘으면 알려라"를 Grafana에 적어 둔 조건이다. Grafana가 30초마다 Prometheus에 숫자를 물어 조건을 확인한다. 규칙은 6개이고, 각각 앱이 내놓는 지표 하나를 본다. 알림은 Grafana 화면에 표시되며 메일이나 메신저로 보내지 않는다.
+
+| 화면 표기 | 쉬운 말 |
+|---|---|
+| `Normal` | 조건에 걸리지 않은 평소 상태 |
+| `Pending` | 조건에 걸렸지만 정해 둔 시간(`for`)만큼 더 지켜보는 중 |
+| `Firing` | 그 시간 동안 계속 걸려서 알림이 울린 상태. 조건이 풀리면 다시 `Normal`이다 |
+
 규칙 하나는 "Prometheus에 PromQL을 묻고(`A`) → 결과가 임계값을 넘으면(`C`) → 그 상태가 `for`만큼 이어지면 Firing"이다. 아래는 그대로 동작하는 파일의 머리와 규칙 하나다. 나머지 규칙은 `uid`, `title`, `expr`, `params`, `for`만 다르다.
 
 ```yaml
@@ -994,16 +1048,16 @@ groups:
 | `noDataState: OK` | **꼭 둔다.** Counter는 처음 올라가기 전에는 시계열이 없어서, 기본값이면 평소에 경보 상태가 된다. `OK`면 `Normal (NoData)`로 조용하다 |
 | `for` | 조건이 이만큼 이어져야 Firing이다. 그동안 `Pending`이다. 즉시는 `0s`다 |
 
-| 알림 | 조건(`expr` / 임계값) | `for` |
-|---|---|---|
-| DLT 적재 | `kafka_dlt_records_total - (kafka_dlt_records_total offset 5m or kafka_dlt_records_total * 0)` / `gt 0` | `0s` |
-| Outbox 지연 | `outbox_oldest_age_seconds` / `gt 60` | `2m` |
-| Outbox DEAD | `outbox_dead_count` / `gt 0` | `0s` |
-| 결제 확인 지연 | `payment_unknown_oldest_age_seconds` / `gt 600` | `0s` |
-| 정체 Saga | `saga_stuck_count` / `gt 0` | `5m` |
-| 재고 불일치 | `stock_balance_mismatch_count` / `gt 0` | `0s` |
+| 알림 | 언제 울리나 | 조건(`expr` / 임계값) | `for` |
+|---|---|---|---|
+| DLT 적재 | 이벤트 처리가 계속 실패해 실패 보관 토픽(DLT)에 최근 5분 사이 메시지가 쌓였다 | `kafka_dlt_records_total - (kafka_dlt_records_total offset 5m or kafka_dlt_records_total * 0)` / `gt 0` | `0s` |
+| Outbox 지연 | 보내야 할 이벤트가 60초 넘게 밀려 있는 상태가 2분 이어졌다 | `outbox_oldest_age_seconds` / `gt 60` | `2m` |
+| Outbox DEAD | 이벤트 전송을 여러 번 실패해 포기한(DEAD) 행이 하나라도 있다 | `outbox_dead_count` / `gt 0` | `0s` |
+| 결제 확인 지연 | PG 결과를 모르는(UNKNOWN) 결제가 600초 넘게 남아 있다 | `payment_unknown_oldest_age_seconds` / `gt 600` | `0s` |
+| 정체 Saga | 결제 중 주문이 5분, 끝나지 않은 환불이 10분 넘게 멈춘 건이 5분 이어졌다 | `saga_stuck_count` / `gt 0` | `5m` |
+| 재고 불일치 | 재고 숫자가 입고 이력·예약과 맞지 않는 상품이 하나라도 있다 | `stock_balance_mismatch_count` / `gt 0` | `0s` |
 
-- 상태는 `Normal` → `Pending`(조건 충족, `for` 대기) → `Firing`(화면 표기, API의 `state`는 `Alerting`) → 조건이 풀리면 `Normal`이다.
+- 상태는 `Normal` → `Pending` → `Firing` → 조건이 풀리면 `Normal`이다. `for`가 `0s`인 규칙은 `Pending` 없이 바로 `Firing`이 된다. API의 `state`는 `Firing`을 `firing`, `Normal`을 `inactive`로 돌려준다.
 - 라벨이 다른 시계열은 알림도 따로 뜬다(`saga_stuck_count`는 `type`별로 두 인스턴스).
 - 문제가 생기고 알림이 뜨기까지 수집기 30초 + 스크랩 15초 + 평가 30초, 최대 약 75초가 더 걸린다.
 - 파일로 올린 규칙은 화면에서 고칠 수 없다. 파일을 고치고 `docker compose ... --profile observability restart grafana`로 다시 읽는다. 현재 규칙을 YAML로 보려면 `curl -s -u admin:admin "localhost:3000/api/v1/provisioning/alert-rules/export?format=yaml"`이다.
@@ -1040,7 +1094,7 @@ curl -s -u admin:admin "localhost:3000/api/prometheus/grafana/api/v1/rules"    #
 | `DLT 적재`가 평소에 경보 상태 | `noDataState: OK`가 빠졌다 | 규칙 파일 |
 | DLT에 들어갔는데 알림이 없다 | `increase`를 썼다(위 "함정") | Prometheus에서 지표 값과 `increase` 값을 비교한다 |
 
-**9) 장애 주입으로 확인 (수동)** — Kafka 중단, 결제 불확실, 재고 불일치, DLT의 주입·기대·복구는 완료 확인 "수동 확인: 장애 주입"에 있다
+**8) 장애 주입으로 확인 (수동)** — Kafka 중단, 결제 불확실, 재고 불일치, DLT의 주입·기대·복구는 완료 확인 "수동 확인: 장애 주입"에 있다
 
 ### 완료 확인
 
@@ -1119,14 +1173,15 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 | # | 주입 | 기대(실측 시간) | 복구와 해제 확인 |
 |---|---|---|---|
 | 1 | `docker compose --env-file .env.local -f docker/docker-compose.yml stop kafka` 후 outbox 행이 생기는 요청 2건(가입 2건) | 약 2분에 "Outbox 지연" `Pending`. 약 2분 30초에 행이 `DEAD`가 되어 `outbox_ready_count` 0, `outbox_dead_count` 2(실패마다 `send`가 최대 5초 막히고 10초 뒤 재시도, 10번째에 `DEAD`, 3-1). 약 3분에 **"Outbox DEAD" Firing**, "Outbox 지연"은 조건이 풀려 `Normal`로 돌아간다 | `docker compose ... start kafka`만으로는 `DEAD`가 풀리지 않는다. 6-3 `POST /admin/api/outbox/{id}/retry`(이 단계에서는 `UPDATE common.outbox_event SET status='READY', attempts=0, next_attempt_at=now(), updated_at=now() WHERE status='DEAD'`) → 행이 `SENT`, 규칙 `Normal` |
-| 2 | 로컬 실행 설정 `myroutine.toss.base-url`을 `http://10.255.255.1`로 바꿔(환경변수 `MYROUTINE_TOSS_BASEURL`, `-`는 빠진다) 앱을 다시 띄우고 결제 승인 1건 | 승인 응답 202, `payment_unknown_count` = 1. `payment_unknown_oldest_age_seconds`가 재시도와 상관없이 계속 오른다. 약 10분에 "결제 확인 지연" Firing. "정체 Saga"(`order_payment`)도 함께 약 6분에 `Pending`, 약 11분에 Firing | `base-url`을 되돌려 앱 재기동 → 대사 잡(1분 주기)이 결제를 끝낸다 → `payment_unknown_count` 0, 규칙 `Normal` |
+| 2 | 로컬 실행 설정 `myroutine.toss.base-url`을 `http://10.255.255.1`로 바꿔(환경변수 `MYROUTINE_TOSS_BASEURL`, `-`는 빠진다) 앱을 다시 띄우고 결제 승인 1건 | 승인 응답 202, `payment_unknown_count` = 1. `payment_unknown_oldest_age_seconds`가 재시도와 상관없이 계속 오른다. 약 11분에 "결제 확인 지연" Firing. "정체 Saga"(`order_payment`)도 함께 약 6분에 `Pending`, 약 11분에 Firing | `base-url`을 되돌려 앱 재기동 → 대사 잡(1분 주기)이 결제를 끝낸다 → `payment_unknown_count` 0, 규칙 `Normal` |
 | 3 | 로컬 DB에서 `UPDATE product.stock SET received = received + 5, available = available + 5 WHERE product_id = ?`, 앱은 `MYROUTINE_STOCKCHECK_CRON='0 * * * * *'`로 실행 | 약 1분에 `stock_balance_mismatch_count` = 1, 약 1분 30초에 "재고 불일치" Firing. 콘솔에 `stock mismatch productId=` | UPDATE를 되돌린다(`- 5`) → 다음 점검 뒤 `stock_balance_mismatch_count` 0, 규칙 `Normal` |
 | 4 | outbox에 내용이 빈 행을 넣는다: `INSERT INTO common.outbox_event (id, aggregate_type, aggregate_id, event_type, topic, payload, status, attempts, next_attempt_at, created_at, updated_at) VALUES (gen_random_uuid(), 'TEST', gen_random_uuid(), 'OrderPaidEvent', 'order.order-paid.v1', '{}'::jsonb, 'READY', 0, now(), now(), now())` | consumer가 실패해 DLT로 간다. 약 30초에 `kafka_dlt_records_total{topic="order.order-paid.v1"}` = 1, 평가 뒤 "DLT 적재" Firing | 5분 뒤 `offset`이 따라잡아 조건이 풀리고 규칙 `Normal` |
 
-직접 보지 못한 시간이 셋 있다. 구현 후 이 시나리오에서 실제 시간을 본다.
-- "결제 확인 지연"의 10분 Firing: 기록을 7분에서 멈췄다. 그때까지 `created_at` 기준 나이가 초당 1씩 오르는 것까지 봤다.
-- "정체 Saga"의 11분 Firing: 같은 이유로 `Pending`까지 봤다.
-- "DLT 적재"의 5분 뒤 `Normal`: Firing까지 봤고, 쿼리 모양상 5분이 지나면 값이 0이 되어 풀린다.
+앞의 표 밖에서 실측한 시간은 다음과 같다(결제 승인 요청과 이벤트 주입 시각부터).
+- "결제 확인 지연": 약 11분에 Firing. `created_at` 기준 나이가 600초를 넘긴 다음 평가에서 울린다.
+- "정체 Saga"(`order_payment`): 약 5~6분에 Pending, 약 11분에 Firing(`for` 5분).
+- "DLT 적재": 약 30초에 Firing, 약 5분 40초에 `Normal`로 돌아온다.
+- 복구: 결제 시나리오(2)에서 `base-url`을 되돌려 재기동하면 약 1분 안에 `payment_unknown_count`가 0이 되고 두 규칙이 `Normal`이 된다. 로컬은 Toss 샌드박스에 없는 `paymentKey`라 결제는 `FAILED`로 끝난다.
 
 **리뷰 때 물어볼 것**
 - 정합성이 깨지면 어떻게 알 수 있나? 알림 임계값은 어떻게 정했나?

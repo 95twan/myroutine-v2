@@ -5,6 +5,7 @@ import com.myroutine.order.domain.OrderRepository;
 import com.myroutine.order.domain.OrderStatus;
 import com.myroutine.product.api.ProductApi;
 import com.myroutine.product.api.ReleaseReason;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Limit;
@@ -25,6 +26,7 @@ public class OrderExpirationService {
     private final TransactionTemplate tx;
     private final Clock clock;
     private final OrderEventPublisher publisher;
+    private final MeterRegistry registry;
 
     public int expireBatch() {
         Instant now = clock.instant();
@@ -32,7 +34,10 @@ public class OrderExpirationService {
         int count = 0;
         for (UUID orderId : orderIds) {
             try {
-                if (tx.execute(s -> expireOne(orderId))) count++;
+                if (tx.execute(s -> expireOne(orderId))) {
+                    registry.counter("stock_reservation_expired_total").increment();
+                    count++;
+                }
             } catch (Exception e) {
                 log.error("expire failed orderId={}", orderId, e);
             }

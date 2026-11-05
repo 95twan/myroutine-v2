@@ -1,6 +1,6 @@
 # ADR-010. 관측성: ELK(로그) + Prometheus/Grafana(메트릭), traceId는 직접 전파
 
-- 상태: 승인 (2026-10-02, 개정: 학습 범위 제한 반영. 2026-11-04 개정: 로그 인덱스 이름과 traceId가 잇는 범위를 실측에 맞췄다)
+- 상태: 승인 (2026-10-02, 개정: 학습 범위 제한 반영. 2026-11-04 개정: 로그 인덱스 이름과 traceId가 잇는 범위를 실측에 맞췄다. 2026-11-05 개정: 읽는 곳이 없는 `mail_send_seconds`를 뺐다)
 - 관련: NFR-OBS-01~04, [02-architecture-stage1.md §6](../02-design/02-architecture-stage1.md)
 
 ## 맥락
@@ -22,7 +22,7 @@
    - `payment_unknown_count`, `payment_unknown_oldest_age_seconds`
    - `saga_stuck_count{type}` (refund APPROVED/PG_CANCELLED 지속, order PAYMENT_IN_PROGRESS 지속)
    - `stock_reservation_expired_total`, `stock_balance_mismatch_count`(재고 등식 점검)
-4. **외부 호출 지연**은 Micrometer `Timer`(actuator 기본 포함)로 직접 기록한다: `pg_call_seconds{operation, result}`, `mail_send_seconds`, `openai_call_seconds`(OpenAI를 부르는 SUB-5·SUB-6이 서브라 그 단계를 할 때 더한다).
+4. **외부 호출 지연**은 Micrometer `Timer`(actuator 기본 포함)로 직접 기록한다: `pg_call_seconds{operation, result}`, `openai_call_seconds`(OpenAI를 부르는 SUB-5·SUB-6이 서브라 그 단계를 할 때 더한다).
 5. Grafana 대시보드(서비스 개요, 결제·정합성, Kafka·Outbox)와 알림 규칙, Kibana 저장 검색은 리포의 `docker/` 아래에 파일로 둔다.
 
 ## 고려한 대안

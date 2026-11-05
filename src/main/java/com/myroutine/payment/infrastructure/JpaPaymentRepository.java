@@ -51,4 +51,7 @@ public interface JpaPaymentRepository extends JpaRepository<Payment, UUID>, Paym
             where p.id = :id and p.status in (PaymentStatus.IN_PROGRESS, PaymentStatus.UNKNOWN)
             """)
     int increaseReconcileAttempts(UUID id, Instant now);
+
+    @Query("select min(p.createdAt) from Payment p where p.status = :status")
+    Optional<Instant> findOldestCreatedAtByStatus(PaymentStatus status);
 }

@@ -23,4 +23,6 @@ public interface RefundRepository {
     boolean existsByOrderLineIdAndStatus(UUID orderLineId, RefundStatus status);
 
     List<Refund> findAllByShopOrderIdInOrderByCreatedAtAsc(Collection<UUID> shopOrderIds);
+
+    long countByStatusInAndUpdatedAtBefore(Collection<RefundStatus> statuses, Instant before);
 }
