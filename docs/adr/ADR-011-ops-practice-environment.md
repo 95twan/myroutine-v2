@@ -10,7 +10,7 @@
 - **제약**: 새로 학습할 기술은 ELK, Prometheus/Grafana, k6로 한정한다([CLAUDE.md §3](../../CLAUDE.md)). Proxmox·Docker·GitHub Actions는 이미 아는 도구다. 새로 배우는 것은 **self-hosted runner(설치·설정 정도)** 하나이고 2026-10-07 사용자가 승인했다.
 
 ## 결정
-1. **환경**: Proxmox에 Ubuntu Server VM 1대를 만들고 Docker Engine + compose로 앱과 인프라를 모두 올린다. VM 자원은 RAM 16GB·vCPU 8로 시작하고(호스트 RAM이 24GB이고 증설할 수 없어 8GB를 Proxmox·캐시용으로 남긴다. 2026-10-10 20GB에서 낮춤) 실제 사용량은 6-1(ELK) 때 측정해서 조정한다(확인 필요).
+1. **환경**: Proxmox에 Ubuntu Server VM 1대를 만들고 Docker Engine + compose로 앱과 인프라를 모두 올린다. VM 자원은 RAM 16GB·vCPU 8로 시작하고(호스트 RAM이 24GB이고 증설할 수 없어 8GB를 Proxmox·캐시용으로 남긴다. 2026-10-10 20GB에서 낮춤) 관측 스택(ELK, Prometheus, Grafana)까지 올린 상태를 `free -h`로 재면 전체 15GiB 중 used 6.5GiB, available 8.6GiB, swap 사용 240KiB로 16GB가 적정하다. 6-1까지(used 5.5GiB, available 9.6GiB) 대비 Prometheus·Grafana가 약 1GiB를 더 쓴다.
 2. **파이프라인**:
    - CI(`ci.yml`)는 지금처럼 GitHub 호스티드 러너에서 PR·push마다 `./gradlew build`.
    - CD(`cd.yml`)는 `develop`에 push되고 CI가 통과한 뒤 `workflow_run`으로 실행된다: ① 호스티드 러너가 Docker 이미지를 빌드해 GHCR에 `{sha}` 태그로 올린다 → ② VM의 self-hosted 러너가 해당 sha 이미지를 pull해 `docker compose up -d`로 교체한다 → ③ 헬스체크가 실패하면 직전 sha로 되돌린다.

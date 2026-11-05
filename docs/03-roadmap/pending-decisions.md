@@ -123,7 +123,6 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 
 | 문서 | 종류 | 항목 | 위치 | 풀 방법 |
 |---|---|---|---|---|
-| ADR-011 | B | VM 자원(16GB·8vCPU)이 적정한지. 로컬 실측은 로드맵 6-1 "운영 VM"과 6-2 7)에 있다 | ADR-011 결정 1항(환경) | VM에 올린 뒤 실측. 6-1까지 올린 상태(앱·인프라·Logstash·Kibana)는 `free -h`로 used 5.5GiB, available 9.6GiB, swap 사용 0이다. 6-2까지 올린 뒤 다시 잰다 |
 | ADR-012 | A | MinIO를 클러스터에 다시 올릴지 NAS의 것을 쓸지(문구 없음). 세부 항목이 제안 상태인 것은 Part 6의 6-5 행과 같은 건 | ADR-012 결정 4항(MinIO) | Stage 1.5 시작 전에 결정 |
 | ADR-012 | B | 24GB 호스트에서 멀티 노드가 가능한지, local-path PVC에서 MinIO uid 65532용 `fsGroup`이 필요한지 | ADR-012 결정 2항(클러스터), 4항(MinIO) | 실측·k3s에서 확인 |
 | ADR-012 | D | 러너 ServiceAccount의 네임스페이스 한정 RBAC | ADR-012 결정 5항(CD) | Role/RoleBinding 작성·검증 |
