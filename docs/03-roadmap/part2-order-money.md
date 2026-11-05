@@ -1,6 +1,7 @@
 # Part 2. 주문과 돈
 
-> 버전 0.130 · 2026-10-27
+> 버전 0.131 · 2026-11-05 · 2-9 반품 재요청 금지는 `RETURN` 환불의 `REJECTED`만 본다(6-3 종결로 `REJECTED`가 된 구매자 취소 환불은 반품을 막지 않는다)
+> 0.130 · 2026-10-27
 > 0.122 · 2026-10-20 · 확인 필요 3건을 확정했다: 2-5 `JobLock`은 `RuntimeException`으로 감싼다, 2-8a `findByShopOrderIdForUpdate`는 `for no key update of o1_0`으로 주문 행만 잠근다, 2-8a `RefundResponse` 필드
 > 0.120 · 2026-10-20 · 테스트 중 스케줄러를 끄려면 `myroutine.scheduling.enabled: false`만으로는 부족하고 Spring Modulith `MomentsAutoConfiguration`의 `@EnableScheduling` 때문에 `spring.modulith.moments.enabled: false`도 필요하다
 > 0.117 · 2026-10-20 · 2-10 자동 확정 7일을 `AutoConfirmService`의 상수로 정했다(설정 프로퍼티 아님). 구현된 `OrderLine.addRefundAmount`에 맞춰 `addRefundedAmount`를 고쳤다(2-8, 2-10)
@@ -2471,7 +2472,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | `Refund` | `void reject(String reason)` | 판매자 거절 `REQUESTED → REJECTED`, `reject_reason = reason` |
 | `Order` | `void requestReturn(UUID lineId)` | `findLine(lineId).markReturnRequested()`. 주문 상태는 검사하지 않는다(`DELIVERED` 품목은 `PAID` 주문에만 있고 `PAID` 이후 주문 상태 전이가 없다. 품목 상태 검사가 막는다. [상태 조합](../02-design/10-state-combinations.md#24-불변식과-확인-방법)) |
 | `Order` | `void rejectReturn(UUID lineId)` | 품목 `RETURN_REQUESTED → DELIVERED`. 품목이 `RETURN_REQUESTED`가 아니면 `INVALID_STATE_TRANSITION`을 던지고, 맞으면 `findLine(lineId).markDelivered()`(2-7). `markDelivered`는 `SHIPPED → DELIVERED`도 허용하므로 이 검사가 없으면 `SHIPPED` 품목에도 통과한다 |
-| `RefundRepository` | `boolean existsByOrderLineIdAndStatus(UUID orderLineId, RefundStatus status)` | 그 품목에 해당 상태의 환불이 있는지. `REJECTED`로 거절 이력을 확인한다 (파생 쿼리) |
+| `RefundRepository` | `boolean existsByOrderLineIdAndReasonTypeAndStatus(UUID orderLineId, RefundReasonType reasonType, RefundStatus status)` | 그 품목에 해당 종류·상태의 환불이 있는지. `RETURN`·`REJECTED`로 반품 거절 이력을 확인한다 (파생 쿼리) |
 | `RefundRepository` | `List<Refund> findAllByShopOrderIdInOrderByCreatedAtAsc(Collection<UUID> shopOrderIds)` | 가게주문 ID들 → 그 가게주문들의 환불 전부, 생성 순 (파생 쿼리). 판매자 가게주문 응답의 `refunds`를 채운다(아래 2번). 한 건만 읽을 때도 `List.of(shopOrderId)`로 같은 메서드를 쓴다 |
 
 **2) order.application**
@@ -2485,7 +2486,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 `request` 순서 (한 트랜잭션)
 1. `Order order = findByIdAndMemberId(orderId, memberId)` — 없으면(남의 주문 포함) 404 `ORDER_NOT_FOUND`. 잠그지 않는다. 같은 품목의 동시 요청은 같은 `OrderLine` 행을 바꾸므로 `@Version` 충돌(409 `CONFLICT_RETRY`)로 한쪽이 실패한다
 2. `OrderLine line = order.findLine(lineId)` — 이 주문의 품목이 아니면(다른 주문의 품목 ID 포함) 404 `ORDER_LINE_NOT_FOUND`. 다음 3번이 `lineId`만으로 환불을 조회하므로, 이 주문의 품목인지 먼저 확인한다
-3. 그 품목에 `REJECTED` 환불이 있으면(`existsByOrderLineIdAndStatus(lineId, REJECTED)`) 409 `RETURN_NOT_ALLOWED`(한 번 거절되면 다시 요청할 수 없다. 정책)
+3. 그 품목에 `RETURN` 환불 중 `REJECTED`인 것이 있으면(`existsByOrderLineIdAndReasonTypeAndStatus(lineId, RETURN, REJECTED)`) 409 `RETURN_NOT_ALLOWED`(반품이 한 번 거절되면 다시 요청할 수 없다. 정책)
 4. `order.requestReturn(lineId)` — 품목이 `DELIVERED`가 아니면 여기서 409 `INVALID_STATE_TRANSITION`(같은 품목에 요청을 두 번 보내면 두 번째가 여기다)
 5. `refundRepository.save(Refund.requestReturn(orderId, shopOrderId, lineId, memberId, amount, reason))` — 금액 = `lineAmount - refundedAmount`(`line.refundableAmount()`), `shopOrderId = order.shopOrderOf(lineId).getId()`. 반환 `RefundResult(refundId, REQUESTED, amount)`
 

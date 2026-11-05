@@ -1,6 +1,7 @@
 # Part 6. 관측 · 운영 · 마무리
 
-> 버전 0.39 · 2026-11-05 · 6-3 환불 종결 API `POST /admin/api/refunds/{id}/close`(`FAILED → REJECTED`)를 더하고, `FAILED` 환불을 활성 환불로 본다(발송 가드·`uk_refund_order_line_active`·구매자 재취소는 인덱스 위반 409)
+> 버전 0.40 · 2026-11-05 · 6-3 즉시 대사는 주문이 30초 안에 바뀌었으면 PG를 조회하지 않고 현재 상태를 돌려준다(진행 중인 승인 요청을 실패로 확정하지 않게). 구매자 취소 환불을 종결해도 반품 요청은 막히지 않는다
+> 0.39 · 2026-11-05 · 6-3 환불 종결 API `POST /admin/api/refunds/{id}/close`(`FAILED → REJECTED`)를 더하고, `FAILED` 환불을 활성 환불로 본다(발송 가드·`uk_refund_order_line_active`·구매자 재취소는 인덱스 위반 409)
 > 0.38 · 2026-11-05 · 6-2에서 `mail_send_seconds` Timer를 뺐다(읽는 대시보드·알림이 없다). 운영 compose의 Grafana 비밀번호 키 `GRAFANA_ADMIN_PASSWORD`를 `.env.ops.example`에 더했다
 > 0.37 · 2026-11-05 · `orderId` MDC는 서비스 본문 대신 `@LogOrderId` Aspect로 넣고 요청 2곳(`confirm`·`cancel`)에 적용한다. 운영 VM의 Kibana(5601)·Grafana(3000)는 SSH 터널 없이 LAN에서 바로 연다(Prometheus는 `127.0.0.1`)
 > 0.36 · 2026-11-04 · 관측 스택(Logstash·Kibana·Prometheus·Grafana)을 운영 VM에도 올린다: 앱 프로필 `prod,elk`, 로그 인덱스는 ES ILM으로 7일 뒤 삭제한다
@@ -1264,13 +1265,13 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 | `AdminRefundService` (새로 만든다) | `@Transactional(readOnly = true) CursorPage<AdminRefundResult> getRefunds(RefundStatus status, String cursor, int size)`(목록), `RefundResult retry(UUID refundId)`, `RefundResult close(UUID refundId, String reason)`. `AdminRefundResult`의 필드는 아래 목록에 있다. 내용은 아래 **refunds** |
 
 - **주문은 맨 앞에서 한 번만 읽는다**: `OrderStatus current = orderRepository.findById(orderId).orElseThrow(() -> new BusinessException(OrderErrorCode.ORDER_NOT_FOUND)).getStatus()`. `current`는 "이 호출이 아무것도 바꾸지 않았을 때 돌려줄 값"이다.
-- **`current`가 `PAYMENT_IN_PROGRESS`가 아니면 결제를 보지 않고 바로 `current`를 돌려준다.** 대사는 `PAYMENT_IN_PROGRESS`로 머문 주문만 대상이다. 이 가드가 없으면 관리자가 이미 끝난 주문을 누를 때 결제 상태 분기가 잘못 탄다: 전액 환불로 payment가 `CANCELLED`가 된 `PAID` 주문, 보상 취소로 끝난 `PAYMENT_FAILED` 주문은 `CANCELLED` 분기의 `failOrder`가 `markPaymentFailed`에서 `INVALID_STATE_TRANSITION`(409)을 던지고, 일부 환불로 `PARTIAL_CANCELLED`인 `PAID` 주문은 정상인데 `log.error`가 남는다. 대사 잡의 대상(`PAYMENT_IN_PROGRESS`)은 `current`가 항상 이 값이라 영향이 없다.
+- **`current`가 `PAYMENT_IN_PROGRESS`가 아니거나 주문의 `updated_at`이 30초 안이면 결제를 보지 않고 바로 `current`를 돌려준다.** 대사는 `PAYMENT_IN_PROGRESS`로 30초 넘게 머문 주문만 대상이다(2-6 정책, 잡의 `findStuckIds`와 같은 기준). 30초 안의 주문은 승인 요청이 아직 진행 중일 수 있어서, 이때 PG를 조회하면 PG가 아직 요청을 받지 못해 "없음"으로 답하고 결제와 주문을 실패로 확정한 뒤 PG가 승인하는 일이 생긴다. 이 가드가 없으면 관리자가 이미 끝난 주문을 누를 때 결제 상태 분기가 잘못 탄다: 전액 환불로 payment가 `CANCELLED`가 된 `PAID` 주문, 보상 취소로 끝난 `PAYMENT_FAILED` 주문은 `CANCELLED` 분기의 `failOrder`가 `markPaymentFailed`에서 `INVALID_STATE_TRANSITION`(409)을 던지고, 일부 환불로 `PARTIAL_CANCELLED`인 `PAID` 주문은 정상인데 `log.error`가 남는다. 대사 잡의 대상(`PAYMENT_IN_PROGRESS`)은 `current`가 항상 이 값이라 영향이 없다.
 - 위 가드를 지난 주문(`PAYMENT_IN_PROGRESS`)에서 `paymentApi.find`가 비어 있으면 `log.error`를 남기고 `current`를 돌려준다. 그 상태에 결제가 없는 것이 비정상이다.
 - 처리 내용(`APPROVED`·`FAILED`는 `closeConfirmed`, `IN_PROGRESS`·`UNKNOWN`은 `closeByQuery`(`queryPgOutcome` → `applyOutcome`), `CANCELLED`는 `failOrder`, 완료 실패 시 보상)은 그대로이고, `closeConfirmed`·`closeByQuery`·`closeOrder`의 반환 타입을 `boolean`에서 `OrderStatus`로 바꾸고 `current`를 인자로 받는다. 경로별 반환값:
 
 | 경로 | 반환 |
 |---|---|
-| `current`가 `PAYMENT_IN_PROGRESS`가 아님 | `current` |
+| `current`가 `PAYMENT_IN_PROGRESS`가 아니거나 주문이 30초 안에 바뀜 | `current` |
 | `closeOrder`에서 `applyPaymentState`가 성공 | `applyPaymentState`가 돌려준 `OrderStatus`를 그대로. 다른 흐름이 이미 처리했으면 그 가드가 현재 상태를 돌려준다 |
 | 보상 취소가 `DONE`이라 `failOrder` 실행 | `PAYMENT_FAILED` |
 | `CANCELLED` 분기의 `failOrder` | `PAYMENT_FAILED` |
@@ -1284,7 +1285,7 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 **refunds** (order 모듈, `AdminRefundService`)
 - 목록: 반환은 `CursorPage<AdminRefundResult>`다. 항목은 `AdminRefundResult(UUID id, UUID orderId, UUID orderLineId, String productName, long amount, String reasonType, String reason, String failureCode, int pgAttempts, Instant createdAt, Instant updatedAt)`이고 `AdminRefundResponse`는 같은 필드다. 순서: ① 커서가 없으면 `findByStatusFirstPage`, 있으면 `Cursor.decode`로 `findByStatusNextPage`(둘 다 `Limit.of(size + 1)`) ② `size`건만 남기고 `nextCursor` 만들기(목록 규칙) ③ 아래 두 `Map`을 읽어 항목마다 붙이기. `amount`는 `refund.getAmount().amount()`, `reasonType`은 `getReasonType().name()`이다. 한 쪽을 읽은 뒤 `findLinesByIdIn`(`Map<UUID, OrderLine>`으로 만들어 `productName`을)으로 품목 이름을, `paymentApi.findCancelFailureCodes`(위 2))로 실패 코드(`Map<String, String>`, 키 `refund.pgIdempotencyKey()`)를 한 번에 읽어 붙인다. `failureCode`는 그 환불의 마지막 PG 취소 코드다. 키가 `refund.pgIdempotencyKey()`이고 재시도마다 `-r{n}`이 붙으므로 현재 키가 마지막 시도다. 없으면 `null`이다. `Refund`에 실패 사유 칸이 없어서, `NOT_CANCELABLE_AMOUNT`처럼 다시 해도 안 되는 실패인지 이 값으로 판단한다
 - `retry`: ① 트랜잭션(`tx.execute`)에서 환불을 읽어(없으면 `BusinessException(REFUND_NOT_FOUND)`) `retryPgCancel()`(1)에서 더한 메서드)을 부르고 그 `Refund`를 `return`한다(`Refund refund = tx.execute(...)`. `ReturnService.approve`와 같다). 같은 환불에 재시도를 두 번 눌러도 두 번째는 이미 `APPROVED`라 거부된다 ② 트랜잭션 밖에서 `refundProcessor.process(refundId)`(2-8, `RefundStatus` 반환) — APPROVED이므로 `needsPgCancel()`이 참이라 PG 취소부터 다시 한다 ③ `CancelOrderLineService.cancel`의 `switch`와 같게 `COMPLETED`·`APPROVED`는 `new RefundResult(refund.getId(), status, refund.getAmount().amount())`, `FAILED`는 `BusinessException(PG_ERROR)`. ①은 이미 커밋됐고 `FAILED`로 돌아간 것도 커밋되므로 502여도 `pgAttempts`는 남는다
-- `close`: 트랜잭션 하나(`@Transactional`, `ReturnService.reject`와 같이 주문 행 잠금 없이 `Refund`의 `@Version`이 경합을 막는다)에서 ① 환불을 읽는다(없으면 `BusinessException(REFUND_NOT_FOUND)`) ② `refund.close(reason)`(`FAILED`가 아니면 409) ③ `reasonType`이 `RETURN`이면 주문을 읽어 `order.rejectReturn(refund.getOrderLineId())`(품목 `RETURN_REQUESTED → DELIVERED`). `BUYER_CANCEL`이면 품목이 `PAID` 그대로라 환불 행만 닫는다. 응답은 `RefundResult`(`REJECTED`)다. 닫은 뒤 반품은 `REJECTED` 이력 때문에 다시 요청할 수 없고(`RETURN_NOT_ALLOWED`), 구매자 취소는 다시 요청할 수 있다
+- `close`: 트랜잭션 하나(`@Transactional`, `ReturnService.reject`와 같이 주문 행 잠금 없이 `Refund`의 `@Version`이 경합을 막는다)에서 ① 환불을 읽는다(없으면 `BusinessException(REFUND_NOT_FOUND)`) ② `refund.close(reason)`(`FAILED`가 아니면 409) ③ `reasonType`이 `RETURN`이면 주문을 읽어 `order.rejectReturn(refund.getOrderLineId())`(품목 `RETURN_REQUESTED → DELIVERED`). `BUYER_CANCEL`이면 품목이 `PAID` 그대로라 환불 행만 닫는다. 응답은 `RefundResult`(`REJECTED`)다. 반품 환불을 닫은 뒤 그 품목의 반품은 다시 요청할 수 없다(`RETURN_NOT_ALLOWED`, `RETURN`의 `REJECTED` 이력). 구매자 취소 환불을 닫은 뒤에는 구매자가 다시 취소할 수 있고, 발송·배송 완료 뒤의 반품 요청도 막히지 않는다
 - **PG 멱등 키**: 재시도는 새 키로 Toss까지 간다. 2-6 `PaymentApi.cancel`은 같은 키의 `payment_cancel` 행이 이미 `FAILED`면 PG를 부르지 않고 `FAILED`를 재생하므로, `process`가 쓰는 `refund.pgIdempotencyKey()`(2-8)가 `pgAttempts`가 1 이상이면 `refundId-r{pgAttempts}`로 달라진다. 그래서 `AdminRefundRetryTest`("가짜 PG를 정상으로 → retry → COMPLETED")가 통과한다. Toss 멱등 키 문서([Idempotency-Key](https://docs.tosspayments.com/reference/using-api/idempotency-key))는 같은 키의 재요청에 첫 응답을 그대로 돌려준다고 하면서 실패 응답도 재생하는지는 적지 않았다. 그래서 같은 키를 재사용하지 않고 새 키를 쓴다. 문서는 에러 뒤 키를 바꿔 재시도하는 것이 위험하니 원인을 먼저 확인하라고도 안내한다. 이 API에서 새 키가 안전한 이유는 `FAILED`가 Toss의 명확한 거절이라 이미 취소됐을 가능성이 없기 때문이고(결과가 불확실하면 `UNKNOWN`으로 남고 `FAILED`가 되지 않는다), 운영자가 목록의 `failureCode`를 먼저 보고 다시 해도 되는 실패인지 판단한다.
 
 **4) order.web** — 컨트롤러 이름은 문서에 없다(권장: `AdminReconcileController`, `AdminRefundController`)
@@ -1456,7 +1457,7 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 
 #### `order/web/AdminReconcileTest` (`@ExtendWith(OutputCaptureExtension.class)` + `@AutoConfigureMockMvc` + `IntegrationTestSupport`)
 
-호출은 `POST /admin/api/payments/{orderId}/reconcile`(ADMIN)이다. 주문을 쓰는 케이스는 상품 `product1`(판매자·가게·구매자는 위 "토큰과 상품")만 쓰고, 주문·결제 상태는 확인하는 시점(동작 전, 동작 뒤)마다 `OrderSnapshot s = testFixtures.snapshotOf(orderId)`를 한 번 읽어 확인한다.
+호출은 `POST /admin/api/payments/{orderId}/reconcile`(ADMIN)이다. 주문을 쓰는 케이스는 상품 `product1`(판매자·가게·구매자는 위 "토큰과 상품")만 쓰고, 7번을 뺀 대사 케이스는 준비에서 `testFixtures.setOrderUpdatedAt(orderId, 60초 전)`으로 주문을 30초 넘게 머문 상태로 만들고, 주문·결제 상태는 확인하는 시점(동작 전, 동작 뒤)마다 `OrderSnapshot s = testFixtures.snapshotOf(orderId)`를 한 번 읽어 확인한다.
 
 **1. 승인 기록이 있는 UNKNOWN 결제 → PAID** — 준비: `pg.on("/v1/payments/confirm", Behavior.delay(1000))` → `createPendingOrder(구매자 ID, product1)` → `confirmPayment(구매자 ID, orderId)`(응답 202).
 - 동작: reconcile 호출.
@@ -1485,6 +1486,11 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 **6. 결제가 없는 주문은 현재 상태를 준다** — 준비: `createPendingOrder(구매자 ID, product1)`(승인 전). 동작: reconcile.
 - 응답(andExpect): 상태 200, `$.status` = `PENDING_PAYMENT`.
 - 가짜 서버 요청(pg.requests(접두어)): `pg.requests("/v1/payments/")`의 크기 0.
+
+**7. 30초 안의 주문은 PG를 조회하지 않는다** — 준비: 1번과 같은 준비(`setOrderUpdatedAt` 없이). 동작: reconcile.
+- 응답(andExpect): 상태 200, `$.status` = `PAYMENT_IN_PROGRESS`.
+- 가짜 서버 요청(pg.requests(접두어)): `pg.requests("/v1/payments/orders/")`의 크기 0.
+- DB(snapshotOf(orderId)): `s.payment().reconcileAttempts()` = 0.
 
 #### `order/web/AdminRefundRetryTest` (`@ExtendWith(OutputCaptureExtension.class)` + `@AutoConfigureMockMvc` + `IntegrationTestSupport`)
 
@@ -1544,6 +1550,9 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 - 응답(andExpect): 상태 409, `$.code` = `DUPLICATE_RESOURCE`.
 - 가짜 서버 요청(pg.requests(접두어)): `pg.requests("/v1/payments/" + paymentKey + "/cancel")` 1건 그대로.
 - DB(refundRowOf(refundId)): `status()` = `FAILED` 그대로.
+
+**12. 구매자 취소 환불을 종결한 품목도 반품을 요청할 수 있다** — 준비: 8번 끝 상태(종결된 구매자 취소 환불)에서 판매자가 그 가게주문을 발송·배송완료로 만든다(`shipShopOrder`, `deliverShopOrder`). 동작: 구매자가 `product1` 품목의 반품을 요청한다(`POST /api/orders/{orderId}/lines/{lineId}/return-requests`, 본문 `{"reason":"상품 불량"}`).
+- 응답(andExpect): 상태 201, `$.status` = `REQUESTED`.
 
 #### `notification/web/AdminNotificationTest` (`IntegrationTestSupport`)
 
