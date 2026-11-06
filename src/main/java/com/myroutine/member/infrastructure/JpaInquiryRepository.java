@@ -31,7 +31,7 @@ public interface JpaInquiryRepository extends JpaRepository<Inquiry, UUID>, Inqu
     @Query("""
             SELECT i
             FROM Inquiry i
-            WHERE i.memberId = :memberId AND (i.createdAt < :cursorCreatedAt OR (i.createdAt = :cursorCreatedAt AND i.id < :cursorId))
+            WHERE i.memberId = :memberId AND (i.createdAt, i.id) < (:cursorCreatedAt, :cursorId)
             ORDER BY i.createdAt DESC, i.id DESC
             """)
     List<Inquiry> findByMemberNextPage(UUID memberId, Instant cursorCreatedAt, UUID cursorId, Limit limit);
@@ -47,7 +47,7 @@ public interface JpaInquiryRepository extends JpaRepository<Inquiry, UUID>, Inqu
     @Query("""
             SELECT i
             FROM Inquiry i
-            WHERE i.status = :status AND (i.createdAt > :cursorCreatedAt OR (i.createdAt = :cursorCreatedAt AND i.id > :cursorId))
+            WHERE i.status = :status AND (i.createdAt, i.id) > (:cursorCreatedAt, :cursorId)
             ORDER BY i.createdAt, i.id
             """)
     List<Inquiry> findByStatusNextPage(InquiryStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit);
@@ -62,7 +62,7 @@ public interface JpaInquiryRepository extends JpaRepository<Inquiry, UUID>, Inqu
     @Query("""
             SELECT i
             FROM Inquiry i
-            WHERE (i.createdAt > :cursorCreatedAt OR (i.createdAt = :cursorCreatedAt AND i.id > :cursorId))
+            WHERE (i.createdAt, i.id) > (:cursorCreatedAt, :cursorId)
             ORDER BY i.createdAt, i.id
             """)
     List<Inquiry> findAllNextPage(Instant cursorCreatedAt, UUID cursorId, Limit limit);

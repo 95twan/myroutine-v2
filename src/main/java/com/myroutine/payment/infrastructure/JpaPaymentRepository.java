@@ -68,7 +68,7 @@ public interface JpaPaymentRepository extends JpaRepository<Payment, UUID>, Paym
     @Query("""
             select p
             from Payment p
-            where p.status = :status and (p.createdAt > :cursorCreatedAt or (p.createdAt = :cursorCreatedAt and p.id > :cursorId))
+            where p.status = :status and (p.createdAt, p.id) > (:cursorCreatedAt, :cursorId)
             order by p.createdAt, p.id
             """)
     List<Payment> findByStatusNextPage(PaymentStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit);
