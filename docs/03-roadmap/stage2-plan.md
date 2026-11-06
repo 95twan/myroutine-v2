@@ -1,6 +1,7 @@
 # Stage 2 준비: 측정 환경 · 시드 데이터 · k6 시나리오
 
-> 버전 0.8 · 2026-11-07 · S2-3 커넥션 풀과 예약 작업 스레드를 꼭 하는 단계로 올렸다(Baseline에서 커넥션 풀이 가득 차고, 메일 작업이 다른 예약 작업을 막음). S2-3 첫 작업은 측정용 가짜 메일 발송기
+> 버전 0.9 · 2026-11-07 · S2-2 단계 규격(6절)을 더했다. 목록 다음 페이지의 커서 조건 16개를 OR에서 행 값 비교로 바꾸고, 다음 페이지 테스트가 없는 10개는 테스트를 먼저 넣는다
+> 0.8 · 2026-11-07 · S2-3 커넥션 풀과 예약 작업 스레드를 꼭 하는 단계로 올렸다(Baseline에서 커넥션 풀이 가득 차고, 메일 작업이 다른 예약 작업을 막음). S2-3 첫 작업은 측정용 가짜 메일 발송기
 > 0.7 · 2026-11-06 · S-06은 409 `CONFLICT_RETRY`를 실패에서 뺀다. S-03은 스냅샷으로 되돌린 뒤 재고, S-02·S-03 뒤 15분 안에 앱을 멈춘다(만료 알림 메일)
 > 0.6 · 2026-11-06 · S-01은 VU마다 한 카테고리를 최대 10페이지까지만 이어 읽는다
 > 0.5 · 2026-11-06 · S2-1a 단계 규격(5절)을 더했다. VU 시나리오는 대기 시간 없이 돌리고, S-02는 회원마다 다른 상품을 주문하며, 구매확정 품목마다 정산 대상 품목을 넣는다
@@ -9,7 +10,7 @@
 > 0.2 · 2026-11-06 · 시나리오 실행 순서와 개선 실험 우선순위를 정했다. S2-8 샤딩은 하지 않고, 재고 이력 3,000만 건은 S2-7을 할 때만 넣는다
 > 0.1 · 2026-11-06 · 초안. 합격 기준은 [요구사항 5.2](../01-requirements/README.md)의 값이고, 건수·부하·비율은 제안이다
 
-Stage 2 개선 단위(S2-1~S2-7)의 개요는 [아키텍처 진화](../02-design/01-architecture-evolution.md)에 있다. 이 문서는 Baseline의 준비, 개선 실험의 우선순위, S2-1a 단계 규격(5절)을 적는다. 시드 스크립트와 k6 스크립트는 사용자가 쓴다. 5절의 k6 스크립트와 시드 규칙은 로컬 격리 환경에서 1/100 규모로 실행해 확인한 것이다.
+Stage 2 개선 단위(S2-1~S2-7)의 개요는 [아키텍처 진화](../02-design/01-architecture-evolution.md)에 있다. 이 문서는 Baseline의 준비, 개선 실험의 우선순위, S2-1a 단계 규격(5절), S2-2 단계 규격(6절)을 적는다. 시드 스크립트와 k6 스크립트는 사용자가 쓴다. 5절의 k6 스크립트와 시드 규칙은 로컬 격리 환경에서 1/100 규모로 실행해 확인한 것이다.
 
 ## 1. 측정 환경
 
@@ -104,7 +105,7 @@ VU 시나리오는 램프업 1분 뒤 5분 유지한다. VU는 응답을 받자�
 | 우선순위 | 단계 | 이유 |
 |---|---|---|
 | 꼭 한다 | S2-5 재고 차감 방식 비교 | 조건부 UPDATE, `FOR UPDATE`, Redis 차감을 같은 조건에서 비교한다([ADR-008](../adr/ADR-008-inventory-reservation.md)). 지금 고른 방식의 성능 근거가 여기서 나온다 |
-| 꼭 한다 | S2-2 쿼리 튜닝, 인덱스 설계 검증 | 느린 쿼리를 찾아 고치고, 인덱스의 읽기 이득과 쓰기 비용을 함께 잰다 |
+| 꼭 한다 | S2-2 쿼리 튜닝 | Baseline에서 찾은 목록 커서 조건을 고친다(6절). 뒤 페이지일수록 느려지는 원인이고, S2-3에서 커넥션을 늘리기 전에 고친다 |
 | 꼭 한다 | S2-3 커넥션 풀과 예약 작업 스레드 | 첫 작업으로, 측정 중 시드 회원의 가짜 주소(`@seed.test`)로 메일이 실제로 나가지 않게 설정값 하나로 고르는 가짜 메일 발송기를 둔다. 보내지 않고 로그만 남기되 실제 발송처럼 정해진 시간(Baseline에서 잰 한 통 약 3초)을 기다려, 메일 작업이 다른 예약 작업을 막는 상황이 그대로 재현되게 한다(그냥 끄면 메일 작업이 0초에 끝나 고치기 전후를 비교할 수 없다). Baseline의 상품 조회·체크아웃·인기 상품 측정 모두 커넥션 10개가 가득 찼다. 쿼리 튜닝 뒤 풀 크기를 바꿔 가며 재서 DB CPU가 한계에 닿는 지점을 찾는다. 또 `@Scheduled` 작업이 한 번에 하나만 돌아 메일 발송(한 번에 약 5분)이 만료·outbox 릴레이를 막았으므로, 동시에 도는 작업 수를 늘리고 메일이 쌓인 상태에서 만료가 1분마다 도는지 확인한다. 플랫폼 스레드와 가상 스레드 비교는 여유가 있으면 한다 |
 | 꼭 할 셋 뒤에 여유가 있으면 한다 | outbox 릴레이 지연 | Baseline에서 이벤트 지연 p95 1.5초(기준 1초 실패). 릴레이의 쉬는 시간(`fixedDelay = 1000`)을 줄이고, 한 건씩 `.get()`으로 기다리던 발송을 묶음을 먼저 다 보낸 뒤 응답을 한꺼번에 기다리는 방식으로 바꾼다. `.get()`을 그냥 빼면 Kafka가 받기 전에 발송 완료로 표시되어 실패한 이벤트를 잃으므로, 응답을 받은 것만 발송 완료로 표시한다 |
 | 측정에서 필요가 드러나면 한다 | S2-4 캐시, S2-6 Read Replica, S2-7 파티셔닝 | S2-6은 같은 물리 서버라 처리량 이득을 말할 수 없고 복제 지연 대응만 남는다. S2-7은 시드 비용이 크다 |
@@ -630,3 +631,153 @@ order by total_exec_time desc limit 20;
 - `pg_stat_statements`에서 S2-2 후보를 `total_exec_time`과 `mean_exec_time` 중 무엇으로 고르는가?
 - S-06 p95가 1초를 넘으면 원인은 DB인가, 릴레이 주기인가? 어떻게 구분하는가?
 - 측정 중 자동 배포를 막지 않으면 결과에 무엇이 섞이는가?
+
+## 6. S2-2 커서 조건
+
+**목표**: 목록 다음 페이지의 커서 조건을 행 값 비교로 바꿔, 몇 번째 페이지든 읽는 행 수가 같게 한다. 상품 목록으로 바꾸기 전후를 잰다.
+
+**왜 지금**: [Baseline](../perf/s2-1a-baseline.md)에서 페이지 상한 없이 상품 목록을 읽으면 처리량이 초당 약 2,600건에서 1,000건까지 떨어졌다. 이때 다음 페이지 쿼리가 DB 시간의 97.5%를 썼다. 6,000번째 근처에서 20개를 가져오려고 6,001행을 읽고 버렸다. S2-3에서 커넥션 풀을 늘리면 이 쿼리가 DB에 더 몰리므로 먼저 고친다.
+
+**브랜치**: `feature/s2-2-cursor`. PR에는 테스트 10개, 쿼리 16개, 문서가 들어간다. 측정 뒤 리포트(`docs/perf/s2-2-cursor.md`)는 사용자가 넘긴 결과로 Claude가 쓴다.
+
+### 6.1 원인
+
+인덱스 `idx_product_status_category_created_at`은 `(status, category, created_at DESC, id DESC)` 순서로 정렬돼 있다. 다음 페이지는 "이 순서에서 커서 `(c, i)` 바로 뒤부터 20개"다.
+
+| 커서 조건 | Postgres가 하는 일 |
+|---|---|
+| `created_at < :c or (created_at = :c and id < :id)` | OR로 묶인 조건으로는 인덱스에서 시작 위치를 정하지 못한다. 그래서 `status`·`category`가 같은 첫 행부터 읽고, 행마다 이 조건을 검사해 버린다(`Filter`). 버리는 행 수는 커서 앞에 있는 행 수와 같다 |
+| `(created_at, id) < (:c, :id)` | 두 값을 앞 값부터 차례로 비교한다. 뜻은 위와 같다. 인덱스 순서와 같은 비교라서 인덱스 조건(`Index Cond`)이 되고, Postgres가 인덱스에서 `(c, i)` 위치를 바로 찾아 거기서부터 20개만 읽는다 |
+
+로컬 일회용 Postgres 17(상품 20만 개, 카테고리 5개)에서 같은 위치(FOOD 6,001번째)를 쟀다.
+
+| 형태 | 커서 조건의 위치 | 버린 행 | 읽은 블록 | 실행 시간 |
+|---|---|---|---|---|
+| OR | `Filter` | 6,001 | 297 | 1.16ms |
+| 행 값 비교 | `Index Cond` | 0 | 4 | 0.03ms |
+| `created_at <= :c and (OR)` | `created_at`만 `Index Cond` | 1 | 4 | 0.02ms |
+
+세 번째 형태도 빠르지만 행 값 비교로 통일한다. 조건이 짧고, 부등호가 하나라 `created_at`과 `id`의 비교 방향이 서로 어긋날 수 없다. [개발 가이드 §8.1](../development-guide.md)도 이미 행 값 비교로 적었다. 1~5부 로드맵이 OR로 적어서 가이드와 어긋났고, 코드는 로드맵을 따랐다.
+
+JPQL은 `(p.createdAt, p.id) < (:cursorCreatedAt, :cursorId)`로 쓴다. Hibernate 7.4.5는 이것을 SQL `(p1_0.created_at,p1_0.id)<(?,?)`로 그대로 내보낸다(격리 복사본에서 `findPublicNextPage`만 바꿔 `ProductControllerTest`를 돌려 SQL 로그로 확인). Hibernate는 방언의 `supportsRowValueConstructorGtLtSyntax()`가 false인 DB에서는 이 비교를 OR로 풀어 내보낸다. Postgres 방언은 기본값 true를 그대로 쓴다(소스로 확인). 그래서 native 쿼리로 바꿀 필요가 없다.
+
+### 6.2 할 일
+
+**1) 다음 페이지 테스트 먼저**: 아래 10개 쿼리는 지금 테스트에서 한 번도 실행되지 않는다(첫 페이지만 확인한다). JPQL은 앱이 뜰 때 문법만 검사한다. 부등호 방향이나 컬럼 순서가 틀려도 앱은 뜨고, native 쿼리(정산 품목)는 문법 오류도 실행할 때 드러난다. 그래서 쿼리를 바꾸기 전에 OR 형태 그대로 테스트를 넣어 통과를 확인하고, 바꾼 뒤 다시 통과하는지 본다. 케이스는 6.3에 있다.
+
+**2) 쿼리 16개**: 각 `@Query`에서 커서 조건 한 줄만 바꾼다. 정렬·첫 페이지 쿼리·메서드 시그니처는 그대로다. 내림차순 목록은 `<`, 오름차순 목록은 `>`다.
+
+| 파일:줄 | 메서드 | 바꾼 조건 | 다음 페이지 테스트 |
+|---|---|---|---|
+| `JpaProductRepository.java:37` | `findPublicNextPage` | `(p.createdAt, p.id) < (:cursorCreatedAt, :cursorId)` | 있음 |
+| `JpaProductRepository.java:56` | `findByShopNextPage` | `(p.createdAt, p.id) < (:cursorCreatedAt, :cursorId)` | 6.3 |
+| `JpaOrderRepository.java:28` | `findByMemberNextPage` | `(o.createdAt, o.id) < (:cursorCreatedAt, :cursorId)` | 있음 |
+| `JpaOrderRepository.java:95` | `findShopOrderNextPage` | `(so.createdAt, so.id) < (:cursorCreatedAt, :cursorId)` | 6.3 |
+| `JpaOrderRepository.java:130` | `findAutoConfirmTargets` | `(so.deliveredAt, so.id) > (:cursorAt, :cursorId)` | 있음(150건) |
+| `JpaRefundRepository.java:34` | `findByStatusNextPage` | `(r.createdAt, r.id) > (:cursorCreatedAt, :cursorId)` | 6.3 |
+| `JpaSettlementItemRepository.java:76` | `findBySettlementIdAfter`(native) | `(created_at, id) > (:cursorAt, :cursorId)` | 6.3 |
+| `JpaSettlementRepository.java:48` | `findByShopIdAfter` | `(s.createdAt, s.id) < (:cursorAt, :cursorId)` | 6.3 |
+| `JpaSettlementRepository.java:71` | `findByStatusNextPage` | `(s.createdAt, s.id) > (:cursorCreatedAt, :cursorId)` | 6.3 |
+| `JpaNotificationRepository.java:46` | `findByStatusNextPage` | `(n.createdAt, n.id) > (:cursorCreatedAt, :cursorId)` | 6.3 |
+| `JpaPaymentRepository.java:71` | `findByStatusNextPage` | `(p.createdAt, p.id) > (:cursorCreatedAt, :cursorId)` | 6.3 |
+| `JpaInquiryRepository.java:34` | `findByMemberNextPage` | `(i.createdAt, i.id) < (:cursorCreatedAt, :cursorId)` | 6.3 |
+| `JpaInquiryRepository.java:50` | `findByStatusNextPage` | `(i.createdAt, i.id) > (:cursorCreatedAt, :cursorId)` | 있음 |
+| `JpaInquiryRepository.java:65` | `findAllNextPage` | `(i.createdAt, i.id) > (:cursorCreatedAt, :cursorId)` | 6.3 |
+| `JpaMemberRepository.java:36` | `findForAdminNextPage` | `(m.createdAt, m.id) < (:cursorCreatedAt, :cursorId)` | 있음 |
+| `JpaReviewRepository.java:49` | `findPublicNextPage` | `(r.createdAt, r.id) < (:cursorCreatedAt, :cursorId)` | 있음 |
+
+- 결과는 OR 형태와 같다. `created_at`이 null이면 두 형태 모두 참이 아니라서 빠진다. `deliveredAt`은 같은 쿼리의 `so.deliveredAt < :before`가 null을 이미 거른다.
+- 성능은 상품 목록만 잰다. 나머지는 맞는 인덱스가 없거나(결제·알림·환불·정산의 상태별 관리자 목록, 상태를 생략한 문의 목록) 키 하나에 행이 적어서(회원의 주문은 시드에서 평균 10건) 결과는 같고 이득은 작다. 리포트에 그렇게 적는다.
+
+**3) 측정**: Baseline과 같은 VM, 같은 스냅샷에서 잰다([5.2의 6) 측정 절차](#52-할-일)). VM 명령은 리포 체크아웃(`~/actions-runner/_work/myroutine-v2/myroutine-v2`)에서 실행하고, `PG`는 5.2와 같다.
+
+| 순서 | 할 일 |
+|---|---|
+| 1 | PR을 develop에 머지한다. 자동 배포가 끝날 때까지 기다린다 |
+| 2 | VM을 `seed_vacuumed`로 되돌린다. 스냅샷에는 Baseline 때 배포된 앱(`f2a6a8c`)이 들어 있다 |
+| 3 | 아래 EXPLAIN 세 개를 뜬다. 손으로 쓴 SQL이라 앱 버전과 관계없다 |
+| 4 | GitHub Actions의 CD 워크플로를 수동 실행(`workflow_dispatch`)해 1의 머지 커밋 sha를 배포한다. `cat /opt/myroutine/deployed-sha`로 확인한다 |
+| 5 | S-01 연결 확인(VU 10, 30초)으로 캐시를 데운다 |
+| 6 | `pg_stat_statements_reset()` → S-01(`MAX_PAGES` 기본 10) → 상위 20문장 |
+| 7 | `pg_stat_statements_reset()` → S-01(`-e MAX_PAGES=100000`) → 상위 20문장 |
+
+EXPLAIN은 Baseline과 같은 커서 값을 쓴다(`perf/k6/results/vm/s01-explain.txt`의 `Filter`에 있는 값). 스냅샷 데이터가 같으므로 같은 위치다. 세 번째는 앱처럼 prepared statement가 범용 계획(값을 모른 채 만든 계획)으로 바뀐 경우다. `:category is null or ...` 조건이 이때 인덱스 조건에서 빠지는지 본다.
+
+```bash
+$PG 'psql -U "$POSTGRES_USER" -d my_routine -f -' <<'SQL' | tee ~/s2-2-explain.txt
+\echo === OR
+explain (analyze, buffers)
+select p.id, p.shop_id, p.name, p.category, p.price, p.status, p.thumbnail_key, p.created_at, s.available, s.reserved, s.sold, s.received
+from product.product p join product.stock s on s.product_id = p.id
+where p.status = 'ON_SALE' and p.category = 'FOOD'
+  and (p.created_at < '2026-10-09 00:00:21.768007+00' or (p.created_at = '2026-10-09 00:00:21.768007+00' and p.id < '01a11df5-f908-7a6d-ac95-87d049a3af0b'))
+order by p.created_at desc, p.id desc limit 21;
+\echo === 행 값 비교
+explain (analyze, buffers)
+select p.id, p.shop_id, p.name, p.category, p.price, p.status, p.thumbnail_key, p.created_at, s.available, s.reserved, s.sold, s.received
+from product.product p join product.stock s on s.product_id = p.id
+where p.status = 'ON_SALE' and p.category = 'FOOD'
+  and (p.created_at, p.id) < ('2026-10-09 00:00:21.768007+00'::timestamptz, '01a11df5-f908-7a6d-ac95-87d049a3af0b'::uuid)
+order by p.created_at desc, p.id desc limit 21;
+\echo === 행 값 비교, 범용 계획
+set plan_cache_mode = force_generic_plan;
+prepare next_page(text, text, timestamptz, uuid, int) as
+select p.id, p.shop_id, p.name, p.category, p.price, p.status, p.thumbnail_key, p.created_at, s.available, s.reserved, s.sold, s.received
+from product.product p join product.stock s on s.product_id = p.id
+where p.status = $1 and ($2 is null or p.category = $2)
+  and (p.created_at, p.id) < ($3, $4)
+order by p.created_at desc, p.id desc limit $5;
+explain (analyze, buffers) execute next_page('ON_SALE', 'FOOD', '2026-10-09 00:00:21.768007+00', '01a11df5-f908-7a6d-ac95-87d049a3af0b', 21);
+SQL
+```
+
+k6는 개발 PC의 `perf/k6`에서 실행한다. `{VM IP}`는 Baseline 때와 같은 주소다.
+
+```bash
+k6 run -e BASE_URL=http://{VM IP}:8080 -e VUS=10 -e RAMP=0s -e HOLD=30s s01-product-read.js
+k6 run -e BASE_URL=http://{VM IP}:8080 --summary-export results/s2-2-s01.json s01-product-read.js | tee results/s2-2-s01.txt
+k6 run -e BASE_URL=http://{VM IP}:8080 -e MAX_PAGES=100000 --summary-export results/s2-2-s01-deep.json s01-product-read.js | tee results/s2-2-s01-deep.txt
+```
+
+- 범용 계획에서는 `category`가 인덱스 조건에서 빠져, 카테고리 6개 기준으로 행을 약 6배 더 읽을 수 있다(로컬 실험에서 20행을 위해 84행을 버림). 이 비용은 페이지 깊이와 관계없이 일정하다. 앱이 실제로 어느 계획을 쓰는지는 EXPLAIN으로 알 수 없으므로, 6·7의 `pg_stat_statements` 평균 시간도 함께 본다. 이번 단계에서 고치지 않고 리포트에 기록만 한다.
+- 7의 깊은 페이지 측정은 Baseline에서 처리량이 시간에 따라 떨어졌다. 고친 뒤에는 처리량이 측정 내내 일정해야 한다. Grafana의 DB 트랜잭션/초와 postgres CPU 패널로 본다.
+
+**4) 리포트에 넘길 것**: `~/s2-2-explain.txt`, k6 요약 두 개(`results/s2-2-s01*.json`), 6·7 뒤의 상위 20문장, 7의 Grafana 화면(트랜잭션/초, postgres CPU, 커넥션), 배포한 sha.
+
+### 6.3 완료 확인
+
+테스트 10개는 모두 같은 모양이다. 항목 3개를 서로 다른 시각에 만들고, `size=2`로 첫 페이지를 읽고, 받은 `nextCursor`로 다음 페이지를 읽는다. 다음 페이지에서 확인할 값은 `$.items[*].id`가 남은 항목 하나뿐인지와 `$.nextCursor`가 `null`인지다. 부등호 방향이 틀린 구현은 첫 페이지 항목을 다시 돌려주고, 커서를 무시하는 구현은 세 개를 다 돌려준다. 내림차순 목록에서 남는 항목은 가장 먼저 만든 것이고, 오름차순 목록에서는 가장 나중에 만든 것이다.
+
+| 테스트 클래스 | 케이스 | 요청 | 남는 항목 |
+|---|---|---|---|
+| `SellerProductControllerTest` | 판매자 상품 목록은 커서로 다음 페이지를 조회한다. | `GET /api/shops/{shopId}/products?size=2` | 가장 먼저 등록한 상품 |
+| `SellerOrderControllerTest` | 가게주문 목록은 커서로 다음 페이지를 조회한다. | `GET /api/shops/{shopId}/orders?size=2` | 가장 먼저 결제한 주문의 가게주문 |
+| `AdminRefundRetryTest` | FAILED 환불 목록은 커서로 다음 페이지를 조회한다. | `GET /admin/api/refunds?status=FAILED&size=2` | 가장 나중에 만든 환불 |
+| `SettlementControllerTest` | 정산 목록은 커서로 다음 페이지를 조회한다. | `GET /api/shops/{shopId}/settlements?size=2` | 가장 먼저 만든 정산 |
+| `SettlementControllerTest` | 정산 품목 목록은 커서로 다음 페이지를 조회한다. | `GET /api/shops/{shopId}/settlements/{id}?size=2`, 확인은 `$.items.items[*].id`·`$.items.nextCursor` | 가장 나중에 적재된 품목 |
+| `AdminSettlementTest` | 지급 실패 정산 목록은 커서로 다음 페이지를 조회한다. | `GET /admin/api/settlements?status=PAYOUT_FAILED&size=2` | 가장 나중에 만든 정산 |
+| `AdminNotificationTest` | FAILED 알림 목록은 커서로 다음 페이지를 조회한다. | `GET /admin/api/notifications?status=FAILED&size=2` | 가장 나중에 만든 알림 |
+| `AdminReconcileTest` | UNKNOWN 결제 목록은 커서로 다음 페이지를 조회한다. | `GET /admin/api/payments?status=UNKNOWN&size=2` | 가장 나중에 만든 결제 |
+| `InquiryTest` | 본인 문의 목록은 커서로 다음 페이지를 조회한다. | `GET /api/inquiries?size=2` | 가장 먼저 쓴 문의 |
+| `InquiryTest` | 상태를 생략한 관리자 문의 목록은 커서로 다음 페이지를 조회한다. | `GET /admin/api/inquiries?size=2` | 가장 나중에 쓴 문의 |
+
+| 확인 | 방법 | 기대 |
+|---|---|---|
+| 테스트 10개가 고치기 전에 통과한다 | OR 형태 그대로 `./gradlew test` | 통과(테스트가 맞게 쓰였는지 확인) |
+| 동작이 같다 | 쿼리 16개를 바꾼 뒤 `./gradlew test` | 전체 통과 |
+| OR이 남지 않았다 | 표 아래 명령 | 0줄 |
+| 인덱스에서 바로 찾아간다 | `~/s2-2-explain.txt`의 "행 값 비교" | 커서 조건이 `Index Cond`에 있고 `Rows Removed by Filter`가 없다. Baseline은 6,001행, 18.9ms |
+| 깊은 페이지에서 처리량이 일정하다 | 7의 k6 요약과 Grafana | 처리량이 측정 내내 일정하다. Baseline은 초당 1,637건이었고 2,600건에서 1,000건으로 떨어졌다 |
+| 리포트 | `docs/perf/s2-2-cursor.md` | 바꾸기 전후 EXPLAIN, S-01 두 측정의 처리량·p95·다음 페이지 쿼리 평균 시간을 Baseline과 비교, 범용 계획 결과 |
+
+```bash
+grep -rnE "(createdAt|created_at|deliveredAt|delivered_at) [<>] :[a-zA-Z]+ (or|OR) \(" src/main/java
+```
+
+### 6.4 리뷰 때 물어볼 것
+
+- OR 형태와 행 값 비교는 같은 행을 돌려주는가? `created_at`이 같은 두 행이 페이지 경계에 걸리면 각각 어떻게 되는가?
+- 목록마다 `<`와 `>` 중 무엇을 쓸지는 무엇을 보고 정하는가?
+- 테스트를 쿼리보다 먼저 넣은 이유는? 고치기 전에 통과를 확인하지 않으면 무엇을 놓치는가?
+- MAX_PAGES 10 측정에서는 처리량이 크게 바뀌지 않을 수 있다. 왜 그런가?
+- 범용 계획에서 `category`가 인덱스 조건에서 빠지면 비용이 페이지 깊이에 따라 늘어나는가?

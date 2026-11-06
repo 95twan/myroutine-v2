@@ -73,7 +73,7 @@ public interface JpaSettlementItemRepository extends SettlementItemRepository {
             value = """
                     SELECT id, order_line_id as "orderLineId", order_id as "orderId", shop_order_id as "shopOrderId", product_id as "productId", product_name as "productName", quantity, amount, confirmed_at as "confirmedAt", created_at as "createdAt"
                     FROM settlement.settlement_item
-                    WHERE settlement_id = :settlementId AND (created_at > :cursorAt OR (created_at = :cursorAt AND id > :cursorId))
+                    WHERE settlement_id = :settlementId AND (created_at, id) > (:cursorAt, :cursorId)
                     ORDER BY created_at, id
                     """
     )

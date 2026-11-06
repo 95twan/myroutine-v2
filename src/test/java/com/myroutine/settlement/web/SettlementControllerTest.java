@@ -1,5 +1,6 @@
 package com.myroutine.settlement.web;
 
+import com.jayway.jsonpath.JsonPath;
 import com.myroutine.common.model.Ids;
 import com.myroutine.settlement.application.SettlementService;
 import com.myroutine.support.IntegrationTestSupport;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.Instant;
 import java.time.YearMonth;
@@ -250,5 +252,82 @@ class SettlementControllerTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.items.items[0].shopOrderId").value(shopOrderId.toString()))
                 .andExpect(jsonPath("$.items.items[0].productName").value("상품A"))
                 .andExpect(jsonPath("$.items.items[0].quantity").value(3));
+    }
+
+    @Test
+    @DisplayName("정산 목록은 커서로 다음 페이지를 조회한다.")
+    void getSettlementsNextPage() throws Exception {
+        // Given
+        UUID sellerId = testFixtures.signup("seller@test.com");
+        String token = testFixtures.login("seller@test.com");
+        UUID shopId = testFixtures.openShop(sellerId, "1111111111");
+
+        testFixtures.insertSettlementItems(List.of(shopId), 1, 7500, Instant.parse("2026-07-15T03:00:00Z"));
+        testFixtures.insertSettlementItems(List.of(shopId), 1, 7500, Instant.parse("2026-08-15T03:00:00Z"));
+        testFixtures.insertSettlementItems(List.of(shopId), 1, 7500, Instant.parse("2026-09-15T03:00:00Z"));
+        settlementService.run(YearMonth.of(2026, 7));
+        settlementService.run(YearMonth.of(2026, 8));
+        settlementService.run(YearMonth.of(2026, 9));
+
+        UUID julyId = testFixtures.settlementSnapshotOf(shopId, YearMonth.of(2026, 7)).id();
+        UUID augustId = testFixtures.settlementSnapshotOf(shopId, YearMonth.of(2026, 8)).id();
+        UUID septemberId = testFixtures.settlementSnapshotOf(shopId, YearMonth.of(2026, 9)).id();
+
+        // When & Then
+        MvcResult result = mockMvc.perform(get("/api/shops/{shopId}/settlements", shopId)
+                        .param("size", "2")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(septemberId.toString()))
+                .andExpect(jsonPath("$.items[1].id").value(augustId.toString()))
+                .andExpect(jsonPath("$.nextCursor").value(notNullValue()))
+                .andReturn();
+
+        String nextCursor = JsonPath.read(result.getResponse().getContentAsString(), "$.nextCursor");
+        mockMvc.perform(get("/api/shops/{shopId}/settlements", shopId)
+                        .param("size", "2")
+                        .param("cursor", nextCursor)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").value(hasSize(1)))
+                .andExpect(jsonPath("$.items[0].id").value(julyId.toString()))
+                .andExpect(jsonPath("$.nextCursor").value(nullValue()));
+    }
+
+    @Test
+    @DisplayName("정산 품목 목록은 커서로 다음 페이지를 조회한다.")
+    void getSettlementItemsNextPage() throws Exception {
+        // Given
+        UUID sellerId = testFixtures.signup("seller@test.com");
+        String token = testFixtures.login("seller@test.com");
+        UUID shopId = testFixtures.openShop(sellerId, "1111111111");
+
+        Instant confirmedAt = Instant.parse("2026-09-15T03:00:00Z");
+        UUID orderLine1Id = testFixtures.insertSettlementItem(shopId, 7500, confirmedAt);
+        UUID orderLine2Id = testFixtures.insertSettlementItem(shopId, 7500, confirmedAt);
+        UUID orderLine3Id = testFixtures.insertSettlementItem(shopId, 7500, confirmedAt);
+        settlementService.run(YearMonth.of(2026, 9));
+
+        UUID settlementId = testFixtures.settlementSnapshotOf(shopId).id();
+
+        // When & Then
+        MvcResult result = mockMvc.perform(get("/api/shops/{shopId}/settlements/{id}", shopId, settlementId)
+                        .param("size", "2")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.items[0].orderLineId").value(orderLine1Id.toString()))
+                .andExpect(jsonPath("$.items.items[1].orderLineId").value(orderLine2Id.toString()))
+                .andExpect(jsonPath("$.items.nextCursor").value(notNullValue()))
+                .andReturn();
+
+        String nextCursor = JsonPath.read(result.getResponse().getContentAsString(), "$.items.nextCursor");
+        mockMvc.perform(get("/api/shops/{shopId}/settlements/{id}", shopId, settlementId)
+                        .param("size", "2")
+                        .param("cursor", nextCursor)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.items").value(hasSize(1)))
+                .andExpect(jsonPath("$.items.items[0].orderLineId").value(orderLine3Id.toString()))
+                .andExpect(jsonPath("$.items.nextCursor").value(nullValue()));
     }
 }

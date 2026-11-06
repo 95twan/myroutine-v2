@@ -43,7 +43,7 @@ public interface JpaNotificationRepository extends JpaRepository<Notification, U
     @Query("""
             select n
             from Notification n
-            where n.status = :status and (n.createdAt > :cursorCreatedAt or (n.createdAt = :cursorCreatedAt and n.id > :cursorId))
+            where n.status = :status and (n.createdAt, n.id) > (:cursorCreatedAt, :cursorId)
             order by n.createdAt, n.id
             """)
     List<Notification> findByStatusNextPage(NotificationStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit);

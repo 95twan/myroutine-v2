@@ -34,7 +34,7 @@ public interface JpaProductRepository extends JpaRepository<Product, UUID>, Prod
                    join Stock s on s.productId = p.id
                    where p.status = :status
                            and (:category is null or p.category = :category)
-                           and (p.createdAt < :cursorCreatedAt or (p.createdAt = :cursorCreatedAt and p.id < :cursorId))
+                           and (p.createdAt, p.id) < (:cursorCreatedAt, :cursorId)
                    order by p.createdAt desc, p.id desc
             """)
     List<ProductListRow> findPublicNextPage(ProductStatus status, ProductCategory category, Instant cursorCreatedAt, UUID cursorId, Limit limit);
@@ -53,7 +53,7 @@ public interface JpaProductRepository extends JpaRepository<Product, UUID>, Prod
                    from Product p
                    join Stock s on s.productId = p.id
                    where p.shopId = :shopId
-                            and (p.createdAt < :cursorCreatedAt or (p.createdAt = :cursorCreatedAt and p.id < :cursorId))
+                            and (p.createdAt, p.id) < (:cursorCreatedAt, :cursorId)
                    order by p.createdAt desc, p.id desc
             """)
     List<ProductListRow> findByShopNextPage(UUID shopId, Instant cursorCreatedAt, UUID cursorId, Limit limit);

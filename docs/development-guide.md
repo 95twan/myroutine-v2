@@ -450,7 +450,7 @@ interface JpaOrderRepository extends JpaRepository<Order, UUID>, OrderRepository
 - 벌크 UPDATE는 영속성 컨텍스트와 `@Version`을 우회한다. 같은 행을 엔티티로도 수정하는 흐름이면 version을 함께 올리고, `clearAutomatically`로 1차 캐시를 비운다.
 - 조건부 UPDATE는 `@Modifying` + 반영된 행 수(`int`) 반환으로 만들고, 호출자가 0을 처리한다.
 - N+1: 목록 조회에서 연관을 루프로 접근하지 않는다. fetch join, `@EntityGraph`, `default_batch_fetch_size`를 쓴다. 컬렉션 fetch join과 페이징을 같이 쓰지 않는다.
-- 목록 페이징은 **keyset**(`WHERE (created_at, id) < (:c, :id) ORDER BY created_at DESC, id DESC LIMIT :n`)이 기본이다.
+- 목록 페이징은 **keyset**(`WHERE (created_at, id) < (:c, :id) ORDER BY created_at DESC, id DESC LIMIT :n`)이 기본이다. 오름차순이면 `>`다. 커서 조건은 행 값 비교로 쓰고 `created_at < :c or (created_at = :c and id < :id)`처럼 OR로 풀지 않는다. OR로 쓰면 Postgres가 커서 조건을 인덱스 조건(`Index Cond`)으로 쓰지 못해, 앞 행부터 읽으며 버리므로 뒤 페이지일수록 느려진다([S2-1a 리포트](perf/s2-1a-baseline.md)). JPQL도 `(p.createdAt, p.id) < (:cursorCreatedAt, :cursorId)`로 쓰면 Hibernate가 SQL 행 값 비교로 그대로 내보낸다(Hibernate 7.4.5에서 확인).
 - 다른 모듈의 schema를 쿼리하지 않는다(ADR-002).
 
 ### 8.2 외부 API 클라이언트

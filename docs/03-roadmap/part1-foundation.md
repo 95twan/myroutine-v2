@@ -1290,7 +1290,7 @@ public record Money(long amount) implements Comparable<Money> { ... }
 - 조회 결과용 record `ProductListRow(UUID id, UUID shopId, String name, ProductCategory category, Money price, ProductStatus status, String thumbnailKey, Instant createdAt, int available, int reserved, int sold, int received)` — `product.domain`에 둔다. `select new`의 인자는 이 순서·타입 그대로(앞 8개 `p.`, 뒤 4개 `s.`)
 - JPQL에서 `Product`와 `Stock`은 연관관계가 없으므로 `join Stock s on s.productId = p.id`(엔티티 조인)로 묶고, `select new com.myroutine.product.domain.ProductListRow(...)`로 받는다. 한 번의 쿼리로 재고까지 가져온다(N+1 방지)
 - 공개 목록: `findPublicFirstPage(ProductStatus status, ProductCategory category, Limit limit)`, `findPublicNextPage(ProductStatus status, ProductCategory category, Instant cursorCreatedAt, UUID cursorId, Limit limit)`
-  - 조건: `p.status = :status and (:category is null or p.category = :category)`, 다음 페이지는 추가로 `and (p.createdAt < :cursorCreatedAt or (p.createdAt = :cursorCreatedAt and p.id < :cursorId))`
+  - 조건: `p.status = :status and (:category is null or p.category = :category)`, 다음 페이지는 추가로 `and (p.createdAt, p.id) < (:cursorCreatedAt, :cursorId)`
   - 정렬: `order by p.createdAt desc, p.id desc`
   - `status`는 항상 `ProductStatus.ON_SALE`을 파라미터로 넘긴다(쿼리에 문자열로 쓰지 않음)
 - 판매자 목록: `findByShopFirstPage(UUID shopId, Limit limit)`, `findByShopNextPage(UUID shopId, Instant cursorCreatedAt, UUID cursorId, Limit limit)` — 상태 조건 없음

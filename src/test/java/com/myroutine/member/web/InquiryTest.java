@@ -900,4 +900,116 @@ class InquiryTest extends IntegrationTestSupport {
         assertThat(testFixtures.inquiryOf(UUID.fromString(inquiry1Id)).status()).isEqualTo("ANSWERED");
         assertThat(testFixtures.inquiryOf(UUID.fromString(inquiry1Id)).answers()).hasSize(1);
     }
+
+    @Test
+    @DisplayName("본인 문의 목록은 커서로 다음 페이지를 조회한다.")
+    void listMineNextPage() throws Exception {
+        // Given
+        String user1token = testFixtures.token("user1@test.com");
+
+        WriteInquiryRequest request = new WriteInquiryRequest("배송이 늦어요", "주문한 상품이 아직 도착하지 않았습니다.");
+
+        MvcResult result1 = mockMvc.perform(post("/api/inquiries")
+                        .header("Authorization", "Bearer " + user1token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        MvcResult result2 = mockMvc.perform(post("/api/inquiries")
+                        .header("Authorization", "Bearer " + user1token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        MvcResult result3 = mockMvc.perform(post("/api/inquiries")
+                        .header("Authorization", "Bearer " + user1token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String inquiry1Id = JsonPath.read(result1.getResponse().getContentAsString(), "$.inquiryId");
+        String inquiry2Id = JsonPath.read(result2.getResponse().getContentAsString(), "$.inquiryId");
+        String inquiry3Id = JsonPath.read(result3.getResponse().getContentAsString(), "$.inquiryId");
+
+        // When & Then
+        MvcResult result = mockMvc.perform(get("/api/inquiries")
+                        .param("size", "2")
+                        .header("Authorization", "Bearer " + user1token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(inquiry3Id))
+                .andExpect(jsonPath("$.items[1].id").value(inquiry2Id))
+                .andExpect(jsonPath("$.nextCursor").value(notNullValue()))
+                .andReturn();
+
+        String nextCursor = JsonPath.read(result.getResponse().getContentAsString(), "$.nextCursor");
+        mockMvc.perform(get("/api/inquiries")
+                        .param("size", "2")
+                        .param("cursor", nextCursor)
+                        .header("Authorization", "Bearer " + user1token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").value(hasSize(1)))
+                .andExpect(jsonPath("$.items[0].id").value(inquiry1Id))
+                .andExpect(jsonPath("$.nextCursor").value(nullValue()));
+    }
+
+    @Test
+    @DisplayName("상태를 생략한 관리자 문의 목록은 커서로 다음 페이지를 조회한다.")
+    void adminListWithoutStatusNextPage() throws Exception {
+        // Given
+        String user1token = testFixtures.token("user1@test.com");
+
+        WriteInquiryRequest request = new WriteInquiryRequest("배송이 늦어요", "주문한 상품이 아직 도착하지 않았습니다.");
+
+        MvcResult result1 = mockMvc.perform(post("/api/inquiries")
+                        .header("Authorization", "Bearer " + user1token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        MvcResult result2 = mockMvc.perform(post("/api/inquiries")
+                        .header("Authorization", "Bearer " + user1token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        MvcResult result3 = mockMvc.perform(post("/api/inquiries")
+                        .header("Authorization", "Bearer " + user1token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String inquiry1Id = JsonPath.read(result1.getResponse().getContentAsString(), "$.inquiryId");
+        String inquiry2Id = JsonPath.read(result2.getResponse().getContentAsString(), "$.inquiryId");
+        String inquiry3Id = JsonPath.read(result3.getResponse().getContentAsString(), "$.inquiryId");
+
+        UUID adminId = testFixtures.signup("admin@test.com");
+        testFixtures.changeRole(adminId, "ADMIN");
+        String adminToken = testFixtures.login("admin@test.com");
+
+        // When & Then
+        MvcResult result = mockMvc.perform(get("/admin/api/inquiries")
+                        .param("size", "2")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(inquiry1Id))
+                .andExpect(jsonPath("$.items[1].id").value(inquiry2Id))
+                .andExpect(jsonPath("$.nextCursor").value(notNullValue()))
+                .andReturn();
+
+        String nextCursor = JsonPath.read(result.getResponse().getContentAsString(), "$.nextCursor");
+        mockMvc.perform(get("/admin/api/inquiries")
+                        .param("size", "2")
+                        .param("cursor", nextCursor)
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").value(hasSize(1)))
+                .andExpect(jsonPath("$.items[0].id").value(inquiry3Id))
+                .andExpect(jsonPath("$.nextCursor").value(nullValue()));
+    }
 }

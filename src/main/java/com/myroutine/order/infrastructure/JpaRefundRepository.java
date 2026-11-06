@@ -31,7 +31,7 @@ public interface JpaRefundRepository extends JpaRepository<Refund, UUID>, Refund
     @Query("""
             select r
             from Refund r
-            where r.status = :status and (r.createdAt > :cursorCreatedAt or (r.createdAt = :cursorCreatedAt and r.id > :cursorId))
+            where r.status = :status and (r.createdAt, r.id) > (:cursorCreatedAt, :cursorId)
             order by r.createdAt, r.id
             """)
     List<Refund> findByStatusNextPage(RefundStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit);

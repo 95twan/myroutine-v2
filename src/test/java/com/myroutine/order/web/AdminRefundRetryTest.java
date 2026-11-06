@@ -19,7 +19,9 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -474,5 +476,58 @@ class AdminRefundRetryTest extends IntegrationTestSupport {
                 .andExpect(status().isCreated())
                 .andReturn();
         return UUID.fromString(JsonPath.read(result.getResponse().getContentAsString(), "$.refundId"));
+    }
+
+    @Test
+    @DisplayName("FAILED 환불 목록은 커서로 다음 페이지를 조회한다.")
+    void listFailedRefundsNextPage() throws Exception {
+        // Given
+        UUID adminId = testFixtures.signup("admin@test.com");
+        testFixtures.changeRole(adminId, "ADMIN");
+        String adminToken = testFixtures.login("admin@test.com");
+
+        UUID sellerId = testFixtures.signup("seller@test.com");
+        UUID shopId = testFixtures.openShop(sellerId, "1111111111");
+        UUID product1Id = testFixtures.registerProduct(sellerId, shopId, 1000, 10);
+        UUID product2Id = testFixtures.registerProduct(sellerId, shopId, 2000, 10);
+        UUID buyerId = testFixtures.signup("buyer@test.com");
+        String buyerToken = testFixtures.login("buyer@test.com");
+
+        UUID order1Id = testFixtures.createPaidOrder(buyerId, product1Id, product2Id);
+        UUID line1Id = testFixtures.orderLineIdOf(order1Id, product1Id);
+        failBuyerCancel(buyerToken, order1Id, line1Id, testFixtures.snapshotOf(order1Id).payment().paymentKey());
+        UUID refund1Id = testFixtures.refundIdOf(line1Id);
+
+        UUID order2Id = testFixtures.createPaidOrder(buyerId, product1Id, product2Id);
+        UUID line2Id = testFixtures.orderLineIdOf(order2Id, product1Id);
+        failBuyerCancel(buyerToken, order2Id, line2Id, testFixtures.snapshotOf(order2Id).payment().paymentKey());
+        UUID refund2Id = testFixtures.refundIdOf(line2Id);
+
+        UUID order3Id = testFixtures.createPaidOrder(buyerId, product1Id, product2Id);
+        UUID line3Id = testFixtures.orderLineIdOf(order3Id, product1Id);
+        failBuyerCancel(buyerToken, order3Id, line3Id, testFixtures.snapshotOf(order3Id).payment().paymentKey());
+        UUID refund3Id = testFixtures.refundIdOf(line3Id);
+
+        // When & Then
+        MvcResult result = mockMvc.perform(get("/admin/api/refunds")
+                        .param("status", "FAILED")
+                        .param("size", "2")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(refund1Id.toString()))
+                .andExpect(jsonPath("$.items[1].id").value(refund2Id.toString()))
+                .andExpect(jsonPath("$.nextCursor").value(notNullValue()))
+                .andReturn();
+
+        String nextCursor = JsonPath.read(result.getResponse().getContentAsString(), "$.nextCursor");
+        mockMvc.perform(get("/admin/api/refunds")
+                        .param("status", "FAILED")
+                        .param("size", "2")
+                        .param("cursor", nextCursor)
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").value(hasSize(1)))
+                .andExpect(jsonPath("$.items[0].id").value(refund3Id.toString()))
+                .andExpect(jsonPath("$.nextCursor").value(nullValue()));
     }
 }

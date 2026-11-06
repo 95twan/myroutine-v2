@@ -25,7 +25,7 @@ public interface JpaOrderRepository extends JpaRepository<Order, UUID>, OrderRep
     @Query("""
                 select o from Order o
                 where o.memberId = :memberId
-                and (o.createdAt < :cursorCreatedAt or (o.createdAt = :cursorCreatedAt and o.id < :cursorId))
+                and (o.createdAt, o.id) < (:cursorCreatedAt, :cursorId)
                 order by o.createdAt desc, o.id desc
             """)
     List<Order> findByMemberNextPage(UUID memberId, Instant cursorCreatedAt, UUID cursorId, Limit limit);
@@ -92,7 +92,7 @@ public interface JpaOrderRepository extends JpaRepository<Order, UUID>, OrderRep
             select new com.myroutine.order.domain.ShopOrderListRow(so.id, so.orderId, so.status, o.shippingAddress, so.carrier, so.trackingNumber, so.shippedAt, so.deliveredAt, so.createdAt)
             from ShopOrder so
             join Order o on o.id = so.orderId
-            where so.shopId = :shopId and (:status is null or so.status = :status) and (so.createdAt < :cursorCreatedAt or (so.createdAt = :cursorCreatedAt and so.id < :cursorId))
+            where so.shopId = :shopId and (:status is null or so.status = :status) and (so.createdAt, so.id) < (:cursorCreatedAt, :cursorId)
             order by so.createdAt desc, so.id desc
             """)
     List<ShopOrderListRow> findShopOrderNextPage(UUID shopId, ShopOrderStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit);
@@ -127,7 +127,7 @@ public interface JpaOrderRepository extends JpaRepository<Order, UUID>, OrderRep
     @Query("""
             select new com.myroutine.order.domain.AutoConfirmTarget(so.id, so.deliveredAt)
             from ShopOrder so
-            where so.status = :status and so.deliveredAt < :before and (so.deliveredAt > :cursorAt or (so.deliveredAt = :cursorAt and so.id > :cursorId))
+            where so.status = :status and so.deliveredAt < :before and (so.deliveredAt, so.id) > (:cursorAt, :cursorId)
             order by so.deliveredAt , so.id
             """)
     List<AutoConfirmTarget> findAutoConfirmTargets(ShopOrderStatus status, Instant before, Instant cursorAt, UUID cursorId, Limit limit);
