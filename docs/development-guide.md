@@ -113,7 +113,7 @@
 
 | 기능 | 활용 |
 |---|---|
-| 가상 스레드 + `synchronized` 고정(pinning) 해소 (JEP 491, Java 24+) | Stage 2-1 가상 스레드 실험. Java 21 시절의 pinning 문제 없이 비교 가능 |
+| 가상 스레드 + `synchronized` 고정(pinning) 해소 (JEP 491, Java 24+) | Stage 2 S2-3 가상 스레드 실험. Java 21 시절의 pinning 문제 없이 비교 가능 |
 | Scoped Values (JEP 506, 정식) | 요청 컨텍스트(memberId 등) 전달 실험 [선택] |
 | Compact Object Headers (JEP 519) | Stage 2 메모리·GC 실험 옵션 (`-XX:+UseCompactObjectHeaders`) |
 | record 패턴, switch 패턴 매칭, sealed | `PgResult` 같은 결과 타입 분기 (§8.2) |

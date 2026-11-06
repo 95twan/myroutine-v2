@@ -42,7 +42,7 @@ feature/{단계ID}-{짧은-설명}     feature/2-2-checkout
 hotfix/{짧은-설명}              hotfix/jwt-expiry-check
 docs/{짧은-설명}                docs/adr-011-cache        (문서만 바꿀 때)
 ```
-- 단계ID는 [로드맵](03-roadmap/README.md)의 번호(`Part-단계`)다.
+- 단계ID는 [로드맵](03-roadmap/README.md)의 번호(`Part-단계`)다. Stage 2는 `S2-n`(브랜치는 소문자 `feature/s2-1-baseline`), 서브는 `SUB-n`이다.
 - 영어 소문자와 하이픈만 쓴다.
 - 한 단계가 커서 PR을 나누면 `feature/2-8a-cancel-line`, `feature/2-8b-refund-recovery`처럼 알파벳을 붙인다.
 

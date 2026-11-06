@@ -458,4 +458,4 @@ erDiagram
   }
 ```
 - 같은 키 동시 요청: `idempotency_key` INSERT 충돌 → PROCESSING이면 409, COMPLETED면 저장된 응답 반환. requestHash가 다르면 422.
-- Outbox 정리: SENT 7일 경과분 삭제 (Stage 2-7에서 파티셔닝 후보).
+- Outbox 정리: SENT 7일 경과분 삭제 (Stage 2 S2-7 파티셔닝 후보).

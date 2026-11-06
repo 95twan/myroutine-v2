@@ -1,10 +1,12 @@
 # Stage 2 준비: 측정 환경 · 시드 데이터 · k6 시나리오
 
-> 버전 0.3 · 2026-11-06 · 측정 환경(운영 VM), 시드 규모, 부하 값을 확정했다
-> 0.2 · 2026-11-06 · 시나리오 실행 순서와 개선 실험 우선순위를 정했다. 2-8 샤딩은 하지 않고, 재고 이력 3,000만 건은 2-7을 할 때만 넣는다
+> 버전 0.5 · 2026-11-06 · S2-1a 단계 규격(5절)을 더했다. VU 시나리오는 대기 시간 없이 돌리고, S-02는 회원마다 다른 상품을 주문하며, 구매확정 품목마다 정산 대상 품목을 넣는다
+> 0.4 · 2026-11-06 · S2-1을 S2-1a(시드·지표 수집·S-01·02·03·06)와 S2-1b(S-04·05·07)로 나눴다. 시드 주문은 스케줄 잡의 대상 상태를 0건으로 넣고, DB·컨테이너 지표는 postgres_exporter와 cAdvisor로 수집한다
+> 0.3 · 2026-11-06 · 측정 환경(운영 VM), 시드 규모, 부하 값을 확정했다
+> 0.2 · 2026-11-06 · 시나리오 실행 순서와 개선 실험 우선순위를 정했다. S2-8 샤딩은 하지 않고, 재고 이력 3,000만 건은 S2-7을 할 때만 넣는다
 > 0.1 · 2026-11-06 · 초안. 합격 기준은 [요구사항 5.2](../01-requirements/README.md)의 값이고, 건수·부하·비율은 제안이다
 
-Stage 2 개선 단위(2-1~2-7)의 개요는 [아키텍처 진화](../02-design/01-architecture-evolution.md)에 있다. 이 문서는 첫 단위인 2-1 Baseline의 준비와 개선 실험의 우선순위를 적는다. 시드 스크립트와 k6 스크립트는 사용자가 쓴다. k6는 처음 쓰는 도구라 명령과 옵션의 구체 값은 2-1 착수 때 실행해 확인한 뒤 적는다.
+Stage 2 개선 단위(S2-1~S2-7)의 개요는 [아키텍처 진화](../02-design/01-architecture-evolution.md)에 있다. 이 문서는 Baseline의 준비, 개선 실험의 우선순위, S2-1a 단계 규격(5절)을 적는다. 시드 스크립트와 k6 스크립트는 사용자가 쓴다. 5절의 k6 스크립트와 시드 규칙은 로컬 격리 환경에서 1/100 규모로 실행해 확인한 것이다.
 
 ## 1. 측정 환경
 
@@ -13,7 +15,7 @@ Stage 2 개선 단위(2-1~2-7)의 개요는 [아키텍처 진화](../02-design/0
 | 앱·인프라 | 운영 VM(RAM 16GB, vCPU 8, Docker Compose), 앱 1개 |
 | 부하 생성 | 개발 PC의 k6 → LAN → VM의 8080([ADR-011](../adr/ADR-011-ops-practice-environment.md) "결과"). Cloudflare Tunnel을 거치지 않는다 |
 | PG | 어느 시나리오도 승인을 호출하지 않는다 |
-| 지표 | k6 요약, VM의 Prometheus·Grafana, `pg_stat_statements`, slow query log |
+| 지표 | k6 요약, VM의 Prometheus·Grafana(앱, postgres_exporter, cAdvisor), `pg_stat_statements`, slow query log |
 | 리포트 | `docs/perf/`. 커밋 sha, VM 자원, 앱 복제 수, 시드 건수를 함께 적는다 |
 
 단일 VM과 합성 데이터라 절대 수치를 앞세우지 않고, 같은 조건에서 비교한 결과로 기록한다.
@@ -22,11 +24,11 @@ Stage 2 개선 단위(2-1~2-7)의 개요는 [아키텍처 진화](../02-design/0
 
 - Proxmox 스냅샷을 남긴 뒤 시드를 넣는다.
 - 측정 중에는 `develop`에 머지하지 않는다. 코드가 바뀐 push는 VM에 자동 배포되어 앱이 다시 뜬다.
-- 운영 compose의 Postgres에 `shared_preload_libraries=pg_stat_statements`와 slow query 설정을 더한다. 확장은 이미지에 있다(`pg_available_extensions`에서 1.11 확인).
+- 운영 compose의 Postgres에 `pg_stat_statements`와 slow query 설정을 더한다(5절 1)).
 - k3s로 옮기면 Baseline을 다시 잰다([ADR-012](../adr/ADR-012-kubernetes-zero-downtime.md)).
 - VM 메모리나 디스크가 모자라면 Baseline을 재기 전에 MinIO를 [NAS로 옮긴다](../ops/nas-minio.md).
 
-확인 필요: 시드가 VM 디스크 100GB 안에 드는지. 넣으면서 `pg_database_size`로 본다.
+디스크: 1/100 규모 시드가 `VACUUM FULL` 뒤 266MB였다. 전체 규모는 약 27GB로 추정하고, 적재 중에는 작업 테이블과 WAL이 더 쓴다. VM 디스크 100GB 안에 들지만 넣으면서 `pg_database_size`로 본다.
 
 ## 2. 시드 데이터
 
@@ -37,11 +39,11 @@ Stage 2 개선 단위(2-1~2-7)의 개요는 [아키텍처 진화](../02-design/0
 | 회원 | 100만 | `member.member`, `member.member_address` | S-02, S-03의 전용 회원 포함 |
 | 가게 | 1만 | `shop.shop` | 상품·정산의 소유자 |
 | 상품 | 100만 | `product.product`, `product.stock` | S-01, S-04, S-07 |
-| 주문 | 1,000만 | `orders.orders`, `payment.payment` | 2-2 쿼리 튜닝 |
-| 주문 품목 | 약 2,500만 | `orders.shop_order`, `orders.order_line` | 2-2 쿼리 튜닝 |
-| 재고 이력 | 상품당 입고 1건, 2-7을 하면 3,000만 | `product.stock_movement` | 입고 이력은 재고 점검 잡이 읽는다. 3,000만 건은 2-7 파티셔닝 때만 넣는다 |
-| 정산 대상 품목 | 100만 | `settlement.settlement_item` | S-05. 끝난 달 하나에 몰아 넣는다 |
-| 시나리오 전용 장바구니 | 회원 1,100명 | `orders.cart`, `orders.cart_item` | S-02 100명, S-03 1,000명 |
+| 주문 | 1,000만 | `orders.orders`, `payment.payment` | S2-2 쿼리 튜닝 |
+| 주문 품목 | 약 2,500만 | `orders.shop_order`, `orders.order_line` | S2-2 쿼리 튜닝 |
+| 재고 이력 | 상품당 입고 1건, S2-7을 하면 3,000만 | `product.stock_movement` | 입고 이력은 재고 점검 잡이 읽는다. 3,000만 건은 S2-7 파티셔닝 때만 넣는다 |
+| 정산 대상 품목 | 구매확정 품목마다 1건(약 2,000만) | `settlement.settlement_item`, `settlement.settlement` | 지난달보다 앞선 달은 정산을 끝낸 상태로 넣는다. S-05가 처리할 지난달 건수(1/100 실험에서 지난달 약 8,400건, 전체 약 85만)를 100만으로 맞출지는 S2-1b에서 정한다 |
+| 시나리오 전용 회원·장바구니 | 회원 1,100명, 상품 101개 | `member.*`, `orders.cart`, `orders.cart_item`, `product.*` | S-02 회원 100명은 각자 다른 상품, S-03 회원 1,000명은 재고 100개 상품 하나 |
 
 ### 생성 방식
 
@@ -52,39 +54,41 @@ Stage 2 개선 단위(2-1~2-7)의 개요는 [아키텍처 진화](../02-design/0
 | `id` | `created_at`의 밀리초를 앞 48비트에 넣은 UUIDv7 형태로 만드는 시드용 SQL 함수를 쓴다. Postgres 17에는 `uuidv7()`이 없다(`pg_proc`에서 확인) | 앱이 쓰는 UUIDv7과 인덱스 지역성을 같게 한다. `gen_random_uuid()`는 삽입 위치가 흩어져 결과를 왜곡한다 |
 | `created_at` | 최근 24개월에 고르게 | 기간 조회와 파티셔닝 실험의 전제다 |
 | 재고 | `available + reserved + sold = received`이고, `RECEIVE`·`ADJUST` 이력 합이 `received`와 같다 | CHECK 제약을 통과하고 `재고 불일치` 알림이 울리지 않는다 |
-| 상품 상태·카테고리 | `ON_SALE` 90%, `HIDDEN` 5%, `DISCONTINUED` 5%, 카테고리 6종 균등 | 상태·카테고리 인덱스의 선택도를 현실에 가깝게 한다 |
+| 상품 상태·카테고리 | `ON_SALE` 90%, `HIDDEN` 5%, `DISCONTINUED` 5%, 카테고리 6종 균등. 한 가게의 상품도 이 비율을 따른다 | 상태·카테고리 인덱스의 선택도를 현실에 가깝게 한다. 상품 번호 `n`으로 `n % 20`을 쓰면 가게 수(1만)가 20의 배수라 한 가게 상품이 모두 같은 상태가 된다 |
 | 상품 이름 | 단어 풀에서 조합한다 | S-07의 검색어가 결과를 돌려준다 |
+| 주문 상태 | 스케줄 잡이 처리하는 상태는 0건이다. 주문은 `PAID`와 종결 상태(`CANCELLED`, `PAYMENT_FAILED`, `EXPIRED`)만, 가게주문은 `PAID`·`SHIPPED`·`COMPLETED`·`CANCELLED`만 넣는다. 결제 대기·결제 중 주문과 배송완료 가게주문은 넣지 않는다 | 만료·대사 잡(1분)과 자동확정 잡(매시)이 측정 중에 시드를 처리하면 결과가 흔들린다 |
 | 비밀번호 | 해시 하나를 미리 만들어 모든 회원에 같은 값을 넣는다 | 건마다 해시하면 적재가 오래 걸린다 |
-| Elasticsearch | [아키텍처 진화](../02-design/01-architecture-evolution.md)의 Stage 2 절대로 앱을 먼저 띄워 alias `products`를 만든 뒤 `_bulk`로 넣는다 | 시드는 이벤트를 내지 않아 문서가 저절로 생기지 않는다 |
+| 구매확정 품목 | `CONFIRMED` 품목마다 `settlement_item`이 있다 | `InvariantChecker`의 정산 누락 검사(구매확정 품목에 정산 대상이 없으면 위반)를 통과한다 |
+| Elasticsearch (S2-1b) | [아키텍처 진화](../02-design/01-architecture-evolution.md)의 Stage 2 절대로 앱을 먼저 띄워 alias `products`를 만든 뒤 `_bulk`로 넣는다 | 시드는 이벤트를 내지 않아 문서가 저절로 생기지 않는다 |
 
 넣은 뒤 `ANALYZE`를 실행하고, [`InvariantChecker`](../../src/test/java/com/myroutine/support/InvariantChecker.java)의 쿼리로 금액 합계·재고 등식 위반이 0건인지 확인한다.
 
 ## 3. k6 시나리오
 
-VU 시나리오는 램프업 1분 뒤 5분 유지한다.
+VU 시나리오는 램프업 1분 뒤 5분 유지한다. VU는 응답을 받자마자 다음 요청을 보낸다(대기 시간 없음). 그래서 "300 VU"는 사용자 300명이 아니라 동시 요청 300개로 만든 포화 부하이고, 리포트에 그렇게 적는다. 로컬 실험에서 대기 없는 VU 20개가 초당 약 6,000건을 보냈다.
 
 | 시나리오 | 요구사항 | 요청 | 부하 | 합격 기준 | 읽는 곳 |
 |---|---|---|---|---|---|
 | S-01 상품 조회 | NFR-PERF-01 | `GET /api/products`(category, cursor) 30%, `GET /api/products/{id}` 70% | 300 VU | p95 < 200ms, 에러율 < 0.1% | k6 요약 |
-| S-02 체크아웃 | NFR-PERF-02 | `POST /api/orders/checkout`(매번 새 `Idempotency-Key`) | 100 VU | p95 < 500ms | k6 요약 |
+| S-02 체크아웃 | NFR-PERF-02 | `POST /api/orders/checkout`(매번 새 `Idempotency-Key`). 회원마다 다른 상품 | 100 VU | p95 < 500ms | k6 요약 |
 | S-03 인기 상품 경합 | NFR-PERF-03 | 재고 100개 상품 1개를 회원 1,000명이 각자 체크아웃 1회 | 동시 1,000건 | 정확히 100건 성공, 초과판매 0건, p95 측정 | k6 체크, `product.stock` |
 | S-04 인증 오버헤드 | NFR-PERF-04 | `GET /api/products/{id}`를 `Authorization` 헤더 없이, 있게 번갈아 실행 | 100 VU | p95 < 10ms (As-Is 방식 대비 수치 비교) | 두 실행의 k6 요약 |
 | S-05 정산 배치 | NFR-PERF-05 | `POST /admin/api/settlements/run?period={끝난 달}` 1회 | 1건 | 구매확정 품목 100만 건을 10분 이내, 누락·중복 0건 | 응답 시간, `InvariantChecker.settlementOnce` 쿼리 |
 | S-06 Outbox 지연 | NFR-PERF-06 | 판매자 `PATCH /api/shops/{shopId}/products/{id}` 초당 20건, 5분 | 초당 20건 | 평시 p95 < 1초 | `common.outbox_event`의 `sent_at - created_at`에 `percentile_cont(0.95)` |
 | S-07 상품 검색 | NFR-PERF-07 | `GET /api/search/products?q={단어 풀}&size=20`, 상품 100만 건 | 100 VU | p95 < 200ms, 에러율 < 0.1% | k6 요약 |
 
-시나리오는 다음 순서로 잰다.
+시나리오는 다음 순서로 잰다. S2-1a는 시드·DB 설정·지표 수집까지 포함하고, S2-1a가 끝나면 S2-2·S2-5를 시작할 수 있다.
 
 | 순서 | 시나리오 | 이유 |
 |---|---|---|
-| 먼저 | S-01, S-02, S-03, S-06 | 개선 실험의 출발점이다. S-01과 S-02는 2-2에서 고칠 느린 쿼리를 찾고, S-03은 2-5의 기준값이고, S-06은 릴레이 폴링을 바꿀지 판단하는 근거다 |
-| 나중 | S-04, S-05, S-07 | 요구사항의 목표를 확인하는 측정이다 |
+| S2-1a | S-01, S-02, S-03, S-06 | 개선 실험의 출발점이다. S-01과 S-02는 S2-2에서 고칠 느린 쿼리를 찾고, S-03은 S2-5의 기준값이고, S-06은 릴레이 폴링을 바꿀지 판단하는 근거다 |
+| S2-1b | S-04, S-05, S-07 | 요구사항의 목표를 확인하는 측정이다 |
 
 시나리오별로 알아 둘 점은 다음과 같다.
 
 | 시나리오 | 내용 |
 |---|---|
-| S-02 | 전용 회원마다 배송지와 장바구니 항목을 넣어 둔다. 체크아웃은 장바구니를 건드리지 않아 같은 항목으로 반복할 수 있다. 예약은 결제 TTL 15분 뒤에 풀리므로 전용 상품의 재고를 5분 처리량보다 넉넉히 둔다 |
+| S-02 | 전용 회원마다 배송지와 장바구니 항목을 넣어 둔다. 체크아웃은 장바구니를 건드리지 않아 같은 항목으로 반복할 수 있다. 회원마다 상품이 달라야 한다. 로컬 실험에서 100명이 상품 하나를 주문하자 DB 실행 시간의 81%가 그 재고 행의 UPDATE였다. 경합은 S-03이 잰다. 예약은 결제 TTL 15분 뒤에 풀리므로 상품마다 재고를 5분 처리량보다 넉넉히 둔다 |
 | S-03 | 로그인은 비밀번호 해시 비용이 커서 k6의 `setup()`에서 끝내 측정 구간에서 뺀다. 재고 부족 응답은 422 `OUT_OF_STOCK`이라 에러율이 아니라 체크 수로 본다 |
 | S-04 | Stage 1에는 게이트웨이가 없어 `JwtAuthenticationFilter`의 JWT 검증과 Redis `tokenVersion` 조회가 같은 일을 한다. 헤더가 있을 때만 이 경로를 타므로 두 실행의 차이가 오버헤드다. 두 분포의 p95 차이이지 요청별 오버헤드의 p95는 아니라는 한계를 리포트에 적는다. As-Is 비교군은 매 요청 회원을 조회하는 실험 브랜치로 잰다([ADR-006](../adr/ADR-006-auth.md)). 이 브랜치는 머지하지 않는다. 모놀리스에는 원 프로젝트의 네트워크 호출이 없어 이 비교는 Redis 조회와 DB 조회의 차이만 보여 준다 |
 | S-05 | k6의 요청 `timeout`을 15분으로 늘린다. 지급은 `MockPayoutGateway`라 외부 지급 시간은 수치에 들어가지 않는다 |
@@ -96,8 +100,457 @@ VU 시나리오는 램프업 1분 뒤 5분 유지한다.
 
 | 우선순위 | 단계 | 이유 |
 |---|---|---|
-| 꼭 한다 | 2-5 재고 차감 방식 비교 | 조건부 UPDATE, `FOR UPDATE`, Redis 차감을 같은 조건에서 비교한다([ADR-008](../adr/ADR-008-inventory-reservation.md)). 지금 고른 방식의 성능 근거가 여기서 나온다 |
-| 꼭 한다 | 2-2 쿼리 튜닝, 인덱스 설계 검증 | 느린 쿼리를 찾아 고치고, 인덱스의 읽기 이득과 쓰기 비용을 함께 잰다 |
-| 여유가 있으면 한다 | 2-3 커넥션·스레드 | 플랫폼 스레드와 가상 스레드를 비교한다. 차이가 없으면 그 이유를 기록한다 |
-| 측정에서 필요가 드러나면 한다 | 2-4 캐시, 2-6 Read Replica, 2-7 파티셔닝 | 2-6은 같은 물리 서버라 처리량 이득을 말할 수 없고 복제 지연 대응만 남는다. 2-7은 시드 비용이 크다 |
+| 꼭 한다 | S2-5 재고 차감 방식 비교 | 조건부 UPDATE, `FOR UPDATE`, Redis 차감을 같은 조건에서 비교한다([ADR-008](../adr/ADR-008-inventory-reservation.md)). 지금 고른 방식의 성능 근거가 여기서 나온다 |
+| 꼭 한다 | S2-2 쿼리 튜닝, 인덱스 설계 검증 | 느린 쿼리를 찾아 고치고, 인덱스의 읽기 이득과 쓰기 비용을 함께 잰다 |
+| 여유가 있으면 한다 | S2-3 커넥션·스레드 | 플랫폼 스레드와 가상 스레드를 비교한다. 차이가 없으면 그 이유를 기록한다 |
+| 측정에서 필요가 드러나면 한다 | S2-4 캐시, S2-6 Read Replica, S2-7 파티셔닝 | S2-6은 같은 물리 서버라 처리량 이득을 말할 수 없고 복제 지연 대응만 남는다. S2-7은 시드 비용이 크다 |
 | 하지 않는다 | 샤딩 | 물리 서버 한 대에서는 쓰기 한계를 제대로 보여 주기 어렵다 |
+
+## 5. S2-1a Baseline: 시드·지표 수집·첫 측정
+
+**목표**: 운영 VM에 시드를 넣고 DB·컨테이너 지표를 모으는 상태에서 S-01, S-02, S-03, S-06을 재서 S2-2·S2-5의 출발점이 되는 Baseline 리포트를 남긴다.
+
+**왜 지금**: 개선은 측정한 병목에서 시작한다(4절). 느린 쿼리는 `pg_stat_statements`가, 락 대기와 DB CPU는 exporter가 보여 준다. 이것들이 없으면 S2-2에서 무엇을 고칠지 고를 근거가 없다.
+
+**브랜치**: `feature/s2-1-baseline`. PR에는 compose·Prometheus 설정, Grafana 패널, `perf/seed/`, `perf/k6/`가 들어간다. 측정 뒤 리포트(`docs/perf/s2-1a-baseline.md`)는 사용자가 넘긴 결과로 Claude가 쓴다.
+
+### 5.1 새로 등장
+
+**k6**는 JavaScript로 쓴 시나리오를 Go 런타임이 실행하는 부하 도구다. 개발 PC에 v1.4.2가 있다.
+
+| 개념 | 뜻 | 이 단계에서 |
+|---|---|---|
+| VU(가상 사용자) | 스크립트의 `default` 함수를 반복 실행하는 실행 단위. VU끼리 변수를 나누지 않는다 | S-01·S-02 |
+| 반복(iteration) | `default` 함수 한 번 실행 | |
+| 시나리오·실행기(executor) | `options.scenarios`에 부하 모양을 적는다. `ramping-vus`는 VU 수를 단계별로 바꾼다. `per-vu-iterations`는 VU마다 정해진 횟수만 돌고 모든 VU가 함께 시작한다. `constant-arrival-rate`는 응답 시간과 상관없이 초당 시작 횟수를 지킨다 | S-01·S-02 `ramping-vus`, S-03 `per-vu-iterations`, S-06 `constant-arrival-rate` |
+| 닫힌 모델과 열린 모델 | VU 실행기는 응답이 와야 다음 요청을 보내 서버가 느려지면 부하도 준다(닫힌 모델). 도착률 실행기는 느려져도 요청을 계속 보낸다(열린 모델). 보낼 VU가 모자라면 그 반복을 버리고 `dropped_iterations`로 센다 | S-06은 `dropped_iterations`가 0이어야 초당 20건이 맞다 |
+| init 코드 | 함수 밖 최상위 코드. VU마다 한 번 돈다. 파일은 여기서만 읽을 수 있다(`open`) | |
+| `SharedArray` | init에서 한 번 읽은 배열을 모든 VU가 복사 없이 나눠 읽는다(`k6/data`) | 상품 ID 파일 |
+| `setup()`·`teardown()` | 부하 전후에 한 번 돈다. `setup`의 반환값이 `default(data)`의 인자로 간다. `setup`의 요청도 결과 지표에 들어가므로 태그로 나눈다. 기본 제한 시간은 60초라 `setupTimeout`으로 늘린다 | 로그인 |
+| 태그와 하위 지표 | 요청에 `tags: { name: 'detail' }`을 붙이면 `http_req_duration{name:detail}`로 따로 볼 수 있다. 하위 지표는 `thresholds`에 적은 것만 요약에 나온다. 기준 없이 보기만 하려면 빈 배열 `[]`을 적는다 | |
+| `thresholds` | 지표의 합격 조건. 하나라도 어기면 요약에 ✗가 찍히고 k6의 종료 코드가 0이 아니다 | NFR 합격 기준 |
+| `check` | 응답 검사. 실패해도 실행은 계속되고 `checks` 비율로 센다 | |
+| `http_req_failed` | 기대한 상태 코드가 아닌 응답의 비율. 기본은 200~399가 성공이다. `http.setResponseCallback(http.expectedStatuses(201, 422))`로 바꿀 수 있다 | S-03은 422 `OUT_OF_STOCK`도 기대한 응답이다 |
+| `http.batch` | 요청 여러 개를 한 VU에서 병렬로 보낸다 | S-03 `setup`의 로그인 1,000건 |
+| `crypto.randomUUID()` | import 없이 쓰는 전역 함수 | `Idempotency-Key` |
+| `-e KEY=값`, `__ENV.KEY` | 실행할 때 값을 넘긴다 | 주소, VU 수, 시간 |
+| `--summary-export 파일` | 끝 요약을 JSON으로 저장한다. `metrics.{지표}`에 `avg`·`med`·`p(95)`·`p(99)`·`max`(`summaryTrendStats`로 고른 값)가 있다. 이 파일의 `thresholds` 값은 **어겼으면 `true`**다(통과면 `false`). 화면 요약은 통과를 ✓로 보여 준다 | 리포트의 원자료 |
+
+**`pg_stat_statements`**: Postgres 확장. 파라미터만 다른 문장을 하나로 묶어 실행 횟수(`calls`), 누적·평균 시간(`total_exec_time`·`mean_exec_time`, ms), 돌려준 행 수(`rows`)를 쌓는다. 서버를 시작할 때 `shared_preload_libraries`로 올려야 하고, DB마다 `CREATE EXTENSION`을 한 번 실행해야 뷰가 생긴다. `select pg_stat_statements_reset()`으로 비운다.
+
+**slow query log**: `log_min_duration_statement=100ms`이면 100ms 넘게 걸린 문장을 실행 시간과 함께 Postgres 로그(컨테이너 stdout)에 남긴다. `pg_stat_statements`는 파라미터를 `$1`로 바꾸지만 이 로그는 실제 값을 보여 줘서, 같은 쿼리가 어떤 값에서 느린지 볼 때 쓴다.
+
+**postgres_exporter**(`prometheuscommunity/postgres-exporter:v0.20.1`): Postgres 통계 뷰를 Prometheus 지표로 내보낸다. `pg_stat_activity_count{state, wait_event_type}`, `pg_locks_count{mode}`, `pg_stat_database_xact_commit`, `pg_stat_database_blks_hit`·`blks_read`, `pg_stat_database_deadlocks`가 있다(로컬에서 확인).
+
+**cAdvisor**(`ghcr.io/google/cadvisor:v0.60.6`): 컨테이너별 CPU·메모리를 `container_cpu_usage_seconds_total`, `container_memory_working_set_bytes`로 내보낸다. 컨테이너는 `name` 라벨로 구분한다. 운영 VM에서는 `name="myroutine-ops-postgres-1"`처럼 compose 컨테이너 이름이 붙는다. 맥의 Docker Desktop에서는 Docker 소켓을 찾지 못해 라벨 없는 전체 합계만 나온다.
+
+### 5.2 할 일
+
+**1) Postgres 설정** (`docker/docker-compose.ops.yml`의 `postgres`)
+
+```yaml
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=top
+      - -c
+      - log_min_duration_statement=100ms
+      - -c
+      - track_io_timing=on
+```
+
+- `track=top`은 클라이언트가 보낸 문장만 센다(함수 안 문장은 빼고). `track_io_timing`은 `EXPLAIN (ANALYZE, BUFFERS)`와 `pg_stat_statements`에 디스크 읽기 시간을 채운다. S2-2에서 쓴다.
+- 확장은 마이그레이션이 아니라 VM에서 한 번 만든다. 앱 스키마가 아니라 측정 도구이고, Testcontainers의 Postgres에는 preload가 없다.
+
+```bash
+IMAGE_TAG=$(cat /opt/myroutine/deployed-sha) docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml exec postgres \
+  sh -c 'psql -U "$POSTGRES_USER" -d my_routine -c "create extension if not exists pg_stat_statements"'
+```
+
+- 운영 compose는 `app.image`의 `IMAGE_TAG`가 필수라, `exec`처럼 app을 건드리지 않는 명령도 값이 없으면 파일 해석에서 실패한다(`required variable IMAGE_TAG is missing a value`). 지금 배포된 sha는 `scripts/deploy.sh`가 `/opt/myroutine/deployed-sha`에 남긴다.
+- 확장은 1)의 `command` 변경을 배포한 뒤에 만든다. preload 없이도 `CREATE EXTENSION`은 되지만 뷰를 조회하면 에러가 난다.
+
+**2) exporter와 수집 대상** (`docker/docker-compose.ops.yml`, `docker/prometheus/prometheus.ops.yml`)
+
+| 서비스 | 설정 |
+|---|---|
+| `postgres-exporter` | 이미지 `prometheuscommunity/postgres-exporter:v0.20.1`. 환경 변수 `DATA_SOURCE_URI: postgres:5432/my_routine?sslmode=disable`, `DATA_SOURCE_USER`·`DATA_SOURCE_PASS`는 `.env`의 DB 계정. 포트는 열지 않는다(Prometheus가 compose 네트워크로 읽는다). `depends_on: postgres` |
+| `cadvisor` | 이미지 `ghcr.io/google/cadvisor:v0.60.6`, `privileged: true`, 볼륨 `/:/rootfs:ro`, `/var/run:/var/run:ro`, `/sys:/sys:ro`, `/var/lib/docker/:/var/lib/docker:ro`. 포트는 열지 않는다 |
+| Prometheus 수집 대상 | `job_name: postgres` → `postgres-exporter:9187`, `job_name: cadvisor` → `cadvisor:8080`. 두 exporter는 Prometheus 기본 경로 `/metrics`로 내보내므로 `metrics_path`를 적지 않는다(`/actuator/prometheus`는 Spring 앱의 경로다). 기존 `myroutine` job은 그대로 둔다 |
+
+**3) Grafana 대시보드** (`docker/grafana/provisioning/dashboards/perf.json`, 제목 "성능 측정")
+
+기존 "서비스 개요"에 요청률·p95·HikariCP가 있어 여기에는 DB·컨테이너 패널만 둔다.
+
+| 패널 | PromQL | 볼 것 |
+|---|---|---|
+| DB 트랜잭션/초 | `sum(rate(pg_stat_database_xact_commit{datname="my_routine"}[1m]))` | k6 처리량과 같이 오르는지 |
+| 연결 상태 | `sum by (state) (pg_stat_activity_count{datname="my_routine"})` | `active`가 HikariCP 최대(10)에 붙는지 |
+| 대기 중인 연결 | `sum by (wait_event_type) (pg_stat_activity_count{datname="my_routine", wait_event_type!=""})` | `Lock`이 S-03에서 생기는지(로컬 평시에는 `Client`만 보였다) |
+| 락 모드 | `sum by (mode) (pg_locks_count{datname="my_routine"})` | `rowexclusivelock` 증가 |
+| 버퍼 적중률 | `sum(rate(pg_stat_database_blks_hit{datname="my_routine"}[1m])) / (sum(rate(pg_stat_database_blks_hit{datname="my_routine"}[1m])) + sum(rate(pg_stat_database_blks_read{datname="my_routine"}[1m])))` | 1보다 많이 낮으면 디스크를 읽는다 |
+| 컨테이너 CPU | `sum by (name) (rate(container_cpu_usage_seconds_total{name=~"myroutine-ops-(app|postgres)-1"}[1m]))` | 코어 수 단위. 어느 쪽이 먼저 포화되는지 |
+| 컨테이너 메모리 | `container_memory_working_set_bytes{name=~"myroutine-ops-(app|postgres)-1"}` | |
+
+
+**4) 시드 SQL** (`perf/seed/`)
+
+파일은 실행 순서대로 번호를 붙인다: `00-functions.sql`, `01-members-shops.sql`, `02-products.sql`, `03-orders.sql`, `04-settlements.sql`, `05-k6-fixtures.sql`, `09-cleanup.sql`. 건수는 psql 변수로 받아 1/100 규모로 먼저 돌려 볼 수 있게 한다.
+
+```bash
+psql -v ON_ERROR_STOP=1 -v n_member=1000000 -v n_shop=10000 -v n_product=1000000 -v n_order=10000000 \
+     -v pw='{미리 만든 해시}' -f 01-members-shops.sql   # SQL 안에서는 :n_member, 문자열은 :'pw'
+```
+
+`00-functions.sql`의 UUIDv7 함수. `gen_random_uuid()`(v4)의 앞 48비트를 `ts`의 밀리초로 덮고, 버전 자리(4비트 `0100`)의 비트 52·53을 켜 `0111`(7)로 만든다.
+
+```sql
+create schema if not exists seed;
+
+create or replace function seed.uuid_v7(ts timestamptz) returns uuid language sql volatile as $$
+  select encode(set_bit(set_bit(overlay(uuid_send(gen_random_uuid())
+         placing substring(int8send((extract(epoch from ts) * 1000)::bigint) from 3) from 1 for 6), 52, 1), 53, 1), 'hex')::uuid
+$$;
+```
+
+비밀번호 해시: `htpasswd -bnBC 10 "" 'Seed1234!' | tr -d ':\n'`. `$2y$10$...`가 나오고, 앱의 `BCryptPasswordEncoder`(기본 강도 10)가 이 형식으로 로그인되는 것을 확인했다.
+
+적재 방법과 순서:
+
+| 규칙 | 내용 |
+|---|---|
+| 번호 → id 대응표 | 엔티티마다 `seed` 스키마에 `unlogged` 작업 테이블 `(n int primary key, ts, id uuid)`를 먼저 만들고, 실제 테이블과 다른 엔티티는 번호로 이 표를 조인해 id를 얻는다. `unlogged`는 WAL을 쓰지 않아 빠르다 |
+| 세션 설정 | 파일 첫 줄에 `set synchronous_commit = off`. 커밋마다 디스크 동기화를 기다리지 않는다 |
+| 순서 | 회원 → 배송지 → 가게(회원 1~1만이 주인, `role = 'SELLER'`) → 상품·재고·입고 이력 → 주문 골격 → 가게주문 → 품목 → 주문 합계 → `orders` → `shop_order` → `order_line` → `payment` → `settlement_item` → 지난 달들의 `settlement`와 `settlement_id` 연결 |
+| 상품의 가게 | 상품 `n`의 가게는 `(n - 1) % n_shop + 1`. 그러면 가게 `s`의 상품은 `s + n_shop × t`(t = 0~99)다 |
+| 상품 상태 | `(n - 1) / n_shop`(가게 안 순번)으로 정한다. 2절의 함정 때문이다 |
+| 주문 | `created_at`은 `now() - 1시간`에서 24개월 사이. 상태는 `PAID` 85%, `CANCELLED`·`PAYMENT_FAILED`·`EXPIRED` 각 5% |
+| 가게주문 | 주문당 1~2개(평균 1.5). 같은 주문 안에서 가게가 겹치지 않는다(`UK(order_id, shop_id)`). 주문이 `PAID`가 아니면 `CANCELLED`. `PAID` 주문은 최근 10일이면 `PAID`, 아니면 `PAID` 15%·`SHIPPED` 5%·`COMPLETED` 80% |
+| 품목 | 가게주문당 1~2개(평균 5/3, 그래서 주문당 2.5). 상품은 그 가게의 상품에서 고르고 `unit_price`·`product_name`은 상품 값을 복사한다. 상태는 가게주문을 따라 `COMPLETED → CONFIRMED`, `confirmed_at = created_at + 10일` |
+| 주문 합계 | 품목 작업 테이블에서 `sum(price × quantity)`를 먼저 구해 `orders.total_amount`에 넣는다. FK 때문에 `orders`를 품목보다 먼저 넣어야 해서다 |
+| 결제 | `PAID` → `APPROVED`(`approved_at`, `method`), `PAYMENT_FAILED` → `FAILED`. 취소·만료 주문은 결제 행이 없다. `pg_order_id`·`payment_key`는 유일해야 한다 |
+| 정산 | `CONFIRMED` 품목마다 `settlement_item`. 지난달보다 앞선 달은 `(shop_id, 달)`마다 `PAID` 정산을 만들고 품목의 `settlement_id`를 채운다. 달 경계는 정산 잡과 같이 `Asia/Seoul` 기준이다: `(date_trunc('month', confirmed_at at time zone 'Asia/Seoul'))::date` |
+| 마무리 | `ANALYZE`, `InvariantChecker`의 쿼리 8개가 모두 0건, `09-cleanup.sql`에서 `drop schema seed cascade` |
+
+`05-k6-fixtures.sql`:
+
+| 데이터 | 내용 |
+|---|---|
+| S-02 | 회원 `k6-co-{1..100}@seed.test`, 각자 기본 배송지, 각자 다른 상품 `k6 체크아웃 상품 {i}`(재고 10만) 1개가 담긴 장바구니 |
+| S-03 | 회원 `k6-hot-{1..1000}@seed.test`, 각자 기본 배송지, `k6 인기 상품`(재고 100) 1개가 담긴 장바구니 |
+| 재고 | 전용 상품마다 `stock`과 `RECEIVE` 이력을 같이 넣는다 |
+
+k6가 읽는 데이터 파일(커밋하지 않는다. `.gitignore`에 `perf/k6/data/`, `perf/k6/results/`):
+
+```sql
+-- perf/k6/data/product-ids.json: 판매 중인 상품 10만 개
+select json_agg(id) from (select id from product.product where status = 'ON_SALE' and name not like 'k6 %' order by random() limit 100000) t;
+-- perf/k6/data/seller-products.json: 판매자 u1의 판매 중인 상품
+select json_agg(json_build_object('shopId', s.id, 'productId', p.id))
+from product.product p join shop.shop s on s.id = p.shop_id join member.member m on m.id = s.member_id
+where m.email = 'u1@seed.test' and p.status = 'ON_SALE';
+```
+
+`psql -tA -c "..." > 파일`로 저장한다.
+
+**5) k6 스크립트** (`perf/k6/`)
+
+아래 네 파일은 로컬에서 실행해 확인했다(VU 수와 시간은 줄여서). 주소는 `-e BASE_URL=http://{VM IP}:8080`으로 넘긴다.
+
+`s01-product-read.js`:
+
+```javascript
+import http from 'k6/http';
+import { check } from 'k6';
+import { SharedArray } from 'k6/data';
+
+const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
+const VUS = Number(__ENV.VUS || 300);
+const CATEGORIES = ['FOOD', 'HEALTH', 'BEAUTY', 'LIVING', 'PET', 'ETC'];
+const productIds = new SharedArray('productIds', () => JSON.parse(open('./data/product-ids.json')));
+
+export const options = {
+  scenarios: {
+    read: {
+      executor: 'ramping-vus',
+      startVUs: 0,
+      stages: [
+        { duration: __ENV.RAMP || '1m', target: VUS },
+        { duration: __ENV.HOLD || '5m', target: VUS },
+      ],
+    },
+  },
+  thresholds: {
+    http_req_duration: ['p(95)<200'],
+    http_req_failed: ['rate<0.001'],
+    'http_req_duration{name:list}': ['p(95)<200'],
+    'http_req_duration{name:detail}': ['p(95)<200'],
+  },
+  summaryTrendStats: ['avg', 'med', 'p(95)', 'p(99)', 'max'],
+};
+
+let cursor = null;
+let category = null;
+
+export default function () {
+  if (Math.random() < 0.3) {
+    if (cursor === null) category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
+    const query = `category=${category}&size=20` + (cursor ? `&cursor=${encodeURIComponent(cursor)}` : '');
+    const res = http.get(`${BASE_URL}/api/products?${query}`, { tags: { name: 'list' } });
+    check(res, { 'list 200': (r) => r.status === 200 });
+    cursor = res.status === 200 ? res.json('nextCursor') : null;
+  } else {
+    const id = productIds[Math.floor(Math.random() * productIds.length)];
+    const res = http.get(`${BASE_URL}/api/products/${id}`, { tags: { name: 'detail' } });
+    check(res, { 'detail 200': (r) => r.status === 200 });
+  }
+}
+```
+
+- `cursor`·`category`는 VU마다 따로 있는 변수라, 한 VU가 같은 카테고리의 다음 페이지를 이어 읽다가 마지막 페이지(`nextCursor`가 `null`)에서 새 카테고리로 돌아간다. 앞쪽 페이지만 읽으면 keyset 페이징의 깊은 페이지 비용이 드러나지 않는다.
+
+`s02-checkout.js`:
+
+```javascript
+import http from 'k6/http';
+import { check } from 'k6';
+
+const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
+const VUS = Number(__ENV.VUS || 100);
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
+
+export const options = {
+  setupTimeout: '2m',
+  scenarios: {
+    checkout: {
+      executor: 'ramping-vus',
+      startVUs: 0,
+      stages: [
+        { duration: __ENV.RAMP || '1m', target: VUS },
+        { duration: __ENV.HOLD || '5m', target: VUS },
+      ],
+    },
+  },
+  thresholds: {
+    'http_req_duration{name:checkout}': ['p(95)<500'],
+    'http_req_failed{name:checkout}': ['rate<0.001'],
+  },
+  summaryTrendStats: ['avg', 'med', 'p(95)', 'p(99)', 'max'],
+};
+
+export function setup() {
+  const buyers = [];
+  for (let i = 1; i <= VUS; i++) {
+    const login = http.post(`${BASE_URL}/api/auth/login`,
+      JSON.stringify({ email: `k6-co-${i}@seed.test`, password: 'Seed1234!' }),
+      { headers: JSON_HEADERS, tags: { name: 'setup' } });
+    const auth = { Authorization: `Bearer ${login.json('accessToken')}` };
+    const cart = http.get(`${BASE_URL}/api/cart`, { headers: auth, tags: { name: 'setup' } });
+    const addresses = http.get(`${BASE_URL}/api/members/me/addresses`, { headers: auth, tags: { name: 'setup' } });
+    buyers.push({
+      token: login.json('accessToken'),
+      cartItemId: cart.json('items.0.cartItemId'),
+      addressId: addresses.json('0.id'),
+    });
+  }
+  return { buyers };
+}
+
+export default function (data) {
+  const buyer = data.buyers[(__VU - 1) % data.buyers.length];
+  const res = http.post(`${BASE_URL}/api/orders/checkout`,
+    JSON.stringify({ cartItemIds: [buyer.cartItemId], addressId: buyer.addressId }),
+    {
+      headers: { ...JSON_HEADERS, Authorization: `Bearer ${buyer.token}`, 'Idempotency-Key': crypto.randomUUID() },
+      tags: { name: 'checkout' },
+    });
+  check(res, { 'checkout 201': (r) => r.status === 201 });
+}
+```
+
+- 로그인 100건이 `setup`에서 약 7초 걸렸다(로컬). access 토큰 TTL이 15분이라 6분 측정 동안 만료되지 않는다.
+- `__VU`는 1부터 시작하는 VU 번호다. VU 하나가 회원 한 명을 맡는다.
+
+`s03-hot-product.js`:
+
+```javascript
+import http from 'k6/http';
+import { check } from 'k6';
+import { Counter } from 'k6/metrics';
+
+const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
+const BUYERS = Number(__ENV.BUYERS || 1000);
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
+const succeeded = new Counter('checkout_succeeded');
+const outOfStock = new Counter('checkout_out_of_stock');
+
+http.setResponseCallback(http.expectedStatuses(201, 422));
+
+export const options = {
+  setupTimeout: '10m',
+  scenarios: {
+    rush: { executor: 'per-vu-iterations', vus: BUYERS, iterations: 1, maxDuration: '2m' },
+  },
+  thresholds: {
+    checkout_succeeded: ['count==100'],
+    'http_req_duration{name:checkout}': [],
+    'http_req_failed{name:checkout}': ['rate==0'],
+  },
+  summaryTrendStats: ['avg', 'med', 'p(95)', 'p(99)', 'max'],
+};
+
+function login(i) {
+  return ['POST', `${BASE_URL}/api/auth/login`,
+    JSON.stringify({ email: `k6-hot-${i}@seed.test`, password: 'Seed1234!' }),
+    { headers: JSON_HEADERS, tags: { name: 'setup' } }];
+}
+
+export function setup() {
+  const buyers = [];
+  for (let start = 1; start <= BUYERS; start += 50) {
+    const logins = http.batch(Array.from({ length: Math.min(50, BUYERS - start + 1) }, (_, k) => login(start + k)));
+    const tokens = logins.map((r) => r.json('accessToken'));
+    const carts = http.batch(tokens.map((t) => ['GET', `${BASE_URL}/api/cart`, null, { headers: { Authorization: `Bearer ${t}` }, tags: { name: 'setup' } }]));
+    const addresses = http.batch(tokens.map((t) => ['GET', `${BASE_URL}/api/members/me/addresses`, null, { headers: { Authorization: `Bearer ${t}` }, tags: { name: 'setup' } }]));
+    tokens.forEach((token, k) => buyers.push({
+      token,
+      cartItemId: carts[k].json('items.0.cartItemId'),
+      addressId: addresses[k].json('0.id'),
+    }));
+  }
+  return { buyers };
+}
+
+export default function (data) {
+  const buyer = data.buyers[__VU - 1];
+  const res = http.post(`${BASE_URL}/api/orders/checkout`,
+    JSON.stringify({ cartItemIds: [buyer.cartItemId], addressId: buyer.addressId }),
+    {
+      headers: { ...JSON_HEADERS, Authorization: `Bearer ${buyer.token}`, 'Idempotency-Key': crypto.randomUUID() },
+      tags: { name: 'checkout' },
+    });
+  if (res.status === 201) succeeded.add(1);
+  if (res.status === 422 && res.json('code') === 'OUT_OF_STOCK') outOfStock.add(1);
+  check(res, { '201 or OUT_OF_STOCK': (r) => r.status === 201 || (r.status === 422 && r.json('code') === 'OUT_OF_STOCK') });
+}
+```
+
+- 로그인은 비밀번호 해시 비용이 커서 한 건씩 하면 1,000건이 기본 `setup` 제한 60초를 넘는다. 50건씩 `http.batch`로 보내 로컬에서 약 12초였다.
+- `per-vu-iterations`는 `setup`이 끝난 뒤 1,000 VU를 함께 시작한다. 로컬에서 체크아웃 1,000건이 약 1초 안에 끝났고 성공 100건, `OUT_OF_STOCK` 900건, 재고는 `available 0, reserved 100`이었다.
+- `Counter`는 직접 만드는 지표다. `count==100` 기준이 "정확히 100건 성공"을 k6 결과로 판정한다.
+
+`s06-outbox-lag.js`:
+
+```javascript
+import http from 'k6/http';
+import { check } from 'k6';
+import { SharedArray } from 'k6/data';
+
+const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
+const products = new SharedArray('sellerProducts', () => JSON.parse(open('./data/seller-products.json')));
+
+export const options = {
+  scenarios: {
+    update: {
+      executor: 'constant-arrival-rate',
+      rate: Number(__ENV.RATE || 20),
+      timeUnit: '1s',
+      duration: __ENV.DURATION || '5m',
+      preAllocatedVUs: 20,
+      maxVUs: 50,
+    },
+  },
+  thresholds: {
+    'http_req_duration{name:update}': [],
+    'http_req_failed{name:update}': ['rate<0.001'],
+    dropped_iterations: ['count==0'],
+  },
+  summaryTrendStats: ['avg', 'med', 'p(95)', 'p(99)', 'max'],
+};
+
+export function setup() {
+  const login = http.post(`${BASE_URL}/api/auth/login`,
+    JSON.stringify({ email: __ENV.SELLER_EMAIL || 'u1@seed.test', password: 'Seed1234!' }),
+    { headers: JSON_HEADERS, tags: { name: 'setup' } });
+  return { token: login.json('accessToken'), startedAt: new Date().toISOString() };
+}
+
+export default function (data) {
+  const p = products[Math.floor(Math.random() * products.length)];
+  const res = http.patch(`${BASE_URL}/api/shops/${p.shopId}/products/${p.productId}`,
+    JSON.stringify({ price: 1000 * (1 + Math.floor(Math.random() * 99)) }),
+    { headers: { ...JSON_HEADERS, Authorization: `Bearer ${data.token}` }, tags: { name: 'update' } });
+  check(res, { 'update 200': (r) => r.status === 200 });
+}
+
+export function teardown(data) {
+  console.log(`started_at=${data.startedAt} finished_at=${new Date().toISOString()}`);
+}
+```
+
+- 가격 변경 한 건이 `product-upserted`와 `product-price-changed` 두 이벤트를 만든다(값이 같으면 가격 변경 이벤트는 없다). `teardown`이 찍는 시각 구간으로 아래 SQL을 돌린다.
+
+```sql
+select topic, count(*) events, count(*) filter (where sent_at is null) unsent,
+       round((percentile_cont(0.5)  within group (order by extract(epoch from sent_at - created_at)) * 1000)::numeric) p50_ms,
+       round((percentile_cont(0.95) within group (order by extract(epoch from sent_at - created_at)) * 1000)::numeric) p95_ms,
+       round((max(extract(epoch from sent_at - created_at)) * 1000)::numeric) max_ms
+from common.outbox_event
+where created_at between '{started_at}' and '{finished_at}'
+group by rollup(topic);
+```
+
+- 로컬 30초 실행에서 p95가 약 1,350ms였다. 릴레이가 `fixedDelay = 1000`이라 앞 실행이 끝난 뒤 1초를 쉬고 다시 읽기 때문이다(대기만 최대 1초에 처리 시간이 더해진다). Baseline에서도 기준(1초)을 넘을 가능성이 크고, 넘으면 3절 S-06의 재검토 대상이다.
+
+**6) 측정 절차** (운영 VM)
+
+| 순서 | 할 일 |
+|---|---|
+| 1 | Proxmox 스냅샷 |
+| 2 | 1)·2)·3)을 머지해 배포하고 확장을 만든다. Prometheus 설정이 바뀌었으면 `docker restart myroutine-ops-prometheus-1`([런북](../runbook.md)). Targets에서 `postgres`·`cadvisor`가 UP인지 본다 |
+| 3 | 시드 `00`~`05`를 넣고 `ANALYZE`, 불변식 0건, `09-cleanup` |
+| 4 | k6 데이터 파일을 뽑아 개발 PC의 `perf/k6/data/`에 둔다 |
+| 5 | 시나리오마다: `select pg_stat_statements_reset()` → k6 실행(`--summary-export results/{시나리오}.json`) → 아래 상위 20문장을 파일로 저장 → Grafana에서 실행 구간 패널 값 기록 → 2분 쉼 |
+| 6 | 순서는 S-01 → S-06 → S-02 → S-03. S-02가 만든 결제 대기 주문은 15분 뒤 만료 잡이 풀므로, S-03 전에 `select count(*) from orders.orders where status = 'PENDING_PAYMENT'`가 0이 될 때까지 기다린다 |
+
+```sql
+select calls, round(total_exec_time::numeric) total_ms, round(mean_exec_time::numeric, 2) mean_ms,
+       round((100 * total_exec_time / sum(total_exec_time) over ())::numeric, 1) pct, rows,
+       left(regexp_replace(query, '\s+', ' ', 'g'), 200) query
+from pg_stat_statements
+where dbid = (select oid from pg_database where datname = current_database())
+order by total_exec_time desc limit 20;
+```
+
+- `total_exec_time`(누적)이 큰 문장이 DB 시간을 가장 많이 쓴다. 한 번은 빠르지만 많이 불리는 문장도 여기서 위로 온다. `mean_exec_time`은 한 번이 느린 문장을 찾는다. S2-2의 후보는 두 순서를 다 본다.
+- 개발 PC가 병목이 아닌지: 실행 중 PC의 CPU가 여유 있는지 보고, k6가 `Insufficient VUs`나 `dropped_iterations`를 내지 않았는지 본다.
+
+**7) 리포트에 넘길 것**: 시나리오별 `--summary-export` JSON, 상위 20문장 결과, S-06 SQL 결과, Grafana 패널 값(또는 화면), 커밋 sha, `pg_database_size`, 시드 테이블별 건수, S-03 뒤 `k6 인기 상품`의 재고 행.
+
+### 5.3 완료 확인
+
+| 확인 | 방법 | 기대 |
+|---|---|---|
+| 문장 통계가 쌓인다 | VM에서 `select count(*) from pg_stat_statements` | 0보다 크다 |
+| slow query가 남는다 | `select pg_sleep(0.15)` 뒤 Postgres 컨테이너 로그 | `duration: 150.xxx ms  statement: select pg_sleep(0.15)` 한 줄 |
+| exporter를 수집한다 | Prometheus Targets | `postgres`, `cadvisor`, `myroutine` 모두 UP |
+| 컨테이너별 CPU가 보인다 | "성능 측정" 대시보드의 컨테이너 CPU 패널 | app과 postgres 두 줄 |
+| 시드 건수 | `orders.orders` 1,000만, `orders.order_line` 약 2,500만, `product.product` 100만(+전용 101), `member.member` 100만(+전용 1,100) | 규모 표와 같다 |
+| 시드가 불변식을 지킨다 | `InvariantChecker`의 쿼리 8개 | 모두 0건 |
+| 잡이 시드를 처리하지 않는다 | `select count(*) from orders.orders where status in ('PENDING_PAYMENT', 'PAYMENT_IN_PROGRESS')`, `select count(*) from orders.shop_order where status = 'DELIVERED'`(측정 시작 전) | 둘 다 0 |
+| S-03 초과판매가 없다 | S-03 요약의 `checkout_succeeded`, `k6 인기 상품`의 `product.stock` | 100, `available 0, reserved 100` |
+| S-01·S-02·S-06이 끝까지 돈다 | 각 요약의 `http_req_failed`, S-06의 `dropped_iterations` | 실패율과 버린 반복이 기록된다(합격 여부는 리포트에 적는다. Baseline은 기준을 넘지 못해도 완료다) |
+| 리포트 | `docs/perf/s2-1a-baseline.md` | 환경(커밋 sha, VM, 앱 1개, 시드 건수, 대기 없는 VU), 시나리오별 p50·p95·p99·처리량·에러율, 상위 쿼리, S2-2·S2-5 후보 |
+
+### 5.4 리뷰 때 물어볼 것
+
+- 대기 없는 300 VU의 p95는 무엇을 말하고 무엇을 말하지 않는가? 실제 사용자 수로 바꿔 말할 수 있는가?
+- S-02를 회원마다 다른 상품으로 바꾼 이유는? 같은 상품이면 무엇을 재게 되는가?
+- S-03의 1,000건은 정말 동시에 도착했는가? 무엇으로 확인하는가?
+- 시드 id에 `gen_random_uuid()`를 쓰면 무엇이 달라지는가?
+- `pg_stat_statements`에서 S2-2 후보를 `total_exec_time`과 `mean_exec_time` 중 무엇으로 고르는가?
+- S-06 p95가 1초를 넘으면 원인은 DB인가, 릴레이 주기인가? 어떻게 구분하는가?
+- 측정 중 자동 배포를 막지 않으면 결과에 무엇이 섞이는가?
