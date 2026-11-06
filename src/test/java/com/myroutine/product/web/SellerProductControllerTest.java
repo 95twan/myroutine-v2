@@ -27,6 +27,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -518,4 +520,35 @@ class SellerProductControllerTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.details.deltaNonZero").exists());
     }
 
+    @Test
+    @DisplayName("판매자 상품 목록은 커서로 다음 페이지를 조회한다.")
+    void getShopProductsNextPage() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("test@test.com");
+        String token = testFixtures.login("test@test.com");
+        UUID shopId = testFixtures.openShop(memberId, "1111111111");
+        UUID product1Id = testFixtures.registerProduct(memberId, shopId);
+        UUID product2Id = testFixtures.registerProduct(memberId, shopId);
+        UUID product3Id = testFixtures.registerProduct(memberId, shopId);
+
+        // When & Then
+        MvcResult result = mockMvc.perform(get("/api/shops/" + shopId + "/products")
+                        .param("size", "2")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(product3Id.toString()))
+                .andExpect(jsonPath("$.items[1].id").value(product2Id.toString()))
+                .andExpect(jsonPath("$.nextCursor").value(notNullValue()))
+                .andReturn();
+
+        String nextCursor = JsonPath.read(result.getResponse().getContentAsString(), "$.nextCursor");
+        mockMvc.perform(get("/api/shops/" + shopId + "/products")
+                        .param("size", "2")
+                        .param("cursor", nextCursor)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").value(hasSize(1)))
+                .andExpect(jsonPath("$.items[0].id").value(product1Id.toString()))
+                .andExpect(jsonPath("$.nextCursor").value(nullValue()));
+    }
 }

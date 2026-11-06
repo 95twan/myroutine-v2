@@ -1,5 +1,6 @@
 package com.myroutine.notification.web;
 
+import com.jayway.jsonpath.JsonPath;
 import com.myroutine.common.model.Ids;
 import com.myroutine.support.IntegrationTestSupport;
 import com.myroutine.support.NotificationRow;
@@ -10,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -17,6 +19,9 @@ import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -134,5 +139,43 @@ class AdminNotificationTest extends IntegrationTestSupport {
                         VALUES (?, ?, 'ORDER_PAID', 'EMAIL', 'buyer@test.com', 't', 'b', ?, ?, 5, 'smtp down', ?, 0, ?, ?)
                         """,
                 id, memberId, "dedup-" + id, status, Timestamp.from(Instant.now().minus(1, ChronoUnit.HOURS)), now, now);
+    }
+
+    @Test
+    @DisplayName("FAILED 알림 목록은 커서로 다음 페이지를 조회한다.")
+    void listFailedNotificationsNextPage() throws Exception {
+        // Given
+        UUID adminId = testFixtures.signup("admin@test.com");
+        testFixtures.changeRole(adminId, "ADMIN");
+        String adminToken = testFixtures.login("admin@test.com");
+
+        UUID notification1Id = Ids.newId();
+        UUID notification2Id = Ids.newId();
+        UUID notification3Id = Ids.newId();
+        insertNotification(notification1Id, Ids.newId(), "FAILED");
+        insertNotification(notification2Id, Ids.newId(), "FAILED");
+        insertNotification(notification3Id, Ids.newId(), "FAILED");
+
+        // When & Then
+        MvcResult result = mockMvc.perform(get("/admin/api/notifications")
+                        .param("status", "FAILED")
+                        .param("size", "2")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(notification1Id.toString()))
+                .andExpect(jsonPath("$.items[1].id").value(notification2Id.toString()))
+                .andExpect(jsonPath("$.nextCursor").value(notNullValue()))
+                .andReturn();
+
+        String nextCursor = JsonPath.read(result.getResponse().getContentAsString(), "$.nextCursor");
+        mockMvc.perform(get("/admin/api/notifications")
+                        .param("status", "FAILED")
+                        .param("size", "2")
+                        .param("cursor", nextCursor)
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").value(hasSize(1)))
+                .andExpect(jsonPath("$.items[0].id").value(notification3Id.toString()))
+                .andExpect(jsonPath("$.nextCursor").value(nullValue()));
     }
 }

@@ -1,5 +1,6 @@
 package com.myroutine.order.web;
 
+import com.jayway.jsonpath.JsonPath;
 import com.myroutine.order.application.CheckoutResult;
 import com.myroutine.support.*;
 import org.junit.jupiter.api.DisplayName;
@@ -11,12 +12,15 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -242,5 +246,49 @@ class AdminReconcileTest extends IntegrationTestSupport {
         OrderSnapshot s = testFixtures.snapshotOf(orderId);
         assertThat(s.payment().reconcileAttempts()).isEqualTo(0);
         assertThat(pg.requests("/v1/payments/orders/")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("UNKNOWN 결제 목록은 커서로 다음 페이지를 조회한다.")
+    void listUnknownPaymentsNextPage() throws Exception {
+        // Given
+        UUID adminId = testFixtures.signup("admin@test.com");
+        testFixtures.changeRole(adminId, "ADMIN");
+        String adminToken = testFixtures.login("admin@test.com");
+
+        UUID sellerId = testFixtures.signup("seller@test.com");
+        UUID shopId = testFixtures.openShop(sellerId, "1111111111");
+        UUID productId = testFixtures.registerProduct(sellerId, shopId, 1000, 10);
+        UUID buyerId = testFixtures.signup("buyer@test.com");
+
+        pg.on("/v1/payments/confirm", Behavior.delay(1000));
+        UUID order1Id = testFixtures.confirmPayment(buyerId, testFixtures.createPendingOrder(buyerId, productId).orderId()).orderId();
+        UUID order2Id = testFixtures.confirmPayment(buyerId, testFixtures.createPendingOrder(buyerId, productId).orderId()).orderId();
+        UUID order3Id = testFixtures.confirmPayment(buyerId, testFixtures.createPendingOrder(buyerId, productId).orderId()).orderId();
+        UUID payment1Id = testFixtures.snapshotOf(order1Id).payment().id();
+        UUID payment2Id = testFixtures.snapshotOf(order2Id).payment().id();
+        UUID payment3Id = testFixtures.snapshotOf(order3Id).payment().id();
+
+        // When & Then
+        MvcResult result = mockMvc.perform(get("/admin/api/payments")
+                        .param("status", "UNKNOWN")
+                        .param("size", "2")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(payment1Id.toString()))
+                .andExpect(jsonPath("$.items[1].id").value(payment2Id.toString()))
+                .andExpect(jsonPath("$.nextCursor").value(notNullValue()))
+                .andReturn();
+
+        String nextCursor = JsonPath.read(result.getResponse().getContentAsString(), "$.nextCursor");
+        mockMvc.perform(get("/admin/api/payments")
+                        .param("status", "UNKNOWN")
+                        .param("size", "2")
+                        .param("cursor", nextCursor)
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").value(hasSize(1)))
+                .andExpect(jsonPath("$.items[0].id").value(payment3Id.toString()))
+                .andExpect(jsonPath("$.nextCursor").value(nullValue()));
     }
 }
