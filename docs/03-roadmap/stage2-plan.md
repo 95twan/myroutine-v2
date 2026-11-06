@@ -197,11 +197,11 @@ IMAGE_TAG=$(cat /opt/myroutine/deployed-sha) docker compose --env-file /opt/myro
 
 **4) 시드 SQL** (`perf/seed/`)
 
-파일은 실행 순서대로 번호를 붙인다: `00-functions.sql`, `01-members-shops.sql`, `02-products.sql`, `03-orders.sql`, `04-settlements.sql`, `05-k6-fixtures.sql`, `09-cleanup.sql`. 건수는 psql 변수로 받아 1/100 규모로 먼저 돌려 볼 수 있게 한다.
+파일은 실행 순서대로 번호를 붙인다: `00-functions.sql`, `01-members-shops.sql`, `02-products.sql`, `03-orders.sql`, `04-settlements.sql`, `05-k6-fixtures.sql`, `99-cleanup.sql`과 확인용 `check.sql`. 정리 파일을 `99`로 둔 것은 `0*.sql`로 순서대로 돌릴 때 불변식 확인보다 먼저 실행되지 않게 하려는 것이다. 건수는 psql 변수로 받아 1/100 규모로 먼저 돌려 볼 수 있게 한다.
 
 ```bash
 psql -v ON_ERROR_STOP=1 -v n_member=1000000 -v n_shop=10000 -v n_product=1000000 -v n_order=10000000 \
-     -v pw='{미리 만든 해시}' -f 01-members-shops.sql   # SQL 안에서는 :n_member, 문자열은 :'pw'
+     -v password_hash='{미리 만든 해시}' -f 01-members-shops.sql   # SQL 안에서는 :n_member, 문자열은 :'password_hash'
 ```
 
 `00-functions.sql`의 UUIDv7 함수. `gen_random_uuid()`(v4)의 앞 48비트를 `ts`의 밀리초로 덮고, 버전 자리(4비트 `0100`)의 비트 52·53을 켜 `0111`(7)로 만든다.
@@ -232,7 +232,7 @@ $$;
 | 주문 합계 | 품목 작업 테이블에서 `sum(price × quantity)`를 먼저 구해 `orders.total_amount`에 넣는다. FK 때문에 `orders`를 품목보다 먼저 넣어야 해서다 |
 | 결제 | `PAID` → `APPROVED`(`approved_at`, `method`), `PAYMENT_FAILED` → `FAILED`. 취소·만료 주문은 결제 행이 없다. `pg_order_id`·`payment_key`는 유일해야 한다 |
 | 정산 | `CONFIRMED` 품목마다 `settlement_item`. 지난달보다 앞선 달은 `(shop_id, 달)`마다 `PAID` 정산을 만들고 품목의 `settlement_id`를 채운다. 달 경계는 정산 잡과 같이 `Asia/Seoul` 기준이다: `(date_trunc('month', confirmed_at at time zone 'Asia/Seoul'))::date` |
-| 마무리 | `ANALYZE`, `InvariantChecker`의 쿼리 8개가 모두 0건, `09-cleanup.sql`에서 `drop schema seed cascade` |
+| 마무리 | `05`의 끝에서 `ANALYZE`. `check.sql`로 불변식 8개가 모두 0건인지 본 뒤 `99-cleanup.sql`에서 `drop schema seed cascade` |
 
 `05-k6-fixtures.sql`:
 
@@ -250,7 +250,7 @@ select json_agg(id) from (select id from product.product where status = 'ON_SALE
 -- perf/k6/data/seller-products.json: 판매자 u1의 판매 중인 상품
 select json_agg(json_build_object('shopId', s.id, 'productId', p.id))
 from product.product p join shop.shop s on s.id = p.shop_id join member.member m on m.id = s.member_id
-where m.email = 'u1@seed.test' and p.status = 'ON_SALE';
+where m.email = 'u1@seed.test' and p.status = 'ON_SALE' and p.name not like 'k6 %';
 ```
 
 `psql -tA -c "..." > 파일`로 저장한다.
@@ -431,6 +431,7 @@ export default function (data) {
       headers: { ...JSON_HEADERS, Authorization: `Bearer ${buyer.token}`, 'Idempotency-Key': crypto.randomUUID() },
       tags: { name: 'checkout' },
     });
+  if (res.status !== 201 && res.status !== 422) console.log(`status=${res.status} error=${res.error} code=${res.error_code}`);
   if (res.status === 201) succeeded.add(1);
   if (res.status === 422 && res.json('code') === 'OUT_OF_STOCK') outOfStock.add(1);
   check(res, { '201 or OUT_OF_STOCK': (r) => r.status === 201 || (r.status === 422 && r.json('code') === 'OUT_OF_STOCK') });
@@ -440,6 +441,7 @@ export default function (data) {
 - 로그인은 비밀번호 해시 비용이 커서 한 건씩 하면 1,000건이 기본 `setup` 제한 60초를 넘는다. 50건씩 `http.batch`로 보내 로컬에서 약 12초였다.
 - `per-vu-iterations`는 `setup`이 끝난 뒤 1,000 VU를 함께 시작한다. 로컬에서 체크아웃 1,000건이 약 1초 안에 끝났고 성공 100건, `OUT_OF_STOCK` 900건, 재고는 `available 0, reserved 100`이었다.
 - `Counter`는 직접 만드는 지표다. `count==100` 기준이 "정확히 100건 성공"을 k6 결과로 판정한다.
+- 로컬에서 세 번 중 한 번은 1,000건 중 9건이 서버에 닿기 전에 실패했다(앱 로그에 오류 없음, 결과는 성공 100건·초과판매 0건으로 정상). 1,000개 연결이 한꺼번에 열려 맥의 접속 대기열(`somaxconn` 128)과 Tomcat `accept-count`(기본 100)를 넘친 것으로 보고, 재현되지 않아 원인을 확정하지 못했다. 그래서 201·422가 아닌 응답은 `console.log`로 `res.error`·`res.error_code`(k6의 연결 오류 번호)를 남긴다. VM에서도 나오면 리포트에 건수와 오류를 적고, `http_req_failed` 기준 실패는 서버 결함이 아니라 연결 계층 문제로 구분한다.
 
 `s06-outbox-lag.js`:
 
@@ -509,12 +511,60 @@ group by rollup(topic);
 
 | 순서 | 할 일 |
 |---|---|
-| 1 | Proxmox 스냅샷 |
-| 2 | 1)·2)·3)을 머지해 배포하고 확장을 만든다. Prometheus 설정이 바뀌었으면 `docker restart myroutine-ops-prometheus-1`([런북](../runbook.md)). Targets에서 `postgres`·`cadvisor`가 UP인지 본다 |
-| 3 | 시드 `00`~`05`를 넣고 `ANALYZE`, 불변식 0건, `09-cleanup` |
-| 4 | k6 데이터 파일을 뽑아 개발 PC의 `perf/k6/data/`에 둔다 |
-| 5 | 시나리오마다: `select pg_stat_statements_reset()` → k6 실행(`--summary-export results/{시나리오}.json`) → 아래 상위 20문장을 파일로 저장 → Grafana에서 실행 구간 패널 값 기록 → 2분 쉼 |
-| 6 | 순서는 S-01 → S-06 → S-02 → S-03. S-02가 만든 결제 대기 주문은 15분 뒤 만료 잡이 풀므로, S-03 전에 `select count(*) from orders.orders where status = 'PENDING_PAYMENT'`가 0이 될 때까지 기다린다 |
+| 1 | 1)·2)·3)과 `perf/`를 머지해 배포하고 확장을 만든다. Prometheus 설정이 바뀌었으면 `docker restart myroutine-ops-prometheus-1`([런북](../runbook.md)). Targets에서 `postgres`·`cadvisor`가 UP인지 본다 |
+| 2 | 사전 확인: `check.sql`을 돌려 결과를 저장한다(아래 명령). 충돌이 0이 아니면 멈춘다 |
+| 3 | Proxmox 스냅샷. 시드를 다시 넣거나 측정 뒤 원래대로 돌릴 때 여기로 되돌린다 |
+| 4 | 시드 `00`~`05`를 넣고, `check.sql`을 다시 돌려 불변식 0건과 잡 대상이 시드 전과 같은지 본다. 맞으면 `99-cleanup.sql` |
+| 5 | k6 데이터 파일을 뽑아 개발 PC의 `perf/k6/data/`에 두고, `mkdir -p perf/k6/results`(아래 명령) |
+| 6 | 시나리오마다: `select pg_stat_statements_reset()` → k6 실행(`--summary-export results/{시나리오}.json`) → 아래 상위 20문장을 파일로 저장 → Grafana에서 실행 구간 패널 값 기록 → 2분 쉼 |
+| 7 | 순서는 S-01 → S-06 → S-02 → S-03. S-02가 만든 결제 대기 주문은 15분 뒤 만료 잡이 풀므로, S-03 전에 `select count(*) from orders.orders where status = 'PENDING_PAYMENT'`가 시드 전 값으로 돌아올 때까지 기다린다 |
+
+기존 운영 데이터는 지우지 않고 그 위에 시드를 넣는다. 수백 건 규모라 측정에 주는 영향이 작고, 관리자 계정(S2-1b의 S-05가 쓴다)이 남아야 하며, 스냅샷으로 되돌릴 수 있다. 시드 전 테이블별 건수를 리포트에 적는다.
+
+VM의 리포 체크아웃(러너 작업 폴더)에서 실행한다. `PASSWORD_HASH`는 DB 비밀번호가 아니라 시드 회원의 로그인 비밀번호 `Seed1234!`를 BCrypt로 해시한 값이다. 개발 PC에서 `htpasswd -bnBC 10 "" 'Seed1234!' | tr -d ':\n'`로 만든다. 시드는 이 해시를 모든 회원의 `password_hash`에 넣고, k6는 평문 `Seed1234!`로 로그인한다. DB 비밀번호는 필요 없다(컨테이너 안의 `psql`은 비밀번호를 묻지 않는다).
+
+```bash
+cd ~/actions-runner/_work/myroutine-v2/myroutine-v2
+PG='docker exec -i myroutine-ops-postgres-1 sh -c'
+PASSWORD_HASH='$2y$10$...'
+
+# 2·4. 사전·사후 확인 (결과를 파일로 남긴다)
+$PG 'psql -U "$POSTGRES_USER" -d my_routine -f -' < perf/seed/check.sql | tee ~/seed-check-before.txt
+
+# 4. 시드 (00~05, 실패하면 멈춘다)
+for f in perf/seed/0*.sql; do
+  echo "== $f"
+  $PG 'psql -U "$POSTGRES_USER" -d my_routine -v ON_ERROR_STOP=1 \
+       -v n_member=1000000 -v n_shop=10000 -v n_product=1000000 -v n_order=10000000 -v password_hash="$0" -f -' "$PASSWORD_HASH" < "$f" || break
+done 2>&1 | tee ~/seed-run.txt
+
+$PG 'psql -U "$POSTGRES_USER" -d my_routine -f -' < perf/seed/check.sql | tee ~/seed-check-after.txt
+$PG 'psql -U "$POSTGRES_USER" -d my_routine -f -' < perf/seed/99-cleanup.sql
+```
+
+- 해시는 `sh -c`의 첫 인자(`$0`)로 넘긴다. 해시에 `$`가 들어 있어 명령 문자열 안에 직접 넣으면 셸이 값을 바꾼다.
+- 시드는 두 번 넣을 수 없다(이메일·닉네임 유일 제약). 다시 넣으려면 3의 스냅샷으로 되돌린다.
+- 파일마다 `\timing on`이라 문장별 시간이 `seed-run.txt`에 남는다. 전체 규모의 소요 시간은 확인하지 못했다(1/100 규모는 로컬에서 16초). 리포트에 적는다.
+- k6 데이터 파일은 VM에서 뽑아 개발 PC로 옮긴다. 쿼리는 4)의 "k6가 읽는 데이터 파일"과 같다.
+
+```bash
+# VM
+$PG 'psql -U "$POSTGRES_USER" -d my_routine -tA' > ~/product-ids.json <<'SQL'
+select json_agg(id) from (select id from product.product where status = 'ON_SALE' and name not like 'k6 %' order by random() limit 100000) t;
+SQL
+$PG 'psql -U "$POSTGRES_USER" -d my_routine -tA' > ~/seller-products.json <<'SQL'
+select json_agg(json_build_object('shopId', s.id, 'productId', p.id))
+from product.product p join shop.shop s on s.id = p.shop_id join member.member m on m.id = s.member_id
+where m.email = 'u1@seed.test' and p.status = 'ON_SALE' and p.name not like 'k6 %';
+SQL
+
+# 개발 PC
+mkdir -p perf/k6/data perf/k6/results
+scp {VM}:~/product-ids.json {VM}:~/seller-products.json perf/k6/data/
+```
+
+- `results/` 폴더가 없으면 k6는 측정을 끝까지 돈 뒤 요약 JSON만 저장하지 못한다(`could not open 'results/...json'`). 실행 전에 만든다.
+- `check.sql`의 불변식 8개는 [`InvariantChecker`](../../src/test/java/com/myroutine/support/InvariantChecker.java)의 쿼리를 옮긴 것이다. `InvariantChecker`를 고치면 이 파일도 고친다.
 
 ```sql
 select calls, round(total_exec_time::numeric) total_ms, round(mean_exec_time::numeric, 2) mean_ms,
@@ -538,9 +588,9 @@ order by total_exec_time desc limit 20;
 | slow query가 남는다 | `select pg_sleep(0.15)` 뒤 Postgres 컨테이너 로그 | `duration: 150.xxx ms  statement: select pg_sleep(0.15)` 한 줄 |
 | exporter를 수집한다 | Prometheus Targets | `postgres`, `cadvisor`, `myroutine` 모두 UP |
 | 컨테이너별 CPU가 보인다 | "성능 측정" 대시보드의 컨테이너 CPU 패널 | app과 postgres 두 줄 |
-| 시드 건수 | `orders.orders` 1,000만, `orders.order_line` 약 2,500만, `product.product` 100만(+전용 101), `member.member` 100만(+전용 1,100) | 규모 표와 같다 |
-| 시드가 불변식을 지킨다 | `InvariantChecker`의 쿼리 8개 | 모두 0건 |
-| 잡이 시드를 처리하지 않는다 | `select count(*) from orders.orders where status in ('PENDING_PAYMENT', 'PAYMENT_IN_PROGRESS')`, `select count(*) from orders.shop_order where status = 'DELIVERED'`(측정 시작 전) | 둘 다 0 |
+| 시드 건수 | `check.sql`의 테이블별 건수(시드 후 - 시드 전) | `orders.orders` 1,000만, `orders.order_line` 2,500만, `product.product` 100만 101, `member.member` 100만 1,100 |
+| 시드가 불변식을 지킨다 | `check.sql`(시드 뒤) | 불변식 8개 모두 0건 |
+| 잡이 시드를 처리하지 않는다 | `check.sql`의 잡 대상 두 값(시드 전·후) | 시드 전과 같다(시드는 잡 대상 0건) |
 | S-03 초과판매가 없다 | S-03 요약의 `checkout_succeeded`, `k6 인기 상품`의 `product.stock` | 100, `available 0, reserved 100` |
 | S-01·S-02·S-06이 끝까지 돈다 | 각 요약의 `http_req_failed`, S-06의 `dropped_iterations` | 실패율과 버린 반복이 기록된다(합격 여부는 리포트에 적는다. Baseline은 기준을 넘지 못해도 완료다) |
 | 리포트 | `docs/perf/s2-1a-baseline.md` | 환경(커밋 sha, VM, 앱 1개, 시드 건수, 대기 없는 VU), 시나리오별 p50·p95·p99·처리량·에러율, 상위 쿼리, S2-2·S2-5 후보 |
