@@ -563,6 +563,8 @@ mkdir -p perf/k6/data perf/k6/results
 scp {VM}:~/product-ids.json {VM}:~/seller-products.json perf/k6/data/
 ```
 
+- 측정 시각: 시드가 커진 테이블을 훑는 스케줄 잡과 겹치지 않게 한다. 재고 점검 잡(`StockCheckJob`)은 매일 05:00에 상품 100만 건의 입고 이력을 합산하고, 정산 잡(`SettlementJob`)은 매달 5일 03:00에 지난달을 정산한다. 자동확정 잡(매시 정각)은 `idx_shop_order_status_delivered_at`으로 `DELIVERED`만 읽어 시드 규모의 영향이 작다.
+- 배경 부하: 앱의 지표 수집기는 30초마다 DB를 센다. `PaymentMetrics`의 `count(*) ... where status = 'UNKNOWN'`은 `payment.payment`에 `status` 인덱스가 없어 시드 뒤 결제 900만 건을 훑을 것으로 예상한다(VM에서 확인 필요). 이런 문장이 상위 20문장에 나오면 k6 요청이 만든 부하와 구분해 리포트에 적고, S2-2 후보로 둔다.
 - `results/` 폴더가 없으면 k6는 측정을 끝까지 돈 뒤 요약 JSON만 저장하지 못한다(`could not open 'results/...json'`). 실행 전에 만든다.
 - `check.sql`의 불변식 8개는 [`InvariantChecker`](../../src/test/java/com/myroutine/support/InvariantChecker.java)의 쿼리를 옮긴 것이다. `InvariantChecker`를 고치면 이 파일도 고친다.
 
