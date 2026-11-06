@@ -689,22 +689,44 @@ JPQL은 `(p.createdAt, p.id) < (:cursorCreatedAt, :cursorId)`로 쓴다. Hiberna
 - 결과는 OR 형태와 같다. `created_at`이 null이면 두 형태 모두 참이 아니라서 빠진다. `deliveredAt`은 같은 쿼리의 `so.deliveredAt < :before`가 null을 이미 거른다.
 - 성능은 상품 목록만 잰다. 나머지는 맞는 인덱스가 없거나(결제·알림·환불·정산의 상태별 관리자 목록, 상태를 생략한 문의 목록) 키 하나에 행이 적어서(회원의 주문은 시드에서 평균 10건) 결과는 같고 이득은 작다. 리포트에 그렇게 적는다.
 
-**3) 측정**: Baseline과 같은 VM, 같은 스냅샷에서 잰다([5.2의 6) 측정 절차](#52-할-일)). VM 명령은 리포 체크아웃(`~/actions-runner/_work/myroutine-v2/myroutine-v2`)에서 실행하고, `PG`는 5.2와 같다.
+**3) 측정**: Baseline과 같은 VM, 같은 데이터에서 잰다. 지난 측정 뒤 `seed_vacuumed`로 되돌린 다음 데이터를 쓰는 측정(체크아웃 등)을 하지 않았으면 되돌리지 않는다. S-01은 읽기만 하고 이번 변경에는 마이그레이션이 없어서, 되돌린 뒤 다시 배포해도 같은 상태가 된다. 데이터가 같은지는 아래 EXPLAIN의 OR 결과가 Baseline과 같은 `Rows Removed by Filter: 6001`인지로 본다.
 
 | 순서 | 할 일 |
 |---|---|
-| 1 | PR을 develop에 머지한다. 자동 배포가 끝날 때까지 기다린다 |
-| 2 | VM을 `seed_vacuumed`로 되돌린다. 스냅샷에는 Baseline 때 배포된 앱(`f2a6a8c`)이 들어 있다 |
-| 3 | 아래 EXPLAIN 세 개를 뜬다. 손으로 쓴 SQL이라 앱 버전과 관계없다 |
-| 4 | GitHub Actions의 CD 워크플로를 수동 실행(`workflow_dispatch`)해 1의 머지 커밋 sha를 배포한다. `cat /opt/myroutine/deployed-sha`로 확인한다 |
-| 5 | S-01 연결 확인(VU 10, 30초)으로 캐시를 데운다 |
-| 6 | `pg_stat_statements_reset()` → S-01(`MAX_PAGES` 기본 10) → 상위 20문장 |
-| 7 | `pg_stat_statements_reset()` → S-01(`-e MAX_PAGES=100000`) → 상위 20문장 |
+| 1 | PR을 develop에 머지하고 자동 배포가 끝날 때까지 기다린다. VM에서 `cat /opt/myroutine/deployed-sha`가 머지 커밋 sha인지 본다 |
+| 2 | 준비와 EXPLAIN(아래 VM 명령) |
+| 3 | S-01 연결 확인(VU 10, 30초)으로 캐시를 데운다 |
+| 4 | `pg_stat_statements_reset()` → S-01(`MAX_PAGES` 기본 10) → 상위 20문장 저장 → Grafana 화면 → 2분 쉼 |
+| 5 | `pg_stat_statements_reset()` → S-01(`-e MAX_PAGES=100000`) → 상위 20문장 저장 → Grafana 화면 |
+| 6 | 결과 파일을 개발 PC로 옮긴다 |
 
-EXPLAIN은 Baseline과 같은 커서 값을 쓴다(`perf/k6/results/vm/s01-explain.txt`의 `Filter`에 있는 값). 스냅샷 데이터가 같으므로 같은 위치다. 세 번째는 앱처럼 prepared statement가 범용 계획(값을 모른 채 만든 계획)으로 바뀐 경우다. `:category is null or ...` 조건이 이때 인덱스 조건에서 빠지는지 본다.
+VM 명령은 `runner` 사용자로 리포 체크아웃에서 실행한다. ssh로 들어오는 `vmadmin`은 `runner`의 홈과 `/opt/myroutine`을 읽지 못한다. 결과는 `/tmp/s2-2/`에 저장해, `vmadmin`으로 접속하는 scp가 복사 없이 바로 가져가게 한다(`runner`가 만든 파일은 다른 사용자도 읽을 수 있다). `/tmp`는 VM을 재부팅하면 비므로 측정이 끝나면 바로 옮긴다.
 
 ```bash
-$PG 'psql -U "$POSTGRES_USER" -d my_routine -f -' <<'SQL' | tee ~/s2-2-explain.txt
+sudo -iu runner
+cd ~/actions-runner/_work/myroutine-v2/myroutine-v2
+PG='docker exec -i myroutine-ops-postgres-1 sh -c'
+OUT=/tmp/s2-2
+mkdir -p $OUT && chmod 755 $OUT
+
+# 돌고 있는 vacuum이 없는지 (빈 결과여야 한다)
+$PG 'psql -U "$POSTGRES_USER" -d my_routine -c "select relid::regclass, phase from pg_stat_progress_vacuum"'
+
+# 상위 20문장 SQL (5.2와 같다). 4·5의 저장 명령이 이 파일을 읽는다
+cat > $OUT/top20.sql <<'SQL'
+select calls, round(total_exec_time::numeric) total_ms, round(mean_exec_time::numeric, 2) mean_ms,
+       round((100 * total_exec_time / sum(total_exec_time) over ())::numeric, 1) pct, rows,
+       left(regexp_replace(query, '\s+', ' ', 'g'), 200) query
+from pg_stat_statements
+where dbid = (select oid from pg_database where datname = current_database())
+order by total_exec_time desc limit 20;
+SQL
+```
+
+EXPLAIN은 Baseline과 같은 커서 값을 쓴다(`perf/k6/results/vm/s01-explain.txt`의 `Filter`에 있는 값). 첫 실행은 캐시가 비어 있을 수 있어 따로 남기고, 두 번째 결과를 비교에 쓴다.
+
+```bash
+cat > $OUT/explain.sql <<'SQL'
 \echo === OR
 explain (analyze, buffers)
 select p.id, p.shop_id, p.name, p.category, p.price, p.status, p.thumbnail_key, p.created_at, s.available, s.reserved, s.sold, s.received
@@ -719,30 +741,48 @@ from product.product p join product.stock s on s.product_id = p.id
 where p.status = 'ON_SALE' and p.category = 'FOOD'
   and (p.created_at, p.id) < ('2026-10-09 00:00:21.768007+00'::timestamptz, '01a11df5-f908-7a6d-ac95-87d049a3af0b'::uuid)
 order by p.created_at desc, p.id desc limit 21;
-\echo === 행 값 비교, 범용 계획
-set plan_cache_mode = force_generic_plan;
-prepare next_page(text, text, timestamptz, uuid, int) as
-select p.id, p.shop_id, p.name, p.category, p.price, p.status, p.thumbnail_key, p.created_at, s.available, s.reserved, s.sold, s.received
-from product.product p join product.stock s on s.product_id = p.id
-where p.status = $1 and ($2 is null or p.category = $2)
-  and (p.created_at, p.id) < ($3, $4)
-order by p.created_at desc, p.id desc limit $5;
-explain (analyze, buffers) execute next_page('ON_SALE', 'FOOD', '2026-10-09 00:00:21.768007+00', '01a11df5-f908-7a6d-ac95-87d049a3af0b', 21);
 SQL
+
+$PG 'psql -U "$POSTGRES_USER" -d my_routine -f -' < $OUT/explain.sql > $OUT/s2-2-explain-cold.txt
+$PG 'psql -U "$POSTGRES_USER" -d my_routine -f -' < $OUT/explain.sql | tee $OUT/s2-2-explain.txt
 ```
 
-k6는 개발 PC의 `perf/k6`에서 실행한다. `{VM IP}`는 Baseline 때와 같은 주소다.
+k6는 개발 PC의 `perf/k6`에서 실행한다. `{VM IP}`는 Baseline 때와 같은 주소다. macOS 터미널의 열린 파일 수 한도가 300 VU의 연결 수보다 작을 수 있어, 같은 터미널에서 `ulimit -n 10000`을 먼저 실행한다(창마다 다시 한다).
 
 ```bash
+ulimit -n 10000
+cd perf/k6
+
+# 3. 데우기
 k6 run -e BASE_URL=http://{VM IP}:8080 -e VUS=10 -e RAMP=0s -e HOLD=30s s01-product-read.js
+
+# 4. VM에서 reset 뒤
 k6 run -e BASE_URL=http://{VM IP}:8080 --summary-export results/s2-2-s01.json s01-product-read.js | tee results/s2-2-s01.txt
+
+# 5. VM에서 reset 뒤
 k6 run -e BASE_URL=http://{VM IP}:8080 -e MAX_PAGES=100000 --summary-export results/s2-2-s01-deep.json s01-product-read.js | tee results/s2-2-s01-deep.txt
 ```
 
-- 범용 계획에서는 `category`가 인덱스 조건에서 빠져, 카테고리 6개 기준으로 행을 약 6배 더 읽을 수 있다(로컬 실험에서 20행을 위해 84행을 버림). 이 비용은 페이지 깊이와 관계없이 일정하다. 앱이 실제로 어느 계획을 쓰는지는 EXPLAIN으로 알 수 없으므로, 6·7의 `pg_stat_statements` 평균 시간도 함께 본다. 이번 단계에서 고치지 않고 리포트에 기록만 한다.
-- 7의 깊은 페이지 측정은 Baseline에서 처리량이 시간에 따라 떨어졌다. 고친 뒤에는 처리량이 측정 내내 일정해야 한다. Grafana의 DB 트랜잭션/초와 postgres CPU 패널로 본다.
+4·5의 VM 명령(`runner`, 위의 `PG`·`OUT`이 설정된 셸):
 
-**4) 리포트에 넘길 것**: `~/s2-2-explain.txt`, k6 요약 두 개(`results/s2-2-s01*.json`), 6·7 뒤의 상위 20문장, 7의 Grafana 화면(트랜잭션/초, postgres CPU, 커넥션), 배포한 sha.
+```bash
+# k6 실행 전
+$PG 'psql -U "$POSTGRES_USER" -d my_routine -c "select pg_stat_statements_reset()"'
+
+# k6가 끝나자마자 (4는 s2-2-s01-top20.txt, 5는 s2-2-s01-deep-top20.txt)
+$PG 'psql -U "$POSTGRES_USER" -d my_routine -f -' < $OUT/top20.sql > $OUT/s2-2-s01-top20.txt
+```
+
+6의 개발 PC 명령:
+
+```bash
+scp '{VM}:/tmp/s2-2/s2-2-*.txt' perf/k6/results/vm/
+ls perf/k6/results/vm/ | grep s2-2    # 네 개
+```
+
+- 5의 깊은 페이지 측정은 Baseline에서 처리량이 시간에 따라 떨어졌다. 고친 뒤에는 처리량이 측정 내내 일정해야 한다. Grafana의 DB 트랜잭션/초와 postgres CPU 패널로 본다.
+
+**4) 리포트에 넘길 것**: `perf/k6/results/vm/`의 `s2-2-` 파일 네 개(EXPLAIN 두 개, 상위 20문장 두 개), k6 요약 두 개(`results/s2-2-s01*.json`), 4·5의 Grafana 화면(트랜잭션/초, postgres CPU, 커넥션), 배포한 sha.
 
 ### 6.3 완료 확인
 
@@ -766,9 +806,9 @@ k6 run -e BASE_URL=http://{VM IP}:8080 -e MAX_PAGES=100000 --summary-export resu
 | 테스트 10개가 고치기 전에 통과한다 | OR 형태 그대로 `./gradlew test` | 통과(테스트가 맞게 쓰였는지 확인) |
 | 동작이 같다 | 쿼리 16개를 바꾼 뒤 `./gradlew test` | 전체 통과 |
 | OR이 남지 않았다 | 표 아래 명령 | 0줄 |
-| 인덱스에서 바로 찾아간다 | `~/s2-2-explain.txt`의 "행 값 비교" | 커서 조건이 `Index Cond`에 있고 `Rows Removed by Filter`가 없다. Baseline은 6,001행, 18.9ms |
-| 깊은 페이지에서 처리량이 일정하다 | 7의 k6 요약과 Grafana | 처리량이 측정 내내 일정하다. Baseline은 초당 1,637건이었고 2,600건에서 1,000건으로 떨어졌다 |
-| 리포트 | `docs/perf/s2-2-cursor.md` | 바꾸기 전후 EXPLAIN, S-01 두 측정의 처리량·p95·다음 페이지 쿼리 평균 시간을 Baseline과 비교, 범용 계획 결과 |
+| 인덱스에서 바로 찾아간다 | `s2-2-explain.txt`의 "행 값 비교" | 커서 조건이 `Index Cond`에 있고 `Rows Removed by Filter`가 없다. Baseline은 6,001행, 18.9ms |
+| 깊은 페이지에서 처리량이 일정하다 | 5의 k6 요약과 Grafana | 처리량이 측정 내내 일정하다. Baseline은 초당 1,637건이었고 2,600건에서 1,000건으로 떨어졌다 |
+| 리포트 | `docs/perf/s2-2-cursor.md` | 바꾸기 전후 EXPLAIN, S-01 두 측정의 처리량·p95·다음 페이지 쿼리 평균 시간을 Baseline과 비교 |
 
 ```bash
 grep -rnE "(createdAt|created_at|deliveredAt|delivered_at) [<>] :[a-zA-Z]+ (or|OR) \(" src/main/java
@@ -780,4 +820,3 @@ grep -rnE "(createdAt|created_at|deliveredAt|delivered_at) [<>] :[a-zA-Z]+ (or|O
 - 목록마다 `<`와 `>` 중 무엇을 쓸지는 무엇을 보고 정하는가?
 - 테스트를 쿼리보다 먼저 넣은 이유는? 고치기 전에 통과를 확인하지 않으면 무엇을 놓치는가?
 - MAX_PAGES 10 측정에서는 처리량이 크게 바뀌지 않을 수 있다. 왜 그런가?
-- 범용 계획에서 `category`가 인덱스 조건에서 빠지면 비용이 페이지 깊이에 따라 늘어나는가?
