@@ -1,6 +1,9 @@
 # Stage 2 준비: 측정 환경 · 시드 데이터 · k6 시나리오
 
-> 버전 0.5 · 2026-11-06 · S2-1a 단계 규격(5절)을 더했다. VU 시나리오는 대기 시간 없이 돌리고, S-02는 회원마다 다른 상품을 주문하며, 구매확정 품목마다 정산 대상 품목을 넣는다
+> 버전 0.8 · 2026-11-07 · S2-3 커넥션 풀과 예약 작업 스레드를 꼭 하는 단계로 올렸다(Baseline에서 커넥션 풀이 가득 차고, 메일 작업이 다른 예약 작업을 막음). S2-3 첫 작업은 측정용 가짜 메일 발송기
+> 0.7 · 2026-11-06 · S-06은 409 `CONFLICT_RETRY`를 실패에서 뺀다. S-03은 스냅샷으로 되돌린 뒤 재고, S-02·S-03 뒤 15분 안에 앱을 멈춘다(만료 알림 메일)
+> 0.6 · 2026-11-06 · S-01은 VU마다 한 카테고리를 최대 10페이지까지만 이어 읽는다
+> 0.5 · 2026-11-06 · S2-1a 단계 규격(5절)을 더했다. VU 시나리오는 대기 시간 없이 돌리고, S-02는 회원마다 다른 상품을 주문하며, 구매확정 품목마다 정산 대상 품목을 넣는다
 > 0.4 · 2026-11-06 · S2-1을 S2-1a(시드·지표 수집·S-01·02·03·06)와 S2-1b(S-04·05·07)로 나눴다. 시드 주문은 스케줄 잡의 대상 상태를 0건으로 넣고, DB·컨테이너 지표는 postgres_exporter와 cAdvisor로 수집한다
 > 0.3 · 2026-11-06 · 측정 환경(운영 VM), 시드 규모, 부하 값을 확정했다
 > 0.2 · 2026-11-06 · 시나리오 실행 순서와 개선 실험 우선순위를 정했다. S2-8 샤딩은 하지 않고, 재고 이력 3,000만 건은 S2-7을 할 때만 넣는다
@@ -28,7 +31,7 @@ Stage 2 개선 단위(S2-1~S2-7)의 개요는 [아키텍처 진화](../02-design
 - k3s로 옮기면 Baseline을 다시 잰다([ADR-012](../adr/ADR-012-kubernetes-zero-downtime.md)).
 - VM 메모리나 디스크가 모자라면 Baseline을 재기 전에 MinIO를 [NAS로 옮긴다](../ops/nas-minio.md).
 
-디스크: 1/100 규모 시드가 `VACUUM FULL` 뒤 266MB였다. 전체 규모는 약 27GB로 추정하고, 적재 중에는 작업 테이블과 WAL이 더 쓴다. VM 디스크 100GB 안에 들지만 넣으면서 `pg_database_size`로 본다.
+디스크: 1/100 규모 시드가 `VACUUM FULL` 뒤 266MB였고, 전체 규모는 넣은 직후 `pg_database_size` 37GB였다(작업 테이블 포함, 1/100 규모를 100배 한 추정보다 크다). 적재 중에는 WAL이 더 쓴다. VM 디스크 100GB 안에 든다.
 
 ## 2. 시드 데이터
 
@@ -102,7 +105,8 @@ VU 시나리오는 램프업 1분 뒤 5분 유지한다. VU는 응답을 받자�
 |---|---|---|
 | 꼭 한다 | S2-5 재고 차감 방식 비교 | 조건부 UPDATE, `FOR UPDATE`, Redis 차감을 같은 조건에서 비교한다([ADR-008](../adr/ADR-008-inventory-reservation.md)). 지금 고른 방식의 성능 근거가 여기서 나온다 |
 | 꼭 한다 | S2-2 쿼리 튜닝, 인덱스 설계 검증 | 느린 쿼리를 찾아 고치고, 인덱스의 읽기 이득과 쓰기 비용을 함께 잰다 |
-| 여유가 있으면 한다 | S2-3 커넥션·스레드 | 플랫폼 스레드와 가상 스레드를 비교한다. 차이가 없으면 그 이유를 기록한다 |
+| 꼭 한다 | S2-3 커넥션 풀과 예약 작업 스레드 | 첫 작업으로, 측정 중 시드 회원의 가짜 주소(`@seed.test`)로 메일이 실제로 나가지 않게 설정값 하나로 고르는 가짜 메일 발송기를 둔다. 보내지 않고 로그만 남기되 실제 발송처럼 정해진 시간(Baseline에서 잰 한 통 약 3초)을 기다려, 메일 작업이 다른 예약 작업을 막는 상황이 그대로 재현되게 한다(그냥 끄면 메일 작업이 0초에 끝나 고치기 전후를 비교할 수 없다). Baseline의 상품 조회·체크아웃·인기 상품 측정 모두 커넥션 10개가 가득 찼다. 쿼리 튜닝 뒤 풀 크기를 바꿔 가며 재서 DB CPU가 한계에 닿는 지점을 찾는다. 또 `@Scheduled` 작업이 한 번에 하나만 돌아 메일 발송(한 번에 약 5분)이 만료·outbox 릴레이를 막았으므로, 동시에 도는 작업 수를 늘리고 메일이 쌓인 상태에서 만료가 1분마다 도는지 확인한다. 플랫폼 스레드와 가상 스레드 비교는 여유가 있으면 한다 |
+| 꼭 할 셋 뒤에 여유가 있으면 한다 | outbox 릴레이 지연 | Baseline에서 이벤트 지연 p95 1.5초(기준 1초 실패). 릴레이의 쉬는 시간(`fixedDelay = 1000`)을 줄이고, 한 건씩 `.get()`으로 기다리던 발송을 묶음을 먼저 다 보낸 뒤 응답을 한꺼번에 기다리는 방식으로 바꾼다. `.get()`을 그냥 빼면 Kafka가 받기 전에 발송 완료로 표시되어 실패한 이벤트를 잃으므로, 응답을 받은 것만 발송 완료로 표시한다 |
 | 측정에서 필요가 드러나면 한다 | S2-4 캐시, S2-6 Read Replica, S2-7 파티셔닝 | S2-6은 같은 물리 서버라 처리량 이득을 말할 수 없고 복제 지연 대응만 남는다. S2-7은 시드 비용이 크다 |
 | 하지 않는다 | 샤딩 | 물리 서버 한 대에서는 쓰기 한계를 제대로 보여 주기 어렵다 |
 
@@ -130,7 +134,7 @@ VU 시나리오는 램프업 1분 뒤 5분 유지한다. VU는 응답을 받자�
 | 태그와 하위 지표 | 요청에 `tags: { name: 'detail' }`을 붙이면 `http_req_duration{name:detail}`로 따로 볼 수 있다. 하위 지표는 `thresholds`에 적은 것만 요약에 나온다. 기준 없이 보기만 하려면 빈 배열 `[]`을 적는다 | |
 | `thresholds` | 지표의 합격 조건. 하나라도 어기면 요약에 ✗가 찍히고 k6의 종료 코드가 0이 아니다 | NFR 합격 기준 |
 | `check` | 응답 검사. 실패해도 실행은 계속되고 `checks` 비율로 센다 | |
-| `http_req_failed` | 기대한 상태 코드가 아닌 응답의 비율. 기본은 200~399가 성공이다. `http.setResponseCallback(http.expectedStatuses(201, 422))`로 바꿀 수 있다 | S-03은 422 `OUT_OF_STOCK`도 기대한 응답이다 |
+| `http_req_failed` | 기대한 상태 코드가 아닌 응답의 비율. 기본은 200~399가 성공이다. `http.setResponseCallback(http.expectedStatuses(200, 201, 422))`로 바꿀 수 있다. 이 설정은 스크립트의 모든 요청에 적용되므로 `setup()`의 로그인·조회(200)도 넣어야 한다 | S-03은 422 `OUT_OF_STOCK`도 기대한 응답이다 |
 | `http.batch` | 요청 여러 개를 한 VU에서 병렬로 보낸다 | S-03 `setup`의 로그인 1,000건 |
 | `crypto.randomUUID()` | import 없이 쓰는 전역 함수 | `Idempotency-Key` |
 | `-e KEY=값`, `__ENV.KEY` | 실행할 때 값을 넘긴다 | 주소, VU 수, 시간 |
@@ -268,6 +272,7 @@ import { SharedArray } from 'k6/data';
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
 const VUS = Number(__ENV.VUS || 300);
+const MAX_PAGES = Number(__ENV.MAX_PAGES || 10);
 const CATEGORIES = ['FOOD', 'HEALTH', 'BEAUTY', 'LIVING', 'PET', 'ETC'];
 const productIds = new SharedArray('productIds', () => JSON.parse(open('./data/product-ids.json')));
 
@@ -293,14 +298,20 @@ export const options = {
 
 let cursor = null;
 let category = null;
+let page = 0;
 
 export default function () {
   if (Math.random() < 0.3) {
-    if (cursor === null) category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
+    if (cursor === null || page === MAX_PAGES) {
+      category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
+      cursor = null;
+      page = 0;
+    }
     const query = `category=${category}&size=20` + (cursor ? `&cursor=${encodeURIComponent(cursor)}` : '');
     const res = http.get(`${BASE_URL}/api/products?${query}`, { tags: { name: 'list' } });
     check(res, { 'list 200': (r) => r.status === 200 });
     cursor = res.status === 200 ? res.json('nextCursor') : null;
+    page += 1;
   } else {
     const id = productIds[Math.floor(Math.random() * productIds.length)];
     const res = http.get(`${BASE_URL}/api/products/${id}`, { tags: { name: 'detail' } });
@@ -309,7 +320,7 @@ export default function () {
 }
 ```
 
-- `cursor`·`category`는 VU마다 따로 있는 변수라, 한 VU가 같은 카테고리의 다음 페이지를 이어 읽다가 마지막 페이지(`nextCursor`가 `null`)에서 새 카테고리로 돌아간다. 앞쪽 페이지만 읽으면 keyset 페이징의 깊은 페이지 비용이 드러나지 않는다.
+- `cursor`·`category`·`page`는 VU마다 따로 있는 변수라, 한 VU가 같은 카테고리의 다음 페이지를 이어 읽다가 `MAX_PAGES`(기본 10)페이지를 읽거나 마지막 페이지(`nextCursor`가 `null`)에 닿으면 새 카테고리의 첫 페이지로 돌아간다. 상한이 없으면 VU가 측정 내내 더 깊이 들어가(6분에 약 600페이지) 커서 비용이 깊이에 비례하는 쿼리에서는 처리량이 시간에 따라 떨어지고, 결과가 측정 시간에 따라 달라진다. 깊은 페이지 비용을 따로 볼 때는 `-e MAX_PAGES=100000`처럼 상한을 사실상 없앤다.
 
 `s02-checkout.js`:
 
@@ -386,7 +397,7 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const succeeded = new Counter('checkout_succeeded');
 const outOfStock = new Counter('checkout_out_of_stock');
 
-http.setResponseCallback(http.expectedStatuses(201, 422));
+http.setResponseCallback(http.expectedStatuses(200, 201, 422));
 
 export const options = {
   setupTimeout: '10m',
@@ -449,10 +460,14 @@ export default function (data) {
 import http from 'k6/http';
 import { check } from 'k6';
 import { SharedArray } from 'k6/data';
+import { Counter } from 'k6/metrics';
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const products = new SharedArray('sellerProducts', () => JSON.parse(open('./data/seller-products.json')));
+const conflicts = new Counter('update_conflict');
+
+http.setResponseCallback(http.expectedStatuses(200, 409));
 
 export const options = {
   scenarios: {
@@ -469,6 +484,7 @@ export const options = {
     'http_req_duration{name:update}': [],
     'http_req_failed{name:update}': ['rate<0.001'],
     dropped_iterations: ['count==0'],
+    update_conflict: [],
   },
   summaryTrendStats: ['avg', 'med', 'p(95)', 'p(99)', 'max'],
 };
@@ -485,7 +501,9 @@ export default function (data) {
   const res = http.patch(`${BASE_URL}/api/shops/${p.shopId}/products/${p.productId}`,
     JSON.stringify({ price: 1000 * (1 + Math.floor(Math.random() * 99)) }),
     { headers: { ...JSON_HEADERS, Authorization: `Bearer ${data.token}` }, tags: { name: 'update' } });
-  check(res, { 'update 200': (r) => r.status === 200 });
+  if (res.status !== 200 && res.status !== 409) console.log(`status=${res.status} error=${res.error} code=${res.error_code}`);
+  if (res.status === 409 && res.json('code') === 'CONFLICT_RETRY') conflicts.add(1);
+  check(res, { '200 or CONFLICT_RETRY': (r) => r.status === 200 || (r.status === 409 && r.json('code') === 'CONFLICT_RETRY') });
 }
 
 export function teardown(data) {
@@ -493,6 +511,7 @@ export function teardown(data) {
 }
 ```
 
+- 상품 90개를 초당 20건씩 무작위로 고르므로 같은 상품을 동시에 고치는 요청이 생기고, 늦은 쪽은 낙관적 락 충돌로 409 `CONFLICT_RETRY`를 받는다(VM에서 6,000건 중 14건). 설계대로의 응답이라 실패가 아니라 `update_conflict`로 센다. 그 밖의 응답은 `console.log`로 남긴다.
 - 가격 변경 한 건이 `product-upserted`와 `product-price-changed` 두 이벤트를 만든다(값이 같으면 가격 변경 이벤트는 없다). `teardown`이 찍는 시각 구간으로 아래 SQL을 돌린다.
 
 ```sql
@@ -514,10 +533,10 @@ group by rollup(topic);
 | 1 | 1)·2)·3)과 `perf/`를 머지해 배포하고 확장을 만든다. Prometheus 설정이 바뀌었으면 `docker restart myroutine-ops-prometheus-1`([런북](../runbook.md)). Targets에서 `postgres`·`cadvisor`가 UP인지 본다 |
 | 2 | 사전 확인: `check.sql`을 돌려 결과를 저장한다(아래 명령). 충돌이 0이 아니면 멈춘다 |
 | 3 | Proxmox 스냅샷. 시드를 다시 넣거나 측정 뒤 원래대로 돌릴 때 여기로 되돌린다 |
-| 4 | 시드 `00`~`05`를 넣고, `check.sql`을 다시 돌려 불변식 0건과 잡 대상이 시드 전과 같은지 본다. 맞으면 `99-cleanup.sql` |
+| 4 | 시드 `00`~`05`를 넣고, `check.sql`을 다시 돌려 불변식 0건과 잡 대상이 시드 전과 같은지 본다. 시드 뒤 충돌 두 값은 시드가 넣은 행 수(회원 100만 1,100, 가게 1만)가 나오는 것이 정상이다. 맞으면 `99-cleanup.sql` → `vacuum (analyze)` → 다시 Proxmox 스냅샷 |
 | 5 | k6 데이터 파일을 뽑아 개발 PC의 `perf/k6/data/`에 두고, `mkdir -p perf/k6/results`(아래 명령) |
 | 6 | 시나리오마다: `select pg_stat_statements_reset()` → k6 실행(`--summary-export results/{시나리오}.json`) → 아래 상위 20문장을 파일로 저장 → Grafana에서 실행 구간 패널 값 기록 → 2분 쉼 |
-| 7 | 순서는 S-01 → S-06 → S-02 → S-03. S-02가 만든 결제 대기 주문은 15분 뒤 만료 잡이 풀므로, S-03 전에 `select count(*) from orders.orders where status = 'PENDING_PAYMENT'`가 시드 전 값으로 돌아올 때까지 기다린다 |
+| 7 | 순서는 S-01 → S-06 → S-02 → (4 끝의 스냅샷으로 되돌림, S-01 연결 확인으로 데움) → S-03 → 앱 정지 → 되돌림. 만료 잡은 1분마다 100건만 풀어 S-02가 만든 결제 대기 주문 수십만 건을 기다릴 수 없다. 또 결제 대기 주문은 15분 뒤 만료되며 알림을 만들고, 운영 앱(`prod`)은 그 알림을 시드 회원의 가짜 주소(`@seed.test`)로 Gmail SMTP를 통해 실제로 보낸다. 그래서 S-02·S-03 뒤에는 15분 안에 앱을 멈추거나 되돌린다 |
 
 기존 운영 데이터는 지우지 않고 그 위에 시드를 넣는다. 수백 건 규모라 측정에 주는 영향이 작고, 관리자 계정(S2-1b의 S-05가 쓴다)이 남아야 하며, 스냅샷으로 되돌릴 수 있다. 시드 전 테이블별 건수를 리포트에 적는다.
 
@@ -540,10 +559,15 @@ done 2>&1 | tee ~/seed-run.txt
 
 $PG 'psql -U "$POSTGRES_USER" -d my_routine -f -' < perf/seed/check.sql | tee ~/seed-check-after.txt
 $PG 'psql -U "$POSTGRES_USER" -d my_routine -f -' < perf/seed/99-cleanup.sql
+
+# 4. 대량 적재 뒤 정리 (끝날 때까지 기다린다)
+$PG 'psql -U "$POSTGRES_USER" -d my_routine -c "\timing on" -c "vacuum (analyze)"' 2>&1 | tee ~/seed-vacuum.txt
+$PG 'psql -U "$POSTGRES_USER" -d my_routine -c "select relid::regclass, phase from pg_stat_progress_vacuum"'
 ```
 
 - 해시는 `sh -c`의 첫 인자(`$0`)로 넘긴다. 해시에 `$`가 들어 있어 명령 문자열 안에 직접 넣으면 셸이 값을 바꾼다.
-- 시드는 두 번 넣을 수 없다(이메일·닉네임 유일 제약). 다시 넣으려면 3의 스냅샷으로 되돌린다.
+- 시드는 두 번 넣을 수 없다(이메일·닉네임 유일 제약). 다시 넣으려면 3의 스냅샷으로 되돌린다. 측정만 다시 하려면 4 끝의 스냅샷으로 되돌린다(S-02·S-03이 주문을 만들고 재고를 줄인다). RAM 없는 스냅샷이라 되돌리면 VM이 새로 부팅해 캐시가 비므로, S-01 연결 확인(VU 10, 30초)을 한 번 돌려 데운 뒤 같은 순서로 잰다.
+- `vacuum (analyze)`: 대량 INSERT 직후에는 행마다 "커밋됐는지" 표시(hint bit)와 가시성 맵이 비어 있어, 처음 읽는 쿼리가 페이지를 다시 쓰고 인덱스 전용 스캔도 테이블을 읽는다. 또 Postgres는 INSERT가 많이 쌓인 테이블에 autovacuum을 스스로 돌리는데, 이것이 측정 도중에 돌면 디스크 부하가 섞인다. 측정 전에 한 번 돌려 두고, `pg_stat_progress_vacuum`이 빈 것(돌고 있는 vacuum 없음)을 확인한 뒤 측정한다.
 - 파일마다 `\timing on`이라 문장별 시간이 `seed-run.txt`에 남는다. 전체 규모의 소요 시간은 확인하지 못했다(1/100 규모는 로컬에서 16초). 리포트에 적는다.
 - k6 데이터 파일은 VM에서 뽑아 개발 PC로 옮긴다. 쿼리는 4)의 "k6가 읽는 데이터 파일"과 같다.
 
@@ -564,7 +588,7 @@ scp {VM}:~/product-ids.json {VM}:~/seller-products.json perf/k6/data/
 ```
 
 - 측정 시각: 시드가 커진 테이블을 훑는 스케줄 잡과 겹치지 않게 한다. 재고 점검 잡(`StockCheckJob`)은 매일 05:00에 상품 100만 건의 입고 이력을 합산하고, 정산 잡(`SettlementJob`)은 매달 5일 03:00에 지난달을 정산한다. 자동확정 잡(매시 정각)은 `idx_shop_order_status_delivered_at`으로 `DELIVERED`만 읽어 시드 규모의 영향이 작다.
-- 배경 부하: 앱의 지표 수집기는 30초마다 DB를 센다. `PaymentMetrics`의 `count(*) ... where status = 'UNKNOWN'`은 `payment.payment`에 `status` 인덱스가 없어 시드 뒤 결제 900만 건을 훑을 것으로 예상한다(VM에서 확인 필요). 이런 문장이 상위 20문장에 나오면 k6 요청이 만든 부하와 구분해 리포트에 적고, S2-2 후보로 둔다.
+- 배경 부하: 앱의 지표 수집기는 30초마다 DB를 센다. `PaymentMetrics`의 `count(*) ... where status = 'UNKNOWN'`은 `payment.payment`에 `status` 인덱스가 없어 시드 뒤 결제 900만 건을 훑는다(VM에서 `count`·`min` 각각 한 번에 약 460ms). 이런 문장이 상위 20문장에 나오면 k6 요청이 만든 부하와 구분해 리포트에 적고, S2-2 후보로 둔다.
 - `results/` 폴더가 없으면 k6는 측정을 끝까지 돈 뒤 요약 JSON만 저장하지 못한다(`could not open 'results/...json'`). 실행 전에 만든다.
 - `check.sql`의 불변식 8개는 [`InvariantChecker`](../../src/test/java/com/myroutine/support/InvariantChecker.java)의 쿼리를 옮긴 것이다. `InvariantChecker`를 고치면 이 파일도 고친다.
 

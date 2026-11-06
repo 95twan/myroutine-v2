@@ -9,7 +9,7 @@ select n, ts, seed.uuid_v7(ts) id, (n - 1) % :n_shop + 1 shop_n,
        case ((n - 1) / :n_shop) % 20 when 0 then 'HIDDEN' when 1 then 'DISCONTINUED' else 'ON_SALE' end status,
        (array['유기농','프리미엄','데일리','저당','고단백','무첨가','순수','촉촉한','대용량','미니'])[n % 10 + 1] || ' ' ||
        (array['프로틴','비타민','샴푸','사료','커피','견과','유산균','마스크팩','세제','오메가3'])[(n / 10) % 10 + 1] || ' ' || n name,
-       (1 + (n * 7919) % 99) * 1000::bigint price
+       (1 + (n::bigint * 7919) % 99) * 1000 price
 from (select n, now() - random() * interval '730 days' ts from generate_series(1, :n_product) n) t;
 alter table seed.pm add primary key (n);
 

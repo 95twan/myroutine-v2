@@ -4,6 +4,7 @@ import { SharedArray } from 'k6/data';
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
 const VUS = Number(__ENV.VUS || 300);
+const MAX_PAGES = Number(__ENV.MAX_PAGES || 10);
 const CATEGORIES = ['FOOD', 'HEALTH', 'BEAUTY', 'LIVING', 'PET', 'ETC'];
 const productIds = new SharedArray('productIds', () => JSON.parse(open('./data/product-ids.json')));
 
@@ -29,14 +30,20 @@ export const options = {
 
 let cursor = null;
 let category = null;
+let page = 0;
 
 export default function () {
   if (Math.random() < 0.3) {
-    if (cursor === null) category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
+    if (cursor === null || page === MAX_PAGES) {
+      category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
+      cursor = null;
+      page = 0;
+    }
     const query = `category=${category}&size=20` + (cursor ? `&cursor=${encodeURIComponent(cursor)}` : '');
     const res = http.get(`${BASE_URL}/api/products?${query}`, { tags: { name: 'list' } });
     check(res, { 'list 200': (r) => r.status === 200 });
     cursor = res.status === 200 ? res.json('nextCursor') : null;
+    page += 1;
   } else {
     const id = productIds[Math.floor(Math.random() * productIds.length)];
     const res = http.get(`${BASE_URL}/api/products/${id}`, { tags: { name: 'detail' } });
