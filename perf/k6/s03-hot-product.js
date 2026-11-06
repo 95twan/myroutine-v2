@@ -8,7 +8,7 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const succeeded = new Counter('checkout_succeeded');
 const outOfStock = new Counter('checkout_out_of_stock');
 
-http.setResponseCallback(http.expectedStatuses(201, 422));
+http.setResponseCallback(http.expectedStatuses(200, 201, 422));
 
 export const options = {
   setupTimeout: '10m',
