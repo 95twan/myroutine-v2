@@ -32,23 +32,23 @@ flowchart LR
 ## Stage 2. 측정 기반 성능 개선
 **진입 조건**: Stage 1 완료 + 대용량 시드 데이터 + k6 Baseline 측정. 측정은 그 시점의 운영 환경에서 하고 리포트에 환경을 적는다. Baseline을 잰 뒤 k3s로 옮기면 Baseline을 다시 잰다.
 
-시드 데이터 규모: 회원 100만, 가게 1만, 상품 100만, 주문 1,000만(주문품목 약 2,500만), 재고 이력 3,000만(2-7을 할 때만).
+시드 데이터 규모: 회원 100만, 가게 1만, 상품 100만, 주문 1,000만(주문품목 약 2,500만), 재고 이력 3,000만(S2-7을 할 때만).
 
 시드를 DB에 직접 넣으면 이벤트가 나가지 않아 ES 문서가 생기지 않는다. NFR-PERF-07을 재려면 시드 스크립트가 상품을 ES에도 넣는다. 앱을 먼저 띄워 alias `products`를 만든 뒤 `_bulk`로 alias에 쓰고(alias가 없으면 일반 인덱스가 자동 생성된다), 문서 id는 `productId`, 버전은 external로 DB의 `version`을 쓴다. 적재 뒤 `_refresh`를 부른다.
 
 | 단계 | 진입 근거(측정) | 작업 | 측정 지표 |
 |---|---|---|---|
-| 2-1 Baseline | - | k6 시나리오(NFR-PERF-01~07), `pg_stat_statements`, slow query log, Grafana 대시보드 | p50/p95/p99, TPS, 에러율, DB CPU, 커넥션 대기 |
-| 2-2 쿼리 튜닝 | 상위 slow query | `EXPLAIN ANALYZE`, 복합·커버링 인덱스, N+1 제거(fetch join / batch size), offset → keyset 페이징, 집계 쿼리 개선 | 쿼리별 실행시간 전후 비교 |
-| 2-3 커넥션·스레드 | 커넥션 대기, 스레드 포화 | HikariCP 크기 산정, 플랫폼 스레드 vs 가상 스레드(Java 25, pinning 해소) 비교, 트랜잭션 범위 축소, Compact Object Headers 메모리 비교 | 커넥션 대기시간, TPS |
-| 2-4 캐시 | 읽기 비중이 높은 API의 DB 부하 | 상품 상세·목록 Redis 캐시, 캐시 스탬피드 방지, 무효화 전략(이벤트 기반) | 캐시 히트율, DB QPS |
-| 2-5 핫스팟 경합 | 인기상품 동시 주문 시 락 대기 | 비관적 락 / 조건부 UPDATE / Redis 원자 차감 + 비동기 확정 비교 실험 | 경합 시나리오 TPS, 초과판매 0 유지 |
-| 2-6 Read Replica | 읽기 쿼리가 primary CPU를 잠식 | Postgres 스트리밍 복제, `@Transactional(readOnly)` 기반 라우팅, 복제 지연 대응(주문 직후 조회는 primary = read-your-writes) | primary CPU, 읽기 p95, 복제 지연 |
-| 2-7 파티셔닝 | 대형 테이블(주문·재고 이력) 인덱스 비대, 기간 조회 느림 | 월 단위 선언적 파티셔닝, 오래된 파티션 아카이빙 | 기간 조회 p95, 인덱스 크기, VACUUM 시간 |
+| S2-1 Baseline | - | k6 시나리오(NFR-PERF-01~07), `pg_stat_statements`, slow query log, postgres_exporter·cAdvisor와 Grafana 대시보드. 규격은 [Stage 2 준비 5절](../03-roadmap/stage2-plan.md) | p50/p95/p99, TPS, 에러율, DB CPU, 커넥션 대기 |
+| S2-2 쿼리 튜닝 | 상위 slow query | `EXPLAIN ANALYZE`, 복합·커버링 인덱스, N+1 제거(fetch join / batch size), offset → keyset 페이징, 집계 쿼리 개선 | 쿼리별 실행시간 전후 비교 |
+| S2-3 커넥션·스레드 | 커넥션 대기, 스레드 포화 | HikariCP 크기 산정, 플랫폼 스레드 vs 가상 스레드(Java 25, pinning 해소) 비교, 트랜잭션 범위 축소, Compact Object Headers 메모리 비교 | 커넥션 대기시간, TPS |
+| S2-4 캐시 | 읽기 비중이 높은 API의 DB 부하 | 상품 상세·목록 Redis 캐시, 캐시 스탬피드 방지, 무효화 전략(이벤트 기반) | 캐시 히트율, DB QPS |
+| S2-5 핫스팟 경합 | 인기상품 동시 주문 시 락 대기 | 비관적 락 / 조건부 UPDATE / Redis 원자 차감 + 비동기 확정 비교 실험 | 경합 시나리오 TPS, 초과판매 0 유지 |
+| S2-6 Read Replica | 읽기 쿼리가 primary CPU를 잠식 | Postgres 스트리밍 복제, `@Transactional(readOnly)` 기반 라우팅, 복제 지연 대응(주문 직후 조회는 primary = read-your-writes) | primary CPU, 읽기 p95, 복제 지연 |
+| S2-7 파티셔닝 | 대형 테이블(주문·재고 이력) 인덱스 비대, 기간 조회 느림 | 월 단위 선언적 파티셔닝, 오래된 파티션 아카이빙 | 기간 조회 p95, 인덱스 크기, VACUUM 시간 |
 
-단계 번호는 실행 순서가 아니다. 무엇을 먼저 하고 무엇을 측정 결과에 맡기는지는 [Stage 2 준비](../03-roadmap/stage2-plan.md)에 있다.
+단계 ID는 Part 2의 단계 번호(`2-1` 등)와 겹치지 않게 `S2-n`으로 쓴다. 단계 번호는 실행 순서가 아니다. 무엇을 먼저 하고 무엇을 측정 결과에 맡기는지는 [Stage 2 준비](../03-roadmap/stage2-plan.md)에 있다.
 
-**인덱스 설계 검증 실험**: 2-2에서 함께 하고, 위 시드 데이터로 잰다. 이 인덱스들은 Stage 1부터 있었으므로 결과는 "개선"이 아니라 "설계 검증"으로 기록한다. "개선"은 Baseline에서 실제로 느린 쿼리를 찾아 고친 경우에만 쓴다.
+**인덱스 설계 검증 실험**: S2-2에서 함께 하고, 위 시드 데이터로 잰다. 이 인덱스들은 Stage 1부터 있었으므로 결과는 "개선"이 아니라 "설계 검증"으로 기록한다. "개선"은 Baseline에서 실제로 느린 쿼리를 찾아 고친 경우에만 쓴다.
 
 | 실험 | 대상 | 비교 | 측정 지표 |
 |---|---|---|---|

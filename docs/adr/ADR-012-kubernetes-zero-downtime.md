@@ -13,7 +13,7 @@
 - 새로 학습할 도구라 [CLAUDE.md §3](../../CLAUDE.md)에 따라 학습 비용과 대안을 적는다. 원 프로젝트에서 K3s를 써 봤다(As-Is: replicas 1, HPA·Ingress·PDB 없음, hostPath 볼륨) — 이번에는 그 결함을 고치는 것이 목표다.
 
 ## 결정 (제안 포함)
-1. **시기**: 서브 SUB-9~SUB-13. Stage 2 Baseline(2-1)은 그 시점의 운영 환경에서 측정하고 리포트에 환경을 적는다. Stage 3이 k8s Service를 전제하므로 Stage 3 전에는 끝낸다.
+1. **시기**: 서브 SUB-9~SUB-13. Stage 2 Baseline(S2-1)은 그 시점의 운영 환경에서 측정하고 리포트에 환경을 적는다. Stage 3이 k8s Service를 전제하므로 Stage 3 전에는 끝낸다.
 2. **클러스터**: 새 VM(`myroutine-k3s`)에 **k3s 단일 노드**. compose VM은 전환 완료 후 정지(삭제하지 않고 스냅샷 유지). 노드 장애 대응(HA)은 목표가 아니다 — **"앱 배포 중 무중단"**이 목표다. 멀티 노드는 24GB 호스트에서 인프라 전체를 함께 올리기 어렵다(확인 필요: 실측).
 3. **매니페스트**: plain YAML + `kubectl apply -k`(Kustomize는 kubectl 1.14부터 내장 — Kubernetes 문서 "Declarative Management of Kubernetes Objects Using Kustomize", 2026-10-09 확인). Helm·Operator는 쓰지 않는다(새 도구를 더 늘리지 않는다).
 4. **상태 있는 서비스**(Postgres·Redis·Kafka·ES): 같은 클러스터에서 단순한 StatefulSet + PVC(k3s 기본 local-path)로 시작한다. 데이터 안전성은 compose와 같은 수준(VM 백업)이다. 운영형 DB(Operator)는 범위 밖.

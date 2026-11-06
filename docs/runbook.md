@@ -171,6 +171,7 @@ PG가 취소를 명확히 거절해서 환불이 `FAILED`로 끝난 건이다. �
 - 알림 전달 채널은 두지 않았다. Grafana Alerting → Alert rules에서 `Firing` 상태로 확인한다.
 - 문제가 생기고 알림이 뜨기까지 최대 약 75초가 걸린다.
 - Grafana에 값이 안 보이면: Prometheus의 Target health(`http://VM주소:9090`은 VM 안에서만 열린다)에서 앱 수집 대상이 `up`인지 본다.
+- `docker/prometheus/prometheus.ops.yml`을 바꿔 배포했는데 수집 대상이 그대로면: `docker restart myroutine-ops-prometheus-1`. 설정은 파일 하나를 바인드 마운트해서, 배포의 git checkout이 파일을 새로 만들어도 실행 중인 컨테이너는 옛 파일을 본다. compose도 마운트한 파일 내용의 변화로는 컨테이너를 다시 만들지 않는다.
 - 점검 지표(`stock_balance_mismatch_count`)는 앱 재시작 직후 0이다.
 
 ## 4. 프론트 없이 직접 호출
