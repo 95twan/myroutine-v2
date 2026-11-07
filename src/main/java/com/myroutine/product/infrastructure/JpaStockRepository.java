@@ -2,15 +2,23 @@ package com.myroutine.product.infrastructure;
 
 import com.myroutine.product.domain.Stock;
 import com.myroutine.product.domain.StockRepository;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface JpaStockRepository extends JpaRepository<Stock, UUID>, StockRepository {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT s FROM Stock s WHERE s.productId = :productId")
+    Optional<Stock> findByIdForUpdate(UUID productId);
+
     @Modifying
     @Query(
             nativeQuery = true,

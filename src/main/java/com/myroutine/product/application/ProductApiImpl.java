@@ -86,10 +86,10 @@ class ProductApiImpl implements ProductApi {
         for (ReserveItem item : sortedItems) {
             UUID productId = item.productId();
             int quantity = item.quantity();
-            int count = stockRepository.reserve(productId, quantity, now);
-            if (count == 0) {
-                throw new BusinessException(ProductErrorCode.OUT_OF_STOCK, Map.of("productIds", List.of(productId)));
-            }
+            Stock stock = stockRepository.findByIdForUpdate(productId).orElseThrow(
+                    () -> new IllegalStateException("Stock not found for productId: " + productId)
+            );
+            stock.reserve(quantity);
             stockReservationRepository.insertReservation(
                     Ids.newId(),
                     orderId,

@@ -6,6 +6,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface StockRepository {
+    Optional<Stock> findByIdForUpdate(UUID productId);
+
     Optional<Stock> findById(UUID productId);
 
     int insertStock(UUID productId, int quantity, Instant now);
