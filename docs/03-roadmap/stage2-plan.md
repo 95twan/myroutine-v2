@@ -1,6 +1,6 @@
 # Stage 2 준비: 측정 환경 · 시드 데이터 · k6 시나리오
 
-> 버전 0.11 · 2026-11-07 · S2-5 단계 규격(8절)을 더했다. 지금의 조건부 UPDATE, `SELECT FOR UPDATE` 뒤 차감, Redis 선착순 게이트 + 조건부 UPDATE를 몰림(재고 100에 1,000명)과 지속 경합(재고 100만에 100명, 3분)으로 비교하며, 비교할 두 방식은 머지하지 않는 실험 브랜치에 둔다
+> 버전 0.11 · 2026-11-07 · S2-5 단계 규격(8절)을 더했다. 지금의 조건부 UPDATE, JPA 비관적 락(`SELECT FOR UPDATE`) 뒤 엔티티 차감, Redis 선착순 게이트 + 조건부 UPDATE를 몰림(재고 100에 1,000명)과 지속 경합(재고 100만에 100명, 3분)으로 비교하며, 비교할 두 방식은 머지하지 않는 실험 브랜치에 둔다
 > 0.10 · 2026-11-07 · S2-3 단계 규격(7절)을 더했다. 메일 발송기를 설정값 `myroutine.mail.mode`(smtp·log)로 고르고 log에 지연을 둘 수 있게 하며, 예약 작업 스레드를 작업 수인 11개로 늘린다. 커넥션 풀 크기는 측정으로 정한다
 > 0.9 · 2026-11-07 · S2-2 단계 규격(6절)을 더했다. 목록 다음 페이지의 커서 조건 16개를 OR에서 행 값 비교로 바꾸고, 다음 페이지 테스트가 없는 10개는 테스트를 먼저 넣는다
 > 0.8 · 2026-11-07 · S2-3 커넥션 풀과 예약 작업 스레드를 꼭 하는 단계로 올렸다(Baseline에서 커넥션 풀이 가득 차고, 메일 작업이 다른 예약 작업을 막음). S2-3 첫 작업은 측정용 가짜 메일 발송기
@@ -1253,7 +1253,7 @@ scp '{VM}:/tmp/s2-3/*' perf/k6/results/vm/s2-3/
 | 방식 | 재고 행을 다루는 문장 | 성공하는 요청 | 재고 부족으로 거절되는 요청 |
 |---|---|---|---|
 | A. 조건부 UPDATE | `UPDATE ... WHERE available >= :quantity` 한 문장 | UPDATE에서 락을 잡고 커밋까지 쥔다 | 앞 트랜잭션이 끝나기를 기다린 뒤 조건을 다시 확인하고, 맞지 않으면 락을 잡지 않고 0행으로 끝난다 |
-| B. `SELECT FOR UPDATE` 뒤 차감 | `SELECT available ... FOR UPDATE`, 자바에서 비교, A와 같은 UPDATE | SELECT에서 락을 잡는다. UPDATE 왕복 하나만큼 A보다 오래 쥔다 | 락을 잡은 뒤 자바에서 부족을 확인하고 예외를 던져, 롤백할 때까지 락을 쥔다. 거절될 요청도 차례로 락을 잡는다 |
+| B. JPA 비관적 락 | `@Lock(PESSIMISTIC_WRITE)` 조회로 `SELECT ... FOR UPDATE`, 엔티티 메서드로 확인·차감, dirty checking이 만드는 UPDATE | SELECT에서 락을 잡는다. A보다 먼저 잡아 그만큼 오래 쥔다 | 락을 잡은 뒤 엔티티 메서드가 부족을 확인하고 예외를 던져, 롤백할 때까지 락을 쥔다. 거절될 요청도 차례로 락을 잡는다 |
 | C. Redis 선착순 게이트 + 조건부 UPDATE | Redis Lua로 수량을 먼저 줄이고, 통과한 요청만 A와 같은 UPDATE | A와 같다 | Redis에서 거절되어 재고 행에 닿지 않는다. 체크아웃 트랜잭션이 이미 시작된 뒤라 커넥션은 잠깐 쓴다 |
 
 C는 거절을 재고 행 앞에서 끝낼 뿐, 성공한 주문끼리 재고 행을 차례로 고치는 것은 A와 같다. 성공한 주문의 재고 행 UPDATE까지 나중으로 미루는 방식(Redis 원자 차감 + DB 비동기 확정)과 재고 행을 여러 개로 나누는 방식(버킷 분할)은 하지 않는다. 체크아웃 흐름이 바뀌고 Redis와 DB를 맞추는 보정·장애 복구가 필요해서다. 이 한계는 8.2 3)의 지속 경합 측정에 드러난다.
@@ -1266,15 +1266,18 @@ C도 DB UPDATE의 조건(`available >= :quantity`)을 그대로 두므로 Redis 
 
 이름·시그니처는 권장안이다.
 
-**1) B: `SELECT FOR UPDATE` 뒤 차감** (`experiment/s2-5-for-update`)
+**1) B: JPA 비관적 락** (`experiment/s2-5-for-update`)
+
+실무에서 비관적 락이라고 부르는 형태다. 재고 행을 `SELECT ... FOR UPDATE`로 잠그며 엔티티로 읽고, 엔티티 메서드로 확인·차감한 뒤 dirty checking으로 저장한다. A의 조건부 UPDATE(`StockRepository.reserve`)는 부르지 않는다.
 
 | 클래스 | 규격 |
 |---|---|
-| `StockRepository` (domain 순수 인터페이스, 기존 수정) | `Integer findAvailableForUpdate(UUID productId)`를 더한다. 재고 행을 잠그며 판매 가능 수량을 읽는다 |
-| `JpaStockRepository` (infrastructure, 기존 수정) | 위 조회를 native `@Query`로 구현한다. SQL은 `SELECT available FROM product.stock WHERE product_id = :productId FOR UPDATE`이고, 조회라서 `@Modifying`은 붙이지 않는다. 다른 트랜잭션이 이 행을 잠갔으면 그 트랜잭션이 끝날 때까지 기다린다. 잡은 락은 체크아웃 트랜잭션이 커밋하거나 롤백할 때 풀린다 |
-| `ProductApiImpl.reserve` (application, 기존 수정) | 상품별 반복에서 `stockRepository.reserve` 앞에 `findAvailableForUpdate`를 부른다. `available < quantity`면 지금 0행일 때와 같은 `BusinessException(ProductErrorCode.OUT_OF_STOCK, Map.of("productIds", List.of(productId)))`을 던진다. 그 뒤의 `reserve` UPDATE와 0행 검사, 예약·이력 INSERT는 그대로다. 재고 행은 상품 등록 때 만들어지고 `getPurchasable`이 상품을 먼저 확인하므로 조회 결과가 `null`인 경우는 없다 |
+| `StockRepository` (domain 순수 인터페이스, 기존 수정) | `Optional<Stock> findByIdForUpdate(UUID productId)`를 더한다. 재고 행을 잠그며 읽는다. `JpaRepository`의 `findById`에 락을 걸면 다른 조회도 모두 잠그므로 이름을 따로 둔다 |
+| `JpaStockRepository` (infrastructure, 기존 수정) | 위 조회를 `@Lock(LockModeType.PESSIMISTIC_WRITE)`와 JPQL `@Query("select s from Stock s where s.productId = :productId")`로 구현한다. Postgres에서는 `SELECT ... FOR UPDATE`로 나간다. 다른 트랜잭션이 이 행을 잠갔으면 그 트랜잭션이 끝날 때까지 기다리고, 잡은 락은 체크아웃 트랜잭션이 커밋하거나 롤백할 때 풀린다 |
+| `Stock` (domain, 기존 수정) | `void reserve(int quantity)`를 더한다. `available < quantity`면 `BusinessException(ProductErrorCode.OUT_OF_STOCK, Map.of("productIds", List.of(productId)))`을 던지고, 아니면 `available -= quantity`, `reserved += quantity`. `updated_at`은 `BaseTimeEntity`의 `@LastModifiedDate`가 채운다 |
+| `ProductApiImpl.reserve` (application, 기존 수정) | 상품별 반복에서 `stockRepository.reserve(...)`와 그 0행 검사 대신 `findByIdForUpdate(productId)`로 읽어 `stock.reserve(quantity)`를 부른다. 재고 행은 상품 등록 때 만들어지고 `getPurchasable`이 상품을 먼저 확인하므로, 행이 없으면 `IllegalStateException`을 던진다. 예약·이력 INSERT는 그대로다. 상품 ID 순으로 잠그는 것도 그대로라 여러 상품 주문끼리 교착되지 않는다 |
 
-`@Lock(PESSIMISTIC_WRITE)`를 붙인 조회로 `Stock` 엔티티를 잠그며 읽고 값을 바꿔 dirty checking으로 저장하는 방법은 쓰지 않는다. 그러면 차감 UPDATE를 Hibernate가 만들어, 문장 모양(조건 없이 열 값을 쓴다)과 보내는 시점(flush 때)이 A와 달라진다. `Stock`에 값을 바꾸는 메서드도 새로 만들어야 한다. A의 조건부 UPDATE를 그대로 불러야 두 방식의 차이가 락을 잡는 시점과 거절될 요청의 락 두 가지로만 남는다. 새 테스트는 없다(8.3).
+UPDATE를 언제 보내는지는 Hibernate의 flush가 정한다(뒤의 native INSERT 전이나 커밋 때). 락은 이미 SELECT에서 잡았으므로 락을 쥐는 구간은 어느 쪽이든 SELECT부터 커밋까지다. 새 테스트는 없다(8.3).
 
 **2) C: Redis 선착순 게이트** (`experiment/s2-5-redis-gate`)
 
