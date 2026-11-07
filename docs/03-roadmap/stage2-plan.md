@@ -1,6 +1,7 @@
 # Stage 2 준비: 측정 환경 · 시드 데이터 · k6 시나리오
 
-> 버전 0.9 · 2026-11-07 · S2-2 단계 규격(6절)을 더했다. 목록 다음 페이지의 커서 조건 16개를 OR에서 행 값 비교로 바꾸고, 다음 페이지 테스트가 없는 10개는 테스트를 먼저 넣는다
+> 버전 0.10 · 2026-11-07 · S2-3 단계 규격(7절)을 더했다. 메일 발송기를 설정값 `myroutine.mail.mode`(smtp·log)로 고르고 log에 지연을 둘 수 있게 하며, 예약 작업 스레드를 작업 수인 11개로 늘린다. 커넥션 풀 크기는 측정으로 정한다
+> 0.9 · 2026-11-07 · S2-2 단계 규격(6절)을 더했다. 목록 다음 페이지의 커서 조건 16개를 OR에서 행 값 비교로 바꾸고, 다음 페이지 테스트가 없는 10개는 테스트를 먼저 넣는다
 > 0.8 · 2026-11-07 · S2-3 커넥션 풀과 예약 작업 스레드를 꼭 하는 단계로 올렸다(Baseline에서 커넥션 풀이 가득 차고, 메일 작업이 다른 예약 작업을 막음). S2-3 첫 작업은 측정용 가짜 메일 발송기
 > 0.7 · 2026-11-06 · S-06은 409 `CONFLICT_RETRY`를 실패에서 뺀다. S-03은 스냅샷으로 되돌린 뒤 재고, S-02·S-03 뒤 15분 안에 앱을 멈춘다(만료 알림 메일)
 > 0.6 · 2026-11-06 · S-01은 VU마다 한 카테고리를 최대 10페이지까지만 이어 읽는다
@@ -10,7 +11,7 @@
 > 0.2 · 2026-11-06 · 시나리오 실행 순서와 개선 실험 우선순위를 정했다. S2-8 샤딩은 하지 않고, 재고 이력 3,000만 건은 S2-7을 할 때만 넣는다
 > 0.1 · 2026-11-06 · 초안. 합격 기준은 [요구사항 5.2](../01-requirements/README.md)의 값이고, 건수·부하·비율은 제안이다
 
-Stage 2 개선 단위(S2-1~S2-7)의 개요는 [아키텍처 진화](../02-design/01-architecture-evolution.md)에 있다. 이 문서는 Baseline의 준비, 개선 실험의 우선순위, S2-1a 단계 규격(5절), S2-2 단계 규격(6절)을 적는다. 시드 스크립트와 k6 스크립트는 사용자가 쓴다. 5절의 k6 스크립트와 시드 규칙은 로컬 격리 환경에서 1/100 규모로 실행해 확인한 것이다.
+Stage 2 개선 단위(S2-1~S2-7)의 개요는 [아키텍처 진화](../02-design/01-architecture-evolution.md)에 있다. 이 문서는 Baseline의 준비, 개선 실험의 우선순위, S2-1a 단계 규격(5절), S2-2 단계 규격(6절), S2-3 단계 규격(7절)을 적는다. 시드 스크립트와 k6 스크립트는 사용자가 쓴다. 5절의 k6 스크립트와 시드 규칙은 로컬 격리 환경에서 1/100 규모로 실행해 확인한 것이다.
 
 ## 1. 측정 환경
 
@@ -820,3 +821,266 @@ grep -rnE "(createdAt|created_at|deliveredAt|delivered_at) [<>] :[a-zA-Z]+ (or|O
 - 목록마다 `<`와 `>` 중 무엇을 쓸지는 무엇을 보고 정하는가?
 - 테스트를 쿼리보다 먼저 넣은 이유는? 고치기 전에 통과를 확인하지 않으면 무엇을 놓치는가?
 - MAX_PAGES 10 측정에서는 처리량이 크게 바뀌지 않을 수 있다. 왜 그런가?
+
+## 7. S2-3 커넥션 풀과 예약 작업 스레드
+
+**목표**: 측정용 가짜 메일 발송기를 두고, 커넥션 풀 크기를 바꿔 가며 상품 조회와 체크아웃을 재서 풀 크기를 정한다. 예약 작업 스레드를 늘려 메일이 쌓여도 결제 대기 주문 만료가 1분마다 도는지 확인한다.
+
+**왜 지금**: [Baseline](../perf/s2-1a-baseline.md)과 [S2-2](../perf/s2-2-cursor.md) 모두 커넥션 10개가 처리량의 한계였다. 요청 하나가 커넥션을 약 2ms 쥐는데 그중 DB가 일한 시간은 0.08\~0.16ms였다. 예약 작업은 스레드 하나로 차례로 돌아, 메일 작업(한 번 292.5초)이 도는 동안 만료가 4\~5분에 한 번만 돌았다. S2-2로 깊은 페이지 쿼리를 고쳐서, 풀을 늘려도 느린 쿼리가 DB에 몰리지 않는다.
+
+**브랜치**: `feature/s2-3-pool-scheduling`. PR에는 메일 발송기 선택, 예약 작업 스레드 수, 문서가 들어간다. 측정 뒤 정한 풀 크기를 `application.yaml`에 넣는 커밋과 리포트(`docs/perf/s2-3-pool-scheduling.md`)는 다음 PR에 커밋을 나눠 넣는다. 리포트는 사용자가 넘긴 결과로 Claude가 쓴다.
+
+### 7.1 원인
+
+| 문제 | 측정 | 설정 |
+|---|---|---|
+| 요청이 커넥션을 기다린다 | 10개 모두 사용 중, 대기 요청 약 185개(S-01)·87개(S-02). DB에서 쿼리를 실행 중인 연결은 0\~3개 | `spring.datasource.hikari.maximum-pool-size`가 없어 Hikari 기본값 10 |
+| 예약 작업이 서로 기다린다 | 메일 작업이 한 번 292.5초 도는 동안 만료·outbox 릴레이가 기다렸다 | `spring.task.scheduling.pool.size`가 없어 기본값 1 |
+
+예약 작업 스레드는 `spring.task.scheduling.pool.size`로 정하고, 스레드 이름은 `scheduling-1`, `scheduling-2`처럼 붙는다. `spring.threads.virtual.enabled`를 켜면 이 값은 무시된다(Boot 4.1.1 설정 메타데이터로 확인). `@Scheduled` 메서드는 11개다. 한 작업은 앞 실행이 끝나야 다음 실행이 잡혀 같은 작업이 겹쳐 돌지 않으므로, 스레드를 11개 두면 어떤 작업도 다른 작업을 기다리지 않는다. 작업을 더하면 이 값도 같이 올린다.
+
+**작업이 쥐는 커넥션**: `JobLock.runExclusively`는 Postgres 세션 advisory lock을 잡으려고 커넥션 하나를 빌려, 작업이 끝날 때까지 쥔다(`JobLock.java:20`). 작업 안의 조회와 트랜잭션은 커넥션을 따로 빌린다. 그래서 메일 작업이 5분 도는 동안 풀에서 커넥션 하나가 5분 묶인다. 이번에는 락 방식을 바꾸지 않고, 풀 크기를 정할 때 이 몫을 더한다(7.2 3)의 기준).
+
+플랫폼 스레드와 가상 스레드 비교는 7.3까지 끝낸 뒤 여유가 있으면 한다(4절). 메일 묶음 발송과 만료 처리량(1분에 100건)은 이번에 하지 않는다.
+
+### 7.2 할 일
+
+**1) 가짜 메일 발송기**
+
+| 항목 | 규격 |
+|---|---|
+| 선택 | 설정값 `myroutine.mail.mode`. `smtp`면 `SmtpMailSender`, `log`면 `LogMailSender`가 빈이 된다. 두 클래스의 `@Profile`을 빼고 `@ConditionalOnProperty(prefix = "myroutine.mail", name = "mode", havingValue = "smtp")`(`log`)로 바꾼다. `SchedulingConfig`와 같은 어노테이션이다 |
+| 기본값 | `application.yaml`은 `log`, `application-prod.yaml`은 `${MAIL_MODE:smtp}`. 운영은 따로 설정하지 않으면 지금처럼 Gmail로 보낸다 |
+| 지연 | 설정값 `myroutine.mail.log-delay`(`Duration`). `application.yaml`은 `0s`, `application-prod.yaml`은 `${MAIL_LOG_DELAY:0s}`. `LogMailSender.send`는 로그를 남기기 전에 이 시간만큼 `Thread.sleep`한다 |
+| 인터럽트 | sleep 중 `InterruptedException`이 나면 인터럽트 상태를 되살리고(`Thread.currentThread().interrupt()`) 예외를 던진다. 앱을 다시 띄울 때 스케줄러가 도는 작업을 인터럽트하는데, 이때 그 알림은 `markFailed`로 다음 시도를 기다린다 |
+| 측정 값 | `MAIL_MODE=log`, `MAIL_LOG_DELAY=3s`. Baseline에서 메일 100통에 292.5초였다 |
+| 테스트 | 테스트는 `FakeMailSender`가 `@Primary`라 그대로다. 예약 작업이 테스트에서 꺼져 있어(`myroutine.scheduling.enabled: false`) 새 테스트는 없고, 7.3의 VM 확인으로 본다 |
+
+`.env.ops.example`에 `MAIL_MODE=smtp`와 `MAIL_LOG_DELAY=0s`를 더했다.
+
+**2) 예약 작업 스레드**: `application.yaml`에 `spring.task.scheduling.pool.size: 11`을 넣는다.
+
+**3) 측정**: 풀 크기와 예약 작업 스레드 수는 VM의 `/opt/myroutine/.env`에 환경변수로 덮어써서 바꾼다. 한 번 배포한 이미지로 앱만 다시 띄우면 된다. Spring Boot는 설정 키의 점을 밑줄로 바꾸고 하이픈을 빼서 환경변수 이름으로 읽는다(`spring.datasource.hikari.maximum-pool-size` → `SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE`).
+
+시작 상태는 S2-2 측정 뒤 그대로다(`seed_vacuumed` 뒤 읽기 측정만 했다). 체크아웃(S-02)은 주문을 만들고 재고를 줄이므로, 두 번째 체크아웃 전에 스냅샷으로 되돌린다. 아래를 위에서부터 차례로 따라 한다.
+
+**창 준비**: VM 창은 `runner` 사용자로 리포 체크아웃에서 쓴다. 아래 블록을 VM에 접속할 때마다(스냅샷을 되돌린 뒤 포함) 한 번 붙여 넣는다. `restart_app`은 `.env`를 읽어 앱만 다시 띄우고, `record_pending`은 결제 대기 주문 수를 3분마다 18분 동안 파일에 남긴다. 결과는 `/tmp/s2-3/`에 남긴다. `/tmp`는 VM이 다시 부팅하면 비므로, 스냅샷을 되돌리기 전에 11에서 옮긴다.
+
+```bash
+sudo -iu runner
+cd ~/actions-runner/_work/myroutine-v2/myroutine-v2
+COMPOSE='docker compose --env-file /opt/myroutine/.env -f docker/docker-compose.ops.yml'
+PG='docker exec -i myroutine-ops-postgres-1 sh -c'
+OUT=/tmp/s2-3
+mkdir -p $OUT && chmod 755 $OUT
+restart_app() { IMAGE_TAG=$(cat /opt/myroutine/deployed-sha) $COMPOSE up -d --no-deps --force-recreate --wait app; }
+record_pending() {
+  for i in $(seq 7); do
+    $PG 'psql -U "$POSTGRES_USER" -d my_routine -At -c "select now()::time(0), count(*) from orders.orders where status = '"'"'PENDING_PAYMENT'"'"'"'
+    [ $i -lt 7 ] && sleep 180
+  done > $OUT/$1
+}
+```
+
+개발 PC 창은 리포 루트에서 아래를 붙여 넣는다. macOS 터미널의 열린 파일 수 한도 때문에 `ulimit`은 창마다 다시 한다. `{VM IP}`는 Baseline 때와 같은 주소다.
+
+```bash
+ulimit -n 10000
+cd perf/k6
+BASE=http://{VM IP}:8080
+warm() { k6 run -e BASE_URL=$BASE -e VUS=10 -e RAMP=0s -e HOLD=30s s01-product-read.js; }
+```
+
+**1. 배포 확인**: PR을 develop에 머지하고 자동 배포가 끝날 때까지 기다린다. VM에서 배포된 sha가 머지 커밋인지 본다.
+
+```bash
+# VM
+cat /opt/myroutine/deployed-sha
+```
+
+```bash
+# 개발 PC (위 값과 같아야 한다)
+git fetch -q origin && git log -1 origin/develop --format=%H
+```
+
+**2. 운영 메일 확인**: 브라우저로 `https://myroutine.dev`에서 본인 메일 주소로 회원가입 인증코드를 요청해 메일을 받는다. 받지 못하면 여기서 멈춘다. `myroutine.mail.mode`가 운영에서 `smtp`로 잡히지 않은 것이다.
+
+**3. 측정용 설정**: VM에서 측정용 줄을 넣고 앱을 다시 띄운다. Grafana 서비스 개요의 HikariCP 패널에서 최대값이 10인지 본다.
+
+```bash
+# VM
+cat >> /opt/myroutine/.env <<'ENV'
+MAIL_MODE=log
+MAIL_LOG_DELAY=3s
+SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE=10
+ENV
+restart_app
+```
+
+**4. 데우기**
+
+```bash
+# 개발 PC
+warm
+```
+
+**5. 풀 10에서 S-01 세 번**: 사이에 2분 쉰다. 세 번의 처리량·p95 범위가 실행마다의 흔들림이고, 뒤의 비교는 이 범위를 넘는 차이만 차이로 본다.
+
+```bash
+# 개발 PC (약 22분)
+for i in 1 2 3; do
+  k6 run -e BASE_URL=$BASE --summary-export results/s2-3-s01-p10-$i.json s01-product-read.js | tee results/s2-3-s01-p10-$i.txt
+  [ $i -lt 3 ] && sleep 120
+done
+```
+
+**6. 풀 20·30·50**: 크기마다 VM에서 풀을 바꿔 앱을 다시 띄우고, 개발 PC에서 데운 뒤 한 번 잰다. `SIZE`만 20 → 30 → 50으로 바꿔 세 번 반복한다. 측정마다 Grafana 화면(성능 측정 대시보드와 서비스 개요의 HikariCP 패널)을 남긴다.
+
+```bash
+# VM
+SIZE=20
+sed -i "s/^SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE=.*/SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE=$SIZE/" /opt/myroutine/.env
+restart_app
+```
+
+```bash
+# 개발 PC
+SIZE=20
+warm
+k6 run -e BASE_URL=$BASE --summary-export results/s2-3-s01-p$SIZE.json s01-product-read.js | tee results/s2-3-s01-p$SIZE.txt
+```
+
+**7. 풀 크기 정하기**: 5·6의 결과로 정한다. 이 크기를 12에서 쓴다.
+
+- 처리량이 앞 크기보다 5의 흔들림 범위를 넘게 늘지 않는 첫 크기를 찾고, 그 바로 앞 크기를 고른다. 그리고 메일 작업이 쥐는 커넥션 1개를 더한다. Baseline에서 오래 돈 작업은 메일 하나였다(한 번 292.5초, 나머지는 1초 미만).
+- 크기를 늘렸을 때 Grafana에서 본 것으로 한계가 어디인지 적는다.
+
+| 풀을 늘렸을 때 | 뜻 |
+|---|---|
+| 처리량이 늘고, 연결 상태의 `active`와 postgres CPU가 같이 늘었다 | 커넥션 수가 한계였다 |
+| 처리량이 그대로이고 `idle in transaction`만 늘었다 | 커넥션을 쥔 채 앱 쪽에서 시간을 쓴다. 앱 CPU를 본다 |
+| 처리량이 그대로이고 postgres CPU가 더 오르지 않으며 p95가 늘었다 | DB가 한계다. 커넥션을 더 주면 기다림이 앱에서 DB 안으로 옮겨질 뿐이다 |
+| 커넥션을 기다리는 요청(`hikaricp_connections_pending`)이 0이다 | 풀은 더 이상 한계가 아니다 |
+
+**8. 풀 10에서 S-02**: 풀을 10으로 되돌려 S-02를 잰다. k6를 시작한 시각을 적어 둔다. 측정이 끝나면 Grafana 화면을 남긴다.
+
+```bash
+# VM
+sed -i "s/^SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE=.*/SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE=10/" /opt/myroutine/.env
+restart_app
+```
+
+```bash
+# 개발 PC (약 6분)
+warm
+date
+k6 run -e BASE_URL=$BASE --summary-export results/s2-3-s02-p10.json s02-checkout.js | tee results/s2-3-s02-p10.txt
+```
+
+k6가 끝나자마자 VM에서 예약 작업 스레드를 1로 바꿔 앱을 다시 띄운다. 고치기 전 상태를 재현하는 것이다.
+
+```bash
+# VM
+echo 'SPRING_TASK_SCHEDULING_POOL_SIZE=1' >> /opt/myroutine/.env
+restart_app
+```
+
+**9. 스레드 1 기록**: 8에서 적은 시각의 15분 뒤에 주문이 만료되기 시작한다. 그때 기록을 뒤에서 돌리고, 몇 분 뒤 첫 알림이 나가면 가짜 발송기가 쓰이는지 본다.
+
+```bash
+# VM (8의 시각 + 15분)
+record_pending pending-1.txt &
+
+# 몇 분 뒤: 첫 줄(send mail to)이 0보다 커야 한다
+docker logs --since 5m myroutine-ops-app-1 2>&1 | grep -c "send mail to"
+docker logs --since 5m myroutine-ops-app-1 2>&1 | grep -c "notification sent"
+```
+
+두 번째 숫자는 0보다 큰데 첫 번째가 0이면 Gmail로 나가고 있는 것이다. 바로 앱을 멈춘다(`$COMPOSE stop app`).
+
+18분 기록이 끝나면 작업 실행 로그를 남긴다. 10에서 앱을 다시 띄우면 이 컨테이너의 로그가 사라지므로 그 전에 한다.
+
+```bash
+# VM
+wait
+cat $OUT/pending-1.txt
+docker logs myroutine-ops-app-1 2>&1 | grep -E "job (expire-orders|dispatch-notifications) processed" > $OUT/jobs-1.txt
+```
+
+**10. 스레드 11 기록**: 예약 작업 스레드 줄을 지워(기본 11) 앱을 다시 띄우고 같은 방식으로 18분 기록한다. 기록하는 동안 메일 작업이 쥔 advisory lock 커넥션을 본다.
+
+```bash
+# VM
+sed -i '/^SPRING_TASK_SCHEDULING_POOL_SIZE=/d' /opt/myroutine/.env
+restart_app
+record_pending pending-11.txt &
+
+# 몇 분 뒤 (메일 작업 중): 한 행, state가 idle이어야 한다
+$PG 'psql -U "$POSTGRES_USER" -d my_routine -c "select a.pid, a.state, now() - a.state_change as idle_for from pg_locks l join pg_stat_activity a using (pid) where l.locktype = '"'"'advisory'"'"'"' | tee $OUT/advisory.txt
+
+# 18분이 끝나면
+wait
+cat $OUT/pending-11.txt
+docker logs myroutine-ops-app-1 2>&1 | grep -E "job (expire-orders|dispatch-notifications) processed" > $OUT/jobs-11.txt
+```
+
+**11. 결과 옮기기**: 12에서 스냅샷을 되돌리면 VM의 `/tmp`가 비므로 먼저 옮긴다.
+
+```bash
+# 개발 PC (리포 루트)
+mkdir -p perf/k6/results/vm/s2-3
+scp '{VM}:/tmp/s2-3/*.txt' perf/k6/results/vm/s2-3/
+ls perf/k6/results/vm/s2-3/    # pending-1, pending-11, jobs-1, jobs-11, advisory
+```
+
+**12. 되돌린 뒤 고른 크기에서 S-02**: Proxmox에서 `seed_vacuumed`로 되돌린다. 되돌리면 앱은 옛 버전, `.env`는 측정 전으로 돌아간다. **배포하기 전에** 측정용 줄을 다시 넣는다. 빠뜨리면 이 S-02가 만든 주문이 15분 뒤 만료될 때 `@seed.test`로 Gmail 메일이 나간다. VM 창은 창 준비 블록을 다시 붙여 넣은 뒤 쓴다.
+
+```bash
+# VM (풀 자리에 7에서 정한 크기)
+cat >> /opt/myroutine/.env <<'ENV'
+MAIL_MODE=log
+MAIL_LOG_DELAY=3s
+SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE={7에서 정한 크기}
+ENV
+```
+
+```bash
+# 개발 PC: 머지 커밋을 배포한다
+gh workflow run cd.yml --ref develop -f sha=$(git log -1 origin/develop --format=%H)
+```
+
+배포가 끝나면 VM에서 `cat /opt/myroutine/deployed-sha`가 머지 커밋인지 본다. 그다음 데우고 잰다. 측정이 끝나면 Grafana 화면을 남긴다.
+
+```bash
+# 개발 PC
+SIZE={7에서 정한 크기}
+warm
+k6 run -e BASE_URL=$BASE --summary-export results/s2-3-s02-p$SIZE.json s02-checkout.js | tee results/s2-3-s02-p$SIZE.txt
+```
+
+**13. 되돌려 두기**: Proxmox에서 `seed_vacuumed`로 되돌린다. S2-5가 여기서 시작한다.
+
+**4) 리포트에 넘길 것**: k6 요약(`results/s2-3-*.json`), 6·8·12의 Grafana 화면, `perf/k6/results/vm/s2-3/`의 파일(결제 대기 주문 기록 두 개, 작업 실행 로그 두 개, advisory lock), 2의 인증 메일 수신 여부, 9의 `send mail to` 개수, 배포한 sha.
+
+### 7.3 완료 확인
+
+| 확인 | 방법 | 기대 |
+|---|---|---|
+| 테스트가 그대로 통과한다 | `./gradlew test` | 전체 통과 |
+| 운영 기본값은 Gmail이다 | 2 | 측정용 줄이 없는 상태에서 인증 메일을 받는다 |
+| 측정 중에는 메일이 나가지 않는다 | 9의 로그 | `send mail to ...@seed.test`가 찍힌다 |
+| 가짜 발송기가 한 통에 약 3초 걸린다 | `jobs-11.txt`의 `dispatch-notifications` | 100건에 약 300,000ms |
+| 스레드 1에서 만료가 막힌다 | `pending-1.txt` | 메일 작업이 돌기 시작한 뒤로 3분에 300건보다 적게 준다(Baseline은 4\~5분에 100건) |
+| 스레드 11에서 만료가 1분마다 돈다 | `pending-11.txt`, `jobs-11.txt` | 3분에 약 300건씩 준다. `expire-orders`가 약 1분 간격으로 찍히고, 메일 작업과 다른 `scheduling-N` 스레드에서 돈다 |
+| 메일 작업이 커넥션 하나를 쥔다 | `advisory.txt` | 한 행, `state`는 `idle` |
+| 실행마다의 흔들림 | 5 | 세 번의 처리량·p95 범위. S2-2 상한 10의 p95 변화(124 → 172ms)가 이 범위 안인지 |
+| 풀 크기 | 6·7 | 크기별 처리량·p95·커넥션 대기·`active`·postgres CPU, 고른 크기와 이유 |
+| 체크아웃 | 8·12 | 풀 10과 고른 크기의 처리량·p95 |
+| 리포트 | `docs/perf/s2-3-pool-scheduling.md` | 위 값과 Baseline 비교 |
+
+### 7.4 리뷰 때 물어볼 것
+
+- 측정 중 메일을 그냥 끄지 않고 한 통에 3초를 기다리게 한 이유는?
+- 스레드를 11개로 늘리면 같은 작업이 겹쳐 돌 수 있는가? 앱이 두 개면 무엇이 막는가?
+- 예약 작업 스레드를 11개로 늘렸는데, 풀 크기에는 왜 11이 아니라 메일 작업 몫 1만 더하는가?
+- 풀을 50으로 늘려도 처리량이 그대로라면 다음으로 무엇을 보는가?

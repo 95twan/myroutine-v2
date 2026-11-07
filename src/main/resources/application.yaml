@@ -10,6 +10,10 @@ spring:
           time_zone: UTC
         default_batch_fetch_size: 100
     open-in-view: false
+  task:
+    scheduling:
+      pool:
+        size: 11
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
@@ -50,6 +54,9 @@ management:
       enabled: false
 
 myroutine:
+  mail:
+    mode: log
+    log-delay: 0s
   business-zone: Asia/Seoul
   kafka:
     retry-initial-interval: 1s
