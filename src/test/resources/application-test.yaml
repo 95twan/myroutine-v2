@@ -25,6 +25,9 @@ myroutine:
         client-secret: dummy
 
 spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 10
   jpa:
     properties:
       hibernate:
