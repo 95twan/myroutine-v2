@@ -1262,105 +1262,32 @@ C도 DB UPDATE의 조건(`available >= :quantity`)을 그대로 두므로 Redis 
 
 ### 8.2 할 일
 
+**구현 순서**: B 브랜치는 1) → 기존 테스트. C 브랜치는 2)의 `stock-gate.lua` → `StockGate`·`RedisStockGate` → `ProductApiImpl.reserve` → 테스트(8.3). 그다음 3)·4)의 측정.
+
+이름·시그니처는 권장안이다.
+
 **1) B: `SELECT FOR UPDATE` 뒤 차감** (`experiment/s2-5-for-update`)
 
-새 파일은 없고, 기존 파일 세 개에 메서드 하나와 `reserve`의 몇 줄을 더한다.
-
-| 파일 | 할 일 |
+| 클래스 | 규격 |
 |---|---|
-| `product/infrastructure/JpaStockRepository.java` | 재고 행을 잠그며 판매 가능 수량을 읽는 메서드 `findAvailableForUpdate`를 더한다 |
-| `product/domain/StockRepository.java` | 같은 메서드를 선언한다 |
-| `product/application/ProductApiImpl.java` | `reserve`의 상품별 반복에서 기존 UPDATE 앞에 부른다 |
+| `StockRepository` (domain 순수 인터페이스, 기존 수정) | `Integer findAvailableForUpdate(UUID productId)`를 더한다. 재고 행을 잠그며 판매 가능 수량을 읽는다 |
+| `JpaStockRepository` (infrastructure, 기존 수정) | 위 조회를 native `@Query`로 구현한다. SQL은 `SELECT available FROM product.stock WHERE product_id = :productId FOR UPDATE`이고, 조회라서 `@Modifying`은 붙이지 않는다. 다른 트랜잭션이 이 행을 잠갔으면 그 트랜잭션이 끝날 때까지 기다린다. 잡은 락은 체크아웃 트랜잭션이 커밋하거나 롤백할 때 풀린다 |
+| `ProductApiImpl.reserve` (application, 기존 수정) | 상품별 반복에서 `stockRepository.reserve` 앞에 `findAvailableForUpdate`를 부른다. `available < quantity`면 지금 0행일 때와 같은 `BusinessException(ProductErrorCode.OUT_OF_STOCK, Map.of("productIds", List.of(productId)))`을 던진다. 그 뒤의 `reserve` UPDATE와 0행 검사, 예약·이력 INSERT는 그대로다. 재고 행은 상품 등록 때 만들어지고 `getPurchasable`이 상품을 먼저 확인하므로 조회 결과가 `null`인 경우는 없다 |
 
-**`findAvailableForUpdate`**
-
-| 항목 | 값 |
-|---|---|
-| 시그니처 | `Integer findAvailableForUpdate(UUID productId)` |
-| 쿼리 | `@Query(nativeQuery = true)`. 파일의 다른 메서드와 같은 모양이고, 조회라서 `@Modifying`은 붙이지 않는다 |
-| SQL | `SELECT available FROM product.stock WHERE product_id = :productId FOR UPDATE` |
-| 반환 | 그 상품의 `available`. 재고 행은 상품 등록 때 만들어지고 `getPurchasable`이 상품을 먼저 확인하므로 `null`인 경우는 없다 |
-| 락 | 다른 트랜잭션이 이 행을 잠그고 있으면 그 트랜잭션이 끝날 때까지 기다린다. 잡은 락은 체크아웃 트랜잭션이 커밋하거나 롤백할 때 풀린다 |
-
-**`reserve`의 순서**: 상품별 반복 안만 바뀐다.
-
-```text
-for (sortedItems) {
-    available = stockRepository.findAvailableForUpdate(productId)    (새로)
-    available < quantity → OUT_OF_STOCK, productIds = [productId]   (새로, 지금 던지는 것과 같은 예외)
-    count = stockRepository.reserve(productId, quantity, now)       (그대로)
-    count == 0 → OUT_OF_STOCK                                        (그대로)
-    insertReservation, insertMovement                                (그대로)
-}
-```
-
-락을 쥔 채 확인했으므로 UPDATE는 늘 1행이다. `count == 0` 확인은 그대로 둔다.
-
-**테스트**: 새 테스트는 없다. 기존 테스트(`StockReservationConcurrencyTest`, `ReservationDeadlockTest`, 체크아웃 테스트)가 그대로 통과하면 된다.
-
-JPA의 `@Lock(PESSIMISTIC_WRITE)`로 `Stock` 엔티티를 읽고 필드를 바꾸는 방법은 쓰지 않는다. 그러면 UPDATE가 커밋 직전 flush 때 모든 열을 쓰는 문장으로 바뀐다. UPDATE 문장을 A와 같게 두어야 차이가 락을 잡는 시점과 거절 요청의 락으로 좁혀진다.
+JPA의 `@Lock(PESSIMISTIC_WRITE)`로 `Stock` 엔티티를 읽고 필드를 바꾸는 방법은 쓰지 않는다. 그러면 UPDATE가 커밋 직전 flush 때 모든 열을 쓰는 문장으로 바뀐다. UPDATE 문장을 A와 같게 두어야 차이가 락을 잡는 시점과 거절 요청의 락으로 좁혀진다. 새 테스트는 없다(8.3).
 
 **2) C: Redis 선착순 게이트** (`experiment/s2-5-redis-gate`)
 
-만들 것은 Lua 스크립트 하나, 인터페이스와 구현 하나, `reserve`의 몇 줄이다.
+**키**: 상품마다 `stock:available:{productId}`, 값은 판매 가능 수량(문자열 정수)이다. 앱은 키를 만들지 않고, 측정 절차와 테스트가 `SET`으로 넣는다. 키가 없으면 게이트를 건너뛰고 A처럼 DB 조건으로만 예약하므로, 키를 넣지 않는 기존 테스트는 지금과 똑같이 돈다.
 
-| 파일 | 할 일 |
+| 클래스 | 규격 |
 |---|---|
-| `src/main/resources/redis/stock-gate.lua` | 새로 만든다 |
-| `product/domain/StockGate.java` | 새 인터페이스 |
-| `product/infrastructure/RedisStockGate.java` | 새 `@Component`. `StringRedisTemplate`과 `DefaultRedisScript<Long>`으로 구현한다. 생성자에서 스크립트를 읽는 방식은 `RedisLoginAttemptStore`와 같다 |
-| `product/application/ProductApiImpl.java` | `StockGate`를 주입받아 `reserve`에서 부른다 |
-| `product/application/StockGateTest.java` | 골격이 있다. 본문을 채운다(8.3) |
+| `redis/stock-gate.lua` (`src/main/resources`, 새로 만든다) | `KEYS`는 키 목록, `ARGV`는 같은 순서의 수량이다. ① 모든 키를 `GET`해 하나라도 없으면 `-1`, ② `tonumber(값) < tonumber(ARGV[i])`인 첫 키가 있으면 그 순번 `i`를 돌려주고 아무것도 줄이지 않는다, ③ 아니면 모든 키를 `DECRBY 키 수량`하고 `0`을 돌려준다. 확인과 차감을 한 스크립트에서 해야 그 사이에 다른 요청이 끼어들거나 상품 일부만 줄어드는 일이 없다. Lua의 반복은 `for i = 1, #KEYS do ... end`(번호는 1부터, `#`은 길이)이고, 없는 키의 `redis.call('GET', key)`는 `false`다 |
+| `StockGate` (`product.domain` 순수 인터페이스, 새로 만든다) | `int tryAcquire(List<UUID> productIds, List<Integer> quantities)` — `0`은 모두 줄였다, `-1`은 키가 없어 아무것도 하지 않았다, `n`(1 이상)은 n번째 상품이 모자라 아무것도 줄이지 않았다. `void giveBack(List<UUID> productIds, List<Integer> quantities)` — 줄인 수량을 되돌린다. `product.domain`은 `product.api`를 쓰지 않으므로 `ReserveItem` 대신 같은 순서의 두 목록을 받는다 |
+| `RedisStockGate` (`product.infrastructure`, 새로 만든다) | `@Component`. 스크립트는 `RedisLoginAttemptStore`처럼 생성자에서 `DefaultRedisScript<Long>`으로 읽는다. `tryAcquire`는 `redisTemplate.execute(script, keys, args)`로, `keys`는 `"stock:available:" + productId`의 `List<String>`, `args`는 수량을 `String`으로 바꾼 배열이다(`StringRedisTemplate`은 인자도 문자열로 보낸다). `giveBack`은 상품마다 `redisTemplate.opsForValue().increment(key, quantity)`(`INCRBY`) |
+| `ProductApiImpl.reserve` (application, 기존 수정) | `StockGate`를 주입받는다. `sortedItems`를 만든 뒤, 상품별 반복 앞에서 정렬 순서의 ID·수량 목록으로 `tryAcquire`를 부른다. `n > 0`이면 `OUT_OF_STOCK`(`productIds`는 `sortedItems.get(n - 1).productId()` 하나)을 던진다. `0`이면 `TransactionSynchronizationManager.registerSynchronization`으로 `afterCompletion(int status)`를 등록해, `status != TransactionSynchronization.STATUS_COMMITTED`면 같은 목록으로 `giveBack`을 부른다. `-1`이면 아무것도 하지 않는다. 그 뒤의 상품별 반복은 그대로다 |
 
-**키**: 상품마다 `stock:available:{productId}`, 값은 판매 가능 수량(문자열 정수)이다. 앱은 키를 만들지 않는다. 측정 절차와 테스트가 `SET`으로 넣는다. 키가 없으면 게이트를 건너뛰고 A처럼 DB 조건으로만 예약한다. 그래서 키를 넣지 않는 기존 테스트는 지금과 똑같이 돈다.
-
-**`StockGate`**: `product.domain`은 `product.api`를 쓰지 않으므로 `ReserveItem` 대신 같은 순서의 두 목록을 받는다.
-
-```java
-public interface StockGate {
-    // 0: 모두 줄였다. -1: 키가 하나라도 없어 아무것도 하지 않았다(게이트를 건너뛴다).
-    // n(1 이상): n번째 상품의 수량이 모자라 아무것도 줄이지 않았다.
-    int tryAcquire(List<UUID> productIds, List<Integer> quantities);
-
-    // tryAcquire가 0을 돌려준 뒤 트랜잭션이 커밋되지 않았을 때 부른다.
-    void giveBack(List<UUID> productIds, List<Integer> quantities);
-}
-```
-
-**Lua**: `KEYS`는 키 목록, `ARGV`는 같은 순서의 수량이다. 확인과 차감을 한 스크립트에서 해야, 확인과 차감 사이에 다른 요청이 끼어들거나 상품 일부만 줄어드는 일이 없다.
-
-1. 모든 키를 돌며 `GET`한다. 하나라도 없으면 `-1`을 돌려준다.
-2. 다시 돌며 `tonumber(값) < tonumber(ARGV[i])`인 첫 키의 순번 `i`를 돌려준다.
-3. 여기까지 왔으면 모든 키에 `DECRBY 키 수량`을 하고 `0`을 돌려준다.
-
-Lua의 반복은 `for i = 1, #KEYS do ... end`이고(목록 번호는 1부터, `#`은 길이), 키가 없으면 `redis.call('GET', key)`가 `false`를 돌려준다(`if not v then return -1 end`).
-
-**`RedisStockGate`**
-
-| 메서드 | 구현 |
-|---|---|
-| `tryAcquire` | `redisTemplate.execute(script, keys, args)`. `keys`는 `"stock:available:" + productId`의 `List<String>`, `args`는 수량을 `String`으로 바꾼 배열이다(`StringRedisTemplate`은 인자도 문자열로 보낸다). 결과 `Long`을 `int`로 돌려준다 |
-| `giveBack` | 상품마다 `redisTemplate.opsForValue().increment(key, quantity)`(`INCRBY`) |
-
-**`reserve`의 순서**: 지금 코드에서 `sortedItems`를 만든 뒤, 상품별 반복 앞에 넣는다.
-
-```text
-existsByOrderId → 있으면 return              (그대로)
-getPurchasable(ids)                          (그대로)
-sortedItems = 상품 ID 순 정렬                 (그대로)
-gate = stockGate.tryAcquire(정렬한 ID 목록, 같은 순서의 수량 목록)
-gate > 0  → OUT_OF_STOCK, productIds = [sortedItems.get(gate - 1).productId()]
-gate == 0 → TransactionSynchronization 등록:
-            afterCompletion(int status)에서 status != STATUS_COMMITTED면 giveBack(같은 목록)
-gate == -1 → 아무것도 하지 않는다
-for (sortedItems) { UPDATE ... }             (그대로)
-```
-
-등록은 `TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() { ... })`로, `TokenVersionService`와 같다. 다만 `afterCommit`이 아니라 `afterCompletion(int status)`를 오버라이드한다. 커밋이 아닌 경우(롤백)를 잡아야 해서다. `status`는 `TransactionSynchronization.STATUS_COMMITTED`와 비교한다. 되돌리는 경우는 DB UPDATE가 0행이라 `OUT_OF_STOCK`이 났을 때와, 체크아웃이 예약 뒤에 실패해 롤백됐을 때다.
-
-Redis 장애는 이번에 처리하지 않는다. 예외가 그대로 올라가 체크아웃이 500으로 끝난다.
-
-**테스트 준비**: `StringRedisTemplate`을 생성자로 주입받아(`StockReservationConcurrencyTest`가 `StockRepository`를 받는 것과 같다) `redisTemplate.opsForValue().set("stock:available:" + productId, "100")`으로 키를 넣는다. `IntegrationTestSupport`가 테스트마다 Redis를 비운다. 상품 재고는 `testFixtures.registerProduct(memberId, shopId, ProductCategory.ETC, 재고)`로 정하고, DB 재고는 `stockRepository.findById(productId)`로 읽는다.
+되돌리기는 `TokenVersionService`와 같은 등록 방식이지만 `afterCommit`이 아니라 `afterCompletion`을 쓴다. 롤백을 잡아야 해서다. 되돌리는 경우는 DB UPDATE가 0행이라 `OUT_OF_STOCK`이 났을 때와, 체크아웃이 예약 뒤에 실패해 롤백됐을 때다. Redis 장애는 처리하지 않는다. 예외가 그대로 올라가 체크아웃이 500으로 끝난다.
 
 **3) 측정 데이터와 시나리오**
 
@@ -1575,12 +1502,31 @@ scp '{VM}:/tmp/s2-5/*' perf/k6/results/vm/s2-5/
 
 ### 8.3 완료 확인
 
+#### 실험 브랜치의 기존 테스트
+
+B·C 브랜치마다 `./gradlew test`가 전체 통과한다. B에는 새 테스트가 없다.
+
+#### `product/application/StockGateTest` (`IntegrationTestSupport`, C 브랜치)
+
+생성자로 `ProductApi`, `TestFixtures`, `StockRepository`, `StringRedisTemplate`을 주입받는다. 준비는 `StockReservationConcurrencyTest`와 같다. `testFixtures.signup` → `openShop` → `registerProduct(memberId, shopId, ProductCategory.ETC, 재고)`로 상품을 만들고, `redisTemplate.opsForValue().set("stock:available:" + productId, 수량)`으로 키를 넣는다. 예약은 `productApi.reserve(Ids.newId(), List.of(new ReserveItem(productId, 수량)), 지금 + 15분)`이다. `IntegrationTestSupport`가 테스트마다 Redis를 비운다.
+
+**1. 재고와 Redis 수량이 100일 때 서로 다른 주문 1,000건이 동시에 예약해도 정확히 100건만 성공한다** — 준비: 재고 100, 키 100. 동작: 수량 1 예약 1,000건을 64개 스레드로 동시에(`StockReservationConcurrencyTest`와 같은 출발선 방식).
+- 결과: 성공 100건, 나머지 900건은 `BusinessException`(`OUT_OF_STOCK`).
+- DB(`stockRepository.findById`): `available` 0, `reserved` 100.
+- Redis: 키 값 `"0"`.
+
+**2. 재고 예약을 실패한다. (Redis 수량 부족)** — 준비: 재고 100, 키 0. 동작: 수량 1 예약.
+- 결과: `BusinessException`(`OUT_OF_STOCK`).
+- DB: `available` 100, `reserved` 0. 재고 행에 닿지 않았다.
+
+**3. 게이트를 통과한 뒤 DB 재고가 모자라 예약이 실패하면 Redis 수량을 되돌린다** — 준비: 재고 1, 키 2. 동작: 수량 2 예약.
+- 결과: `BusinessException`(`OUT_OF_STOCK`).
+- Redis: 키 값 `"2"`.
+
+#### VM 측정
+
 | 확인 | 방법 | 기대 |
 |---|---|---|
-| 실험 브랜치의 기존 테스트가 통과한다 | 브랜치마다 `./gradlew test` | 전체 통과 |
-| C: 게이트로 몰림을 처리해도 초과 판매가 없다 | `StockGateTest`: 상품 재고와 Redis 키 100, 서로 다른 주문 1,000건이 동시에 예약 | 성공 100건, DB `available` 0, Redis 0 |
-| C: Redis 수량이 모자라면 재고 행에 닿기 전에 거절한다 | `StockGateTest`: 상품 재고 100, Redis 키 0에서 예약 | `OUT_OF_STOCK`, DB `available` 100 그대로 |
-| C: DB에서 거절되면 Redis 수량을 되돌린다 | `StockGateTest`: 상품 재고 1, Redis 키 2에서 수량 2 예약 | `OUT_OF_STOCK`, Redis 2 |
 | 몰림에서 초과 판매가 없다 | 9번의 `{이름}-rush.txt`와 k6 요약 | `checkout_succeeded` 100, `available` 0, `reserved` 100, `reservations` 100. C는 Redis 0 |
 | 지속 경합에서 예약 수가 맞다 | 9번의 `{이름}-hold.txt`와 k6 요약 | `reserved` = `reservations` = `checkout_succeeded`, `available + reserved` = 1,000,000. C는 Redis = `available` |
 | 몰림 비교 | k6 요약, 상위 20문장 | 방식별 p50·p95·최대, 재고 문장(A·C의 UPDATE, B의 `SELECT FOR UPDATE`)의 호출 수와 평균 시간. C의 UPDATE 호출 수는 100 |
