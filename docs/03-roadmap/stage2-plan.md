@@ -1,6 +1,7 @@
 # Stage 2 준비: 측정 환경 · 시드 데이터 · k6 시나리오
 
-> 버전 0.10 · 2026-11-07 · S2-3 단계 규격(7절)을 더했다. 메일 발송기를 설정값 `myroutine.mail.mode`(smtp·log)로 고르고 log에 지연을 둘 수 있게 하며, 예약 작업 스레드를 작업 수인 11개로 늘린다. 커넥션 풀 크기는 측정으로 정한다
+> 버전 0.11 · 2026-11-07 · S2-5 단계 규격(8절)을 더했다. 지금의 조건부 UPDATE, JPA 비관적 락(`SELECT FOR UPDATE`) 뒤 엔티티 차감, Redis 선착순 게이트 + 조건부 UPDATE를 몰림(재고 100에 1,000명)과 지속 경합(재고 100만에 100명, 3분)으로 비교하며, 비교할 두 방식은 머지하지 않는 실험 브랜치에 둔다
+> 0.10 · 2026-11-07 · S2-3 단계 규격(7절)을 더했다. 메일 발송기를 설정값 `myroutine.mail.mode`(smtp·log)로 고르고 log에 지연을 둘 수 있게 하며, 예약 작업 스레드를 작업 수인 11개로 늘린다. 커넥션 풀 크기는 측정으로 정한다
 > 0.9 · 2026-11-07 · S2-2 단계 규격(6절)을 더했다. 목록 다음 페이지의 커서 조건 16개를 OR에서 행 값 비교로 바꾸고, 다음 페이지 테스트가 없는 10개는 테스트를 먼저 넣는다
 > 0.8 · 2026-11-07 · S2-3 커넥션 풀과 예약 작업 스레드를 꼭 하는 단계로 올렸다(Baseline에서 커넥션 풀이 가득 차고, 메일 작업이 다른 예약 작업을 막음). S2-3 첫 작업은 측정용 가짜 메일 발송기
 > 0.7 · 2026-11-06 · S-06은 409 `CONFLICT_RETRY`를 실패에서 뺀다. S-03은 스냅샷으로 되돌린 뒤 재고, S-02·S-03 뒤 15분 안에 앱을 멈춘다(만료 알림 메일)
@@ -11,7 +12,7 @@
 > 0.2 · 2026-11-06 · 시나리오 실행 순서와 개선 실험 우선순위를 정했다. S2-8 샤딩은 하지 않고, 재고 이력 3,000만 건은 S2-7을 할 때만 넣는다
 > 0.1 · 2026-11-06 · 초안. 합격 기준은 [요구사항 5.2](../01-requirements/README.md)의 값이고, 건수·부하·비율은 제안이다
 
-Stage 2 개선 단위(S2-1~S2-7)의 개요는 [아키텍처 진화](../02-design/01-architecture-evolution.md)에 있다. 이 문서는 Baseline의 준비, 개선 실험의 우선순위, S2-1a 단계 규격(5절), S2-2 단계 규격(6절), S2-3 단계 규격(7절)을 적는다. 시드 스크립트와 k6 스크립트는 사용자가 쓴다. 5절의 k6 스크립트와 시드 규칙은 로컬 격리 환경에서 1/100 규모로 실행해 확인한 것이다.
+Stage 2 개선 단위(S2-1~S2-7)의 개요는 [아키텍처 진화](../02-design/01-architecture-evolution.md)에 있다. 이 문서는 Baseline의 준비, 개선 실험의 우선순위, S2-1a 단계 규격(5절), S2-2 단계 규격(6절), S2-3 단계 규격(7절), S2-5 단계 규격(8절)을 적는다. 시드 스크립트와 k6 스크립트는 사용자가 쓴다. 5절의 k6 스크립트와 시드 규칙은 로컬 격리 환경에서 1/100 규모로 실행해 확인한 것이다.
 
 ## 1. 측정 환경
 
@@ -394,23 +395,30 @@ import { check } from 'k6';
 import { Counter } from 'k6/metrics';
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
-const BUYERS = Number(__ENV.BUYERS || 1000);
+const MODE = __ENV.MODE || 'rush';
+const BUYERS = Number(__ENV.BUYERS || (MODE === 'hold' ? 100 : 1000));
+const HOLD = __ENV.HOLD || '3m';
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const succeeded = new Counter('checkout_succeeded');
 const outOfStock = new Counter('checkout_out_of_stock');
 
 http.setResponseCallback(http.expectedStatuses(200, 201, 422));
 
+const scenarios = {
+  rush: { executor: 'per-vu-iterations', vus: BUYERS, iterations: 1, maxDuration: '2m' },
+  hold: { executor: 'constant-vus', vus: BUYERS, duration: HOLD },
+};
+
+const thresholds = {
+  'http_req_duration{name:checkout}': [],
+  'http_req_failed{name:checkout}': ['rate==0'],
+};
+if (MODE === 'rush') thresholds.checkout_succeeded = ['count==100'];
+
 export const options = {
   setupTimeout: '10m',
-  scenarios: {
-    rush: { executor: 'per-vu-iterations', vus: BUYERS, iterations: 1, maxDuration: '2m' },
-  },
-  thresholds: {
-    checkout_succeeded: ['count==100'],
-    'http_req_duration{name:checkout}': [],
-    'http_req_failed{name:checkout}': ['rate==0'],
-  },
+  scenarios: { [MODE]: scenarios[MODE] },
+  thresholds,
   summaryTrendStats: ['avg', 'med', 'p(95)', 'p(99)', 'max'],
 };
 
@@ -1203,7 +1211,7 @@ scp '{VM}:/tmp/s2-3/*' perf/k6/results/vm/s2-3/
 
 최종 풀 크기는 7의 상품 조회 결과와 이 체크아웃 결과로 정한다. 체크아웃이 풀을 늘려 흔들림을 넘게 빨라지지 않으면 7의 크기(11)를 쓴다. 빨라지면 상품 조회 p95(풀 10 약 170ms, 풀 20 이상 약 200ms)와 체크아웃 처리량 중 무엇을 택할지 정하고, 그 이유를 리포트에 적는다.
 
-**13. 되돌려 두기**: Proxmox에서 `seed_vacuumed`로 되돌린다. S2-5가 여기서 시작한다.
+**13. 되돌려 두기**: Proxmox에서 `seed_vacuumed`로 되돌리고, 최종 풀 크기를 넣은 커밋을 배포한 뒤 스냅샷 `seed_s2-3`을 찍는다. `.env`에는 측정용 줄을 넣지 않는다. S2-5가 이 스냅샷에서 시작한다.
 
 **4) 리포트에 넘길 것**: k6 요약(`results/s2-3-*.json`), 측정 시각(`results/s2-3-times.txt`), 5(한 번)·6·8의 Grafana 화면, `perf/k6/results/vm/s2-3/`의 파일(9·10의 결제 대기 주문 기록·작업 실행 로그·advisory lock·메일 확인, 12의 `prom-s02-p*.txt`), 2의 인증 메일 수신 여부, 배포한 sha.
 
@@ -1229,3 +1237,310 @@ scp '{VM}:/tmp/s2-3/*' perf/k6/results/vm/s2-3/
 - 스레드를 11개로 늘리면 같은 작업이 겹쳐 돌 수 있는가? 앱이 두 개면 무엇이 막는가?
 - 예약 작업 스레드를 11개로 늘렸는데, 풀 크기에는 왜 11이 아니라 메일 작업 몫 1만 더하는가?
 - 풀을 50으로 늘려도 처리량이 그대로라면 다음으로 무엇을 보는가?
+
+## 8. S2-5 재고 차감 방식 비교
+
+**목표**: 재고 예약을 세 방식으로 구현해 같은 조건에서 잰다. 인기 상품 하나에 주문이 몰릴 때 초과 판매가 없는지, 응답 시간·처리량·락 대기가 어떻게 다른지 비교하고, 결과로 [ADR-008](../adr/ADR-008-inventory-reservation.md)을 갱신한다.
+
+**왜 지금**: [Baseline](../perf/s2-1a-baseline.md)의 인기 상품 측정(S-03)은 응답 p95 2.7초의 대부분이 커넥션 10개를 기다린 시간이었고, 3초 만에 끝나 락 대기를 볼 수 없었다. S2-3에서 풀을 31로 늘려 재고 행의 락 대기가 응답에 드러나므로, 지금 방식도 풀 31에서 다시 재서 기준으로 쓴다.
+
+**브랜치**: 지금 방식(A)은 `seed_s2-3`에 배포된 `d0ab28f`를 그대로 잰다. 비교할 두 방식은 develop에서 딴 `experiment/s2-5-for-update`(B)와 `experiment/s2-5-redis-gate`(C)에 구현하고 머지하지 않는다([Git 정책 2절](../git-policy.md)). 세 sha가 같은 DB를 번갈아 쓰므로 실험 브랜치에는 Flyway 마이그레이션을 넣지 않는다. 리포트(`docs/perf/s2-5-stock-reservation.md`)와 ADR-008 갱신은 사용자가 넘긴 결과로 Claude가 쓰고 docs 브랜치로 develop에 넣는다. C를 채택하면 develop에 넣을 규격(판매자 재고 변경·만료·취소·반품 복구 때 Redis 수량 맞추기, 키가 없을 때 채우기)은 그때 따로 쓴다.
+
+### 8.1 비교할 방식
+
+세 방식은 `ProductApiImpl.reserve` 안에서만 다르다. 체크아웃 트랜잭션(`CheckoutService.checkout`)이 주문을 저장한 뒤 `reserve`를 부르고, 재고 행의 락은 그 트랜잭션이 커밋하거나 롤백할 때 풀린다. 그래서 락을 쥐는 시간에는 예약·이력 INSERT와 커밋의 디스크 쓰기(S2-3에서 체크아웃의 한계였던 `WALWrite`)가 들어간다.
+
+| 방식 | 재고 행을 다루는 문장 | 성공하는 요청 | 재고 부족으로 거절되는 요청 |
+|---|---|---|---|
+| A. 조건부 UPDATE | `UPDATE ... WHERE available >= :quantity` 한 문장 | UPDATE에서 락을 잡고 커밋까지 쥔다 | 앞 트랜잭션이 끝나기를 기다린 뒤 조건을 다시 확인하고, 맞지 않으면 락을 잡지 않고 0행으로 끝난다 |
+| B. JPA 비관적 락 | `@Lock(PESSIMISTIC_WRITE)` 조회로 `SELECT ... FOR UPDATE`, 엔티티 메서드로 확인·차감, dirty checking이 만드는 UPDATE | SELECT에서 락을 잡는다. A보다 먼저 잡아 그만큼 오래 쥔다 | 락을 잡은 뒤 엔티티 메서드가 부족을 확인하고 예외를 던져, 롤백할 때까지 락을 쥔다. 거절될 요청도 차례로 락을 잡는다 |
+| C. Redis 선착순 게이트 + 조건부 UPDATE | Redis Lua로 수량을 먼저 줄이고, 통과한 요청만 A와 같은 UPDATE | A와 같다 | Redis에서 거절되어 재고 행에 닿지 않는다. 체크아웃 트랜잭션이 이미 시작된 뒤라 커넥션은 잠깐 쓴다 |
+
+C는 거절을 재고 행 앞에서 끝낼 뿐, 성공한 주문끼리 재고 행을 차례로 고치는 것은 A와 같다. 성공한 주문의 재고 행 UPDATE까지 나중으로 미루는 방식(Redis 원자 차감 + DB 비동기 확정)과 재고 행을 여러 개로 나누는 방식(버킷 분할)은 하지 않는다. 체크아웃 흐름이 바뀌고 Redis와 DB를 맞추는 보정·장애 복구가 필요해서다. 이 한계는 8.2 3)의 지속 경합 측정에 드러난다.
+
+C도 DB UPDATE의 조건(`available >= :quantity`)을 그대로 두므로 Redis 수량이 틀려도 초과 판매는 없다. Redis가 DB보다 적으면(되돌리기 전에 앱이 죽은 경우) 팔 수 있는 재고를 거절하고, 많으면 DB가 거절한다.
+
+### 8.2 할 일
+
+**구현 순서**: B 브랜치는 1) → 기존 테스트. C 브랜치는 2)의 `stock-gate.lua` → `StockGate`·`RedisStockGate` → `ProductApiImpl.reserve` → 테스트(8.3). 그다음 3)·4)의 측정.
+
+이름·시그니처는 권장안이다.
+
+**1) B: JPA 비관적 락** (`experiment/s2-5-for-update`)
+
+실무에서 비관적 락이라고 부르는 형태다. 재고 행을 `SELECT ... FOR UPDATE`로 잠그며 엔티티로 읽고, 엔티티 메서드로 확인·차감한 뒤 dirty checking으로 저장한다. A의 조건부 UPDATE(`StockRepository.reserve`)는 부르지 않는다.
+
+| 클래스 | 규격 |
+|---|---|
+| `StockRepository` (domain 순수 인터페이스, 기존 수정) | `Optional<Stock> findByIdForUpdate(UUID productId)`를 더한다. 재고 행을 잠그며 읽는다. `JpaRepository`의 `findById`에 락을 걸면 다른 조회도 모두 잠그므로 이름을 따로 둔다 |
+| `JpaStockRepository` (infrastructure, 기존 수정) | 위 조회를 `@Lock(LockModeType.PESSIMISTIC_WRITE)`와 JPQL `@Query("select s from Stock s where s.productId = :productId")`로 구현한다. Postgres에서는 `SELECT ... FOR UPDATE`로 나간다. 다른 트랜잭션이 이 행을 잠갔으면 그 트랜잭션이 끝날 때까지 기다리고, 잡은 락은 체크아웃 트랜잭션이 커밋하거나 롤백할 때 풀린다 |
+| `Stock` (domain, 기존 수정) | `void reserve(int quantity)`를 더한다. `available < quantity`면 `BusinessException(ProductErrorCode.OUT_OF_STOCK, Map.of("productIds", List.of(productId)))`을 던지고, 아니면 `available -= quantity`, `reserved += quantity`. `updated_at`은 `BaseTimeEntity`의 `@LastModifiedDate`가 채운다 |
+| `ProductApiImpl.reserve` (application, 기존 수정) | 상품별 반복에서 `stockRepository.reserve(...)`와 그 0행 검사 대신 `findByIdForUpdate(productId)`로 읽어 `stock.reserve(quantity)`를 부른다. 재고 행은 상품 등록 때 만들어지고 `getPurchasable`이 상품을 먼저 확인하므로, 행이 없으면 `IllegalStateException`을 던진다. 예약·이력 INSERT는 그대로다. 상품 ID 순으로 잠그는 것도 그대로라 여러 상품 주문끼리 교착되지 않는다 |
+
+UPDATE를 언제 보내는지는 Hibernate의 flush가 정한다(뒤의 native INSERT 전이나 커밋 때). 락은 이미 SELECT에서 잡았으므로 락을 쥐는 구간은 어느 쪽이든 SELECT부터 커밋까지다. 새 테스트는 없다(8.3).
+
+**2) C: Redis 선착순 게이트** (`experiment/s2-5-redis-gate`)
+
+**키**: 상품마다 `stock:available:{productId}`, 값은 판매 가능 수량(문자열 정수)이다. 앱은 키를 만들지 않고, 측정 절차와 테스트가 `SET`으로 넣는다. 키가 없으면 게이트를 건너뛰고 A처럼 DB 조건으로만 예약하므로, 키를 넣지 않는 기존 테스트는 지금과 똑같이 돈다.
+
+| 클래스 | 규격 |
+|---|---|
+| `redis/stock-gate.lua` (`src/main/resources`, 새로 만든다) | `KEYS`는 키 목록, `ARGV`는 같은 순서의 수량이다. ① 모든 키를 `GET`해 하나라도 없으면 `-1`, ② `tonumber(값) < tonumber(ARGV[i])`인 첫 키가 있으면 그 순번 `i`를 돌려주고 아무것도 줄이지 않는다, ③ 아니면 모든 키를 `DECRBY 키 수량`하고 `0`을 돌려준다. 확인과 차감을 한 스크립트에서 해야 그 사이에 다른 요청이 끼어들거나 상품 일부만 줄어드는 일이 없다. Lua의 반복은 `for i = 1, #KEYS do ... end`(번호는 1부터, `#`은 길이)이고, 없는 키의 `redis.call('GET', key)`는 `false`다 |
+| `StockGate` (`product.domain` 순수 인터페이스, 새로 만든다) | `int tryAcquire(List<UUID> productIds, List<Integer> quantities)` — `0`은 모두 줄였다, `-1`은 키가 없어 아무것도 하지 않았다, `n`(1 이상)은 n번째 상품이 모자라 아무것도 줄이지 않았다. `void giveBack(List<UUID> productIds, List<Integer> quantities)` — 줄인 수량을 되돌린다. `product.domain`은 `product.api`를 쓰지 않으므로 `ReserveItem` 대신 같은 순서의 두 목록을 받는다 |
+| `RedisStockGate` (`product.infrastructure`, 새로 만든다) | `@Component`. 스크립트는 `RedisLoginAttemptStore`처럼 생성자에서 `DefaultRedisScript<Long>`으로 읽는다. `tryAcquire`는 `redisTemplate.execute(script, keys, args)`로, `keys`는 `"stock:available:" + productId`의 `List<String>`, `args`는 수량을 `String`으로 바꾼 배열이다(`StringRedisTemplate`은 인자도 문자열로 보낸다). `giveBack`은 상품마다 `redisTemplate.opsForValue().increment(key, quantity)`(`INCRBY`) |
+| `ProductApiImpl.reserve` (application, 기존 수정) | `StockGate`를 주입받는다. `sortedItems`를 만든 뒤, 상품별 반복 앞에서 정렬 순서의 ID·수량 목록으로 `tryAcquire`를 부른다. `n > 0`이면 `BusinessException(ProductErrorCode.OUT_OF_STOCK, Map.of("productIds", List.of(sortedItems.get(n - 1).productId())))`을 던진다. DB에서 거절될 때와 같이 `productIds`는 목록이다([API 명세](../02-design/07-api-spec.md) 체크아웃의 `details.productIds`). `0`이면 `TransactionSynchronizationManager.registerSynchronization`으로 `afterCompletion(int status)`를 등록해, `status != TransactionSynchronization.STATUS_COMMITTED`면 같은 목록으로 `giveBack`을 부른다. `-1`이면 아무것도 하지 않는다. 그 뒤의 상품별 반복은 그대로다 |
+
+되돌리기는 `TokenVersionService`와 같은 등록 방식이지만 `afterCommit`이 아니라 `afterCompletion`을 쓴다. 롤백을 잡아야 해서다. 되돌리는 경우는 DB UPDATE가 0행이라 `OUT_OF_STOCK`이 났을 때와, 체크아웃이 예약 뒤에 실패해 롤백됐을 때다. Redis 장애는 처리하지 않는다. 예외가 그대로 올라가 체크아웃이 500으로 끝난다.
+
+**3) 측정 데이터와 시나리오**
+
+| 항목 | 규격 |
+|---|---|
+| 인기 상품 | 측정마다 새 상품을 SQL로 만들고, `k6-hot-*` 회원 1,000명의 장바구니 항목이 그 상품을 가리키게 바꾼다. 상점은 시드의 `k6 인기 상품`과 같다. 앞 측정의 결제 대기 주문과 예약은 앞 상품에 남아 다음 측정의 재고 행에 끼지 않으므로, 측정 사이에 스냅샷을 되돌리지 않는다 |
+| 몰림 | S-03 그대로. 재고 100, 회원 1,000명이 동시에 한 번씩 체크아웃한다 |
+| 지속 경합 | 재고 100만, 회원 100명(`k6-hot-1`\~`100`)이 3분 동안 쉬지 않고 체크아웃을 반복한다. 모든 요청이 성공하므로 재고 행 하나의 처리량 한계와 락 대기가 보인다 |
+| k6 | `s03-hot-product.js`의 `MODE`. 기본 `rush`는 몰림이고, `hold`는 `constant-vus`(VU `BUYERS` 기본 100, 시간 `HOLD` 기본 3m)로 성공 100건 기준만 빠진다(5.2의 전문) |
+| 결제 TTL | `MYROUTINE_ORDER_PAYMENT_TTL=180m`. 측정 내내 주문이 만료되지 않아 만료 작업·알림·재고 복구가 측정에 끼지 않는다 |
+| 반복 | 방식마다 3번. 차례는 1회 A·B·C, 2회 B·C·A, 3회 C·A·B로 돌려, 쌓이는 주문 같은 시간에 따른 변화가 한 방식에 몰리지 않게 한다. 측정 이름은 방식과 회차다(`A1`, `B1`, …) |
+
+몰림은 3초 만에 끝나 Prometheus로 볼 수 없으므로 `pg_stat_statements`로 재고 문장의 호출 수와 평균 시간을 본다. 행 락을 기다린 시간은 그 문장의 실행 시간에 들어가므로, 평균 시간에서 경합이 없을 때(Baseline 체크아웃의 재고 차감 0.03ms)를 빼면 대략 기다린 시간이다. 지속 경합은 Prometheus에서 락을 기다리는 연결 수(`wait_event_type="Lock"`)와 초당 커밋을 함께 본다.
+
+**4) 측정**: VM은 `seed_s2-3`에서 시작한다. 7.2 3)과 같은 창 준비 블록을 쓰되 `OUT=/tmp/s2-5`로 바꾼다.
+
+**1. 실험 브랜치 준비**: B·C 브랜치를 push하고, 각 브랜치에서 `./gradlew test`가 통과하는지 본다.
+
+**2. 측정용 설정**: VM에서 측정용 줄을 넣는다. 다음 배포가 앱을 다시 띄우며 읽는다.
+
+```bash
+# VM
+cat >> /opt/myroutine/.env <<'ENV'
+MAIL_MODE=log
+MAIL_LOG_DELAY=3s
+MYROUTINE_ORDER_PAYMENT_TTL=180m
+ENV
+```
+
+**3. 배포**: 개발 PC에서 B와 C를 차례로 배포한다. 앞 배포가 끝난 뒤 다음을 실행한다. `scripts/deploy.sh`는 옛 이미지를 지우지 않으므로, 배포가 끝나면 VM에 세 이미지가 남아 이후로는 `IMAGE_TAG`만 바꿔 앱을 다시 띄운다. 마지막 줄의 세 sha를 5에 쓴다.
+
+```bash
+# 개발 PC
+git fetch -q origin
+gh workflow run cd.yml --ref develop -f sha=$(git rev-parse origin/experiment/s2-5-for-update)
+gh workflow run cd.yml --ref develop -f sha=$(git rev-parse origin/experiment/s2-5-redis-gate)
+echo $(git rev-parse d0ab28f) $(git rev-parse origin/experiment/s2-5-for-update) $(git rev-parse origin/experiment/s2-5-redis-gate)
+```
+
+```bash
+# VM (세 sha가 모두 보여야 한다)
+docker image ls ghcr.io/95twan/myroutine --format '{{.Tag}}'
+```
+
+**4. 측정 칸**: 한 측정에 13분짜리 칸을 쓰고, 9칸(약 2시간) 동안 VM과 개발 PC의 스크립트가 같은 시작 시각 `T0`(몇 분 뒤의 `HH:MM`)로 맞춰 돈다. 지켜볼 필요는 없다.
+
+| 칸 안의 시각 | VM | 개발 PC |
+|---|---|---|
+| +0:00 | 그 방식의 sha로 앱을 다시 띄운다 | |
+| +2:00 | | 앱이 응답하면 체크아웃(S-02, VU 10, 30초)으로 데운다 |
+| +3:00 | 몰림용 상품(재고 100)을 만들고, C면 Redis 키를 넣고, `pg_stat_statements`를 비운다 | |
+| +3:30 | | 몰림을 잰다 |
+| +7:30 | 몰림 결과(재고 행·예약 수·Redis 값·상위 20문장)를 `{이름}-rush.txt`에 남기고, 지속 경합용 상품(재고 100만)을 준비한다 | |
+| +8:00 | | 지속 경합을 잰다(로그인 약 10초 + 3분) |
+| +12:30 | 결과를 `{이름}-hold.txt`에, +9:00\~+11:00의 지표를 `{이름}-hold-prom.txt`에 남긴다 | |
+
+VM 스크립트는 `.env`에 측정용 줄이 없으면 시작하지 않는다. `T0` 자리에 시작 시각, `A B C` 자리에 3의 세 sha를 넣는다.
+
+```bash
+# VM
+mkdir -p /tmp/s2-5 && chmod 755 /tmp/s2-5
+cat > /tmp/s2-5/hot-product.sql <<'SQL'
+begin;
+create temp table hot as
+select gen_random_uuid() id, shop_id, now() t from product.product where name = 'k6 인기 상품';
+insert into product.product(id, shop_id, name, description, category, price, status, subscribable, version, created_at, updated_at)
+select id, shop_id, 'k6 인기 상품 ' || :'label', 'k6 인기 상품', 'FOOD', 10000, 'ON_SALE', false, 0, t, t from hot;
+insert into product.stock(product_id, available, reserved, sold, received, created_at, updated_at)
+select id, :stock, 0, 0, :stock, t, t from hot;
+insert into product.stock_movement(id, product_id, type, quantity, ref_type, ref_id, created_at)
+select gen_random_uuid(), id, 'RECEIVE', :stock, 'PRODUCT_REGISTER', id, t from hot;
+update orders.cart_item ci set product_id = hot.id, updated_at = hot.t
+from hot, orders.cart c join member.member m on m.id = c.member_id
+where ci.cart_id = c.id and m.email like 'k6-hot-%@seed.test';
+commit;
+select id from hot;
+SQL
+cat > /tmp/s2-5/stock.sql <<'SQL'
+select s.available, s.reserved, s.sold, s.received,
+       (select count(*) from product.stock_reservation r where r.product_id = s.product_id) reservations
+from product.stock s where s.product_id = :'pid';
+SQL
+cat > /tmp/s2-5/top20.sql <<'SQL'
+select calls, round(total_exec_time::numeric) total_ms, round(mean_exec_time::numeric, 2) mean_ms,
+       round((100 * total_exec_time / sum(total_exec_time) over ())::numeric, 1) pct, rows,
+       left(regexp_replace(query, '\s+', ' ', 'g'), 200) query
+from pg_stat_statements
+where dbid = (select oid from pg_database where datname = current_database())
+order by total_exec_time desc limit 20;
+SQL
+cat > /tmp/s2-5/run.sh <<'SCRIPT'
+#!/usr/bin/env bash
+set -u
+T0="$1"
+declare -A SHA=([A]="$2" [B]="$3" [C]="$4")
+cd ~/actions-runner/_work/myroutine-v2/myroutine-v2
+ENVF=/opt/myroutine/.env
+OUT=/tmp/s2-5
+COMPOSE="docker compose --env-file $ENVF -f docker/docker-compose.ops.yml"
+ORDER=(A B C B C A C A B)
+log() { echo "$(TZ=Asia/Seoul date '+%H:%M:%S') $*"; }
+wait_until() { local n; n=$(date +%s); [ "$1" -gt "$n" ] && sleep $(( $1 - n )); return 0; }
+psql_v() { docker exec -i myroutine-ops-postgres-1 sh -c "psql -U \"\$POSTGRES_USER\" -d my_routine -v ON_ERROR_STOP=1 -qtA $*"; }
+psql_t() { docker exec -i myroutine-ops-postgres-1 sh -c "psql -U \"\$POSTGRES_USER\" -d my_routine -v ON_ERROR_STOP=1 -q $*"; }
+redis() { docker exec myroutine-ops-redis-1 redis-cli "$@"; }
+prom() { curl -s http://127.0.0.1:9090/api/v1/query --data-urlencode "query=$2" --data-urlencode "time=$3" | sed "s/^/$1 /"; echo; }
+
+prep() {
+  local pid
+  pid=$(psql_v "-v stock=$3 -v label=$2 -f -" < $OUT/hot-product.sql | tail -n 1)
+  [ -n "$pid" ] || { log "$2 상품을 만들지 못해 멈춘다"; exit 1; }
+  echo "$pid" > $OUT/$2.pid
+  if [ "$1" = C ]; then redis SET stock:available:$pid $3 > /dev/null; fi
+  psql_v "-f -" <<< "select pg_stat_statements_reset();" > /dev/null
+  log "$2 준비, 상품 $pid"
+}
+
+save() {
+  local pid
+  pid=$(cat $OUT/$2.pid)
+  {
+    psql_t "-v pid=$pid -f -" < $OUT/stock.sql
+    if [ "$1" = C ]; then echo "redis $(redis GET stock:available:$pid)"; fi
+    psql_t "-f -" < $OUT/top20.sql
+  } > $OUT/$2.txt
+  log "$2 저장"
+}
+
+hold_prom() {
+  {
+    prom commits_per_s "sum(increase(pg_stat_database_xact_commit{datname=\"my_routine\"}[2m])) / 120" $2
+    prom acquire_avg_s "sum(increase(hikaricp_connections_acquire_seconds_sum[2m])) / sum(increase(hikaricp_connections_acquire_seconds_count[2m]))" $2
+    prom busy_conn "sum(increase(hikaricp_connections_usage_seconds_sum[2m])) / 120" $2
+    prom container_cpu "sum by (name) (increase(container_cpu_usage_seconds_total{name=~\"myroutine-ops-(app|postgres|redis)-1\"}[2m])) / 120" $2
+    prom wait_event "sum by (wait_event_type, wait_event) (avg_over_time(pg_stat_activity_count{datname=\"my_routine\", wait_event!=\"\"}[2m]))" $2
+  } > $OUT/$1-prom.txt
+}
+
+for line in MAIL_MODE=log MAIL_LOG_DELAY=3s MYROUTINE_ORDER_PAYMENT_TTL=180m; do
+  grep -q "^$line\$" $ENVF || { log ".env에 $line 이 없어 멈춘다"; exit 1; }
+done
+
+t0=$(TZ=Asia/Seoul date -d "$T0" +%s)
+for i in "${!ORDER[@]}"; do
+  m=${ORDER[$i]}
+  name=$m$(( i / 3 + 1 ))
+  slot=$(( t0 + i * 780 ))
+  log "$name: $(TZ=Asia/Seoul date -d @$slot '+%H:%M:%S')에 시작"
+  wait_until $slot
+  IMAGE_TAG=${SHA[$m]} $COMPOSE up -d --no-deps --force-recreate --wait app
+  log "$name: ${SHA[$m]} 로 다시 띄움"
+  wait_until $(( slot + 180 )); prep $m $name-rush 100
+  wait_until $(( slot + 450 )); save $m $name-rush; prep $m $name-hold 1000000
+  wait_until $(( slot + 750 )); save $m $name-hold; hold_prom $name-hold $(( slot + 660 ))
+done
+log DONE
+SCRIPT
+setsid nohup bash /tmp/s2-5/run.sh T0 A B C > /tmp/s2-5/run.log 2>&1 < /dev/null &
+sleep 2; cat /tmp/s2-5/run.log
+```
+
+개발 PC 스크립트는 리포 안 어디서 실행해도 `perf/k6`로 옮겨 가서 돈다. 몰림이나 지속 경합이 VM이 결과를 남기는 시각 안에 끝나지 않으면 경고를 찍는다. 그 측정은 버리고 다시 잰다.
+
+```bash
+# 개발 PC (리포 루트, T0는 VM과 같은 값)
+cat > /tmp/s2-5-run-pc.sh <<'SCRIPT'
+#!/usr/bin/env bash
+set -u
+T0="$1"
+BASE="$2"
+ulimit -n 10000
+cd "$(git rev-parse --show-toplevel)/perf/k6"
+mkdir -p results
+ORDER=(A B C B C A C A B)
+mark() { echo "$1 $(date '+%Y-%m-%d %H:%M:%S')" | tee -a results/s2-5-times.txt; }
+wait_until() { local n; n=$(date +%s); [ "$1" -gt "$n" ] && sleep $(( $1 - n )); return 0; }
+
+t0=$(date -j -f "%H:%M:%S" "$T0:00" +%s)
+for i in "${!ORDER[@]}"; do
+  name=${ORDER[$i]}$(( i / 3 + 1 ))
+  slot=$(( t0 + i * 780 ))
+  wait_until $(( slot + 120 ))
+  until curl -sf -o /dev/null "$BASE/api/products?category=FOOD&size=1"; do sleep 5; done
+  k6 run -q -e BASE_URL=$BASE -e VUS=10 -e RAMP=0s -e HOLD=30s s02-checkout.js > /dev/null 2>&1
+  wait_until $(( slot + 210 ))
+  mark $name-rush-start
+  k6 run -e BASE_URL=$BASE --summary-export results/s2-5-$name-rush.json s03-hot-product.js > results/s2-5-$name-rush.txt 2>&1
+  mark $name-rush-end
+  [ "$(date +%s)" -gt $(( slot + 450 )) ] && echo "경고: $name 몰림이 +7:30 안에 끝나지 않았다"
+  wait_until $(( slot + 480 ))
+  mark $name-hold-start
+  k6 run -e BASE_URL=$BASE -e MODE=hold --summary-export results/s2-5-$name-hold.json s03-hot-product.js > results/s2-5-$name-hold.txt 2>&1
+  mark $name-hold-end
+  [ "$(date +%s)" -gt $(( slot + 750 )) ] && echo "경고: $name 지속 경합이 +12:30 안에 끝나지 않았다"
+done
+echo DONE
+SCRIPT
+bash /tmp/s2-5-run-pc.sh T0 http://{VM IP}:8080
+```
+
+**5. 결과 옮기기**: 개발 PC에 `DONE`이 찍히고 VM의 `run.log` 마지막 줄이 `DONE`이면 끝난 것이다.
+
+```bash
+# 개발 PC (리포 루트)
+mkdir -p perf/k6/results/vm/s2-5
+scp '{VM}:/tmp/s2-5/*' perf/k6/results/vm/s2-5/
+```
+
+**6. 되돌려 두기**: Proxmox에서 `seed_s2-3`으로 되돌린다. 앱은 `d0ab28f`, `.env`는 측정용 줄이 없는 상태로 돌아간다.
+
+**5) 리포트에 넘길 것**: k6 요약(`results/s2-5-*.json`, `*.txt`), 측정 시각(`results/s2-5-times.txt`), `perf/k6/results/vm/s2-5/`의 파일(측정마다 `{이름}-rush.txt`·`{이름}-hold.txt`·`{이름}-hold-prom.txt`, `run.log`), 세 sha, 개발 PC 스크립트의 경고 여부.
+
+### 8.3 완료 확인
+
+#### 실험 브랜치의 기존 테스트
+
+B·C 브랜치마다 `./gradlew test`가 전체 통과한다. B에는 새 테스트가 없다.
+
+#### `product/application/StockGateTest` (`IntegrationTestSupport`, C 브랜치)
+
+생성자로 `ProductApi`, `TestFixtures`, `StockRepository`, `StringRedisTemplate`을 주입받는다. 준비는 `StockReservationConcurrencyTest`와 같다. `testFixtures.signup` → `openShop` → `registerProduct(memberId, shopId, ProductCategory.ETC, 재고)`로 상품을 만들고, `redisTemplate.opsForValue().set("stock:available:" + productId, 수량)`으로 키를 넣는다. 예약은 `productApi.reserve(Ids.newId(), List.of(new ReserveItem(productId, 수량)), 지금 + 15분)`이다. `IntegrationTestSupport`가 테스트마다 Redis를 비운다.
+
+**1. 재고와 Redis 수량이 100일 때 서로 다른 주문 1,000건이 동시에 예약해도 정확히 100건만 성공한다** — 준비: 재고 100, 키 100. 동작: 수량 1 예약 1,000건을 64개 스레드로 동시에(`StockReservationConcurrencyTest`와 같은 출발선 방식).
+- 결과: 성공 100건, 나머지 900건은 `BusinessException`(`OUT_OF_STOCK`).
+- DB(`stockRepository.findById`): `available` 0, `reserved` 100.
+- Redis: 키 값 `"0"`.
+
+**2. 재고 예약을 실패한다. (Redis 수량 부족)** — 준비: 재고 100, 키 0. 동작: 수량 1 예약.
+- 결과: `BusinessException`(`OUT_OF_STOCK`).
+- DB: `available` 100, `reserved` 0. 재고 행에 닿지 않았다.
+
+**3. 게이트를 통과한 뒤 DB 재고가 모자라 예약이 실패하면 Redis 수량을 되돌린다** — 준비: 재고 1, 키 2. 동작: 수량 2 예약.
+- 결과: `BusinessException`(`OUT_OF_STOCK`).
+- Redis: 키 값 `"2"`.
+
+#### VM 측정
+
+| 확인 | 방법 | 기대 |
+|---|---|---|
+| 몰림에서 초과 판매가 없다 | 9번의 `{이름}-rush.txt`와 k6 요약 | `checkout_succeeded` 100, `available` 0, `reserved` 100, `reservations` 100. C는 Redis 0 |
+| 지속 경합에서 예약 수가 맞다 | 9번의 `{이름}-hold.txt`와 k6 요약 | `reserved` = `reservations` = `checkout_succeeded`, `available + reserved` = 1,000,000. C는 Redis = `available` |
+| 몰림 비교 | k6 요약, 상위 20문장 | 방식별 p50·p95·최대, 재고 문장(A·C의 UPDATE, B의 `SELECT FOR UPDATE`)의 호출 수와 평균 시간. C의 UPDATE 호출 수는 100 |
+| 지속 경합 비교 | k6 요약, `{이름}-hold-prom.txt` | 방식별 초당 성공·p95, `Lock`을 기다리는 연결 수 평균, 커넥션 대기 평균, 초당 커밋, CPU |
+| 흔들림 | 같은 방식 3번 | 방식 사이의 차이가 같은 방식 3번의 범위를 넘는지 |
+| 리포트·ADR | `docs/perf/s2-5-stock-reservation.md`, ADR-008 | 위 값과 Baseline S-03 비교, 고른 방식과 이유 |
+
+### 8.4 리뷰 때 물어볼 것
+
+- 조건부 UPDATE에서 재고 부족으로 거절되는 요청도 락을 잡는가? `SELECT FOR UPDATE`에서는?
+- 재고 행 락은 언제 풀리는가? 락을 쥐는 동안 무엇을 하는가?
+- Redis 수량과 DB 수량이 어긋나면 무슨 일이 생기는가? 어느 쪽으로 어긋나도 초과 판매가 없는 이유는?
+- C를 운영에 넣으려면 무엇을 더 해야 하는가?
+- 지속 경합의 처리량이 재고 행 하나의 한계라는 것을 무엇으로 아는가?
