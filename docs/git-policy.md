@@ -163,9 +163,8 @@ Refs: S2-M2
 |---|---|---|
 | Part 1~5 각각 완료 | `v0.1.0` ~ `v0.5.0` | develop → main PR(merge commit) → main에 태그 → GitHub Release |
 | Part 6 완료, 곧 Stage 1 완료 | `v1.0.0` | 위와 같음 |
-| [서브](04-sub/README.md) 기능 하나 완료 | 다음 MINOR (`v1.x.0`, Stage 2 개선 단위와 같은 순번) | 위와 같음 |
-| Stage 2 개선 단위 | `v1.1.0`, `v1.2.0` … | 측정 리포트 링크를 Release 노트에 |
-| Stage 3 MSA 전환 | `v2.0.0` | |
+| Stage 2 완료 | `v1.1.0` | 위와 같음. 측정 리포트 링크를 Release 노트에 |
+| [서브](04-sub/README.md) 기능 하나 완료 | 다음 MINOR (`v1.2.0`부터) | 위와 같음 |
 | main 긴급 수정 | PATCH 증가 (`v0.3.1`) | hotfix 브랜치 |
 
 > 릴리스(태그)와 **배포는 별개**다. 배포는 `develop` push마다 VM에 자동으로 이뤄진다([ADR-011](adr/ADR-011-ops-practice-environment.md), 로드맵 1-11). 단 문서만 바뀐 push(바뀐 파일이 모두 `docs/**` 또는 `*.md`)는 CI가 돌지 않아 배포도 일어나지 않는다(`ci.yml`의 `push.paths-ignore`, CD는 push CI의 완료로 시작한다). PR의 CI에는 이 필터를 걸지 않는다. 경로 필터로 건너뛴 필수 체크(`build`)는 보고되지 않아 문서 PR이 머지되지 않기 때문이다.
