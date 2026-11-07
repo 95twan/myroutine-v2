@@ -864,7 +864,7 @@ grep -rnE "(createdAt|created_at|deliveredAt|delivered_at) [<>] :[a-zA-Z]+ (or|O
 
 시작 상태는 S2-2 측정 뒤 그대로다(`seed_vacuumed` 뒤 읽기 측정만 했다). 체크아웃(S-02)은 주문을 만들고 재고를 줄이므로, 두 번째 체크아웃 전에 스냅샷으로 되돌린다. 아래를 위에서부터 차례로 따라 한다.
 
-**창 준비**: VM 창은 `runner` 사용자로 리포 체크아웃에서 쓴다. 아래 블록을 VM에 접속할 때마다(스냅샷을 되돌린 뒤 포함) 한 번 붙여 넣는다. `restart_app`은 `.env`를 읽어 앱만 다시 띄우고, `record_pending`은 결제 대기 주문 수를 3분마다 18분 동안 파일에 남긴다. 결과는 `/tmp/s2-3/`에 남긴다. `/tmp`는 VM이 다시 부팅하면 비므로, 스냅샷을 되돌리기 전에 11에서 옮긴다.
+**창 준비**: VM 창은 `runner` 사용자로 리포 체크아웃에서 쓴다. 아래 블록을 VM에 접속할 때마다(스냅샷을 되돌린 뒤 포함) 한 번 붙여 넣는다. `restart_app`은 `.env`를 읽어 앱만 다시 띄운다. 결과는 `/tmp/s2-3/`에 남긴다. `/tmp`는 VM이 다시 부팅하면 비므로, 스냅샷을 되돌리기 전에 11에서 옮긴다.
 
 ```bash
 sudo -iu runner
@@ -874,21 +874,16 @@ PG='docker exec -i myroutine-ops-postgres-1 sh -c'
 OUT=/tmp/s2-3
 mkdir -p $OUT && chmod 755 $OUT
 restart_app() { IMAGE_TAG=$(cat /opt/myroutine/deployed-sha) $COMPOSE up -d --no-deps --force-recreate --wait app; }
-record_pending() {
-  for i in $(seq 7); do
-    $PG 'psql -U "$POSTGRES_USER" -d my_routine -At -c "select now()::time(0), count(*) from orders.orders where status = '"'"'PENDING_PAYMENT'"'"'"'
-    [ $i -lt 7 ] && sleep 180
-  done > $OUT/$1
-}
 ```
 
-개발 PC 창은 리포 루트에서 아래를 붙여 넣는다. macOS 터미널의 열린 파일 수 한도 때문에 `ulimit`은 창마다 다시 한다. `{VM IP}`는 Baseline 때와 같은 주소다.
+개발 PC 창은 리포 루트에서 아래를 붙여 넣는다. macOS 터미널의 열린 파일 수 한도 때문에 `ulimit`은 창마다 다시 한다. `{VM IP}`는 Baseline 때와 같은 주소다. k6 출력에는 시각이 찍히지 않으므로, 측정 앞뒤에 `mark 이름`으로 시각을 `results/s2-3-times.txt`에 남긴다. Grafana 화면은 오른쪽 위 시간 선택의 Absolute time range에 이 시작·끝 시각을 넣어 측정 구간으로 맞춘 뒤 남긴다(Grafana는 브라우저 시간대, `date`는 맥 시간대라 둘 다 한국 시간이다). 남긴 시각은 언제든 `cat results/s2-3-times.txt`로 한꺼번에 본다.
 
 ```bash
 ulimit -n 10000
 cd perf/k6
 BASE=http://{VM IP}:8080
 warm() { k6 run -e BASE_URL=$BASE -e VUS=10 -e RAMP=0s -e HOLD=30s s01-product-read.js; }
+mark() { echo "$1 $(date '+%Y-%m-%d %H:%M:%S')" | tee -a results/s2-3-times.txt; }
 ```
 
 **1. 배포 확인**: PR을 develop에 머지하고 자동 배포가 끝날 때까지 기다린다. VM에서 배포된 sha가 머지 커밋인지 본다.
@@ -924,17 +919,26 @@ restart_app
 warm
 ```
 
-**5. 풀 10에서 S-01 세 번**: 사이에 2분 쉰다. 세 번의 처리량·p95 범위가 실행마다의 흔들림이고, 뒤의 비교는 이 범위를 넘는 차이만 차이로 본다.
+**5. 풀 10에서 S-01 세 번**: 사이에 2분 쉰다. 세 번의 처리량·p95 범위가 실행마다의 흔들림이고, 뒤의 비교는 이 범위를 넘는 차이만 차이로 본다. Grafana 화면은 세 번 중 처리량이 가운데인 실행 하나만 남긴다. 6에서 풀을 늘렸을 때와 비교하는 풀 10의 기준 화면이다. 성능 측정 대시보드와 함께, Explore(데이터 소스 Prometheus)에서 같은 구간으로 아래 세 쿼리를 그린 화면도 남긴다(6도 같다). 첫째는 커넥션 하나를 받기까지 기다린 평균(초), 둘째는 사용 중이던 커넥션의 평균 개수, 셋째는 VM 전체 CPU(코어)다. cAdvisor의 `id="/"` 시계열은 컨테이너 합계가 아니라 머신 전체다. `hikaricp_connections_pending`과 `hikaricp_connections_active`는 수집 순간의 값이라 15초마다 크게 튀어서 비교에 쓰지 않는다.
+
+```promql
+rate(hikaricp_connections_acquire_seconds_sum[1m]) / rate(hikaricp_connections_acquire_seconds_count[1m])
+rate(hikaricp_connections_usage_seconds_sum[1m])
+sum(rate(container_cpu_usage_seconds_total{id="/"}[1m]))
+```
 
 ```bash
 # 개발 PC (약 22분)
 for i in 1 2 3; do
+  mark p10-$i-start
   k6 run -e BASE_URL=$BASE --summary-export results/s2-3-s01-p10-$i.json s01-product-read.js | tee results/s2-3-s01-p10-$i.txt
+  mark p10-$i-end
   [ $i -lt 3 ] && sleep 120
 done
+grep '^p10-' results/s2-3-times.txt
 ```
 
-**6. 풀 20·30·50**: 크기마다 VM에서 풀을 바꿔 앱을 다시 띄우고, 개발 PC에서 데운 뒤 한 번 잰다. `SIZE`만 20 → 30 → 50으로 바꿔 세 번 반복한다. 측정마다 Grafana 화면(성능 측정 대시보드와 서비스 개요의 HikariCP 패널)을 남긴다.
+**6. 풀 20·30·50**: 크기마다 VM에서 풀을 바꿔 앱을 다시 띄우고, 개발 PC에서 데운 뒤 한 번 잰다. `SIZE`만 20 → 30 → 50으로 바꿔 세 번 반복한다. 측정마다 Grafana 화면(성능 측정 대시보드와 5의 Explore 쿼리)을 남긴다.
 
 ```bash
 # VM
@@ -947,10 +951,12 @@ restart_app
 # 개발 PC
 SIZE=20
 warm
+mark p$SIZE-start
 k6 run -e BASE_URL=$BASE --summary-export results/s2-3-s01-p$SIZE.json s01-product-read.js | tee results/s2-3-s01-p$SIZE.txt
+mark p$SIZE-end
 ```
 
-**7. 풀 크기 정하기**: 5·6의 결과로 정한다. 이 크기를 12에서 쓴다.
+**7. 풀 크기 정하기**: 5·6의 결과로 상품 조회 기준의 크기를 정한다. 최종 크기는 12의 체크아웃 결과와 함께 정한다.
 
 - 처리량이 앞 크기보다 5의 흔들림 범위를 넘게 늘지 않는 첫 크기를 찾고, 그 바로 앞 크기를 고른다. 그리고 메일 작업이 쥐는 커넥션 1개를 더한다. Baseline에서 오래 돈 작업은 메일 하나였다(한 번 292.5초, 나머지는 1초 미만).
 - 크기를 늘렸을 때 Grafana에서 본 것으로 한계가 어디인지 적는다.
@@ -960,9 +966,10 @@ k6 run -e BASE_URL=$BASE --summary-export results/s2-3-s01-p$SIZE.json s01-produ
 | 처리량이 늘고, 연결 상태의 `active`와 postgres CPU가 같이 늘었다 | 커넥션 수가 한계였다 |
 | 처리량이 그대로이고 `idle in transaction`만 늘었다 | 커넥션을 쥔 채 앱 쪽에서 시간을 쓴다. 앱 CPU를 본다 |
 | 처리량이 그대로이고 postgres CPU가 더 오르지 않으며 p95가 늘었다 | DB가 한계다. 커넥션을 더 주면 기다림이 앱에서 DB 안으로 옮겨질 뿐이다 |
-| 커넥션을 기다리는 요청(`hikaricp_connections_pending`)이 0이다 | 풀은 더 이상 한계가 아니다 |
+| 커넥션을 받기까지 기다린 평균이 0에 가깝다 | 풀은 더 이상 한계가 아니다 |
+| 처리량이 그대로이고 VM 전체 CPU가 vCPU 수(8)에 가깝다 | VM의 CPU가 한계다. 앱과 postgres가 같은 VM에서 CPU를 나눠 쓰므로 커넥션을 늘려도 처리량이 늘지 않는다 |
 
-**8. 풀 10에서 S-02**: 풀을 10으로 되돌려 S-02를 잰다. k6를 시작한 시각을 적어 둔다. 측정이 끝나면 Grafana 화면을 남긴다.
+**8. 풀 10에서 S-02**: 풀을 10으로 되돌려 S-02를 잰다. 측정이 끝나면 Grafana 화면을 남긴다.
 
 ```bash
 # VM
@@ -973,8 +980,9 @@ restart_app
 ```bash
 # 개발 PC (약 6분)
 warm
-date
+mark s02-p10-start
 k6 run -e BASE_URL=$BASE --summary-export results/s2-3-s02-p10.json s02-checkout.js | tee results/s2-3-s02-p10.txt
+mark s02-p10-end
 ```
 
 k6가 끝나자마자 VM에서 예약 작업 스레드를 1로 바꿔 앱을 다시 띄운다. 고치기 전 상태를 재현하는 것이다.
@@ -985,82 +993,219 @@ echo 'SPRING_TASK_SCHEDULING_POOL_SIZE=1' >> /opt/myroutine/.env
 restart_app
 ```
 
-**9. 스레드 1 기록**: 8에서 적은 시각의 15분 뒤에 주문이 만료되기 시작한다. 그때 기록을 뒤에서 돌리고, 몇 분 뒤 첫 알림이 나가면 가짜 발송기가 쓰이는지 본다.
+**9·10. 스레드 1과 11의 만료 기록**: 8이 남긴 결제 대기 주문이 `s02-p10-start` 15분 뒤부터 만료된다. 아래 스크립트가 그때까지 기다렸다가 두 단계를 차례로 돌린다. 한 번 실행해 두면 지켜볼 필요가 없고, 터미널을 닫아도 계속 돈다.
 
-```bash
-# VM (8의 시각 + 15분)
-record_pending pending-1.txt &
+- 9: 예약 작업 스레드 1(8 끝에서 바꾼 상태. 아니면 스크립트가 바꾼다)로 결제 대기 주문 수를 3분마다 18분 동안 `pending-1.txt`에 남기고, 끝나면 작업 실행 로그를 `jobs-1.txt`에 남긴다. 앱을 다시 띄우면 컨테이너 로그가 사라지므로 10 전에 남긴다.
+- 10: 스레드 줄을 지워(기본 11) 앱을 다시 띄우고, 같은 기록을 `pending-11.txt`에 18분 남긴다. 3분마다 advisory lock을 쥔 커넥션을 `advisory.txt`에 남기고, 끝나면 `jobs-11.txt`를 남긴다.
+- 3분마다 `notification sent`와 `send mail to` 로그 수를 `mail-check.txt`에 남긴다. 알림은 나가는데 `send mail to`가 0이면 Gmail로 나가고 있는 것이라, 앱을 멈추고 스크립트를 끝낸다.
 
-# 몇 분 뒤: 첫 줄(send mail to)이 0보다 커야 한다
-docker logs --since 5m myroutine-ops-app-1 2>&1 | grep -c "send mail to"
-docker logs --since 5m myroutine-ops-app-1 2>&1 | grep -c "notification sent"
-```
-
-두 번째 숫자는 0보다 큰데 첫 번째가 0이면 Gmail로 나가고 있는 것이다. 바로 앱을 멈춘다(`$COMPOSE stop app`).
-
-18분 기록이 끝나면 작업 실행 로그를 남긴다. 10에서 앱을 다시 띄우면 이 컨테이너의 로그가 사라지므로 그 전에 한다.
+`15:17:05` 자리는 `s02-p10-start` + 15분으로 바꾼다.
 
 ```bash
 # VM
-wait
-cat $OUT/pending-1.txt
-docker logs myroutine-ops-app-1 2>&1 | grep -E "job (expire-orders|dispatch-notifications) processed" > $OUT/jobs-1.txt
-```
+cat > /tmp/s2-3/run-9-10.sh <<'SCRIPT'
+#!/usr/bin/env bash
+set -u
+cd ~/actions-runner/_work/myroutine-v2/myroutine-v2
+ENVF=/opt/myroutine/.env
+OUT=/tmp/s2-3
+APP=myroutine-ops-app-1
+COMPOSE="docker compose --env-file $ENVF -f docker/docker-compose.ops.yml"
+log() { echo "$(TZ=Asia/Seoul date '+%H:%M:%S') $*"; }
+restart_app() { IMAGE_TAG=$(cat /opt/myroutine/deployed-sha) $COMPOSE up -d --no-deps --force-recreate --wait app; }
+psql_c() { docker exec -i myroutine-ops-postgres-1 sh -c "psql -U \"\$POSTGRES_USER\" -d my_routine -At -c \"$1\""; }
 
-**10. 스레드 11 기록**: 예약 작업 스레드 줄을 지워(기본 11) 앱을 다시 띄우고 같은 방식으로 18분 기록한다. 기록하는 동안 메일 작업이 쥔 advisory lock 커넥션을 본다.
+check() {
+  local sent mail
+  sent=$(docker logs --since 3m $APP 2>&1 | grep -c "notification sent")
+  mail=$(docker logs --since 3m $APP 2>&1 | grep -c "send mail to")
+  echo "$(TZ=Asia/Seoul date '+%H:%M:%S') $1 notification_sent=$sent send_mail_to=$mail" >> $OUT/mail-check.txt
+  if [ "$sent" -gt 0 ] && [ "$mail" -eq 0 ]; then
+    log "Gmail로 나가고 있어 앱을 멈춘다"
+    $COMPOSE stop app
+    exit 1
+  fi
+  if [ "$1" = "threads-11" ]; then
+    psql_c "select now()::time(0), a.pid, a.state, now() - a.state_change from pg_locks l join pg_stat_activity a using (pid) where l.locktype = 'advisory'" >> $OUT/advisory.txt
+  fi
+}
 
-```bash
-# VM
-sed -i '/^SPRING_TASK_SCHEDULING_POOL_SIZE=/d' /opt/myroutine/.env
+record() {
+  : > $OUT/$1
+  for i in 1 2 3 4 5 6 7; do
+    psql_c "select now()::time(0), count(*) from orders.orders where status = 'PENDING_PAYMENT'" >> $OUT/$1
+    check "$2"
+    [ $i -lt 7 ] && sleep 180
+  done
+}
+
+log "시작"
+if ! grep -q '^SPRING_TASK_SCHEDULING_POOL_SIZE=1$' $ENVF; then
+  echo 'SPRING_TASK_SCHEDULING_POOL_SIZE=1' >> $ENVF
+  restart_app
+  log "예약 작업 스레드 1로 다시 띄움"
+fi
+
+target=$(TZ=Asia/Seoul date -d '2026-11-07 15:17:05' +%s)
+now=$(date +%s)
+if [ "$target" -gt "$now" ]; then
+  log "15:17:05까지 기다림"
+  sleep $((target - now))
+fi
+
+log "9. 스레드 1 기록 시작"
+record pending-1.txt threads-1
+docker logs $APP 2>&1 | grep -E "job (expire-orders|dispatch-notifications) processed" > $OUT/jobs-1.txt
+log "9. 끝"
+
+sed -i '/^SPRING_TASK_SCHEDULING_POOL_SIZE=/d' $ENVF
 restart_app
-record_pending pending-11.txt &
-
-# 몇 분 뒤 (메일 작업 중): 한 행, state가 idle이어야 한다
-$PG 'psql -U "$POSTGRES_USER" -d my_routine -c "select a.pid, a.state, now() - a.state_change as idle_for from pg_locks l join pg_stat_activity a using (pid) where l.locktype = '"'"'advisory'"'"'"' | tee $OUT/advisory.txt
-
-# 18분이 끝나면
-wait
-cat $OUT/pending-11.txt
-docker logs myroutine-ops-app-1 2>&1 | grep -E "job (expire-orders|dispatch-notifications) processed" > $OUT/jobs-11.txt
+log "10. 예약 작업 스레드 11로 다시 띄움, 기록 시작"
+record pending-11.txt threads-11
+docker logs $APP 2>&1 | grep -E "job (expire-orders|dispatch-notifications) processed" > $OUT/jobs-11.txt
+log "10. 끝 DONE"
+SCRIPT
+setsid nohup bash /tmp/s2-3/run-9-10.sh > /tmp/s2-3/run.log 2>&1 < /dev/null &
+sleep 2; cat /tmp/s2-3/run.log
 ```
+
+약 40분 뒤 `cat /tmp/s2-3/run.log`의 마지막 줄이 `10. 끝 DONE`이면 끝난 것이다.
 
 **11. 결과 옮기기**: 12에서 스냅샷을 되돌리면 VM의 `/tmp`가 비므로 먼저 옮긴다.
 
 ```bash
 # 개발 PC (리포 루트)
 mkdir -p perf/k6/results/vm/s2-3
-scp '{VM}:/tmp/s2-3/*.txt' perf/k6/results/vm/s2-3/
-ls perf/k6/results/vm/s2-3/    # pending-1, pending-11, jobs-1, jobs-11, advisory
+scp '{VM}:/tmp/s2-3/*' perf/k6/results/vm/s2-3/
+ls perf/k6/results/vm/s2-3/    # pending-1, pending-11, jobs-1, jobs-11, advisory, mail-check(.txt), run(.log), run-9-10.sh
 ```
 
-**12. 되돌린 뒤 고른 크기에서 S-02**: Proxmox에서 `seed_vacuumed`로 되돌린다. 되돌리면 앱은 옛 버전, `.env`는 측정 전으로 돌아간다. **배포하기 전에** 측정용 줄을 다시 넣는다. 빠뜨리면 이 S-02가 만든 주문이 15분 뒤 만료될 때 `@seed.test`로 Gmail 메일이 나간다. VM 창은 창 준비 블록을 다시 붙여 넣은 뒤 쓴다.
+**12. 되돌린 뒤 풀 10·20·30에서 S-02**: 8에서 체크아웃은 상품 조회와 달리 풀이 한계였다(사용 중 커넥션 약 9개, 대기 평균 약 32ms, VM CPU 약 3.5코어). 커넥션은 DB 안에서 커밋 기록을 디스크에 쓰는 차례(`LWLock`의 `WALWrite`)를 기다렸다. 커밋을 기다리는 커넥션이 많으면 Postgres가 한 번의 디스크 쓰기에 여러 커밋을 묶으므로(group commit), 풀을 늘리면 체크아웃 처리량이 늘 수 있다. 그래서 스냅샷을 한 번 되돌린 뒤 풀 10·20·30에서 체크아웃을 잰다. 결제 TTL을 60분으로 늘려, 세 측정이 끝날 때까지 주문이 만료되지 않게 한다(만료 작업과 메일 작업이 측정에 끼지 않는다). 상품마다 재고가 10만 개라 세 번 재도 모자라지 않는다. 앞 측정이 남긴 주문(한 번에 약 24만 건)이 다음 측정의 데이터에 더해지는 것은 시드 주문 1,000만 건에 비해 작아 그대로 둔다.
+
+먼저 되돌리고 배포한다. 되돌리면 앱은 옛 버전, `.env`는 측정 전으로 돌아가므로 **배포하기 전에** 측정용 줄을 넣는다.
+
+1. Proxmox에서 `seed_vacuumed`로 되돌린다.
+2. VM에 접속해 창 준비 블록을 다시 붙여 넣고, 측정용 줄을 넣는다.
 
 ```bash
-# VM (풀 자리에 7에서 정한 크기)
+# VM
 cat >> /opt/myroutine/.env <<'ENV'
 MAIL_MODE=log
 MAIL_LOG_DELAY=3s
-SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE={7에서 정한 크기}
+SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE=10
+MYROUTINE_ORDER_PAYMENT_TTL=60m
 ENV
 ```
 
-```bash
-# 개발 PC: 머지 커밋을 배포한다
-gh workflow run cd.yml --ref develop -f sha=$(git log -1 origin/develop --format=%H)
-```
-
-배포가 끝나면 VM에서 `cat /opt/myroutine/deployed-sha`가 머지 커밋인지 본다. 그다음 데우고 잰다. 측정이 끝나면 Grafana 화면을 남긴다.
+3. 개발 PC에서 머지 커밋을 배포하고, 끝나면 VM에서 `cat /opt/myroutine/deployed-sha`가 머지 커밋인지 본다.
 
 ```bash
 # 개발 PC
-SIZE={7에서 정한 크기}
-warm
-k6 run -e BASE_URL=$BASE --summary-export results/s2-3-s02-p$SIZE.json s02-checkout.js | tee results/s2-3-s02-p$SIZE.txt
+gh workflow run cd.yml --ref develop -f sha=$(git log -1 origin/develop --format=%H)
 ```
+
+그다음 VM과 개발 PC에서 같은 시작 시각 `T0`(몇 분 뒤의 `HH:MM`)로 스크립트를 하나씩 띄운다. 크기마다 14분짜리 칸을 쓴다.
+
+| 칸 안의 시각 | VM | 개발 PC |
+|---|---|---|
+| +0:00 | 풀 크기를 바꿔 앱을 다시 띄운다 | |
+| +3:00 | | 앱이 응답하면 S-01(VU 50, 2분)과 S-02(VU 10, 30초)로 데운다 |
+| +6:00 | | S-02를 잰다(약 6분) |
+| +12:45 | 램프업 뒤 4분(+8:15\~+12:15)의 지표를 Prometheus에서 뽑아 `prom-s02-p{크기}.txt`에 남긴다 | |
+| +14:00 | 다음 크기 | |
+
+VM 스크립트가 남기는 지표는 커넥션 대기 평균, 사용 중 커넥션 평균, VM·앱·postgres CPU, 초당 커밋, 연결 상태별 평균, 대기 종류별 평균(`wait_event`)이다. Grafana 화면을 따로 남기지 않아도 된다. `.env`에 측정용 줄이 없으면 시작하지 않는다.
+
+```bash
+# VM (T0 자리에 시작 시각)
+cat > /tmp/s2-3/run-12.sh <<'SCRIPT'
+#!/usr/bin/env bash
+set -u
+T0="$1"
+cd ~/actions-runner/_work/myroutine-v2/myroutine-v2
+ENVF=/opt/myroutine/.env
+OUT=/tmp/s2-3
+COMPOSE="docker compose --env-file $ENVF -f docker/docker-compose.ops.yml"
+log() { echo "$(TZ=Asia/Seoul date '+%H:%M:%S') $*"; }
+restart_app() { IMAGE_TAG=$(cat /opt/myroutine/deployed-sha) $COMPOSE up -d --no-deps --force-recreate --wait app; }
+wait_until() { local n; n=$(date +%s); [ "$1" -gt "$n" ] && sleep $(( $1 - n )); return 0; }
+prom() { curl -s http://127.0.0.1:9090/api/v1/query --data-urlencode "query=$2" --data-urlencode "time=$3" | sed "s/^/$1 /"; echo; }
+
+for line in MAIL_MODE=log MAIL_LOG_DELAY=3s MYROUTINE_ORDER_PAYMENT_TTL=60m; do
+  grep -q "^$line\$" $ENVF || { log ".env에 $line 이 없어 멈춘다"; exit 1; }
+done
+
+t0=$(TZ=Asia/Seoul date -d "2026-11-07 $T0:00" +%s)
+for size in 10 20 30; do
+  slot=$(( t0 + (size / 10 - 1) * 840 ))
+  log "풀 $size: $(TZ=Asia/Seoul date -d @$slot '+%H:%M:%S')에 다시 띄움"
+  wait_until $slot
+  sed -i "s/^SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE=.*/SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE=$size/" $ENVF
+  restart_app
+  log "풀 $size 로 다시 띄움"
+  end=$(( slot + 735 ))
+  wait_until $(( end + 30 ))
+  {
+    prom acquire_avg_s "sum(increase(hikaricp_connections_acquire_seconds_sum[4m])) / sum(increase(hikaricp_connections_acquire_seconds_count[4m]))" $end
+    prom busy_conn "sum(increase(hikaricp_connections_usage_seconds_sum[4m])) / 240" $end
+    prom vm_cpu "sum(increase(container_cpu_usage_seconds_total{id=\"/\"}[4m])) / 240" $end
+    prom container_cpu "sum by (name) (increase(container_cpu_usage_seconds_total{name=~\"myroutine-ops-(app|postgres)-1\"}[4m])) / 240" $end
+    prom commits_per_s "sum(increase(pg_stat_database_xact_commit{datname=\"my_routine\"}[4m])) / 240" $end
+    prom conn_state "sum by (state) (avg_over_time(pg_stat_activity_count{datname=\"my_routine\"}[4m]))" $end
+    prom wait_event "sum by (wait_event_type, wait_event) (avg_over_time(pg_stat_activity_count{datname=\"my_routine\", wait_event!=\"\"}[4m]))" $end
+  } > $OUT/prom-s02-p$size.txt
+  log "풀 $size 지표 저장"
+done
+log "DONE"
+SCRIPT
+setsid nohup bash /tmp/s2-3/run-12.sh T0 > /tmp/s2-3/run-12.log 2>&1 < /dev/null &
+sleep 2; cat /tmp/s2-3/run-12.log
+```
+
+개발 PC 스크립트는 리포 안 어디서 실행해도 `perf/k6`로 옮겨 가서 돈다. 창을 닫지 않는다(약 45분).
+
+```bash
+# 개발 PC (리포 루트, T0는 VM과 같은 값, BASE는 창 준비의 주소)
+cat > /tmp/s2-3-run-12-pc.sh <<'SCRIPT'
+#!/usr/bin/env bash
+set -u
+T0="$1"
+BASE="$2"
+ulimit -n 10000
+cd "$(git rev-parse --show-toplevel)/perf/k6"
+mark() { echo "$1 $(date '+%Y-%m-%d %H:%M:%S')" | tee -a results/s2-3-times.txt; }
+wait_until() { local n; n=$(date +%s); [ "$1" -gt "$n" ] && sleep $(( $1 - n )); return 0; }
+
+t0=$(date -j -f "%Y-%m-%d %H:%M:%S" "2026-11-07 $T0:00" +%s)
+for size in 10 20 30; do
+  slot=$(( t0 + (size / 10 - 1) * 840 ))
+  wait_until $(( slot + 180 ))
+  until curl -sf -o /dev/null "$BASE/api/products?category=FOOD&size=1"; do sleep 5; done
+  echo "풀 $size: 데우기 $(date '+%H:%M:%S')"
+  k6 run -q -e BASE_URL=$BASE -e VUS=50 -e RAMP=0s -e HOLD=2m s01-product-read.js > /dev/null 2>&1
+  k6 run -q -e BASE_URL=$BASE -e VUS=10 -e RAMP=0s -e HOLD=30s s02-checkout.js > /dev/null 2>&1
+  wait_until $(( slot + 360 ))
+  mark s02-ttl60-p$size-start
+  k6 run -e BASE_URL=$BASE --summary-export results/s2-3-s02-ttl60-p$size.json s02-checkout.js > results/s2-3-s02-ttl60-p$size.txt 2>&1
+  mark s02-ttl60-p$size-end
+done
+echo DONE
+SCRIPT
+bash /tmp/s2-3-run-12-pc.sh T0 http://{VM IP}:8080
+```
+
+개발 PC에 `DONE`이 찍히고 VM의 `run-12.log` 마지막 줄이 `DONE`이면 끝난 것이다. VM 결과를 옮긴다.
+
+```bash
+# 개발 PC (리포 루트)
+scp '{VM}:/tmp/s2-3/*' perf/k6/results/vm/s2-3/
+```
+
+최종 풀 크기는 7의 상품 조회 결과와 이 체크아웃 결과로 정한다. 체크아웃이 풀을 늘려 흔들림을 넘게 빨라지지 않으면 7의 크기(11)를 쓴다. 빨라지면 상품 조회 p95(풀 10 약 170ms, 풀 20 이상 약 200ms)와 체크아웃 처리량 중 무엇을 택할지 정하고, 그 이유를 리포트에 적는다.
 
 **13. 되돌려 두기**: Proxmox에서 `seed_vacuumed`로 되돌린다. S2-5가 여기서 시작한다.
 
-**4) 리포트에 넘길 것**: k6 요약(`results/s2-3-*.json`), 6·8·12의 Grafana 화면, `perf/k6/results/vm/s2-3/`의 파일(결제 대기 주문 기록 두 개, 작업 실행 로그 두 개, advisory lock), 2의 인증 메일 수신 여부, 9의 `send mail to` 개수, 배포한 sha.
+**4) 리포트에 넘길 것**: k6 요약(`results/s2-3-*.json`), 측정 시각(`results/s2-3-times.txt`), 5(한 번)·6·8의 Grafana 화면, `perf/k6/results/vm/s2-3/`의 파일(9·10의 결제 대기 주문 기록·작업 실행 로그·advisory lock·메일 확인, 12의 `prom-s02-p*.txt`), 2의 인증 메일 수신 여부, 배포한 sha.
 
 ### 7.3 완료 확인
 
@@ -1068,14 +1213,14 @@ k6 run -e BASE_URL=$BASE --summary-export results/s2-3-s02-p$SIZE.json s02-check
 |---|---|---|
 | 테스트가 그대로 통과한다 | `./gradlew test` | 전체 통과 |
 | 운영 기본값은 Gmail이다 | 2 | 측정용 줄이 없는 상태에서 인증 메일을 받는다 |
-| 측정 중에는 메일이 나가지 않는다 | 9의 로그 | `send mail to ...@seed.test`가 찍힌다 |
+| 측정 중에는 메일이 나가지 않는다 | `mail-check.txt` | `notification_sent`가 0보다 큰 줄에서 `send_mail_to`도 0보다 크다 |
 | 가짜 발송기가 한 통에 약 3초 걸린다 | `jobs-11.txt`의 `dispatch-notifications` | 100건에 약 300,000ms |
 | 스레드 1에서 만료가 막힌다 | `pending-1.txt` | 메일 작업이 돌기 시작한 뒤로 3분에 300건보다 적게 준다(Baseline은 4\~5분에 100건) |
 | 스레드 11에서 만료가 1분마다 돈다 | `pending-11.txt`, `jobs-11.txt` | 3분에 약 300건씩 준다. `expire-orders`가 약 1분 간격으로 찍히고, 메일 작업과 다른 `scheduling-N` 스레드에서 돈다 |
 | 메일 작업이 커넥션 하나를 쥔다 | `advisory.txt` | 한 행, `state`는 `idle` |
 | 실행마다의 흔들림 | 5 | 세 번의 처리량·p95 범위. S2-2 상한 10의 p95 변화(124 → 172ms)가 이 범위 안인지 |
 | 풀 크기 | 6·7 | 크기별 처리량·p95·커넥션 대기·`active`·postgres CPU, 고른 크기와 이유 |
-| 체크아웃 | 8·12 | 풀 10과 고른 크기의 처리량·p95 |
+| 체크아웃 | 8·12 | 풀 10·20·30의 처리량·p95·커넥션 대기·`WALWrite` 대기, 최종 풀 크기와 이유 |
 | 리포트 | `docs/perf/s2-3-pool-scheduling.md` | 위 값과 Baseline 비교 |
 
 ### 7.4 리뷰 때 물어볼 것
