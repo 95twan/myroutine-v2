@@ -8,6 +8,8 @@ import com.myroutine.product.domain.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -21,6 +23,7 @@ class ProductApiImpl implements ProductApi {
     private final StockRepository stockRepository;
     private final StockReservationRepository stockReservationRepository;
     private final Clock clock;
+    private final StockGate stockGate;
 
     @Override
     @Transactional(readOnly = true)
@@ -80,6 +83,25 @@ class ProductApiImpl implements ProductApi {
         getPurchasable(ids);
 
         List<ReserveItem> sortedItems = items.stream().sorted(Comparator.comparing(ReserveItem::productId)).toList();
+
+        List<UUID> pIds = sortedItems.stream().map(ReserveItem::productId).toList();
+        List<Integer> q = sortedItems.stream().map(ReserveItem::quantity).toList();
+
+        int tried = stockGate.tryAcquire(pIds, q);
+
+        if (tried > 0) {
+            UUID outOfStockId = sortedItems.get(tried - 1).productId();
+            throw new BusinessException(ProductErrorCode.OUT_OF_STOCK, Map.of("productIds", List.of(outOfStockId)));
+        } else if (tried == 0) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    if (status != TransactionSynchronization.STATUS_COMMITTED) {
+                        stockGate.giveBack(pIds, q);
+                    }
+                }
+            });
+        }
 
         Instant now = Instant.now(clock);
 
