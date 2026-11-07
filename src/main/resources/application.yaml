@@ -1,6 +1,9 @@
 spring:
   application:
     name: myroutine
+  datasource:
+    hikari:
+      maximum-pool-size: 31
   jpa:
     hibernate:
       ddl-auto: validate
