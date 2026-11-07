@@ -2,7 +2,9 @@
 
 판매자가 가게를 열어 상품을 팔고, 구매자는 여러 가게의 상품을 **Toss 카드 결제**로 한 번에 구매하는 오픈마켓의 백엔드다.
 
-팀 프로젝트(MSA 8개 서비스)의 [결함 54건을 분석](docs/00-as-is/README.md)해 **모듈러 모놀리스로 처음부터 재설계**한 개인 프로젝트다. 진화 경로는 Stage 1 모듈러 모놀리스 → Stage 2 측정 기반 성능 개선 → Stage 3 MSA 전환이고, 지금은 **Stage 1을 마쳤다**. 정기 구독, 취향 추천, 월간 리뷰 요약, k3s 전환은 Stage 1에 넣지 않고 [서브](docs/04-sub/README.md)로 뒀다.
+팀 프로젝트(MSA 8개 서비스)의 [결함 54건 분석](docs/00-as-is/README.md)을 바탕으로 **모듈러 모놀리스로 처음부터 재설계**한 개인 프로젝트다. **Stage 1 모듈러 모놀리스**(`v1.0.0`)를 만든 뒤 대용량 시드와 부하 측정으로 병목을 찾아 고치는 **Stage 2 측정 기반 성능 개선**(`v1.1.0`)까지 마쳤다. MSA 전환은 하지 않는다([이유](docs/02-design/01-architecture-evolution.md#stage-3-msa-전환-하지-않음)). 정기 구독, 취향 추천, 월간 리뷰 요약, k3s 전환, Stage 2에서 남긴 개선은 [서브](docs/04-sub/README.md)로 뒀다.
+
+**개발 방식**: 설계 문서, 단계별 구현 규격, 측정 리포트는 AI(Claude Code)가 쓰고 리뷰를 맡았다. 설계의 갈림길에서 결정하고, 규격을 보고 코드를 짜고, 운영 VM에서 측정을 돌린 것은 개발자 본인이다. 반복이 많은 일부 테스트와 운영 설정 파일, API를 눌러 볼 수 있는 데모 화면(별도 리포)은 AI가 만들었다.
 
 **스택**: Java 25 · Spring Boot 4.1 · Spring Data JPA · Spring Security(JWT, OAuth) · Spring Modulith · PostgreSQL 17 · Flyway · Redis · Kafka · Elasticsearch · MinIO · Toss Payments · ELK · Prometheus · Grafana · Testcontainers · GitHub Actions
 
@@ -142,12 +144,25 @@ flowchart LR
 
 | 경합 | 설계 | 근거 |
 |---|---|---|
-| 인기 상품에 주문이 몰려 초과 판매된다 | 재고를 조건부 UPDATE로 차감하고 예약과 이동 이력을 남긴다. 상품 ID 순서로 차감해 데드락을 피한다 | [ADR-008](docs/adr/ADR-008-inventory-reservation.md) |
+| 인기 상품에 주문이 몰려 초과 판매된다 | 재고를 조건부 UPDATE로 차감하고 예약과 이동 이력을 남긴다. 상품 ID 순서로 차감해 데드락을 피한다. Stage 2에서 JPA 비관적 락, Redis 선착순 게이트와 재서 이 방식을 유지했다 | [ADR-008](docs/adr/ADR-008-inventory-reservation.md) |
 | 같은 주문의 취소, 반품, 발송이 겹친다 | 주문 행 잠금으로 직렬화하고, 엔티티 `@Version`으로 잠금 없는 경로의 충돌을 막는다 | [상태머신](docs/02-design/04-state-machines.md) |
 | 앱이 여러 개일 때 잡과 릴레이가 중복 실행된다 | 스케줄 잡은 Postgres 세션 advisory lock, Outbox 릴레이는 `FOR UPDATE SKIP LOCKED`와 리스를 쓴다 | [Stage 1 구조](docs/02-design/02-architecture-stage1.md) |
 | 유출된 refresh 토큰이 재사용된다 | 갱신마다 토큰을 회전하고, 이미 쓴 토큰이 다시 오면 세션을 폐기한다 | [ADR-006](docs/adr/ADR-006-auth.md) |
 
 고치지 않고 안고 간 한계는 [상태 조합 문서 8절](docs/02-design/10-state-combinations.md)에 있다.
+
+## 측정 기반 성능 개선
+
+운영 VM 한 대(vCPU 8, RAM 16GB)에 회원 100만, 상품 100만, 주문 1,000만 건을 넣고 k6로 부하를 걸어 병목을 찾았다. 수치는 이 VM에서 잰 것이고 실제 사용자 트래픽이 아니다.
+
+| 측정에서 본 것 | 바꾼 것 | 결과 | 리포트 |
+|---|---|---|---|
+| 상품 목록의 다음 페이지가 뒤로 갈수록 느려졌다. 커서 조건을 OR로 써서 커서 앞의 행을 모두 읽고 버렸다 | 목록 커서 조건 16개를 행 값 비교(`(created_at, id) < (:c, :id)`)로 바꿨다 | 같은 위치의 다음 페이지 쿼리 6.3ms → 0.067ms, 깊은 페이지까지 넘기는 부하의 처리량 초당 1,637건 → 4,678건 | [S2-2](docs/perf/s2-2-cursor.md) |
+| 체크아웃이 커넥션 10개를 다 쓰고 커밋 기록의 디스크 쓰기 차례를 기다렸다 | 커넥션 풀을 10 → 31로 늘렸다 | 체크아웃 처리량 초당 666건 → 1,366건, p95 287ms → 135ms. 상품 조회는 VM CPU가 한계라 그대로였다 | [S2-3](docs/perf/s2-3-pool-scheduling.md) |
+| 메일 작업(한 번 약 5분)이 예약 작업 스레드 하나를 잡아 주문 만료가 4\~5분에 한 번 돌았다 | 예약 작업 스레드를 작업 수인 11개로 늘렸다 | 메일이 쌓여도 만료가 약 60초마다 돌았다 | [S2-3](docs/perf/s2-3-pool-scheduling.md) |
+| 인기 상품 하나에 주문이 몰릴 때 재고 차감 방식을 고를 근거가 없었다 | 조건부 UPDATE, JPA 비관적 락, Redis 선착순 게이트를 같은 조건에서 비교했다 | 모두 초과 판매 0. 처리량은 재고 행 하나가 정해 셋 다 초당 약 290건. 비관적 락은 가장 느린 응답들이 2\~3배 느렸고, Redis 게이트는 응답 이득이 측정의 흔들림 안인데 Redis와 DB를 맞추는 비용이 커서 조건부 UPDATE를 유지했다 | [S2-5](docs/perf/s2-5-stock-reservation.md) |
+
+측정 환경과 시나리오는 [Stage 2 준비](docs/03-roadmap/stage2-plan.md), 출발점은 [Baseline 리포트](docs/perf/s2-1a-baseline.md)에 있다.
 
 ## 테스트로 증명한 것
 
@@ -189,7 +204,8 @@ flowchart LR
 | [development-guide](docs/development-guide.md) | 코딩 규칙과 리뷰 기준 |
 | [git-policy](docs/git-policy.md) | 브랜치, 커밋, PR, 릴리스 규칙 |
 | [03-roadmap](docs/03-roadmap/README.md) | 단계별 구현 로드맵과 완료 확인 |
-| [04-sub](docs/04-sub/README.md) | 서브: 구독, 취향 추천, 월간 리뷰 요약, 무중단 재색인, 로그 보강, k3s 전환 |
+| [perf](docs/perf/) | Stage 2 측정 리포트(Baseline, 커서 조건, 커넥션 풀·예약 작업 스레드, 재고 차감 비교) |
+| [04-sub](docs/04-sub/README.md) | 서브: 구독, 취향 추천, 월간 리뷰 요약, 무중단 재색인, 로그 보강, k3s 전환, Stage 2에서 남긴 개선 |
 | [ops](docs/ops/vm-setup.md) | 운영 VM 준비와 자동 배포 절차, [MinIO를 NAS로 옮기는 절차](docs/ops/nas-minio.md) |
 | [runbook](docs/runbook.md) | 알림별 대응과 운영 API 호출 |
-| [retrospectives](docs/retrospectives/stage1.md) | Stage 1 회고 |
+| [retrospectives](docs/retrospectives/) | [Stage 1](docs/retrospectives/stage1.md)·[Stage 2](docs/retrospectives/stage2.md) 회고 |
