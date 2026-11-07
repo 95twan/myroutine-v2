@@ -11,6 +11,7 @@
 | `develop` | 개발 통합 브랜치. **GitHub 기본 브랜치** | `main`에서 한 번 | Part가 끝나면 `main`으로 | **merge commit** |
 | `feature/*` | 로드맵의 단계(step) 하나 | `develop` | `develop` | **squash merge** |
 | `hotfix/*` | `main`에서 발견된 긴급 수정 | `main` | `main` → 이후 `main`을 `develop`에 반영 | squash merge |
+| `experiment/*` | Stage 2 비교 측정에만 쓰는 코드 | `develop` | 합치지 않는다 | - |
 
 ```mermaid
 gitGraph
@@ -41,6 +42,7 @@ gitGraph
 feature/{단계ID}-{짧은-설명}     feature/2-2-checkout
 hotfix/{짧은-설명}              hotfix/jwt-expiry-check
 docs/{짧은-설명}                docs/adr-011-cache        (문서만 바꿀 때)
+experiment/{단계ID}-{짧은-설명}  experiment/s2-5-for-update (비교 측정용, 머지하지 않음)
 ```
 - 단계ID는 [로드맵](03-roadmap/README.md)의 번호(`Part-단계`)다. Stage 2는 `S2-n`(브랜치는 소문자 `feature/s2-1-baseline`), 서브는 `SUB-n`이다.
 - 영어 소문자와 하이픈만 쓴다.
