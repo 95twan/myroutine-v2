@@ -592,7 +592,7 @@ List<Order> findByMemberFirstPage(UUID memberId, Limit limit);
 @Query("""
         select o from Order o
         where o.memberId = :memberId
-          and (o.createdAt < :cursorCreatedAt or (o.createdAt = :cursorCreatedAt and o.id < :cursorId))
+          and (o.createdAt, o.id) < (:cursorCreatedAt, :cursorId)
         order by o.createdAt desc, o.id desc
         """)
 List<Order> findByMemberNextPage(UUID memberId, Instant cursorCreatedAt, UUID cursorId, Limit limit);
@@ -1950,7 +1950,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | `ShopOrderListRow` (record, `order.domain`) | `(UUID shopOrderId, UUID orderId, ShopOrderStatus status, ShippingAddress shippingAddress, String carrier, String trackingNumber, Instant shippedAt, Instant deliveredAt, Instant createdAt)` | 아래 목록 쿼리 | 엔티티가 아니라 조회용 record로 바로 받는다(`select new ...`). `SellerShopOrderResult`와 칸이 같도록 송장·발송·배송완료 칸을 둔다. `o.shippingAddress`(jsonb 매핑)는 이 생성자 식에 그대로 넣을 수 있다. |
 | `findByShopOrderId` | `Optional<Order> findByShopOrderId(UUID shopOrderId)`: `select o from Order o join o.shopOrders so where so.id = :shopOrderId` | `getShopOrder`·`ship`·`deliver`의 앞단, 2-10 자동 확정 | 가게주문 ID로 그 가게주문이 속한 **주문(루트)**을 읽는다. 조인은 찾기 위한 조건이라 `order.getShopOrders()`에는 그 주문의 가게주문이 모두 들어온다 |
 | 목록 첫 페이지 | `List<ShopOrderListRow> findShopOrderFirstPage(UUID shopId, ShopOrderStatus status, Limit limit)`(권장 이름): `select new ...ShopOrderListRow(so.id, so.orderId, so.status, o.shippingAddress, so.carrier, so.trackingNumber, so.shippedAt, so.deliveredAt, so.createdAt) from ShopOrder so join Order o on o.id = so.orderId where so.shopId = :shopId and (:status is null or so.status = :status) order by so.createdAt desc, so.id desc` | `getShopOrders` | 가게의 가게주문을 상태 필터(`status`가 null이면 전체)로 최신순으로 읽는다(위 마이그레이션의 인덱스 순서). 배송지는 주문(`Order`)에 있어 조인한다 |
-| 목록 다음 페이지 | `findShopOrderNextPage(UUID shopId, ShopOrderStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit)`(권장 이름). 첫 페이지 쿼리의 `where`에 `and (so.createdAt < :cursorCreatedAt or (so.createdAt = :cursorCreatedAt and so.id < :cursorId))`를 더한다(1-7 keyset 방식) | `getShopOrders` | 커서 이후의 행을 같은 정렬로 읽는다 |
+| 목록 다음 페이지 | `findShopOrderNextPage(UUID shopId, ShopOrderStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit)`(권장 이름). 첫 페이지 쿼리의 `where`에 `and (so.createdAt, so.id) < (:cursorCreatedAt, :cursorId)`를 더한다(1-7 keyset 방식) | `getShopOrders` | 커서 이후의 행을 같은 정렬로 읽는다 |
 | 품목 | `List<OrderLine> findLinesByShopOrderIdIn(Collection<UUID> shopOrderIds)`: `shop_order_id IN (...)` | `getShopOrders` | 목록의 품목을 가게주문마다 따로 읽으면 쿼리가 행 수만큼 늘어난다(테스트: 3개와 10개일 때 SQL 수가 같아야 한다). 페이지의 가게주문 ID를 모아 **한 번에** 읽어 가게주문별로 묶는다. `OrderLine.getShopOrderId()`가 조회 전용 필드로 이미 있다 |
 
 **4) order.application**
@@ -2677,7 +2677,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | `Order` | `int autoConfirm(UUID shopOrderId, Instant now)` | 배송완료 후 7일이 지난 가게주문의 품목을 한꺼번에 확정한다. `findShopOrder(shopOrderId)`의 품목 중 `DELIVERED`인 것만 `markConfirmed(now)`(`RETURN_REQUESTED`·`CANCELLED`·`RETURNED` 등은 건너뜀. 건너뛴 품목에 `transitTo`를 하면 예외라 상태를 먼저 거른다) → `recalculateShopOrder`. 확정한 품목 수를 반환한다 |
 | `AutoConfirmTarget` | `record (UUID shopOrderId, Instant deliveredAt)` (`order.domain`) | 자동 확정 후보 한 건. 다음 페이지의 커서가 된다 |
 | `OrderRepository` | `List<AutoConfirmTarget> findAutoConfirmTargetsFirstPage(ShopOrderStatus status, Instant before, Limit limit)` | `select new ...AutoConfirmTarget(so.id, so.deliveredAt) from ShopOrder so where so.status = :status and so.deliveredAt < :before order by so.deliveredAt, so.id`. 커서가 없어 `cursorAt`·`cursorId` 조건이 빠진다 |
-| `OrderRepository` | `List<AutoConfirmTarget> findAutoConfirmTargets(ShopOrderStatus status, Instant before, Instant cursorAt, UUID cursorId, Limit limit)` | 첫 페이지 쿼리의 `where`에 `and (so.deliveredAt > :cursorAt or (so.deliveredAt = :cursorAt and so.id > :cursorId))`를 더한다. 시그니처는 `OrderRepository`(domain), `@Query`는 `JpaOrderRepository`. `status`는 `ShopOrderStatus.DELIVERED`. offset이 아니라 keyset인 이유: 처리하는 동안 가게주문이 `COMPLETED`로 바뀌어 목록에서 빠져도 offset처럼 다음 페이지가 건너뛰어지지 않는다(As-Is BAT-02) |
+| `OrderRepository` | `List<AutoConfirmTarget> findAutoConfirmTargets(ShopOrderStatus status, Instant before, Instant cursorAt, UUID cursorId, Limit limit)` | 첫 페이지 쿼리의 `where`에 `and (so.deliveredAt, so.id) > (:cursorAt, :cursorId)`를 더한다. 시그니처는 `OrderRepository`(domain), `@Query`는 `JpaOrderRepository`. `status`는 `ShopOrderStatus.DELIVERED`. offset이 아니라 keyset인 이유: 처리하는 동안 가게주문이 `COMPLETED`로 바뀌어 목록에서 빠져도 offset처럼 다음 페이지가 건너뛰어지지 않는다(As-Is BAT-02) |
 
 **3) order.application**
 

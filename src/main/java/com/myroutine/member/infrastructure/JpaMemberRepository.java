@@ -33,7 +33,7 @@ interface JpaMemberRepository extends JpaRepository<Member, UUID>, MemberReposit
             from Member m
             where (lower(m.email) like concat(:keyword, '%') or lower(m.nickname) like concat(:keyword, '%'))
                 and (:status is null or m.status = :status)
-                and (m.createdAt < :cursorCreatedAt or (m.createdAt = :cursorCreatedAt and m.id < :cursorId))
+                and (m.createdAt, m.id) < (:cursorCreatedAt, :cursorId)
             order by m.createdAt desc, m.id desc
             """)
     List<Member> findForAdminNextPage(String keyword, MemberStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit);

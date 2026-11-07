@@ -5,10 +5,12 @@
 
 ```mermaid
 flowchart LR
-  S1["Stage 1<br/>모듈러 모놀리스 MVP"] --> S2["Stage 2<br/>측정 기반 성능 개선<br/>(쿼리 튜닝, 재고 경합 비교, 필요한 개선)"]
-  S2 --> S3["Stage 3<br/>MSA 전환<br/>(Strangler Fig)"]
-  K["서브<br/>k3s 전환·무중단 배포"] -.-> S3
+  S1["Stage 1<br/>모듈러 모놀리스 MVP<br/>v1.0.0"] --> S2["Stage 2<br/>측정 기반 성능 개선<br/>(커서 조건, 커넥션 풀·스레드, 재고 경합 비교)<br/>v1.1.0"]
+  S2 -.-> SUB["서브<br/>구독·추천·k3s 전환 등"]
+  S2 -. 하지 않음 .-> S3["Stage 3<br/>MSA 전환"]
 ```
+
+Stage 1과 Stage 2에서 끝낸다. Stage 3(MSA 전환)는 하지 않는다(아래 Stage 3 절). 남은 기능과 개선은 [서브](../04-sub/README.md)에 둔다.
 
 ## Stage 1. 모듈러 모놀리스 MVP
 **목표**: 요구사항 M 항목을 정합성 불변식(INV)과 테스트까지 갖춰 완성한다. 모듈 경계는 처음부터 MSA 전환이 가능한 수준으로 지킨다.
@@ -32,23 +34,23 @@ flowchart LR
 ## Stage 2. 측정 기반 성능 개선
 **진입 조건**: Stage 1 완료 + 대용량 시드 데이터 + k6 Baseline 측정. 측정은 그 시점의 운영 환경에서 하고 리포트에 환경을 적는다. Baseline을 잰 뒤 k3s로 옮기면 Baseline을 다시 잰다.
 
-시드 데이터 규모: 회원 100만, 가게 1만, 상품 100만, 주문 1,000만(주문품목 약 2,500만), 재고 이력 3,000만(2-7을 할 때만).
+시드 데이터 규모: 회원 100만, 가게 1만, 상품 100만, 주문 1,000만(주문품목 약 2,500만), 재고 이력 3,000만(S2-7을 할 때만).
 
 시드를 DB에 직접 넣으면 이벤트가 나가지 않아 ES 문서가 생기지 않는다. NFR-PERF-07을 재려면 시드 스크립트가 상품을 ES에도 넣는다. 앱을 먼저 띄워 alias `products`를 만든 뒤 `_bulk`로 alias에 쓰고(alias가 없으면 일반 인덱스가 자동 생성된다), 문서 id는 `productId`, 버전은 external로 DB의 `version`을 쓴다. 적재 뒤 `_refresh`를 부른다.
 
 | 단계 | 진입 근거(측정) | 작업 | 측정 지표 |
 |---|---|---|---|
-| 2-1 Baseline | - | k6 시나리오(NFR-PERF-01~07), `pg_stat_statements`, slow query log, Grafana 대시보드 | p50/p95/p99, TPS, 에러율, DB CPU, 커넥션 대기 |
-| 2-2 쿼리 튜닝 | 상위 slow query | `EXPLAIN ANALYZE`, 복합·커버링 인덱스, N+1 제거(fetch join / batch size), offset → keyset 페이징, 집계 쿼리 개선 | 쿼리별 실행시간 전후 비교 |
-| 2-3 커넥션·스레드 | 커넥션 대기, 스레드 포화 | HikariCP 크기 산정, 플랫폼 스레드 vs 가상 스레드(Java 25, pinning 해소) 비교, 트랜잭션 범위 축소, Compact Object Headers 메모리 비교 | 커넥션 대기시간, TPS |
-| 2-4 캐시 | 읽기 비중이 높은 API의 DB 부하 | 상품 상세·목록 Redis 캐시, 캐시 스탬피드 방지, 무효화 전략(이벤트 기반) | 캐시 히트율, DB QPS |
-| 2-5 핫스팟 경합 | 인기상품 동시 주문 시 락 대기 | 비관적 락 / 조건부 UPDATE / Redis 원자 차감 + 비동기 확정 비교 실험 | 경합 시나리오 TPS, 초과판매 0 유지 |
-| 2-6 Read Replica | 읽기 쿼리가 primary CPU를 잠식 | Postgres 스트리밍 복제, `@Transactional(readOnly)` 기반 라우팅, 복제 지연 대응(주문 직후 조회는 primary = read-your-writes) | primary CPU, 읽기 p95, 복제 지연 |
-| 2-7 파티셔닝 | 대형 테이블(주문·재고 이력) 인덱스 비대, 기간 조회 느림 | 월 단위 선언적 파티셔닝, 오래된 파티션 아카이빙 | 기간 조회 p95, 인덱스 크기, VACUUM 시간 |
+| S2-1 Baseline | - | k6 시나리오(NFR-PERF-01~07), `pg_stat_statements`, slow query log, postgres_exporter·cAdvisor와 Grafana 대시보드. 규격은 [Stage 2 준비 5절](../03-roadmap/stage2-plan.md) | p50/p95/p99, TPS, 에러율, DB CPU, 커넥션 대기 |
+| S2-2 쿼리 튜닝 | 상위 slow query | `EXPLAIN ANALYZE`, 복합·커버링 인덱스, N+1 제거(fetch join / batch size), offset → keyset 페이징, 집계 쿼리 개선 | 쿼리별 실행시간 전후 비교 |
+| S2-3 커넥션·스레드 | 커넥션 대기, 스레드 포화 | HikariCP 크기 산정, 플랫폼 스레드 vs 가상 스레드(Java 25, pinning 해소) 비교, 트랜잭션 범위 축소, Compact Object Headers 메모리 비교 | 커넥션 대기시간, TPS |
+| S2-4 캐시 | 읽기 비중이 높은 API의 DB 부하 | 상품 상세·목록 Redis 캐시, 캐시 스탬피드 방지, 무효화 전략(이벤트 기반) | 캐시 히트율, DB QPS |
+| S2-5 핫스팟 경합 | 인기상품 동시 주문 시 락 대기 | 비관적 락 / 조건부 UPDATE / Redis 원자 차감 + 비동기 확정 비교 실험 | 경합 시나리오 TPS, 초과판매 0 유지 |
+| S2-6 Read Replica | 읽기 쿼리가 primary CPU를 잠식 | Postgres 스트리밍 복제, `@Transactional(readOnly)` 기반 라우팅, 복제 지연 대응(주문 직후 조회는 primary = read-your-writes) | primary CPU, 읽기 p95, 복제 지연 |
+| S2-7 파티셔닝 | 대형 테이블(주문·재고 이력) 인덱스 비대, 기간 조회 느림 | 월 단위 선언적 파티셔닝, 오래된 파티션 아카이빙 | 기간 조회 p95, 인덱스 크기, VACUUM 시간 |
 
-단계 번호는 실행 순서가 아니다. 무엇을 먼저 하고 무엇을 측정 결과에 맡기는지는 [Stage 2 준비](../03-roadmap/stage2-plan.md)에 있다.
+단계 ID는 Part 2의 단계 번호(`2-1` 등)와 겹치지 않게 `S2-n`으로 쓴다. 단계 번호는 실행 순서가 아니다. 무엇을 먼저 하고 무엇을 측정 결과에 맡기는지는 [Stage 2 준비](../03-roadmap/stage2-plan.md)에 있다.
 
-**인덱스 설계 검증 실험**: 2-2에서 함께 하고, 위 시드 데이터로 잰다. 이 인덱스들은 Stage 1부터 있었으므로 결과는 "개선"이 아니라 "설계 검증"으로 기록한다. "개선"은 Baseline에서 실제로 느린 쿼리를 찾아 고친 경우에만 쓴다.
+**인덱스 설계 검증 실험**: S2-2에서 함께 하고, 위 시드 데이터로 잰다. 이 인덱스들은 Stage 1부터 있었으므로 결과는 "개선"이 아니라 "설계 검증"으로 기록한다. "개선"은 Baseline에서 실제로 느린 쿼리를 찾아 고친 경우에만 쓴다.
 
 | 실험 | 대상 | 비교 | 측정 지표 |
 |---|---|---|---|
@@ -58,7 +60,21 @@ flowchart LR
 
 **이력서 산출물**: 선택 이유, 장단점, 결과를 남긴 비교 실험(재고 차감 방식, 쿼리 튜닝, 인덱스의 조회 이득과 쓰기 비용). 수치는 같은 조건에서 비교한 근거로만 쓴다.
 
-## Stage 3. MSA 전환 (Strangler Fig)
+**한 것과 하지 않은 것**
+
+| 단계 | 결과 |
+|---|---|
+| S2-1a Baseline | 했다. 시드·지표 수집과 상품 조회·체크아웃·인기 상품·outbox 지연 측정([리포트](../perf/s2-1a-baseline.md)) |
+| S2-2 쿼리 튜닝 | 했다. 목록 커서 조건 16개를 행 값 비교로 바꿨다. 깊은 페이지 처리량 초당 1,637건 → 4,678건([리포트](../perf/s2-2-cursor.md)) |
+| S2-3 커넥션·스레드 | 했다. 풀 31(체크아웃 처리량 2배), 예약 작업 스레드 11([리포트](../perf/s2-3-pool-scheduling.md)) |
+| S2-5 핫스팟 경합 | 했다. 조건부 UPDATE·JPA 비관적 락·Redis 선착순 게이트를 비교해 조건부 UPDATE를 유지했다([리포트](../perf/s2-5-stock-reservation.md)) |
+| S2-1b 요구사항 측정, S2-4 캐시, outbox 릴레이 지연 | 서브로 옮겼다(SUB-14~SUB-16) |
+| S2-6 Read Replica, S2-7 파티셔닝 | 하지 않는다. 같은 물리 서버라 복제로 처리량 이득을 말할 수 없고, 파티셔닝이 필요한 느린 기간 조회가 측정에서 나오지 않았다 |
+
+## Stage 3. MSA 전환 (하지 않음)
+
+하지 않는다. 아래 진입 근거를 보일 조건이 없다. 1인 프로젝트라 배포 독립성이 문제가 되지 않고, 확장 특성 차이와 장애 격리를 보일 실제 트래픽도 없다. Stage 2에서 잰 한계도 VM의 CPU(상품 조회)와 재고 행 하나의 락(인기 상품)이었다. 같은 장비에서 서비스를 나누면 이 한계는 그대로이고 네트워크 호출과 운영할 서비스만 는다. 아래는 나눈다면 어떻게 나눌지에 대한 설계로 남겨 둔다.
+
 **진입 근거** (성능이 아니라 아래 사유를 측정·사례로 제시)
 1. **확장 특성 차이**: 검색·조회는 읽기, 주문·결제는 쓰기, AI는 배치·외부 API 의존. 함께 스케일하면 비효율
 2. **장애 격리**: LLM·ES 지연이 주문 스레드·커넥션을 잠식하는 장애 주입 실험 결과
@@ -80,7 +96,7 @@ flowchart LR
 **이력서 산출물**: 로컬 트랜잭션 → Saga 전환 과정과 새로 생긴 정합성 문제 해결, Strangler 방식의 무중단 전환, 원 팀 프로젝트(MSA)와의 비교.
 
 ## 서브. Kubernetes(k3s) 전환과 무중단 배포
-> 결정: [ADR-012](../adr/ADR-012-kubernetes-zero-downtime.md). [서브](../04-sub/README.md) SUB-9~SUB-13. Stage 2의 선행 조건이 아니고, Stage 3 전에는 끝낸다.
+> 결정: [ADR-012](../adr/ADR-012-kubernetes-zero-downtime.md). [서브](../04-sub/README.md) SUB-9~SUB-13. Stage 2의 선행 조건이 아니다.
 
 **목표**: compose 배포를 k3s 단일 노드로 옮기고, k6 부하 중 롤링 배포에서 5xx 0건을 증명한다.
 **산출물**: compose 대비 배포 중 에러율·단절 시간 비교, 무중단 조건(probe·graceful shutdown·PDB·스키마 호환) 정리. 한계(단일 노드)도 함께 기록한다.
@@ -90,5 +106,4 @@ flowchart LR
 |---|---|
 | Stage 1 | 이 폴더(02-design), ADR, 테스트 시나리오 |
 | Stage 2 | `docs/perf/` 측정 리포트(환경·스크립트·전후 수치), 튜닝 기록 |
-| Stage 3 | 전환 설계서, Saga 설계, 장애 주입 리포트 |
 | 서브 k3s 전환 | ADR-012, 매니페스트, 배포 비교 리포트 |

@@ -1,5 +1,6 @@
 package com.myroutine.order.web;
 
+import com.jayway.jsonpath.JsonPath;
 import com.myroutine.order.application.CheckoutResult;
 import com.myroutine.support.IntegrationTestSupport;
 import com.myroutine.support.TestFixtures;
@@ -12,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.UUID;
@@ -266,5 +268,40 @@ class SellerOrderControllerTest extends IntegrationTestSupport {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_STATE_TRANSITION"));
+    }
+
+    @Test
+    @DisplayName("가게주문 목록은 커서로 다음 페이지를 조회한다.")
+    void getShopOrdersNextPage() throws Exception {
+        // Given
+        UUID sellerId = testFixtures.signup("seller@test.com");
+        String token = testFixtures.login("seller@test.com");
+        UUID shopId = testFixtures.openShop(sellerId, "1111111111");
+        UUID productId = testFixtures.registerProduct(sellerId, shopId);
+
+        UUID buyerId = testFixtures.signup("buyer@test.com");
+        UUID shopOrder1Id = testFixtures.shopOrderIdOf(testFixtures.createPaidOrder(buyerId, productId), shopId);
+        UUID shopOrder2Id = testFixtures.shopOrderIdOf(testFixtures.createPaidOrder(buyerId, productId), shopId);
+        UUID shopOrder3Id = testFixtures.shopOrderIdOf(testFixtures.createPaidOrder(buyerId, productId), shopId);
+
+        // When & Then
+        MvcResult result = mockMvc.perform(get("/api/shops/{shopId}/orders", shopId)
+                        .param("size", "2")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].shopOrderId").value(shopOrder3Id.toString()))
+                .andExpect(jsonPath("$.items[1].shopOrderId").value(shopOrder2Id.toString()))
+                .andExpect(jsonPath("$.nextCursor").value(notNullValue()))
+                .andReturn();
+
+        String nextCursor = JsonPath.read(result.getResponse().getContentAsString(), "$.nextCursor");
+        mockMvc.perform(get("/api/shops/{shopId}/orders", shopId)
+                        .param("size", "2")
+                        .param("cursor", nextCursor)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").value(hasSize(1)))
+                .andExpect(jsonPath("$.items[0].shopOrderId").value(shopOrder1Id.toString()))
+                .andExpect(jsonPath("$.nextCursor").value(nullValue()));
     }
 }

@@ -45,7 +45,7 @@ public interface JpaSettlementRepository extends JpaRepository<Settlement, UUID>
     @Query("""
             select s
             from Settlement s
-            where s.shopId = :shopId and (s.createdAt < :cursorAt or (s.createdAt = :cursorAt and s.id < :cursorId))
+            where s.shopId = :shopId and (s.createdAt, s.id) < (:cursorAt, :cursorId)
             order by s.createdAt desc, s.id desc
             """)
     List<Settlement> findByShopIdAfter(UUID shopId, Instant cursorAt, UUID cursorId, Limit limit);
@@ -68,7 +68,7 @@ public interface JpaSettlementRepository extends JpaRepository<Settlement, UUID>
     @Query("""
             select s
             from Settlement s
-            where s.status = :status and (s.createdAt > :cursorCreatedAt or (s.createdAt = :cursorCreatedAt and s.id > :cursorId))
+            where s.status = :status and (s.createdAt, s.id) > (:cursorCreatedAt, :cursorId)
             order by s.createdAt, s.id
             """)
     List<Settlement> findByStatusNextPage(SettlementStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit);

@@ -46,7 +46,7 @@ public interface JpaReviewRepository extends JpaRepository<Review, UUID>, Review
             select r
             from Review r
             where r.productId = :productId and r.status = 'ACTIVE'
-                and (r.createdAt < :cursorCreatedAt or (r.createdAt = :cursorCreatedAt and r.id < :cursorId))
+                and (r.createdAt, r.id) < (:cursorCreatedAt, :cursorId)
             order by r.createdAt desc, r.id desc
             """)
     List<Review> findPublicNextPage(UUID productId, Instant cursorCreatedAt, UUID cursorId, Limit limit);

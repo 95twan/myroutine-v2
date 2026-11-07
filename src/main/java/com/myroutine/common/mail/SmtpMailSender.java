@@ -2,13 +2,14 @@ package com.myroutine.common.mail;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Component;
 
 @Component
-@Profile("prod")
+@ConditionalOnProperty(prefix = "myroutine.mail", name = "mode", havingValue = "smtp")
 @RequiredArgsConstructor
 public class SmtpMailSender implements MailSender{
     private final JavaMailSender mailSender;

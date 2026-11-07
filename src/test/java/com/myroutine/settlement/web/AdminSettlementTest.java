@@ -1,5 +1,6 @@
 package com.myroutine.settlement.web;
 
+import com.jayway.jsonpath.JsonPath;
 import com.myroutine.common.config.BusinessProperties;
 import com.myroutine.support.FakePayoutGateway;
 import com.myroutine.support.IntegrationTestSupport;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -17,7 +19,9 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -160,5 +164,54 @@ class AdminSettlementTest extends IntegrationTestSupport {
 
         assertThat(testFixtures.countOf("settlement.settlement")).isEqualTo(0);
         assertThat(testFixtures.unsettledItemCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("지급 실패 정산 목록은 커서로 다음 페이지를 조회한다.")
+    void listPayoutFailedSettlementsNextPage() throws Exception {
+        // Given
+        UUID adminId = testFixtures.signup("admin@test.com");
+        testFixtures.changeRole(adminId, "ADMIN");
+        String adminToken = testFixtures.login("admin@test.com");
+
+        UUID seller1Id = testFixtures.signup("seller1@test.com");
+        UUID shop1Id = testFixtures.openShop(seller1Id, "1111111111");
+        UUID seller2Id = testFixtures.signup("seller2@test.com");
+        UUID shop2Id = testFixtures.openShop(seller2Id, "2222222222");
+        UUID seller3Id = testFixtures.signup("seller3@test.com");
+        UUID shop3Id = testFixtures.openShop(seller3Id, "3333333333");
+        testFixtures.insertSettlementItems(List.of(shop1Id, shop2Id, shop3Id), 1, 7500, Instant.parse("2026-09-15T03:00:00Z"));
+        fakePayoutGateway.failNext(3);
+        mockMvc.perform(post("/admin/api/settlements/run")
+                        .param("period", "2026-09")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payoutFailed").value(3));
+
+        UUID settlement1Id = testFixtures.settlementSnapshotOf(shop1Id).id();
+        UUID settlement2Id = testFixtures.settlementSnapshotOf(shop2Id).id();
+        UUID settlement3Id = testFixtures.settlementSnapshotOf(shop3Id).id();
+
+        // When & Then
+        MvcResult result = mockMvc.perform(get("/admin/api/settlements")
+                        .param("status", "PAYOUT_FAILED")
+                        .param("size", "2")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(settlement1Id.toString()))
+                .andExpect(jsonPath("$.items[1].id").value(settlement2Id.toString()))
+                .andExpect(jsonPath("$.nextCursor").value(notNullValue()))
+                .andReturn();
+
+        String nextCursor = JsonPath.read(result.getResponse().getContentAsString(), "$.nextCursor");
+        mockMvc.perform(get("/admin/api/settlements")
+                        .param("status", "PAYOUT_FAILED")
+                        .param("size", "2")
+                        .param("cursor", nextCursor)
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").value(hasSize(1)))
+                .andExpect(jsonPath("$.items[0].id").value(settlement3Id.toString()))
+                .andExpect(jsonPath("$.nextCursor").value(nullValue()));
     }
 }
