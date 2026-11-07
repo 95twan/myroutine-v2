@@ -50,6 +50,9 @@ management:
       enabled: false
 
 myroutine:
+  mail:
+    mode: log
+    log-delay: 0s
   business-zone: Asia/Seoul
   kafka:
     retry-initial-interval: 1s

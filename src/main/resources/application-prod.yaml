@@ -1,6 +1,9 @@
 myroutine:
   web:
     cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+  mail:
+    mode: ${MAIL_MODE:smtp}
+    log-delay: ${MAIL_LOG_DELAY:0s}
 
 spring:
   mail:
