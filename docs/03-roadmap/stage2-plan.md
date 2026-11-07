@@ -1264,13 +1264,41 @@ C도 DB UPDATE의 조건(`available >= :quantity`)을 그대로 두므로 Redis 
 
 **1) B: `SELECT FOR UPDATE` 뒤 차감** (`experiment/s2-5-for-update`)
 
-| 항목 | 규격 |
-|---|---|
-| 조회 | `JpaStockRepository`에 `SELECT available FROM product.stock WHERE product_id = :productId FOR UPDATE`(native, 반환 `Integer`)를 더하고 `StockRepository`에도 선언한다 |
-| 예약 | `reserve`의 상품별 반복에서 `stockRepository.reserve` 앞에 이 조회를 부른다. `available < quantity`면 지금과 같은 `OUT_OF_STOCK`(`productIds`에 그 상품)을 던진다. 아니면 지금의 `reserve` UPDATE를 그대로 부르고, 0행이면 지금처럼 `OUT_OF_STOCK`을 던진다 |
-| 테스트 | 새 테스트는 없다. 기존 테스트(`StockReservationConcurrencyTest`, `ReservationDeadlockTest`, 체크아웃 테스트)가 그대로 통과한다 |
+새 파일은 없고, 기존 파일 세 개에 메서드 하나와 `reserve`의 몇 줄을 더한다.
 
-JPA의 `@Lock(PESSIMISTIC_WRITE)`로 `Stock` 엔티티를 읽고 필드를 바꾸면, UPDATE가 커밋 직전 flush 때 모든 열을 쓰는 문장으로 바뀐다. UPDATE 문장을 A와 같게 두어야 차이가 락을 잡는 시점과 거절 요청의 락으로 좁혀진다.
+| 파일 | 할 일 |
+|---|---|
+| `product/infrastructure/JpaStockRepository.java` | 재고 행을 잠그며 판매 가능 수량을 읽는 메서드 `findAvailableForUpdate`를 더한다 |
+| `product/domain/StockRepository.java` | 같은 메서드를 선언한다 |
+| `product/application/ProductApiImpl.java` | `reserve`의 상품별 반복에서 기존 UPDATE 앞에 부른다 |
+
+**`findAvailableForUpdate`**
+
+| 항목 | 값 |
+|---|---|
+| 시그니처 | `Integer findAvailableForUpdate(UUID productId)` |
+| 쿼리 | `@Query(nativeQuery = true)`. 파일의 다른 메서드와 같은 모양이고, 조회라서 `@Modifying`은 붙이지 않는다 |
+| SQL | `SELECT available FROM product.stock WHERE product_id = :productId FOR UPDATE` |
+| 반환 | 그 상품의 `available`. 재고 행은 상품 등록 때 만들어지고 `getPurchasable`이 상품을 먼저 확인하므로 `null`인 경우는 없다 |
+| 락 | 다른 트랜잭션이 이 행을 잠그고 있으면 그 트랜잭션이 끝날 때까지 기다린다. 잡은 락은 체크아웃 트랜잭션이 커밋하거나 롤백할 때 풀린다 |
+
+**`reserve`의 순서**: 상품별 반복 안만 바뀐다.
+
+```text
+for (sortedItems) {
+    available = stockRepository.findAvailableForUpdate(productId)    (새로)
+    available < quantity → OUT_OF_STOCK, productIds = [productId]   (새로, 지금 던지는 것과 같은 예외)
+    count = stockRepository.reserve(productId, quantity, now)       (그대로)
+    count == 0 → OUT_OF_STOCK                                        (그대로)
+    insertReservation, insertMovement                                (그대로)
+}
+```
+
+락을 쥔 채 확인했으므로 UPDATE는 늘 1행이다. `count == 0` 확인은 그대로 둔다.
+
+**테스트**: 새 테스트는 없다. 기존 테스트(`StockReservationConcurrencyTest`, `ReservationDeadlockTest`, 체크아웃 테스트)가 그대로 통과하면 된다.
+
+JPA의 `@Lock(PESSIMISTIC_WRITE)`로 `Stock` 엔티티를 읽고 필드를 바꾸는 방법은 쓰지 않는다. 그러면 UPDATE가 커밋 직전 flush 때 모든 열을 쓰는 문장으로 바뀐다. UPDATE 문장을 A와 같게 두어야 차이가 락을 잡는 시점과 거절 요청의 락으로 좁혀진다.
 
 **2) C: Redis 선착순 게이트** (`experiment/s2-5-redis-gate`)
 
