@@ -394,23 +394,30 @@ import { check } from 'k6';
 import { Counter } from 'k6/metrics';
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
-const BUYERS = Number(__ENV.BUYERS || 1000);
+const MODE = __ENV.MODE || 'rush';
+const BUYERS = Number(__ENV.BUYERS || (MODE === 'hold' ? 100 : 1000));
+const HOLD = __ENV.HOLD || '3m';
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const succeeded = new Counter('checkout_succeeded');
 const outOfStock = new Counter('checkout_out_of_stock');
 
 http.setResponseCallback(http.expectedStatuses(200, 201, 422));
 
+const scenarios = {
+  rush: { executor: 'per-vu-iterations', vus: BUYERS, iterations: 1, maxDuration: '2m' },
+  hold: { executor: 'constant-vus', vus: BUYERS, duration: HOLD },
+};
+
+const thresholds = {
+  'http_req_duration{name:checkout}': [],
+  'http_req_failed{name:checkout}': ['rate==0'],
+};
+if (MODE === 'rush') thresholds.checkout_succeeded = ['count==100'];
+
 export const options = {
   setupTimeout: '10m',
-  scenarios: {
-    rush: { executor: 'per-vu-iterations', vus: BUYERS, iterations: 1, maxDuration: '2m' },
-  },
-  thresholds: {
-    checkout_succeeded: ['count==100'],
-    'http_req_duration{name:checkout}': [],
-    'http_req_failed{name:checkout}': ['rate==0'],
-  },
+  scenarios: { [MODE]: scenarios[MODE] },
+  thresholds,
   summaryTrendStats: ['avg', 'med', 'p(95)', 'p(99)', 'max'],
 };
 
