@@ -1274,7 +1274,7 @@ C도 DB UPDATE의 조건(`available >= :quantity`)을 그대로 두므로 Redis 
 | `JpaStockRepository` (infrastructure, 기존 수정) | 위 조회를 native `@Query`로 구현한다. SQL은 `SELECT available FROM product.stock WHERE product_id = :productId FOR UPDATE`이고, 조회라서 `@Modifying`은 붙이지 않는다. 다른 트랜잭션이 이 행을 잠갔으면 그 트랜잭션이 끝날 때까지 기다린다. 잡은 락은 체크아웃 트랜잭션이 커밋하거나 롤백할 때 풀린다 |
 | `ProductApiImpl.reserve` (application, 기존 수정) | 상품별 반복에서 `stockRepository.reserve` 앞에 `findAvailableForUpdate`를 부른다. `available < quantity`면 지금 0행일 때와 같은 `BusinessException(ProductErrorCode.OUT_OF_STOCK, Map.of("productIds", List.of(productId)))`을 던진다. 그 뒤의 `reserve` UPDATE와 0행 검사, 예약·이력 INSERT는 그대로다. 재고 행은 상품 등록 때 만들어지고 `getPurchasable`이 상품을 먼저 확인하므로 조회 결과가 `null`인 경우는 없다 |
 
-JPA의 `@Lock(PESSIMISTIC_WRITE)`로 `Stock` 엔티티를 읽고 필드를 바꾸는 방법은 쓰지 않는다. 그러면 UPDATE가 커밋 직전 flush 때 모든 열을 쓰는 문장으로 바뀐다. UPDATE 문장을 A와 같게 두어야 차이가 락을 잡는 시점과 거절 요청의 락으로 좁혀진다. 새 테스트는 없다(8.3).
+`@Lock(PESSIMISTIC_WRITE)`를 붙인 조회로 `Stock` 엔티티를 잠그며 읽고 값을 바꿔 dirty checking으로 저장하는 방법은 쓰지 않는다. 그러면 차감 UPDATE를 Hibernate가 만들어, 문장 모양(조건 없이 열 값을 쓴다)과 보내는 시점(flush 때)이 A와 달라진다. `Stock`에 값을 바꾸는 메서드도 새로 만들어야 한다. A의 조건부 UPDATE를 그대로 불러야 두 방식의 차이가 락을 잡는 시점과 거절될 요청의 락 두 가지로만 남는다. 새 테스트는 없다(8.3).
 
 **2) C: Redis 선착순 게이트** (`experiment/s2-5-redis-gate`)
 
