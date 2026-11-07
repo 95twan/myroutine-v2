@@ -1274,14 +1274,65 @@ JPA의 `@Lock(PESSIMISTIC_WRITE)`로 `Stock` 엔티티를 읽고 필드를 바�
 
 **2) C: Redis 선착순 게이트** (`experiment/s2-5-redis-gate`)
 
-| 항목 | 규격 |
+만들 것은 Lua 스크립트 하나, 인터페이스와 구현 하나, `reserve`의 몇 줄이다.
+
+| 파일 | 할 일 |
 |---|---|
-| 키 | 상품마다 `stock:available:{productId}`, 값은 판매 가능 수량. 측정 절차가 `SET`으로 넣는다. 키가 없으면 게이트를 건너뛰고 A처럼 DB 조건으로만 예약한다 |
-| Lua | `src/main/resources/redis/stock-gate.lua`. `KEYS`는 상품 ID 순으로 정렬한 키, `ARGV`는 같은 순서의 수량이다. 먼저 모든 키를 확인해 하나라도 없으면 `-1`, 수량이 모자란 키가 있으면 첫 그 키의 순번(1부터)을 돌려주고 아무것도 줄이지 않는다. 모두 충분하면 모든 키를 `DECRBY`하고 `0`을 돌려준다. 한 스크립트에서 다뤄 상품 일부만 줄어드는 일이 없다 |
-| 위치 | `product.domain`에 게이트 인터페이스, `product.infrastructure`에 `StringRedisTemplate`과 `DefaultRedisScript<Long>`으로 구현한다(`RedisLoginAttemptStore`와 같은 모양). `reserve`에서 멱등 확인(`existsByOrderId`)과 `getPurchasable` 뒤, 상품별 UPDATE 반복 앞에서 부른다 |
-| 거절 | 순번이 오면 그 상품으로 `OUT_OF_STOCK`을 던진다. 재고 행에는 닿지 않는다 |
-| 되돌리기 | `0`이면 `TransactionSynchronization`을 등록해, `afterCompletion`의 상태가 `STATUS_COMMITTED`가 아니면 같은 키들을 `INCRBY`로 되돌린다(`TokenVersionService`와 같은 등록 방식). DB UPDATE가 0행이라 `OUT_OF_STOCK`이 나거나, 체크아웃이 뒤에서 실패해 롤백될 때다 |
-| Redis 장애 | 예외를 그대로 던진다(체크아웃 500) |
+| `src/main/resources/redis/stock-gate.lua` | 새로 만든다 |
+| `product/domain/StockGate.java` | 새 인터페이스 |
+| `product/infrastructure/RedisStockGate.java` | 새 `@Component`. `StringRedisTemplate`과 `DefaultRedisScript<Long>`으로 구현한다. 생성자에서 스크립트를 읽는 방식은 `RedisLoginAttemptStore`와 같다 |
+| `product/application/ProductApiImpl.java` | `StockGate`를 주입받아 `reserve`에서 부른다 |
+| `product/application/StockGateTest.java` | 골격이 있다. 본문을 채운다(8.3) |
+
+**키**: 상품마다 `stock:available:{productId}`, 값은 판매 가능 수량(문자열 정수)이다. 앱은 키를 만들지 않는다. 측정 절차와 테스트가 `SET`으로 넣는다. 키가 없으면 게이트를 건너뛰고 A처럼 DB 조건으로만 예약한다. 그래서 키를 넣지 않는 기존 테스트는 지금과 똑같이 돈다.
+
+**`StockGate`**: `product.domain`은 `product.api`를 쓰지 않으므로 `ReserveItem` 대신 같은 순서의 두 목록을 받는다.
+
+```java
+public interface StockGate {
+    // 0: 모두 줄였다. -1: 키가 하나라도 없어 아무것도 하지 않았다(게이트를 건너뛴다).
+    // n(1 이상): n번째 상품의 수량이 모자라 아무것도 줄이지 않았다.
+    int tryAcquire(List<UUID> productIds, List<Integer> quantities);
+
+    // tryAcquire가 0을 돌려준 뒤 트랜잭션이 커밋되지 않았을 때 부른다.
+    void giveBack(List<UUID> productIds, List<Integer> quantities);
+}
+```
+
+**Lua**: `KEYS`는 키 목록, `ARGV`는 같은 순서의 수량이다. 확인과 차감을 한 스크립트에서 해야, 확인과 차감 사이에 다른 요청이 끼어들거나 상품 일부만 줄어드는 일이 없다.
+
+1. 모든 키를 돌며 `GET`한다. 하나라도 없으면 `-1`을 돌려준다.
+2. 다시 돌며 `tonumber(값) < tonumber(ARGV[i])`인 첫 키의 순번 `i`를 돌려준다.
+3. 여기까지 왔으면 모든 키에 `DECRBY 키 수량`을 하고 `0`을 돌려준다.
+
+Lua의 반복은 `for i = 1, #KEYS do ... end`이고(목록 번호는 1부터, `#`은 길이), 키가 없으면 `redis.call('GET', key)`가 `false`를 돌려준다(`if not v then return -1 end`).
+
+**`RedisStockGate`**
+
+| 메서드 | 구현 |
+|---|---|
+| `tryAcquire` | `redisTemplate.execute(script, keys, args)`. `keys`는 `"stock:available:" + productId`의 `List<String>`, `args`는 수량을 `String`으로 바꾼 배열이다(`StringRedisTemplate`은 인자도 문자열로 보낸다). 결과 `Long`을 `int`로 돌려준다 |
+| `giveBack` | 상품마다 `redisTemplate.opsForValue().increment(key, quantity)`(`INCRBY`) |
+
+**`reserve`의 순서**: 지금 코드에서 `sortedItems`를 만든 뒤, 상품별 반복 앞에 넣는다.
+
+```text
+existsByOrderId → 있으면 return              (그대로)
+getPurchasable(ids)                          (그대로)
+sortedItems = 상품 ID 순 정렬                 (그대로)
+gate = stockGate.tryAcquire(정렬한 ID 목록, 같은 순서의 수량 목록)
+gate > 0  → OUT_OF_STOCK, productIds = [sortedItems.get(gate - 1).productId()]
+gate == 0 → TransactionSynchronization 등록:
+            afterCompletion(int status)에서 status != STATUS_COMMITTED면 giveBack(같은 목록)
+gate == -1 → 아무것도 하지 않는다
+for (sortedItems) { UPDATE ... }             (그대로)
+```
+
+등록은 `TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() { ... })`로, `TokenVersionService`와 같다. 다만 `afterCommit`이 아니라 `afterCompletion(int status)`를 오버라이드한다. 커밋이 아닌 경우(롤백)를 잡아야 해서다. `status`는 `TransactionSynchronization.STATUS_COMMITTED`와 비교한다. 되돌리는 경우는 DB UPDATE가 0행이라 `OUT_OF_STOCK`이 났을 때와, 체크아웃이 예약 뒤에 실패해 롤백됐을 때다.
+
+Redis 장애는 이번에 처리하지 않는다. 예외가 그대로 올라가 체크아웃이 500으로 끝난다.
+
+**테스트 준비**: `StringRedisTemplate`을 생성자로 주입받아(`StockReservationConcurrencyTest`가 `StockRepository`를 받는 것과 같다) `redisTemplate.opsForValue().set("stock:available:" + productId, "100")`으로 키를 넣는다. `IntegrationTestSupport`가 테스트마다 Redis를 비운다. 상품 재고는 `testFixtures.registerProduct(memberId, shopId, ProductCategory.ETC, 재고)`로 정하고, DB 재고는 `stockRepository.findById(productId)`로 읽는다.
 
 **3) 측정 데이터와 시나리오**
 
