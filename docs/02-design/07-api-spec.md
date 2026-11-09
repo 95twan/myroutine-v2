@@ -1,6 +1,7 @@
 # 07. API 명세 (Stage 1)
 
 > 엔드포인트 목록과 핵심 API의 요청·응답 계약. 필드 단위 상세는 구현 시 springdoc(OpenAPI)로 생성하고, 이 문서와 어긋나면 이 문서를 갱신한다.
+> 2026-11-09 · 판매자 상품 상세 `GET /api/shops/{shopId}/products/{id}`(상태와 관계없이), 실패 환불 항목에 `pgOrderId`·`buyerEmail`, 구매자 주문 상세의 환불에 판매자 거절 사유 `rejectReason`. 관리자 종결 사유는 구매자에게 내보내지 않는다(서브 SUB-17)
 > 2026-11-05 · 환불 종결 `POST /admin/api/refunds/{id}/close`(`FAILED → REJECTED`), `FAILED` 환불이 있으면 발송을 409 `REFUND_IN_PROGRESS`로, 같은 품목의 구매자 재취소를 409 `DUPLICATE_RESOURCE`로 막는다(로드맵 6-3)
 > 2026-11-04 · 운영 쓰기 API의 응답과 에러, 결제·환불·알림 목록 항목, DLT 토픽 목록 `GET /admin/api/dlt`, 지급 실패 정산 조회 `GET /admin/api/settlements`. 정산 수동 실행은 끝난 달만 받는다(로드맵 6-3)
 > 2026-11-03 · 답변 전 문의 수정·삭제 `PATCH`·`DELETE /api/inquiries/{id}`(로드맵 5-3)
@@ -106,6 +107,7 @@
 | DELETE | `/api/shops/{shopId}/products/{id}/images/{imageId}` | O | 이미지 삭제 | FR-PRD-02 |
 | POST | `/api/shops/{shopId}/products/{id}/stock-adjustments` | O, IK | 재고 증감 `{delta, reason}` | FR-PRD-04 |
 | GET | `/api/shops/{shopId}/products` | O | 판매자용 목록 (재고·상태 포함) | |
+| GET | `/api/shops/{shopId}/products/{id}` | O | 판매자용 상세. 공개 상세 필드에 재고 `available, reserved, sold, received`를 더하고 숨김·단종도 돌려준다. 가게 주인이 아니면 403 `FORBIDDEN`, 그 가게의 상품이 아니면 404 `PRODUCT_NOT_FOUND`(서브 SUB-17) | |
 
 ### order — 장바구니·주문
 | Method | Path | 권한 | 설명 | 요구사항 |
@@ -116,7 +118,7 @@
 | POST | `/api/orders/{id}/payment/confirm` | O, IK | PG 승인 | FR-ORD-03~06, FR-PAY-01·02 |
 | POST | `/api/orders/{id}/cancel` | O | 결제 전 주문 취소(`PENDING_PAYMENT`만) → 재고 예약 즉시 해제. 결제창 이탈 통지도 이 API | FR-ORD-04 |
 | GET | `/api/orders` | U | 내 주문 목록 | FR-ORD-07 |
-| GET | `/api/orders/{id}` | O | 상세 (가게주문·품목·환불) | FR-ORD-07 |
+| GET | `/api/orders/{id}` | O | 상세 (가게주문·품목·환불). 환불의 `rejectReason`은 판매자가 반품을 거절했을 때만 값이 있다. `REJECTED`인데 `null`이면 관리자가 종결한 환불이다(서브 SUB-17) | FR-ORD-07 |
 | POST | `/api/orders/{id}/lines/{lineId}/cancel` | O, IK | 발송 전 취소 | FR-ORD-08 |
 | POST | `/api/orders/{id}/lines/{lineId}/return-requests` | O, IK | 반품 요청 | FR-ORD-09 |
 | POST | `/api/orders/{id}/lines/{lineId}/confirm` | O | 구매확정 | FR-ORD-11 |
@@ -176,8 +178,8 @@
 | GET | `/admin/api/dlt/{topic}?limit=50` · POST `/admin/api/dlt/{topic}/{partition}/{offset}/replay` | DLT 조회 `[{partition, offset, key, value, timestamp, exception}]`, 최신순, `limit`은 파티션마다 1~100. 재처리 204(offset은 파티션마다 따로라 파티션이 필요하다). 없는 토픽·offset은 404 `NOT_FOUND` | NFR-REL-03 |
 | GET | `/admin/api/payments?status=UNKNOWN` | 결과미확정 결제. 항목 `{id, orderId, pgOrderId, amount, reconcileAttempts, createdAt, updatedAt}` | FR-PAY-03 |
 | POST | `/admin/api/payments/{orderId}/reconcile` | 즉시 대사 (경로 값은 orderId, 응답 `{orderId, status}`). 없는 주문 404 `ORDER_NOT_FOUND`, 처리된 주문·결제 없는 주문은 현재 상태를 200으로 | FR-PAY-03 |
-| GET | `/admin/api/refunds?status=FAILED` · POST `/{id}/retry` | 실패 환불 재처리. 항목 `{id, orderId, orderLineId, productName, amount, reasonType, reason, failureCode, pgAttempts, createdAt, updatedAt}`. 재시도는 200(`COMPLETED`)·202(`APPROVED`)·502 `PG_ERROR`, 없으면 404 `REFUND_NOT_FOUND`, `FAILED`가 아니면 409 `INVALID_STATE_TRANSITION` | |
-| POST | `/admin/api/refunds/{id}/close` | 재시도해도 PG가 거절하는 환불 종결. 본문 `{reason}`(필수, 200자 이하). 200 `RefundResponse`(`REJECTED`), 반품이면 품목이 `DELIVERED`로 돌아간다. 없으면 404 `REFUND_NOT_FOUND`, `FAILED`가 아니면 409 `INVALID_STATE_TRANSITION` | |
+| GET | `/admin/api/refunds?status=FAILED` · POST `/{id}/retry` | 실패 환불 재처리. 항목 `{id, orderId, pgOrderId, orderLineId, buyerEmail, productName, amount, reasonType, reason, failureCode, pgAttempts, createdAt, updatedAt}`(`pgOrderId`·`buyerEmail`은 서브 SUB-17). 재시도는 200(`COMPLETED`)·202(`APPROVED`)·502 `PG_ERROR`, 없으면 404 `REFUND_NOT_FOUND`, `FAILED`가 아니면 409 `INVALID_STATE_TRANSITION` | |
+| POST | `/admin/api/refunds/{id}/close` | 재시도해도 PG가 거절하는 환불 종결. 본문 `{reason}`(필수, 200자 이하). 사유는 `close_reason`에 남고 구매자·판매자 응답에 나가지 않는다(서브 SUB-17). 200 `RefundResponse`(`REJECTED`), 반품이면 품목이 `DELIVERED`로 돌아간다. 없으면 404 `REFUND_NOT_FOUND`, `FAILED`가 아니면 409 `INVALID_STATE_TRANSITION` | |
 | POST | `/admin/api/search/reindex` | 무중단 재색인 (alias swap). 서브 SUB-7에서 만든다 | FR-SRC-02 |
 | POST | `/admin/api/settlements/run?period=2026-09` | 정산 수동 실행 (멱등). 끝난 달만 받고 아니면 400 `INVALID_REQUEST`. `PAYOUT_FAILED` 정산도 다시 지급한다 | FR-STL-04 |
 | GET | `/admin/api/settlements?status=PAYOUT_FAILED` | 지급 실패 정산. 항목 `{id, shopId, shopName, periodStart, periodEnd, netAmount, payoutAttempts, lastError, updatedAt}`, 오래된 순 | FR-STL-04 |
