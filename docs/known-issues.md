@@ -54,6 +54,8 @@
 | 차감이 상품 단위 | 확인됨 | 결제 중에 장바구니 항목을 지우고 다시 담으면, 결제 완료 때 새로 담은 수량에서 차감한다 | 2-2 | `CartService.deductOrdered` | 고치지 않는다(드문 경우) |
 | 지난 주문의 썸네일 | 확인됨 | 판매자가 상품 이미지를 지우면 지난 주문의 썸네일 URL이 404가 된다. 주문은 이미지 키만 저장하고 이미지를 복사하지 않는다 | 2-2 | 주문 품목의 썸네일 키 | 고치지 않는다(의도한 한계) |
 | 외부 호출에 서킷브레이커 없음 | 확인됨 | NFR-REL-05는 외부 시스템 호출에 타임아웃·재시도·서킷브레이커를 요구하지만 서킷브레이커는 없다. 타임아웃은 PG(연결 3초·읽기 10초), ES(2초), 운영 메일(연결 5초), OAuth(연결 3초)에 있다. PG가 계속 느리면 결제 요청마다 타임아웃까지 기다린다 | NFR-REL-05 | `TossClient`, `ProductIndexer`·검색, `SmtpMailSender`, `OAuthConfig` | 도입하려면 Resilience4j 같은 새 라이브러리라 CLAUDE.md 3절에 따라 학습 비용과 대안을 먼저 정한다. 들이지 않으면 요구사항에서 서킷브레이커를 뺀다 |
+| 응답 빈칸 3곳 | 확인됨 | 공개 상세가 숨긴 상품을 404로 돌려 판매자 수정 화면에 설명·이미지를 채울 수 없다. 실패 환불 목록에 구매자와 Toss 주문번호가 없어 PG 밖에서 돌려줄 대상을 찾기 어렵다. 판매자 거절과 관리자 종결이 같은 `reject_reason`에 쓰여 구매자 응답에 거절 사유를 내보낼 수 없다 | 화면을 붙이며 드러남 | `ProductQueryService`, `AdminRefundResponse`, `Refund` | [서브 SUB-17](04-sub/response-gaps.md) |
+| 로그 빈 곳 3곳 | 확인됨 | 알림 발송 실패, 이벤트를 내지 않는 도메인 상태 전이, JWT 거부 사유(만료·변조·토큰 버전 불일치)가 로그에 남지 않아 Kibana로 원인을 찾을 수 없다 | 6-1 로그 규격 | `NotificationDispatcher.dispatchBatch`, 상태를 바꾸는 서비스, `JwtProvider.parse` | [서브 SUB-8](04-sub/log-coverage.md) |
 | 폐업과 동시에 등록된 상품 | 추론 | 상품 등록은 `verifyOwnerOfActiveShop`으로 가게가 ACTIVE인지 락 없이 읽는다. 등록 트랜잭션이 확인 뒤 커밋하기 전에 폐업이 커밋되고, 그 `shop-closed`를 product consumer가 등록 커밋 전에 처리하면 새 상품은 단종 대상 조회에 잡히지 않아 폐업한 가게에 `ON_SALE`로 남는다. 체크아웃은 `shopApi.requireActiveShops`로 가게 상태를 확인하므로 이 상품은 결제되지 않고, 공개 목록·검색에 판매 중으로 보이기만 한다. 등록 트랜잭션이 릴레이 주기(1초)와 소비 시간보다 오래 열려 있어야 해서 사실상 생기지 않는다. 상품 수정은 단종과 같은 행을 바꾸므로 `@Version` 충돌로 둘 중 하나가 실패해 남지 않는다 | 3-2 폐업 → 가게 전 상품 단종 | `ShopApiImpl.verifyOwnerOfActiveShop`, `RegisterProductService`, `ProductDiscontinueService.discontinueAllByShop`, `CheckoutService`(`requireActiveShops`) | 표시만 틀리고 사실상 생기지 않으므로 고치지 않기를 권한다. 고친다면 등록의 가게 확인에서 가게 행을 `FOR SHARE`로 읽어 폐업의 UPDATE와 차례로 실행되게 한다 |
 | 알림 메일 중복 발송 | 추론 | `NotificationDispatcher`는 메일을 보낸 뒤 별도 트랜잭션으로 `markSent`를 기록한다. 보낸 뒤 이 기록이 실패하거나 서버가 그 사이에 멈추면 알림이 `PENDING`으로 남아 다음 주기(10초)에 다시 보낸다. 같은 알림이 두 번 갈 수 있다 | 3-5 발송 순서(트랜잭션 밖 발송 → 결과 기록). 문서에 중복 가능성이 적혀 있지 않다 | `NotificationDispatcher.dispatchBatch` | 메일은 보낸 뒤 되돌릴 수 없어 한 번 이상 보내기를 받아들인다. 3-5 문서에 "결과 기록이 실패하면 다시 보낸다"를 적는다 |
 
@@ -65,11 +67,12 @@
 | 로컬·테스트 MinIO 버전 미고정 | 확인됨 | 로컬 compose와 Testcontainers가 `chainguard/minio:latest`를 쓴다(운영은 digest로 고정). 이미지가 바뀌면 로컬·CI 동작이 운영과 달라질 수 있다 | 1-10 | `docker/docker-compose.yml`, `IntegrationTestSupport` | 운영과 같은 digest로 고정한다 |
 | 롤백은 이미지만 | 확인됨 | 마이그레이션은 앞으로만 간다. 이전 앱이 새 스키마에서 동작해야 이미지 롤백이 안전하다 | 1-11 | Flyway 마이그레이션, CD 워크플로 | 고치지 않는다. 파괴적 마이그레이션(컬럼 삭제·이름 변경)은 한 번의 배포에 넣지 않는다(1-11 정책) |
 
-### 3.3 쌓이는 데이터와 주기 쿼리
+### 3.3 쌓이는 데이터와 주기 작업
 
 | 항목 | 상태 | 문제 | 근거 | 위치 | 고치는 방향 |
 |---|---|---|---|---|---|
 | 결제 지표 쿼리의 전체 읽기 | 재현됨 | `PaymentMetrics`가 30초마다 `status = 'UNKNOWN'` 조건으로 `count(*)`와 `min(created_at)`을 실행하는데, `payment.payment`에 상태 인덱스가 없어 결제 전체를 읽는다. Stage 2 시드(결제 약 900만 건)에서 한 번에 약 0.24~0.46초가 걸렸고 모든 측정에서 상위 쿼리로 나왔다. 결제는 지우지 않는 업무 기록이라 주문이 늘수록 계속 느려진다 | [s2-1a 기준선 리포트](perf/s2-1a-baseline.md)의 "모니터링이 30초마다 결제 900만 건을 읽는다" | `PaymentMetrics`, `JpaPaymentRepository.countByStatus`·`findOldestCreatedAtByStatus` | `payment (created_at) WHERE status = 'UNKNOWN'` 부분 인덱스를 둔다. `UNKNOWN`은 몇 건뿐이라 두 쿼리가 이 인덱스만 읽는다 |
+| outbox 발행 지연 | 재현됨 | 이벤트 저장부터 Kafka 발행까지 p95 1,475ms로 NFR-PERF-06(1초)을 넘었다. 릴레이가 보낸 뒤 1초를 쉬고(`fixedDelay = 1000`), 한 건씩 Kafka 응답을 기다린다 | [s2-1a 기준선 리포트](perf/s2-1a-baseline.md), NFR-PERF-06 | `OutboxRelayJob`, `OutboxRelay` | [서브 SUB-14](04-sub/stage2-leftovers.md) |
 | 운영 테이블 정리 없음 | 확인됨 | `outbox_event`, `processed_message`, `idempotency_key`, `notification`은 넣기만 하고 지우는 잡이 없다. 업무 기록(주문·결제·환불·정산·재고 이동)과 달리 처리가 끝나면 쓰지 않는 행이다. 자주 도는 쿼리(릴레이의 `READY`, 발송 잡의 `PENDING`)는 부분 인덱스를 써서 영향이 없지만, 디스크와 아래 `DEAD` 지표 쿼리가 행 수만큼 커진다. `idempotency_key`는 같은 키가 다시 올 때만 만료된 행을 지워서 `expires_at` 인덱스를 쓰는 곳이 없다 | - | `common.outbox_event`, `common.processed_message`, `common.idempotency_key`, `notification.notification` | 하루 한 번 도는 정리 잡(`JobRunner`)이 묶음(`LIMIT`)으로 지운다. 조건: `idempotency_key`는 `expires_at < now`(만료된 키는 지금도 다시 쓰일 때 지우므로 동작이 같다), `outbox_event`는 `SENT`이고 7일 지난 것, `processed_message`와 `SENT` 알림은 DLT 보존 기간보다 길게 둔 뒤. inbox 행을 너무 일찍 지우면 그 뒤 리플레이된 이벤트를 다시 처리한다. outbox `DEAD` 재시도는 그보다 늦게 올 수 있으므로 `DEAD` 처리 기한을 함께 정한다 |
 | outbox `DEAD` 지표 쿼리의 전체 읽기 | 추론 | `OutboxMetrics`가 30초마다 `count(*) ... WHERE status = 'DEAD'`를 실행한다. `READY`·`PROCESSING`에는 부분 인덱스가 있지만 `DEAD`에는 없어, 쌓이는 `SENT` 행까지 전부 읽는다. 관리자 outbox 목록(`status`별 `created_at` 순)도 같다. 결제 지표 쿼리와 같은 모양이고, Stage 2 시드는 outbox 행을 넣지 않아 드러나지 않았다 | 결제 지표 쿼리와 같은 원인 | `OutboxMetrics.refresh`, `AdminOutboxService.getEvents` | `(created_at, id) WHERE status = 'DEAD'` 부분 인덱스를 둔다. 위 정리로 `SENT` 행을 지우면 커지지 않는다 |
 
@@ -150,3 +153,4 @@ DB 컬럼, API 응답 필드, 이벤트 페이로드는 소비자가 다른 모�
 | 로드맵 2-10 | `ConfirmConcurrencyTest`는 이상 상태가 없는지만 본다. 수동·자동 구매확정이 같은 품목을 동시에 확정할 때 `OrderLine`의 `@Version`이 막는다는 증거는 아니다 | 2-10 완료 확인 | spy나 작업 안의 대기로 두 작업이 같은 품목을 읽는 구간을 겹치게 하고 "확정에 성공한 쪽은 하나"를 단언한다 |
 | ADR-001 | 제목과 결정 3이 "Stage 3에서 MSA로 전환한다"로 남아 있다. Stage 3는 하지 않기로 했다 | ADR-001 제목, 결정 3, 대안 표 | 상태 줄과 결정에 하지 않기로 한 것을 적는다([01-architecture-evolution](02-design/01-architecture-evolution.md)의 Stage 3 절) |
 | 개발 가이드 | 716행이 `FakePgServer`에 main을 붙인 `pg-fake` 컨테이너가 있는 것처럼 적었지만 만들지 않았다 | development-guide 가짜 PG 서버 절 | "만들 때의 방법"으로 고친다 |
+| 요구사항 | NFR-PERF-04(인증 오버헤드)·05(정산 배치)·07(상품 검색)을 아직 재지 않아 목표를 충족하는지 모른다 | stage2-plan S-04·S-05·S-07 | [서브 SUB-16](04-sub/stage2-leftovers.md)에서 잰다 |
