@@ -58,7 +58,7 @@
 | `docs/development-guide.md` | 코딩 규칙 + **리뷰 기준(§18 체크리스트, §19 금지 패턴)** |
 | `docs/git-policy.md` | Git Flow, 커밋·PR 규칙 |
 | `docs/03-roadmap/` | Part 1~6 단계별 구현 로드맵, 미결 정책 OPEN-xx |
-| `docs/04-sub/` | 서브: 로드맵에서 뺀 구독(SUB-1~SUB-4)·취향 추천(SUB-5)·월간 리뷰 요약(SUB-6)·무중단 재색인(SUB-7)·로그 보강(SUB-8)·k3s 전환(SUB-9\~SUB-13)과 Stage 2에서 남긴 개선(SUB-14\~SUB-16), 응답 보완(SUB-17). Stage 1 뒤에 한다 |
+| `docs/04-sub/` | 서브: 로드맵에서 뺀 구독(SUB-1~SUB-4)·취향 추천(SUB-5)·월간 리뷰 요약(SUB-6)·무중단 재색인(SUB-7)·로그 보강(SUB-8)·k3s 전환(SUB-9\~SUB-13)과 Stage 2에서 남긴 개선(SUB-14\~SUB-16), 응답 보완(SUB-17), 늦게 적재된 정산 품목(SUB-18). Stage 1 뒤에 한다 |
 | `docs/retrospectives/` | Stage 1·2 회고. 이력서 초안 `resume-bullets.md`는 로컬에만 두고 커밋하지 않는다(`.git/info/exclude`) |
 | `docs/references/` | 원 프로젝트에서 가져온 본인 노트·실험·Saga 설계 (수정하지 않음) |
 
