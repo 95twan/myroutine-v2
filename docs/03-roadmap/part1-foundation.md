@@ -2657,15 +2657,7 @@ IMAGE_TAG=$(cat /opt/myroutine/deployed-sha) docker compose --env-file /opt/myro
 
 ### Release 노트에 적을 알려진 한계
 
-| 한계 | 내용 | 해소 |
-|---|---|---|
-| 토큰 즉시 차단 불가 | refresh·로그아웃·강제 차단이 없고 Access 토큰은 만료(1시간)까지 유효하다 | Part 4 |
-| `subscribable` 생략 시 400 | `details`가 비어 있어 원인을 알 수 없다 | 생략 시 `false`로 수정(2026-10-11, PR #26) |
-| 지원하지 않는 `Content-Type`이 500 | `text/plain` 등으로 요청하면 415가 아니라 500 `INTERNAL_ERROR`와 ERROR 로그가 나간다 | 선택(415 매핑) |
-| 저장소 객체 잔류 | URL만 받고 등록하지 않은 객체, 삭제 후 저장소 삭제에 실패한 객체가 남는다. 파일 내용(매직 바이트)도 검증하지 않는다 | Stage 1 범위 밖(회고) |
-| 앱이 MinIO root 계정으로 접속 | 서비스 계정을 분리하지 않았다 | Stage 1 범위 밖(회고) |
-| 로컬·테스트 MinIO 버전 미고정 | `chainguard/minio:latest`(운영은 digest로 고정) | — |
-| 롤백은 이미지만 | 마이그레이션은 앞으로만 간다. 이전 앱이 새 스키마에서 동작해야 롤백이 안전하다 | 1-11 정책: 파괴적 마이그레이션(컬럼 삭제·이름 변경)은 한 번의 배포에 넣지 않는다 |
+알려진 한계는 [알려진 문제](../known-issues.md)에 모았다. Release 노트에는 그 목록에서 고른다.
 
 ---
 

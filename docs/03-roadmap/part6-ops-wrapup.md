@@ -1833,7 +1833,7 @@ S5(구독)는 서브인 [구독](../04-sub/subscription.md)을 할 때 더한다
 
 **5) 릴리스** — develop → main, 태그 `v1.0.0`
 
-develop → main PR을 **merge commit**으로 합치고(squash 아님), main에 태그를 붙인 뒤 GitHub Release를 만든다. Release 노트에는 완료한 단계 목록, 주요 ADR, 알려진 한계를 쓴다. 알려진 한계에는 [상태 조합 8절](../02-design/10-state-combinations.md#8-알려진-한계)의 네 건을 넣는다([git-policy §7](../git-policy.md#7-릴리스와-태그)).
+develop → main PR을 **merge commit**으로 합치고(squash 아님), main에 태그를 붙인 뒤 GitHub Release를 만든다. Release 노트에는 완료한 단계 목록, 주요 ADR, 알려진 한계를 쓴다. 알려진 한계에는 [알려진 문제](../known-issues.md)의 네 건을 넣는다([git-policy §7](../git-policy.md#7-릴리스와-태그)).
 
 ### 완료 확인
 
