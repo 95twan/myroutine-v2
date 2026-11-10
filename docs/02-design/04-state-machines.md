@@ -87,12 +87,13 @@ stateDiagram-v2
 
 ```mermaid
 stateDiagram-v2
-  [*] --> REQUESTED: 취소·반품 요청
-  REQUESTED --> APPROVED: 구매자 취소(자동) / 판매자 반품 승인
+  [*] --> APPROVED: 구매자 취소 (발송 전 품목, 바로 승인)
+  [*] --> REQUESTED: 반품 요청
+  REQUESTED --> APPROVED: 판매자 반품 승인
   REQUESTED --> REJECTED: 판매자 반품 거절
   APPROVED --> PG_CANCELLED: PG 부분취소 성공
   PG_CANCELLED --> COMPLETED: 재고 복구 + 품목 상태
-  APPROVED --> FAILED: PG 취소 명확한 실패 (운영 알림)
+  APPROVED --> FAILED: PG 취소 명확한 실패 (관리자 환불 목록, 6-3)
   APPROVED --> APPROVED: PG 취소 결과 불확실 → 대사
   FAILED --> APPROVED: 관리자 재시도 (운영 API, 로드맵 6-3)
   FAILED --> REJECTED: 관리자 종결 (운영 API, 로드맵 6-3)
@@ -187,3 +188,7 @@ stateDiagram-v2
 | settlement | CALCULATED, PAID, PAYOUT_FAILED | CALCULATED→PAID / PAYOUT_FAILED→PAID(재시도) |
 | outbox_event | READY, PROCESSING, SENT, DEAD | READY→PROCESSING(선점, locked_until)→SENT / 실패 시 READY(10초 뒤 재시도) / 10번 실패하면 DEAD(관리 API로 READY 복귀, 6-3). locked_until 경과한 PROCESSING은 READY로 회수 |
 | notification | PENDING, SENT, FAILED | 실패하면 5분 뒤 재시도, 5번 실패하면 FAILED(관리 API로 PENDING 복귀, 6-3) |
+| payment_cancel | REQUESTED, DONE, FAILED, UNKNOWN | REQUESTED·UNKNOWN → DONE·FAILED·UNKNOWN(PG 취소 결과, 조건부 UPDATE). 같은 멱등 키로 다시 부르면 DONE·FAILED는 저장된 결과를 돌려준다 |
+| idempotency_key | PROCESSING, COMPLETED | 요청을 처리하는 동안 PROCESSING, 2xx 응답이면 COMPLETED(응답 저장). 실패 응답이나 예외면 행을 지워 같은 키로 다시 시도할 수 있다. 만료(24시간)된 키는 다시 쓰일 때 지운다 |
+| inquiry | OPEN, ANSWERED | OPEN→ANSWERED(관리자 답변, 행 잠금). 답변 전에만 작성자가 수정·삭제한다 |
+| review | ACTIVE, DELETED | ACTIVE→DELETED(작성자 삭제, soft delete). 전이표 없이 `delete()`가 바꾼다 |

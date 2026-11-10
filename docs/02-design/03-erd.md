@@ -20,6 +20,7 @@
 - **FK는 같은 schema 안에서만** 건다. 다른 모듈 참조는 ID 값만 저장한다(Stage 3 분리 대비).
 - 다이어그램의 `UK`는 unique 제약. 멱등성·불변식의 마지막 방어선이다.
 - 동시성 제어 방식은 엔티티별로 표기했다: `version`(낙관적 락), 조건부 UPDATE, `FOR UPDATE`.
+- 서브 단계([04-sub](../04-sub/README.md))에서 만들 테이블·컬럼(`subscription`, `subscription_cycle`, `billing_key`, `product_embedding`, `review_summary`, `refund.close_reason`)도 함께 그렸다. 아직 만들지 않았다.
 
 ---
 
@@ -43,6 +44,7 @@ erDiagram
     varchar ban_reason "제재 사유 (4-4)"
     timestamptz banned_at "제재 시각 (4-4)"
     timestamptz withdrawn_at
+    bigint version
   }
   social_account {
     uuid id PK
@@ -60,6 +62,7 @@ erDiagram
     varchar address1
     varchar address2
     boolean is_default
+    bigint version
   }
   inquiry {
     uuid id PK
@@ -67,6 +70,7 @@ erDiagram
     varchar title
     text content
     varchar status "OPEN, ANSWERED"
+    bigint version
   }
   inquiry_answer {
     uuid id PK
@@ -77,8 +81,7 @@ erDiagram
 ```
 Redis(키·TTL의 기준은 [로드맵 Part 4 공통 규칙 T](../03-roadmap/part4-auth.md)): `auth:session:{sessionId}`(memberId, refreshHash — 세션 하나가 곧 refresh family), `auth:member-sessions:{memberId}`, `auth:email-code:{purpose}:{email}`(코드 해시, 시도 횟수, TTL 5분), `auth:email-cooldown:{email}`(60초), `auth:email-hourly:{email}`(1시간), `auth:signup-verified:{tokenHash}`(인증을 통과한 이메일, TTL 30분), `auth:oauth-signup:{tokenHash}`, `auth:token-version:{memberId}`, `auth:login-fail:{email}`(연속 실패 횟수, TTL 15분).
 - 한 회원은 비밀번호(`password_hash`)와 소셜 계정(`social_account`)을 함께 가질 수 있다. 둘 다 없는 회원은 없다.
-- 이메일 미인증 회원은 주문·결제·가게 개설 API를 쓸 수 없다(FR-MEM-09).
-- Redis는 로드맵 Part 4에서 도입한다. 그 전에는 로그인 실패 제한·refresh 세션 없이 Access 토큰만 쓴다.
+- 가입할 때 이메일을 인증하므로 미인증 회원은 없다(FR-MEM-09).
 
 ## shop
 ```mermaid
@@ -181,6 +184,7 @@ erDiagram
     uuid cart_id FK
     uuid product_id "UK(cart_id, product_id)"
     int quantity
+    bigint version
   }
   orders {
     uuid id PK
@@ -232,7 +236,10 @@ erDiagram
     bigint amount "PG 부분취소 금액 (POL-08)"
     varchar status "REQUESTED, APPROVED, PG_CANCELLED, COMPLETED, REJECTED, FAILED"
     text reject_reason "판매자 반품 거절 사유"
-    varchar close_reason "관리자 종결 사유 (SUB-17)"
+    int pg_attempts "PG 취소 시도 회차. 재시도 멱등 키 접미사(refundId-rN)"
+    timestamptz completed_at
+    varchar close_reason "관리자 종결 사유 (SUB-17에서 추가, 아직 없음)"
+    bigint version
   }
   subscription {
     uuid id PK
@@ -267,8 +274,8 @@ erDiagram
 - 장바구니 차감: `cart_item`과 `orders` 사이에 FK·연결 컬럼을 두지 않는다. 결제 완료 때 `(cart_id, product_id)`로 찾아 주문 수량만큼 뺀다(`DELETE ... quantity <= q` 후 `UPDATE ... quantity - q`, 이 순서). 결제 실패·만료는 장바구니에 할 일이 없다.
 - 주문 상세 조회: 인덱스 `order_line(shop_order_id)` (품목을 가게주문 ID `IN (...)`으로 읽는다. FK에는 인덱스가 자동으로 생기지 않는다). 주문 목록은 `orders(member_id, created_at DESC, id DESC)`.
 - 주문 만료 스윕: `WHERE status = 'PENDING_PAYMENT' AND expires_at <= now()` → 인덱스 `(status, expires_at)`.
-- 가게주문 조회: 인덱스 `shop_order(shop_id, status, created_at)` (must #1·2).
-- 자동 구매확정: 인덱스 `shop_order(status, delivered_at)`.
+- 가게주문 조회: 인덱스 `shop_order(shop_id, status, created_at DESC, id DESC)`, 상태 없이 볼 때 `shop_order(shop_id, created_at DESC, id DESC)` (must #1·2, 커서는 `(created_at, id)` 행 값 비교).
+- 자동 구매확정: 인덱스 `shop_order(status, delivered_at, id)`.
 - 매월 일자는 1~28로 제한해 월말 문제를 피한다 [제안].
 
 ## payment
@@ -300,6 +307,7 @@ erDiagram
     varchar status "REQUESTED, DONE, FAILED, UNKNOWN"
     varchar reason
     varchar failure_code
+    bigint version
   }
   billing_key {
     uuid id PK
@@ -346,6 +354,7 @@ erDiagram
     varchar payout_reference "지급 Mock이 돌려준 이체 ID"
     varchar last_error
     timestamptz paid_at
+    bigint version
   }
 ```
 - `order.order-line-confirmed` 이벤트 소비 → `settlement_item` 적재 (`order_line_id` unique로 멱등). `shop_order_id`·`product_name`·`quantity`는 이벤트가 실어 온 주문 품목 값이다.
@@ -366,6 +375,7 @@ erDiagram
     text content
     int like_count
     varchar status "ACTIVE, DELETED"
+    bigint version
   }
   review_like {
     uuid review_id PK
@@ -423,6 +433,8 @@ erDiagram
     int attempts
     text last_error
     timestamptz next_attempt_at
+    timestamptz sent_at
+    bigint version
   }
 ```
 
@@ -460,4 +472,4 @@ erDiagram
   }
 ```
 - 같은 키 동시 요청: `idempotency_key` INSERT 충돌 → PROCESSING이면 409, COMPLETED면 저장된 응답 반환. requestHash가 다르면 422.
-- Outbox 정리: SENT 7일 경과분 삭제 (Stage 2 S2-7 파티셔닝 후보).
+- Outbox 정리 잡은 아직 없어 `SENT` 행이 계속 쌓인다([알려진 문제](../known-issues.md) 3.3).

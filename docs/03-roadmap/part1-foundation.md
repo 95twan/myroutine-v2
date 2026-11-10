@@ -2248,7 +2248,7 @@ develop 머지 → CI(ci.yml, GitHub 호스티드 러너) 성공
    | `WORKDIR /workspace` / `COPY . .` | 소스 전체 복사 |
    | `RUN ./gradlew bootJar --no-daemon` | `build`가 아니라 `bootJar`. 테스트는 CI가 이미 돌렸고, Testcontainers는 이미지 빌드 안에서 돌 수도 없다. `--no-daemon`은 일회용 컨테이너라 Gradle 데몬이 필요 없어서. 결과는 `build/libs/myroutine-0.0.1-SNAPSHOT.jar`(`rootProject.name` + version). 같은 폴더의 `*-plain.jar`는 실행할 수 없는 jar라 복사하지 않는다 |
    | `FROM eclipse-temurin:25-jre` | **새 스테이지**. 앞 스테이지는 `COPY --from`으로 가져온 것만 남고 버려진다 |
-   | `LABEL org.opencontainers.image.source=https://github.com/95twan/myroutine-v2` | GHCR 패키지를 이 리포에 연결한다(확인 필요: GitHub 문서 "Working with the Container registry"). 이미지 이름(`myroutine`)과 리포 이름(`myroutine-v2`)이 달라서 필요하다 |
+   | `LABEL org.opencontainers.image.source=https://github.com/95twan/myroutine-v2` | GHCR 패키지를 이 리포에 연결한다. 이미지 이름(`myroutine`)과 리포 이름(`myroutine-v2`)이 달라서 필요하다 |
    | `RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*` | 헬스체크용 curl. `eclipse-temurin:25-jre`(2026-10-09 기준 Ubuntu 26.04 기반)에는 curl·wget이 없다(직접 확인). 한 `RUN`에 묶어야 임시 파일이 레이어에 남지 않는다 |
    | `RUN useradd --system --uid 10001 app` | 비root 실행 사용자. 이미지에 기본으로 있는 `ubuntu` 사용자는 sudo 그룹이라 쓰지 않는다 |
    | `WORKDIR /app` / `COPY --from=build /workspace/build/libs/myroutine-0.0.1-SNAPSHOT.jar app.jar` | 파일명을 정확히 써서 `-plain.jar`가 섞이지 않게 한다. 버전을 바꾸면 이 줄도 고친다 |

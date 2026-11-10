@@ -6,7 +6,7 @@
 > 0.3 · 2026-10-19 · 반품 환불 `FAILED` 때 품목 상태를 정했다(로드맵 0.98)
 > 0.2 · 2026-10-19 · `Order.rejectReturn`에 품목 `RETURN_REQUESTED` 검사를 넣기로 했다(로드맵 0.96)
 
-이 문서는 **새 결정을 내리지 않는다.** 코드(2-8b까지 구현, 2-9 작업 중)와 설계 문서([04-state-machines](04-state-machines.md), [03-erd](03-erd.md), 로드맵)에 있는 것을 조합 단위로 다시 모았다. 어긋난 곳은 7절에 "확인 필요"로 적었고 여기서 고치지 않는다. 고치지 않기로 한 한계는 [알려진 문제](../known-issues.md)에 있다.
+이 문서는 **새 결정을 내리지 않는다.** 코드(6-3까지 반영)와 설계 문서([04-state-machines](04-state-machines.md), [03-erd](03-erd.md), 로드맵)에 있는 것을 조합 단위로 다시 모았다. 어긋난 곳은 7절에 "확인 필요"로 적었고 여기서 고치지 않는다. 고치지 않기로 한 한계는 [알려진 문제](../known-issues.md)에 있다.
 
 ## 1. 읽는 법
 
@@ -182,8 +182,8 @@ DB는 이 조합을 막지 않는다. `ck_orders_status`, `ck_shop_order_status`
 
 | # | 내용 | 근거 |
 |---|---|---|
-| 8 | 04 문서에 상태머신이 없는 것: `payment_cancel`, `billing_key`, `idempotency_key`, `review`, `inquiry`, `product_embedding` | 03-erd |
-| 10 | 설계 문서 간 어긋남(미구현 영역): 제재 회원의 로그인과 문의 허용 방식(4-x 대 5-3), `SUSPENDED` 재개 조건(04 대 SUB-2), 진행 중 구독 주문과 구독 상태 변경(`PAUSED`/`CANCELLED`/`TERMINATED`)의 대사 처리, 정산 지급 재시도 주기(04 §7 대 3-4) | 각 단계 문서 |
+| 8 | 04 문서에 상태머신이 없는 것: `billing_key`, `product_embedding`(둘 다 서브) | 03-erd |
+| 10 | 설계 문서 간 어긋남(서브 영역): `SUSPENDED` 재개 조건(04 대 SUB-2), 진행 중 구독 주문과 구독 상태 변경(`PAUSED`/`CANCELLED`/`TERMINATED`)의 대사 처리 | 각 단계 문서 |
 
 ## 8. 알려진 한계
 

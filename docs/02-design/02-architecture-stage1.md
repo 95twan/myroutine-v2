@@ -32,7 +32,7 @@ flowchart TB
   PROM --> GRAF[Grafana]
 ```
 
-As-Is 대비 제거: Eureka, Config Server, API Gateway(Stage 3에서 도입), RabbitMQ(Kafka로 통합, ADR-003).
+As-Is 대비 제거: Eureka, Config Server, API Gateway(Stage 3를 하지 않아 두지 않는다), RabbitMQ(Kafka로 통합, ADR-003).
 
 ## 2. 모듈
 
@@ -41,12 +41,12 @@ As-Is 대비 제거: Eureka, Config Server, API Gateway(Stage 3에서 도입), R
 | member | 가입·로그인(OAuth), 이메일 인증, 토큰·세션, 회원 정보, 제재, 문의 | `member` |
 | shop | 가게 개설·수정·폐업, 판매자 소유권 확인 | `shop` |
 | product | 상품, 이미지(MinIO 업로드 URL 발급·등록), 가격 이력, 재고, 재고 예약 | `product` (+ MinIO 버킷) |
-| order | 장바구니, 체크아웃, 주문·가게주문·품목, 취소·반품·환불 오케스트레이션, 구독·회차 | `orders` |
-| payment | PG 승인·취소·조회, 빌링키, 대사 | `payment` |
+| order | 장바구니, 체크아웃, 주문·가게주문·품목, 취소·반품·환불 오케스트레이션, 구독·회차(서브 SUB-2~SUB-4) | `orders` |
+| payment | PG 승인·취소·조회, 대사, 빌링키(서브 SUB-1) | `payment` |
 | settlement | 정산 대상 적재, 월 정산, 판매자 지급 | `settlement` |
-| review | 리뷰, 평점 통계, 좋아요, 월간 LLM 요약 | `review` |
+| review | 리뷰, 평점 통계, 좋아요, 월간 LLM 요약(서브 SUB-6) | `review` |
 | search | ES 상품 색인(프로젝션), 검색·자동완성 | (ES) |
-| recommendation | 상품 임베딩, 취향 추천 | `recommendation` |
+| recommendation | 상품 임베딩, 취향 추천(서브 SUB-5, 모듈은 아직 없다) | `recommendation` |
 | notification | 알림 생성·발송·재시도·실패 보관 | `notification` |
 | common | Outbox/Inbox, 멱등키, 에러 응답, 보안, 공통 값 객체(Money 등) | `common` |
 
@@ -110,7 +110,7 @@ com.myroutine
 ### 5.1 인증·인가 (ADR-006)
 - Access JWT(15분, 클레임: memberId, role, tokenVersion, sessionId), Refresh는 Redis 세션(기기별, 교체·재사용 탐지).
 - 판매자 기능은 **역할이 아니라 소유권으로 인가**한다(`shop.memberId == 요청자`). SELLER 역할은 UI 노출용이라, 역할 반영이 늦어도 기능은 막히지 않는다.
-- 제재·탈퇴·로그아웃 전체 시 `tokenVersion`을 증가시킨다. 필터가 Redis에 캐시한 현재 버전과 비교해 즉시 무효화한다.
+- 제재·탈퇴·전체 로그아웃·비밀번호 변경·비밀번호 재설정 시 `tokenVersion`을 증가시킨다. 필터가 Redis에 캐시한 현재 버전과 비교해 즉시 무효화한다.
 
 ### 5.2 비동기 이벤트 (ADR-003)
 - 상태 변경과 같은 트랜잭션에서 `common.outbox_event`에 저장한다. 릴레이가 선점(lease) 후 Kafka로 발행한다.
@@ -121,7 +121,7 @@ com.myroutine
 - 대상: 가게 개설, 상품 등록, 재고 조정, 체크아웃, 결제 승인, 구독 신청, 취소·반품 요청.
 
 ### 5.4 스케줄 작업
-다중 인스턴스 중복 실행은 **Postgres 세션 레벨 advisory lock**으로 막는다(별도 라이브러리 없음). Stage 2에서 인스턴스를 여러 개 띄울 것을 전제한다.
+다중 인스턴스 중복 실행은 **Postgres 세션 레벨 advisory lock**으로 막는다(별도 라이브러리 없음). 서버를 여러 대 띄워도(서브 SUB-9~SUB-13 k3s) 같은 방식이다.
 - 작업 시작 시 전용 커넥션에서 `pg_try_advisory_lock(hashtext('job:{이름}'))` → false면 건너뛴다 → 작업이 끝나면 같은 커넥션에서 `pg_advisory_unlock`.
 - 트랜잭션 레벨 락(`pg_advisory_xact_lock`)은 첫 커밋에서 풀리므로, 건별로 커밋하는 스케줄 작업에는 쓰지 않는다.
 - 앱이 죽으면 커넥션이 끊기면서 락도 풀린다(락 만료 시간 관리가 필요 없음). 대신 작업 시간 동안 커넥션 1개를 점유한다.
@@ -132,13 +132,16 @@ com.myroutine
 | 재고 예약·주문 만료 | 1분 | order (product API 호출) |
 | 결제 대사 | 1분 (결과미확정 결제 대상) | order (PaymentApi.queryPgOutcome 호출) |
 | 자동 구매확정 | 1시간 | order |
-| 구독 회차 실행 | 매일 06:00 | order |
+| 환불 복구 | 1분 (5분 넘게 `APPROVED`·`PG_CANCELLED`로 머문 환불) | order |
+| 구독 회차 실행 | 매일 06:00 (서브 SUB-3) | order |
 | 정산 | 매월 5일 03:00 | settlement |
-| 리뷰 요약 | 매월 1일 04:00 | review |
+| 리뷰 요약 | 매월 1일 04:00 (서브 SUB-6) | review |
+| 알림 발송 | 10초, 실패한 알림은 5분 뒤 재시도 (3-5) | notification |
+| 재고 정합성 점검 | 매일 05:00 (6-2) | product |
 | Outbox 릴레이 | 1초 폴링, 실패한 행은 10초 뒤 재시도 (3-1) | common |
 | 정체 Saga·Outbox 탐지 | 30초마다 각 모듈의 메트릭 수집기가 계산 → Grafana 알림 (6-2) | common·payment·order |
 
-> 배치는 Spring Batch 대신 **스케줄러 + 청크 단위 트랜잭션 + keyset 페이징**으로 시작한다. 정산이 Stage 2 성능 목표(100만 건 10분)를 못 맞추면 Spring Batch 파티셔닝을 도입한다.
+> 배치는 Spring Batch 대신 **스케줄러 + 청크 단위 트랜잭션 + keyset 페이징**으로 시작한다. 정산이 NFR-PERF-05(100만 건 10분, 측정은 서브 SUB-16)를 못 맞추면 Spring Batch 파티셔닝을 도입한다.
 
 ### 5.5 금액
 모든 금액은 원 단위 `BIGINT`(Java `long`, `Money` 값 객체)로 다룬다. As-Is의 `numeric(38,2)` → `long` 반올림 변환을 없앤다.
@@ -154,14 +157,14 @@ com.myroutine
 ## 6. 인프라 (docker-compose)
 | 구성 | 용도 |
 |---|---|
-| postgres (pgvector/pg17) | 앱 DB. Stage 2에서 replica 추가 |
+| postgres (pgvector/pg17) | 앱 DB (Read Replica는 하지 않는다) |
 | minio (`chainguard/minio`) | 상품 이미지 객체 저장소(S3 호환, 1-10). 공식 `minio/minio` 이미지가 2026-09-11 Docker Hub에서 삭제되어 Chainguard 빌드를 쓴다. 로컬은 `latest`, 운영은 digest로 고정(1-11) |
 | redis | 세션, 인증코드, rate limit, 캐시, tokenVersion |
 | kafka (KRaft, 단일 브로커) | 이벤트 |
 | elasticsearch | 검색(`products`) + 로그(`myroutine-logs-*`) 인덱스 |
 | logstash, kibana | 로그 수집·조회 (ELK) — compose 프로필 `observability` |
 | prometheus, grafana | 메트릭·대시보드·알림 — compose 프로필 `observability` |
-| pg-fake | 부하 테스트용 Toss Fake. 테스트용 가짜 PG 서버(`FakePgServer`)에 main을 붙여 컨테이너로 띄움. 지연·실패 비율을 환경변수로 설정 |
+| pg-fake | 만들지 않았다. Stage 2 체크아웃 측정(S-02)은 PG를 부르지 않는 주문서 생성까지만 쟀다. 결제까지 재려면 테스트용 가짜 PG 서버(`FakePgServer`)에 main을 붙여 컨테이너로 띄운다 |
 
 - 로컬은 `docker/docker-compose.yml`, 운영 연습 VM은 `docker/docker-compose.ops.yml`(1-11, [ADR-011](../adr/ADR-011-ops-practice-environment.md))이다. 운영에서는 앱도 컨테이너로 돌고, VM이 LAN에 여는 포트는 앱(8080), MinIO API(9000), Kibana(5601), Grafana(3000)다. VM 자원이 모자라면 MinIO를 NAS로 옮긴다([ops/nas-minio.md](../ops/nas-minio.md)).
 

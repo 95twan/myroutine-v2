@@ -2111,7 +2111,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | version | bigint | X | |
 | created_at, updated_at | timestamptz | X | |
 
-- 부분 unique `uk_refund_order_line_active ON orders.refund (order_line_id) WHERE status IN ('REQUESTED','APPROVED','PG_CANCELLED')`
+- 부분 unique `uk_refund_order_line_active ON orders.refund (order_line_id) WHERE status IN ('REQUESTED','APPROVED','PG_CANCELLED')`. 6-3에서 `'FAILED'`를 더한다(`V202611051734__order_alter_refund_active_index_include_failed.sql`)
 - 인덱스 `idx_refund_order_id`, `idx_refund_shop_order_id_status`, `idx_refund_status_updated_at`
 
 **2) order.domain**
@@ -2126,7 +2126,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | `Refund` | 별도 애그리거트. `@Entity @Table(name = "refund", schema = "orders")`, `extends BaseTimeEntity`, 필드는 컬럼과 1:1(`Money amount`, `@Version Long version`). 메서드는 아래 표 |
 | `RefundRepository` | 아래 표 |
 
-각 상태의 뜻: `REQUESTED` 반품 요청됨(판매자 승인 대기, 2-9) / `APPROVED` 환불 진행 승인됨(PG 취소 전이거나 결과 불확실) / `PG_CANCELLED` PG 취소 끝, 재고·품목 반영 전 / `COMPLETED` 모두 끝 / `REJECTED` 판매자가 반품 거절 / `FAILED` PG가 취소를 명확히 거절(운영자 처리).
+각 상태의 뜻: `REQUESTED` 반품 요청됨(판매자 승인 대기, 2-9) / `APPROVED` 환불 진행 승인됨(PG 취소 전이거나 결과 불확실) / `PG_CANCELLED` PG 취소 끝, 재고·품목 반영 전 / `COMPLETED` 모두 끝 / `REJECTED` 판매자가 반품 거절 / `FAILED` PG가 취소를 명확히 거절(운영자 처리. 6-3부터 진행 중 환불로 본다).
 
 `Refund` 메서드 — 상태 전이는 `status.transitTo(...)`로 하고, 어긋나면 `INVALID_STATE_TRANSITION`이다
 
@@ -2198,7 +2198,7 @@ public enum CancelOutcome { DONE, FAILED, UNKNOWN }
 | `RefundCompleter` (`@Service`. 의존성 `RefundRepository`, `OrderRepository`, `ProductApi`, `Clock`) | `@Transactional public RefundStatus complete(UUID refundId)` — 환불의 **마지막 단계**(재고 복구 + 품목·가게주문 반영 + `COMPLETED`)를 한 트랜잭션으로 한다. 따로 빈으로 둔 이유는 `RefundProcessor`(트랜잭션 없음)와 복구 잡이 트랜잭션 경계를 `this.` 호출 없이 얻기 위해서다(공통 규칙 K) |
 | `RefundProcessor` (`@Service`, `@Transactional` 없음 — `paymentApi.cancel`이 트랜잭션 밖 전용이라서. 의존성 `RefundRepository`, `PaymentApi`, `RefundCompleter`, `TransactionTemplate tx`) | `public RefundStatus process(UUID refundId)` — **승인된 환불을 끝까지 진행한다**: PG 취소(필요하면) → 완료. 입력 환불 ID → 반환: 진행 뒤 환불 상태. 2-8b 복구 잡, 2-9 반품 승인이 재사용 |
 | `CancelOrderLineService` (`@Transactional` 없음. 의존성 `OrderRepository`, `RefundRepository`, `RefundProcessor`, `TransactionTemplate tx`) | `public RefundResult cancel(UUID memberId, UUID orderId, UUID lineId, String reason)` — 구매자의 품목 취소 요청 한 건의 전체 흐름 |
-| `ShipmentService.ship` (2-7) | 의존성에 `RefundRepository`를 더한다. 앞단 2번(`Order order = findByShopOrderId(shopOrderId)`, 없으면 `SHOP_ORDER_NOT_FOUND`)을 `findByShopOrderIdForUpdate(shopOrderId)`(아래 `OrderRepository` 표)로 바꿔 주문 행을 잠그며 읽는다. 앞단 뒤, `order.ship` 앞에 `existsByShopOrderIdAndStatusIn(shopOrderId, {REQUESTED, APPROVED, PG_CANCELLED})`면 `REFUND_IN_PROGRESS`(2-7에서 비워 둔 검사). 환불이 진행 중인 가게주문을 발송해 버리면 취소한 품목이 발송되기 때문이다. 주문 행을 잠그는 이유: 구매자 취소(`CancelOrderLineService`)는 주문 행을 잠근 채 검증하고 환불을 만들므로, 발송이 같은 잠금을 얻어야 둘이 줄을 선다. 잠그지 않으면 취소가 `verifyCancellable`을 통과해 환불을 만든 사이 발송이 커밋돼, 발송된(`SHIPPED`) 품목의 PG 취소가 성공하고 환불이 `PG_CANCELLED`로 멈춘다 |
+| `ShipmentService.ship` (2-7) | 의존성에 `RefundRepository`를 더한다. 앞단 2번(`Order order = findByShopOrderId(shopOrderId)`, 없으면 `SHOP_ORDER_NOT_FOUND`)을 `findByShopOrderIdForUpdate(shopOrderId)`(아래 `OrderRepository` 표)로 바꿔 주문 행을 잠그며 읽는다. 앞단 뒤, `order.ship` 앞에 `existsByShopOrderIdAndStatusIn(shopOrderId, {REQUESTED, APPROVED, PG_CANCELLED})`면 `REFUND_IN_PROGRESS`(2-7에서 비워 둔 검사. 6-3에서 `FAILED`를 더한다). 환불이 진행 중인 가게주문을 발송해 버리면 취소한 품목이 발송되기 때문이다. 주문 행을 잠그는 이유: 구매자 취소(`CancelOrderLineService`)는 주문 행을 잠근 채 검증하고 환불을 만들므로, 발송이 같은 잠금을 얻어야 둘이 줄을 선다. 잠그지 않으면 취소가 `verifyCancellable`을 통과해 환불을 만든 사이 발송이 커밋돼, 발송된(`SHIPPED`) 품목의 PG 취소가 성공하고 환불이 `PG_CANCELLED`로 멈춘다 |
 | `OrderQueryService.getMyOrder`, `OrderDetailResult` (2-2) | 의존성에 `RefundRepository`를 더하고, `findAllByOrderId(orderId)`를 `RefundDetailResult::from`으로 바꿔 `OrderDetailResult`에 `List<RefundDetailResult> refunds`로 담는다. `RefundDetailResult`는 `record (UUID refundId, UUID orderLineId, RefundReasonType reasonType, RefundStatus status, long amount, Instant createdAt)`이고 `static RefundDetailResult from(Refund refund)`를 가진다(`amount`는 `getAmount().amount()`). 이름은 `ShopOrderDetailResult`·`OrderLineDetailResult`와 같은 `{대상}DetailResult` 규칙이고, 취소 요청의 결과인 `RefundResult`와 구분한다 |
 
 `RefundCompleter.complete(refundId)` 순서 (한 트랜잭션)
