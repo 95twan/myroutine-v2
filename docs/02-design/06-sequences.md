@@ -28,11 +28,11 @@ sequenceDiagram
   end
   O-->>C: 201 {orderId, pgOrderId, totalAmount, expiresAt, status}
 ```
-- 재고 부족이면 트랜잭션 전체(주문 저장 포함)가 롤백된다(모놀리스 로컬 트랜잭션의 이점). Stage 3에서는 이 블록이 Saga로 바뀐다.
+- 재고 부족이면 트랜잭션 전체(주문 저장 포함)가 롤백된다(모놀리스 로컬 트랜잭션의 이점). 서비스를 나누면 이 블록이 Saga가 된다(Stage 3는 하지 않는다).
 - 장바구니는 건드리지 않는다(항목은 주문 품목으로 복사만 한다). 결제가 완료되면 주문 수량만큼 뺀다(§2). 실패·만료되면 장바구니에 할 일이 없다.
 - 같은 장바구니 항목의 중복 체크아웃은 막지 않는다. 결제 대기 주문이 둘 이상 생길 수 있고 둘 다 결제하면 별개의 주문 두 건이다. 의도하지 않았다면 결제 전에는 주문 취소(로드맵 2-4)로 바로 풀고, 결제됐다면 발송 전 품목 취소·환불(§4)로 정리한다(로드맵 2-2).
 - 여러 상품을 예약할 때 **상품 ID 정렬 순서로 UPDATE**해 교차 주문 간 데드락을 막는다.
-- 성능 관점: 인기상품 `stock` 행이 핫스팟이 된다 → Stage 2 S2-5 실험 대상.
+- 성능 관점: 인기상품 `stock` 행이 핫스팟이 된다. S2-5에서 초당 약 290건이 한계였고 조건부 UPDATE를 유지했다([리포트](../perf/s2-5-stock-reservation.md)).
 
 ## 2. 결제 승인 — 정상 / 실패 / 불확실 (S3)
 
@@ -153,19 +153,17 @@ sequenceDiagram
     O->>O: 검증 (본인, 품목 PAID, 가게주문 미발송) — 주문 행 잠금
     O->>O: refund(APPROVED, amount = 품목 금액) 생성
   end
-  opt 항상 (전액 PG 부분취소, POL-08)
-    O->>P: cancel(orderId, amount, idempotencyKey=refundId)
-    P->>PG: POST /v1/payments/{paymentKey}/cancel (cancelAmount, Idempotency-Key=refundId)
-    alt 성공
-      P->>P: payment_cancel DONE, cancelled_amount 증가
-      O->>O: refund → PG_CANCELLED
-    else 불확실
-      P->>P: payment_cancel UNKNOWN → 환불 복구 잡이 같은 Idempotency-Key로 취소를 다시 호출
-      O-->>C: 202 처리 중
-    else 실패
-      O->>O: refund → FAILED + 운영 알림
-      O-->>C: 502
-    end
+  O->>P: cancel(orderId, amount, idempotencyKey=refundId) — 전액 PG 부분취소(POL-08)
+  P->>PG: POST /v1/payments/{paymentKey}/cancel (cancelAmount, Idempotency-Key=refundId)
+  alt 성공
+    P->>P: payment_cancel DONE, cancelled_amount 증가
+    O->>O: refund → PG_CANCELLED
+  else 불확실
+    P->>P: payment_cancel UNKNOWN → 환불 복구 잡이 같은 Idempotency-Key로 취소를 다시 호출
+    O-->>C: 202 처리 중
+  else 실패
+    O->>O: refund → FAILED (관리자 환불 목록에서 재시도·종결, 6-3)
+    O-->>C: 502
   end
   rect rgba(80,200,120,0.15)
     O->>PR: restore(orderId, productId, qty, refId=refundId) — sold → available

@@ -6,7 +6,7 @@
 > 0.3 · 2026-10-19 · 반품 환불 `FAILED` 때 품목 상태를 정했다(로드맵 0.98)
 > 0.2 · 2026-10-19 · `Order.rejectReturn`에 품목 `RETURN_REQUESTED` 검사를 넣기로 했다(로드맵 0.96)
 
-이 문서는 **새 결정을 내리지 않는다.** 코드(2-8b까지 구현, 2-9 작업 중)와 설계 문서([04-state-machines](04-state-machines.md), [03-erd](03-erd.md), 로드맵)에 있는 것을 조합 단위로 다시 모았다. 어긋난 곳은 7절에 "확인 필요"로, 고치지 않기로 한 것은 8절에 적었고 여기서 고치지 않는다.
+이 문서는 **새 결정을 내리지 않는다.** 코드(6-3까지 반영)와 설계 문서([04-state-machines](04-state-machines.md), [03-erd](03-erd.md), 로드맵)에 있는 것을 조합 단위로 다시 모았다. 어긋난 곳은 7절에 "확인 필요"로 적었고 여기서 고치지 않는다. 고치지 않기로 한 한계는 [알려진 문제](../known-issues.md)에 있다.
 
 ## 1. 읽는 법
 
@@ -182,16 +182,9 @@ DB는 이 조합을 막지 않는다. `ck_orders_status`, `ck_shop_order_status`
 
 | # | 내용 | 근거 |
 |---|---|---|
-| 8 | 04 문서에 상태머신이 없는 것: `payment_cancel`, `billing_key`, `idempotency_key`, `review`, `inquiry`, `product_embedding` | 03-erd |
-| 10 | 설계 문서 간 어긋남(미구현 영역): 제재 회원의 로그인과 문의 허용 방식(4-x 대 5-3), `SUSPENDED` 재개 조건(04 대 SUB-2), 진행 중 구독 주문과 구독 상태 변경(`PAUSED`/`CANCELLED`/`TERMINATED`)의 대사 처리, 정산 지급 재시도 주기(04 §7 대 3-4) | 각 단계 문서 |
+| 8 | 04 문서에 상태머신이 없는 것: `billing_key`, `product_embedding`(둘 다 서브) | 03-erd |
+| 10 | 설계 문서 간 어긋남(서브 영역): `SUSPENDED` 재개 조건(04 대 SUB-2), 진행 중 구독 주문과 구독 상태 변경(`PAUSED`/`CANCELLED`/`TERMINATED`)의 대사 처리 | 각 단계 문서 |
 
 ## 8. 알려진 한계
 
-코드를 고치지 않고 `v1.0.0`에 안고 간다. 6-5 릴리스 노트에 같은 내용을 적는다.
-
-| # | 내용 | 드러나는 곳 | 근거 |
-|---|---|---|---|
-| 4 | 대사는 payment 행이 없거나 `PARTIAL_CANCELLED`이면 에러 로그만 남기고 계속 다시 시도한다. 주문이 `PAYMENT_IN_PROGRESS`로 남고 운영자가 처리한다 | 알림 `정체 Saga`(`saga_stuck_count`), 에러 로그 | `OrderReconcileService.reconcileOne` |
-| 5 | `PaymentApiImpl.cancel`의 상태·잔액 검사가 `payment` 행 락 밖(첫 트랜잭션)이다. 서로 다른 키로 동시에 온 두 취소가 모두 통과할 수 있고, 두 번째는 `applyCancel`에서 예외로 롤백돼 그 `payment_cancel` 행이 `REQUESTED`/`UNKNOWN`으로 남는다. 코드를 읽은 추론이고 재현 테스트는 없다 | 전용 지표 없음 | `PaymentApiImpl.cancel` |
-| 6 | PG 조회 결과 `CANCELED`·`PARTIAL_CANCELED`를 `APPROVED`로 매핑한다. 우리 쪽이 `UNKNOWN`인 결제가 토스 관리자 화면 등 외부에서 이미 취소된 경우 로컬이 `APPROVED`가 되고 주문이 `PAID`가 된다. 코드를 읽은 추론이고 재현 테스트는 없다 | 없음. 토스 관리자 화면과 대조해야 안다 | `TossClient.queryByOrderId` |
-| 9 | `UNKNOWN` 재조회에 상한이 없다. `payment.reconcile_attempts`는 늘기만 하고 자동 종결로 이어지지 않아 PG가 답하지 않으면 계속 다시 조회한다 | 알림 `결제 확인 지연`(`payment_unknown_oldest_age_seconds`), 관리자 결제 조회의 `reconcileAttempts` | `JpaPaymentRepository`, `AdminPaymentResponse` |
+이 문서에서 찾은 한계는 [알려진 문제](../known-issues.md)로 모았다.

@@ -16,10 +16,10 @@
 | 발행 | 상태 변경과 **같은 트랜잭션**에서 `common.outbox_event`에 저장 → 릴레이가 Kafka로 발행 (커밋된 변경만 발행, 유실 없음) |
 | 토픽 | `{module}.{event}.v{n}` (예: `order.order-paid.v1`). 스키마가 호환되지 않게 바뀌면 v를 올리고 일정 기간 이중 발행 |
 | 키 | 집계 ID(aggregate_id). 같은 집계의 이벤트는 같은 파티션 → 순서 보장 |
-| 파티션 | Stage 1: 토픽당 3. Stage 2에서 consumer 처리량 측정 후 조정 |
+| 파티션 | 토픽당 3 |
 | 봉투 | `eventId(UUIDv7, outbox 행 ID), eventType, occurredAt, aggregateId, traceId, payload`. 순서가 중요한 consumer용 버전은 payload에 둔다(예: `ProductUpsertedEvent.version`) |
-| 전달 보장 | at-least-once. 모든 consumer는 `processed_message(consumer, eventId)`로 멱등 처리 (INV-10) |
-| 재시도 | consumer별 지수 백오프(1초 → 2초 → 4초) 3회 → `{topic}.dlt`. DLT는 관리 API로 조회·재처리, 적재 시 알림 |
+| 전달 보장 | at-least-once. consumer는 `processed_message(consumer, eventId)`로 멱등 처리한다 (INV-10). 검색 색인(`product-upserted`)만 inbox 대신 ES 외부 버전(`version`)으로 오래되거나 중복된 이벤트를 무시한다 |
+| 재시도 | consumer별 지수 백오프(1초 → 2초 → 4초) 3회 → `{topic}.dlt`. DLT는 관리 API로 조회·재처리, 적재 시 알림. 토픽 보존은 브로커 기본값(7일)이라 DLT도 7일 뒤 사라진다([알려진 문제](../known-issues.md) 2절) |
 | 순서 의존 | 순서가 중요한 consumer는 payload의 `version`(집계 버전)을 보고 오래된 이벤트를 무시 |
 | 추적 | 봉투의 `traceId`를 consumer가 MDC에 복원 → Kibana에서 traceId로 전체 흐름 검색 (NFR-OBS-01, ADR-010) |
 
@@ -38,9 +38,11 @@
 - 위 SQL의 `now()`는 앱 `Clock`에서 얻어 파라미터로 넘기는 값이다(INSERT의 시각도 같은 `Clock`). 릴레이는 advisory lock으로 한 번에 한 서버만 돈다.
 - As-Is PAY-03(락이 발행 전에 풀림)과 달리, 상태값(PROCESSING + 리스)으로 선점하므로 다른 인스턴스가 같은 행을 가져가지 않는다.
 - 리스 만료 후 회수되면 중복 발행이 생길 수 있다 → consumer 멱등이 전제다.
-- 같은 키의 순서: 다중 릴레이 인스턴스에서는 순서가 바뀔 수 있다. Stage 1은 릴레이 1개(advisory lock을 잡은 인스턴스만 실행)로 시작하고, Stage 2에서 처리량이 부족하면 키 해시 기반으로 나눈다.
+- 같은 키의 순서: 다중 릴레이 인스턴스에서는 순서가 바뀔 수 있다. 릴레이는 1개(advisory lock을 잡은 인스턴스만 실행)다. 발행 지연 개선은 서브 SUB-14에서 한다.
 
 ## 2. 이벤트 목록
+
+consumer 중 구독(order, SUB-2~SUB-4)·빌링키(payment, SUB-1)·추천(recommendation, SUB-5)과 `order.subscription-*` 토픽 3개는 서브 단계에서 만든다. 아직 없다.
 
 ### member
 | 토픽 | 발생 시점 | payload 주요 필드 | consumer |
@@ -93,12 +95,12 @@
 |---|---|
 | member | shop-opened, shop-closed |
 | product | shop-closed |
-| order | member-withdrawn, product-price-changed, product-discontinued, shop-closed |
-| payment | member-withdrawn |
+| order | member-withdrawn (product-price-changed, product-discontinued, shop-closed는 서브 SUB-4) |
+| payment | 없음 (member-withdrawn은 서브 SUB-1) |
 | settlement | order-line-confirmed |
 | review | 없음 (작성 자격은 `OrderApi`로 동기 확인) |
 | search | product-upserted (단종도 upserted의 status로 처리) |
-| recommendation | product-upserted, order-paid, member-withdrawn |
+| recommendation | 서브 SUB-5: product-upserted, order-paid, member-withdrawn |
 | notification | 알림 대상 이벤트 전부 |
 
 ## 4. 동기 호출이 아니라 이벤트로 한 이유

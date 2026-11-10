@@ -5,7 +5,7 @@
 ## 문서 구성
 | 문서 | 내용 |
 |---|---|
-| [01-architecture-evolution.md](01-architecture-evolution.md) | Stage 1 모놀리스 → Stage 2 성능 개선 → Stage 3 MSA 전환 로드맵 |
+| [01-architecture-evolution.md](01-architecture-evolution.md) | Stage 1 모놀리스 → Stage 2 성능 개선. Stage 3(MSA 전환)는 하지 않는다 |
 | [02-architecture-stage1.md](02-architecture-stage1.md) | 시스템 구성, 모듈, 의존 규칙, 패키지 구조, 횡단 설계, 인프라, 테스트 전략 |
 | [03-erd.md](03-erd.md) | 모듈별 ERD, 제약조건, 인덱스, 동시성 제어 방식 |
 | [04-state-machines.md](04-state-machines.md) | 주문·가게주문·품목·환불·결제·예약·정산 지급·구독·회차 상태머신 |
@@ -27,7 +27,7 @@
 | [005](../adr/ADR-005-wallet-ledger.md) | ~~예치금 원장~~ **폐기**(2026-10-02, 예치금 제거) | - |
 | [006](../adr/ADR-006-auth.md) | 역할 클레임 JWT + tokenVersion + 소유권 기반 인가, refresh 회전 | MEM-01·06·08, ORD-08 |
 | [007](../adr/ADR-007-data-layout.md) | 단일 Postgres·schema 분리, Flyway, UUIDv7, BIGINT 금액, DB 제약으로 불변식 | ORD-11, INF-03 |
-| [008](../adr/ADR-008-inventory-reservation.md) | 재고 4분할 조건부 UPDATE + 예약 + 이력, 대안은 Stage 2 측정 | CAT-01·06 |
+| [008](../adr/ADR-008-inventory-reservation.md) | 재고 4분할 조건부 UPDATE + 예약 + 이력. S2-5에서 비관적 락·Redis 게이트와 비교해 유지 | CAT-01·06 |
 | [009](../adr/ADR-009-settlement.md) | settlement 모듈, 이벤트 적재, keyset + 품목 할당 배치 | BAT-01·02·03 |
 | [010](../adr/ADR-010-observability.md) | ELK(로그·traceId) + Prometheus/Grafana(메트릭), 정합성 비즈니스 메트릭 | INF-02 |
 | [011](../adr/ADR-011-ops-practice-environment.md) | 운영 연습: Proxmox VM 1대 + Docker Compose, self-hosted runner로 develop 머지 시 자동 배포·롤백 | - |

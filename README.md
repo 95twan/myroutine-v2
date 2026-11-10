@@ -149,7 +149,7 @@ flowchart LR
 | 앱이 여러 개일 때 잡과 릴레이가 중복 실행된다 | 스케줄 잡은 Postgres 세션 advisory lock, Outbox 릴레이는 `FOR UPDATE SKIP LOCKED`와 리스를 쓴다 | [Stage 1 구조](docs/02-design/02-architecture-stage1.md) |
 | 유출된 refresh 토큰이 재사용된다 | 갱신마다 토큰을 회전하고, 이미 쓴 토큰이 다시 오면 세션을 폐기한다 | [ADR-006](docs/adr/ADR-006-auth.md) |
 
-고치지 않고 안고 간 한계는 [상태 조합 문서 8절](docs/02-design/10-state-combinations.md)에 있다.
+고치지 않고 안고 간 한계와 남은 문제는 [알려진 문제](docs/known-issues.md)에 위험도별로 있다.
 
 ## 측정 기반 성능 개선
 

@@ -48,18 +48,26 @@
 | 400 | `IDEMPOTENCY_KEY_REQUIRED` | `@Idempotent` API에 키 없음 |
 | 409 | `RETURN_NOT_ALLOWED` | 거절된 품목의 반품 재요청 |
 | 422 | `OWN_SHOP_PRODUCT`, `PRODUCT_IMAGE_LIMIT_EXCEEDED`, `IMAGE_NOT_UPLOADED` | 자기 가게 상품 주문, 상품 이미지 개수 초과·업로드되지 않은 이미지 등록 |
-| 404 | `CART_ITEM_NOT_FOUND`, `CART_PRODUCT_NOT_FOUND`, `ORDER_LINE_NOT_FOUND`, `SHOP_ORDER_NOT_FOUND`, `REFUND_NOT_FOUND`, `PRODUCT_IMAGE_NOT_FOUND` | |
+| 404 | `CART_ITEM_NOT_FOUND`, `CART_PRODUCT_NOT_FOUND`, `ORDER_LINE_NOT_FOUND`, `SHOP_ORDER_NOT_FOUND`, `REFUND_NOT_FOUND`, `PRODUCT_IMAGE_NOT_FOUND`, `REVIEW_NOT_FOUND`, `INQUIRY_NOT_FOUND`, `SETTLEMENT_NOT_FOUND` | |
+| 400 | `EMAIL_CODE_INVALID`, `VERIFICATION_TOKEN_INVALID`, `PASSWORD_MISMATCH` | 인증 코드가 틀리거나 만료, 가입 인증 토큰이 없거나 이메일과 다름, 현재 비밀번호 불일치 |
+| 401 | `SIGNUP_TOKEN_INVALID` | 소셜 가입 토큰이 없거나 만료 |
+| 409 | `SOCIAL_ACCOUNT_ALREADY_LINKED`, `REVIEW_ALREADY_EXISTS`, `REVIEW_EDIT_EXPIRED` | 이미 연결된 소셜 계정, 품목당 리뷰 1개, 수정 기간(30일) 경과 |
+| 422 | `REVIEW_NOT_ALLOWED` | 구매확정하지 않은 품목의 리뷰 |
+| 502 | `OAUTH_PROVIDER_ERROR` | 소셜 제공자 호출 실패 |
+| 503 | `SEARCH_UNAVAILABLE` | 검색 엔진(ES) 장애 |
 | 409 | `IDEMPOTENCY_IN_PROGRESS`, `CONFLICT_RETRY`, `INVALID_STATE_TRANSITION` | 경합, 상태 |
 | 409 | `ORDER_EXPIRED`, `ORDER_ALREADY_PAID` | 결제 승인 시 주문 상태 불일치 |
 | 409 | `REFUND_IN_PROGRESS` | 진행 중 환불(`FAILED` 포함)이 있는 가게주문 발송 시도 |
 | 422 | `OUT_OF_STOCK`, `PRODUCT_NOT_ON_SALE`, `SHOP_NOT_ACTIVE`, `AMOUNT_MISMATCH`, `IDEMPOTENCY_KEY_REUSED` | 비즈니스 규칙 |
-| 422 | `SHOP_HAS_ACTIVE_ORDERS`, `MEMBER_HAS_ACTIVE_RESOURCES`, `PRODUCT_NOT_SUBSCRIBABLE`, `OWN_SHOP_PRODUCT` | 폐업·탈퇴·구독 조건 |
+| 422 | `SHOP_HAS_ACTIVE_ORDERS`, `MEMBER_HAS_ACTIVE_RESOURCES`, `PRODUCT_NOT_SUBSCRIBABLE`(서브 SUB-2), `OWN_SHOP_PRODUCT` | 폐업·탈퇴·구독 조건 |
 | 402 | `PAYMENT_FAILED` | PG 명확한 거절 |
 | 429 | `RATE_LIMITED` | 인증코드 발송 등. `details.retryAfterSeconds`(다시 보낼 수 있을 때까지 남은 초) |
 | 502 | `PG_ERROR` | PG 취소 명확한 실패 |
 | 500 | `INTERNAL_ERROR` | 예상하지 못한 서버 오류 (내부 정보 비노출) |
 
 ## 2. 엔드포인트
+
+서브 단계([04-sub](../04-sub/README.md))에서 만들 API는 설명에 "(서브 SUB-n)"을 적었다. 아직 없다.
 
 ### member / auth
 | Method | Path | 권한 | 설명 | 요구사항 |
@@ -133,6 +141,9 @@
 | POST | `/api/shops/{shopId}/refunds/{refundId}/approve`, `/reject` | O | 반품 승인·거절. `refundId`는 가게주문 응답의 `refunds`에서 읽는다 | FR-ORD-09 |
 
 ### order — 구독
+
+구독 API는 모두 서브 SUB-2·SUB-3에서 만든다.
+
 | Method | Path | 권한 | 설명 | 요구사항 |
 |---|---|---|---|---|
 | POST | `/api/subscriptions` | U, IK | 신청 | FR-SUB-01 |
@@ -145,9 +156,9 @@
 ### payment
 | Method | Path | 권한 | 설명 | 요구사항 |
 |---|---|---|---|---|
-| POST | `/api/billing-keys` | U | 빌링키 발급 (authKey 교환) | FR-PAY-07 |
-| GET/DELETE | `/api/billing-keys[/{id}]` | O | 조회·삭제 | FR-PAY-07 |
-| GET | `/api/payments` | U | 결제·취소 내역 | FR-PAY-08 |
+| POST | `/api/billing-keys` | U | 빌링키 발급 (authKey 교환, 서브 SUB-1) | FR-PAY-07 |
+| GET/DELETE | `/api/billing-keys[/{id}]` | O | 조회·삭제 (서브 SUB-1) | FR-PAY-07 |
+| GET | `/api/payments` | U | 결제·취소 내역. 만드는 단계가 없다([알려진 문제](../known-issues.md) 3.6) | FR-PAY-08 |
 
 ### settlement
 | Method | Path | 권한 | 설명 | 요구사항 |
@@ -167,7 +178,7 @@
 | POST/DELETE | `/api/reviews/{id}/likes` | U | 좋아요. 지운 리뷰는 404 | FR-REV-02 |
 | GET | `/api/search/products` | - | `?q=&category=&cursor=&size=`. `q` 1~50자 필수, `size` 기본 20·최대 50. 항목은 상품 목록과 같은 요약(`thumbnailUrl`·`inStock` 포함, ADR-013). ES 장애는 503 `SEARCH_UNAVAILABLE` | FR-SRC-01 |
 | GET | `/api/search/autocomplete` | - | `?q=` 2~20자. 판매 중인 상품의 서로 다른 이름을 최대 10개, 관련도순(같으면 이름순). 공백은 무시한다. ES 장애는 503 `SEARCH_UNAVAILABLE` | FR-SRC-01 |
-| GET | `/api/recommendations/me` | U | 취향 추천 | FR-REC-01 |
+| GET | `/api/recommendations/me` | U | 취향 추천 (서브 SUB-5) | FR-REC-01 |
 
 ### 운영 (관리자)
 | Method | Path | 설명 | 요구사항 |
@@ -178,7 +189,7 @@
 | GET | `/admin/api/dlt/{topic}?limit=50` · POST `/admin/api/dlt/{topic}/{partition}/{offset}/replay` | DLT 조회 `[{partition, offset, key, value, timestamp, exception}]`, 최신순, `limit`은 파티션마다 1~100. 재처리 204(offset은 파티션마다 따로라 파티션이 필요하다). 없는 토픽·offset은 404 `NOT_FOUND` | NFR-REL-03 |
 | GET | `/admin/api/payments?status=UNKNOWN` | 결과미확정 결제. 항목 `{id, orderId, pgOrderId, amount, reconcileAttempts, createdAt, updatedAt}` | FR-PAY-03 |
 | POST | `/admin/api/payments/{orderId}/reconcile` | 즉시 대사 (경로 값은 orderId, 응답 `{orderId, status}`). 없는 주문 404 `ORDER_NOT_FOUND`, 처리된 주문·결제 없는 주문은 현재 상태를 200으로 | FR-PAY-03 |
-| GET | `/admin/api/refunds?status=FAILED` · POST `/{id}/retry` | 실패 환불 재처리. 항목 `{id, orderId, pgOrderId, orderLineId, buyerEmail, productName, amount, reasonType, reason, failureCode, pgAttempts, createdAt, updatedAt}`(`pgOrderId`·`buyerEmail`은 서브 SUB-17). 재시도는 200(`COMPLETED`)·202(`APPROVED`)·502 `PG_ERROR`, 없으면 404 `REFUND_NOT_FOUND`, `FAILED`가 아니면 409 `INVALID_STATE_TRANSITION` | |
+| GET | `/admin/api/refunds?status=FAILED` · POST `/{id}/retry` | 실패 환불 재처리(항목의 `pgOrderId`·`buyerEmail`은 서브 SUB-17). 항목 `{id, orderId, pgOrderId, orderLineId, buyerEmail, productName, amount, reasonType, reason, failureCode, pgAttempts, createdAt, updatedAt}`(`pgOrderId`·`buyerEmail`은 서브 SUB-17). 재시도는 200(`COMPLETED`)·202(`APPROVED`)·502 `PG_ERROR`, 없으면 404 `REFUND_NOT_FOUND`, `FAILED`가 아니면 409 `INVALID_STATE_TRANSITION` | |
 | POST | `/admin/api/refunds/{id}/close` | 재시도해도 PG가 거절하는 환불 종결. 본문 `{reason}`(필수, 200자 이하). 사유는 `close_reason`에 남고 구매자·판매자 응답에 나가지 않는다(서브 SUB-17). 200 `RefundResponse`(`REJECTED`), 반품이면 품목이 `DELIVERED`로 돌아간다. 없으면 404 `REFUND_NOT_FOUND`, `FAILED`가 아니면 409 `INVALID_STATE_TRANSITION` | |
 | POST | `/admin/api/search/reindex` | 무중단 재색인 (alias swap). 서브 SUB-7에서 만든다 | FR-SRC-02 |
 | POST | `/admin/api/settlements/run?period=2026-09` | 정산 수동 실행 (멱등). 끝난 달만 받고 아니면 400 `INVALID_REQUEST`. `PAYOUT_FAILED` 정산도 다시 지급한다 | FR-STL-04 |
@@ -254,6 +265,9 @@ Idempotency-Key: 7c9e...
 에러: 409 `REFUND_IN_PROGRESS`(진행 중 환불 존재), 409 `INVALID_STATE_TRANSITION`.
 
 ### 3.5 POST /api/subscriptions
+
+서브 SUB-2에서 만든다.
+
 ```json
 {
   "productId": "...", "quantity": 1,
