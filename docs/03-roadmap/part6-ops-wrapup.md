@@ -1,6 +1,7 @@
 # Part 6. 관측 · 운영 · 마무리
 
-> 버전 0.41 · 2026-11-06 · 6-5는 `v0.6.0`을 따로 찍지 않고 `v1.0.0`으로 릴리스한다. Stage 1.5 준비를 빼고(k3s는 서브 SUB-9~SUB-13) 알려진 한계 네 건을 Release 노트에 적는다
+> 버전 0.42 · 2026-11-12 · 6-3 `reconcileOne`은 주문마다 advisory lock을 잡아 같은 주문의 대사가 동시에 돌지 않게 하고, 락을 못 잡으면 기다리지 않고 지금 상태를 돌려준다([SUB-19](../04-sub/reconcile-concurrency.md))
+> 0.41 · 2026-11-06 · 6-5는 `v0.6.0`을 따로 찍지 않고 `v1.0.0`으로 릴리스한다. Stage 1.5 준비를 빼고(k3s는 서브 SUB-9~SUB-13) 알려진 한계 네 건을 Release 노트에 적는다
 > 0.40 · 2026-11-05 · 6-3 즉시 대사는 주문이 30초 안에 바뀌었으면 PG를 조회하지 않고 현재 상태를 돌려준다(진행 중인 승인 요청을 실패로 확정하지 않게). 구매자 취소 환불을 종결해도 반품 요청은 막히지 않는다
 > 0.39 · 2026-11-05 · 6-3 환불 종결 API `POST /admin/api/refunds/{id}/close`(`FAILED → REJECTED`)를 더하고, `FAILED` 환불을 활성 환불로 본다(발송 가드·`uk_refund_order_line_active`·구매자 재취소는 인덱스 위반 409)
 > 0.38 · 2026-11-05 · 6-2에서 `mail_send_seconds` Timer를 뺐다(읽는 대시보드·알림이 없다). 운영 compose의 Grafana 비밀번호 키 `GRAFANA_ADMIN_PASSWORD`를 `.env.ops.example`에 더했다
@@ -1265,6 +1266,7 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 | `OrderReconcileService` (기존 수정) | `public OrderStatus reconcileOne(UUID orderId)` — 기존 `private boolean reconcileOne(UUID)`를 열고 반환을 바꾼다. `payments reconcile`(4)) API와 `reconcileBatch`가 쓴다 |
 | `AdminRefundService` (새로 만든다) | `@Transactional(readOnly = true) CursorPage<AdminRefundResult> getRefunds(RefundStatus status, String cursor, int size)`(목록), `RefundResult retry(UUID refundId)`, `RefundResult close(UUID refundId, String reason)`. `AdminRefundResult`의 필드는 아래 목록에 있다. 내용은 아래 **refunds** |
 
+- **같은 주문의 대사는 동시에 돌지 않는다**: `reconcileOne`은 본문(`private OrderStatus reconcileLocked(UUID orderId)`)을 `jobLock.callExclusively("reconcile-order:" + orderId, () -> reconcileLocked(orderId))`로 감싼다. 락을 못 잡으면(다른 대사가 이 주문을 처리 중) 기다리지 않고 `orderRepository.findById(orderId)`로 읽은 지금 상태를 돌려준다(없으면 `ORDER_NOT_FOUND`). 대사 잡과 관리자 대사가 모두 `reconcileOne`을 거치고, 락이 보상 취소까지 덮으므로 한쪽이 보상하는 동안 다른 쪽이 주문을 `PAID`로 끝내지 못한다. 아래 내용은 `reconcileLocked`의 것이다.
 - **주문은 맨 앞에서 한 번만 읽는다**: `OrderStatus current = orderRepository.findById(orderId).orElseThrow(() -> new BusinessException(OrderErrorCode.ORDER_NOT_FOUND)).getStatus()`. `current`는 "이 호출이 아무것도 바꾸지 않았을 때 돌려줄 값"이다.
 - **`current`가 `PAYMENT_IN_PROGRESS`가 아니거나 주문의 `updated_at`이 30초 안이면 결제를 보지 않고 바로 `current`를 돌려준다.** 대사는 `PAYMENT_IN_PROGRESS`로 30초 넘게 머문 주문만 대상이다(2-6 정책, 잡의 `findStuckIds`와 같은 기준). 30초 안의 주문은 승인 요청이 아직 진행 중일 수 있어서, 이때 PG를 조회하면 PG가 아직 요청을 받지 못해 "없음"으로 답하고 결제와 주문을 실패로 확정한 뒤 PG가 승인하는 일이 생긴다. 이 가드가 없으면 관리자가 이미 끝난 주문을 누를 때 결제 상태 분기가 잘못 탄다: 전액 환불로 payment가 `CANCELLED`가 된 `PAID` 주문, 보상 취소로 끝난 `PAYMENT_FAILED` 주문은 `CANCELLED` 분기의 `failOrder`가 `markPaymentFailed`에서 `INVALID_STATE_TRANSITION`(409)을 던지고, 일부 환불로 `PARTIAL_CANCELLED`인 `PAID` 주문은 정상인데 `log.error`가 남는다. 대사 잡의 대상(`PAYMENT_IN_PROGRESS`)은 `current`가 항상 이 값이라 영향이 없다.
 - 위 가드를 지난 주문(`PAYMENT_IN_PROGRESS`)에서 `paymentApi.find`가 비어 있으면 `log.error`를 남기고 `current`를 돌려준다. 그 상태에 결제가 없는 것이 비정상이다.
@@ -1272,6 +1274,7 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 
 | 경로 | 반환 |
 |---|---|
+| 다른 대사가 이 주문을 처리 중(락을 못 잡음) | 주문의 지금 상태 |
 | `current`가 `PAYMENT_IN_PROGRESS`가 아니거나 주문이 30초 안에 바뀜 | `current` |
 | `closeOrder`에서 `applyPaymentState`가 성공 | `applyPaymentState`가 돌려준 `OrderStatus`를 그대로. 다른 흐름이 이미 처리했으면 그 가드가 현재 상태를 돌려준다 |
 | 보상 취소가 `DONE`이라 `failOrder` 실행 | `PAYMENT_FAILED` |
