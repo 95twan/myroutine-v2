@@ -22,7 +22,7 @@ stateDiagram-v2
   [*] --> PENDING_PAYMENT: 체크아웃 (재고 예약)
   PENDING_PAYMENT --> PAYMENT_IN_PROGRESS: 결제 승인 요청 시작 (CAS)
   PENDING_PAYMENT --> EXPIRED: 만료 스윕 (expires_at 경과)
-  PENDING_PAYMENT --> CANCELLED: 구매자 주문 취소·결제창 이탈 (POST /orders/{id}/cancel, 2-4)
+  PENDING_PAYMENT --> CANCELLED: 구매자 주문 취소·결제창 닫기 (POST /orders/{id}/cancel, 2-4)
   PAYMENT_IN_PROGRESS --> PAID: PG 승인 확정
   PAYMENT_IN_PROGRESS --> PAYMENT_FAILED: PG 명확한 실패
   PAYMENT_IN_PROGRESS --> PAYMENT_IN_PROGRESS: PG 결과 불확실 → 대사 대기
