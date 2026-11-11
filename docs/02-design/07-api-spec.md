@@ -124,7 +124,7 @@
 | POST/PATCH/DELETE | `/api/cart/items[/{id}]` | U | 담기·수량·삭제 | FR-PRD-06 |
 | POST | `/api/orders/checkout` | U, IK | 주문서 생성 (재고 예약) | FR-ORD-01~03 |
 | POST | `/api/orders/{id}/payment/confirm` | O, IK | PG 승인 | FR-ORD-03~06, FR-PAY-01·02 |
-| POST | `/api/orders/{id}/cancel` | O | 결제 전 주문 취소(`PENDING_PAYMENT`만) → 재고 예약 즉시 해제. 결제창 이탈 통지도 이 API | FR-ORD-04 |
+| POST | `/api/orders/{id}/cancel` | O | 결제 전 주문 취소(`PENDING_PAYMENT`만) → 재고 예약 즉시 해제. 결제창 닫기 통지도 이 API | FR-ORD-04 |
 | GET | `/api/orders` | U | 내 주문 목록 | FR-ORD-07 |
 | GET | `/api/orders/{id}` | O | 상세 (가게주문·품목·환불). 환불의 `rejectReason`은 판매자가 반품을 거절했을 때만 값이 있다. `REJECTED`인데 `null`이면 관리자가 종결한 환불이다(서브 SUB-17) | FR-ORD-07 |
 | POST | `/api/orders/{id}/lines/{lineId}/cancel` | O, IK | 발송 전 취소 | FR-ORD-08 |
