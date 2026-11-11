@@ -4,12 +4,14 @@ import com.myroutine.common.error.BusinessException;
 import com.myroutine.common.error.CommonErrorCode;
 import com.myroutine.order.domain.OrderStatus;
 import com.myroutine.payment.api.*;
+import com.myroutine.product.api.ProductApi;
 import com.myroutine.support.*;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Timestamp;
@@ -18,9 +20,13 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.Callable;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.willAnswer;
 
 class OrderReconcileServiceTest extends IntegrationTestSupport {
 
@@ -29,7 +35,12 @@ class OrderReconcileServiceTest extends IntegrationTestSupport {
     private final OrderReconcileService orderReconcileService;
     private final TransactionTemplate tx;
     private final PaymentApi paymentApi;
-    private final OrderPaymentApplier applier;
+
+    @MockitoSpyBean
+    private ProductApi productApi;
+
+    @MockitoSpyBean
+    private OrderPaymentApplier applier;
 
     @Autowired
     public OrderReconcileServiceTest(
@@ -37,15 +48,13 @@ class OrderReconcileServiceTest extends IntegrationTestSupport {
             JdbcTemplate jdbcTemplate,
             OrderReconcileService orderReconcileService,
             TransactionTemplate tx,
-            PaymentApi paymentApi,
-            OrderPaymentApplier applier
+            PaymentApi paymentApi
     ) {
         this.testFixtures = testFixtures;
         this.jdbcTemplate = jdbcTemplate;
         this.orderReconcileService = orderReconcileService;
         this.tx = tx;
         this.paymentApi = paymentApi;
-        this.applier = applier;
     }
 
     @Test
@@ -488,5 +497,125 @@ class OrderReconcileServiceTest extends IntegrationTestSupport {
 
         Integer cartItemCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM orders.cart_item WHERE product_id = ?", Integer.class, productId);
         assertThat(cartItemCount).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("같은 주문을 동시에 대사해도 결제를 취소하지 않는다.")
+    void reconcileConcurrentlyDoesNotCancelPayment() throws InterruptedException {
+        // Given
+        UUID memberId = testFixtures.signup("test@test.com");
+        UUID shopId = testFixtures.openShop(memberId, "1111111111");
+        UUID productId = testFixtures.registerProduct(memberId, shopId, 1000, 100);
+
+        UUID buyerId = testFixtures.signup("buyer@test.com");
+        CheckoutResult order = testFixtures.createPendingOrder(buyerId, productId);
+
+        pg.on("/v1/payments/confirm", Behavior.delay(1000));
+        UUID orderId = testFixtures.confirmPayment(buyerId, order.orderId()).orderId();
+
+        jdbcTemplate.update("UPDATE payment.payment SET status = 'APPROVED', method = '카드', approved_at = ? WHERE order_id = ?", Timestamp.from(Instant.now().minus(Duration.ofMinutes(10))), orderId);
+
+        Instant updatedAt = Instant.now().minusSeconds(60);
+        testFixtures.setOrderUpdatedAt(orderId, updatedAt);
+
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        willAnswer(inv -> {
+            try {
+                barrier.await(2, TimeUnit.SECONDS);
+            } catch (TimeoutException | BrokenBarrierException _) {
+
+            }
+            return inv.callRealMethod();
+        }).given(productApi).commitReservation(orderId);
+
+        // When
+        ConcurrencyRunner.run(2, () -> orderReconcileService.reconcileOne(orderId));
+
+        // Then
+        assertThat(pg.requests("/v1/payments/" + testFixtures.snapshotOf(orderId).payment().paymentKey() + "/cancel")).isEmpty();
+        assertThat(testFixtures.snapshotOf(orderId).status()).isEqualTo("PAID");
+    }
+
+    @Test
+    @DisplayName("다른 대사가 처리 중인 주문은 기다리지 않고 지금 상태를 돌려준다.")
+    void reconcileOrderInProgressReturnsCurrentStatus() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("test@test.com");
+        UUID shopId = testFixtures.openShop(memberId, "1111111111");
+        UUID productId = testFixtures.registerProduct(memberId, shopId, 1000, 100);
+
+        UUID buyerId = testFixtures.signup("buyer@test.com");
+        CheckoutResult order = testFixtures.createPendingOrder(buyerId, productId);
+
+        pg.on("/v1/payments/confirm", Behavior.delay(1000));
+        UUID orderId = testFixtures.confirmPayment(buyerId, order.orderId()).orderId();
+
+        jdbcTemplate.update("UPDATE payment.payment SET status = 'APPROVED', method = '카드', approved_at = ? WHERE order_id = ?", Timestamp.from(Instant.now().minus(Duration.ofMinutes(10))), orderId);
+
+        Instant updatedAt = Instant.now().minusSeconds(60);
+        testFixtures.setOrderUpdatedAt(orderId, updatedAt);
+
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        willAnswer(inv -> {
+            entered.countDown();                      // 락을 쥔 채 여기 도착했다고 알림
+            release.await(5, TimeUnit.SECONDS);       // 풀어 줄 때까지 대기
+            return inv.callRealMethod();
+        }).given(productApi).commitReservation(orderId);
+
+        CompletableFuture<OrderStatus> first = CompletableFuture.supplyAsync(() -> orderReconcileService.reconcileOne(orderId));
+        entered.await(5, TimeUnit.SECONDS);           // 먼저 시작한 대사가 멈출 때까지
+
+        // When
+        OrderStatus status = orderReconcileService.reconcileOne(orderId);
+
+        release.countDown();                          // 먼저 시작한 대사를 풀어서
+        first.get(10, TimeUnit.SECONDS);              // 끝날 때까지 기다림
+
+        // Then
+        assertThat(status).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+    }
+
+    @Test
+    @DisplayName("완료가 실패해 보상하는 동안 다른 대사가 주문을 끝내지 않는다.")
+    void otherReconcileDoesNotCompleteOrderDuringCompensation() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("test@test.com");
+        UUID shopId = testFixtures.openShop(memberId, "1111111111");
+        UUID productId = testFixtures.registerProduct(memberId, shopId, 1000, 100);
+
+        UUID buyerId = testFixtures.signup("buyer@test.com");
+        CheckoutResult order = testFixtures.createPendingOrder(buyerId, productId);
+
+        pg.on("/v1/payments/confirm", Behavior.delay(1000));
+        UUID orderId = testFixtures.confirmPayment(buyerId, order.orderId()).orderId();
+
+        jdbcTemplate.update("UPDATE payment.payment SET status = 'APPROVED', method = '카드', approved_at = ? WHERE order_id = ?", Timestamp.from(Instant.now().minus(Duration.ofMinutes(10))), orderId);
+
+        Instant updatedAt = Instant.now().minusSeconds(60);
+        testFixtures.setOrderUpdatedAt(orderId, updatedAt);
+
+        AtomicBoolean failOnce = new AtomicBoolean(true);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        willAnswer(inv -> {
+            if (failOnce.getAndSet(false)) {             // 일시적 실패는 첫 호출 한 번만
+                entered.countDown();                      // 락을 쥔 채 결과 반영 안에 도착
+                release.await(5, TimeUnit.SECONDS);       // 풀어 줄 때까지 대기
+                throw new IllegalStateException("일시적 실패");
+            }
+            return inv.callRealMethod();
+        }).given(applier).applyPaymentState(eq(orderId), any(), any());
+
+        CompletableFuture<OrderStatus> first = CompletableFuture.supplyAsync(() -> orderReconcileService.reconcileOne(orderId));
+        entered.await(5, TimeUnit.SECONDS);
+
+        // When
+        orderReconcileService.reconcileOne(orderId);     // 끼어든 대사
+        release.countDown();                             // 먼저 시작한 대사를 풀어서
+        first.get(10, TimeUnit.SECONDS);                 // 보상까지 끝날 때까지 기다림
+
+        // Then
+        assertThat(testFixtures.snapshotOf(orderId).status()).isEqualTo("PAYMENT_FAILED");
     }
 }

@@ -1,6 +1,7 @@
 # Part 2. 주문과 돈
 
-> 버전 0.131 · 2026-11-05 · 2-9 반품 재요청 금지는 `RETURN` 환불의 `REJECTED`만 본다(6-3 종결로 `REJECTED`가 된 구매자 취소 환불은 반품을 막지 않는다)
+> 버전 0.132 · 2026-11-12 · 2-5 `JobLock`에 작업 결과를 돌려주는 `callExclusively`를 더하고 `runExclusively`가 그것을 부르게 했다([SUB-19](../04-sub/reconcile-concurrency.md))
+> 0.131 · 2026-11-05 · 2-9 반품 재요청 금지는 `RETURN` 환불의 `REJECTED`만 본다(6-3 종결로 `REJECTED`가 된 구매자 취소 환불은 반품을 막지 않는다)
 > 0.130 · 2026-10-27
 > 0.122 · 2026-10-20 · 확인 필요 3건을 확정했다: 2-5 `JobLock`은 `RuntimeException`으로 감싼다, 2-8a `findByShopOrderIdForUpdate`는 `for no key update of o1_0`으로 주문 행만 잠근다, 2-8a `RefundResponse` 필드
 > 0.120 · 2026-10-20 · 테스트 중 스케줄러를 끄려면 `myroutine.scheduling.enabled: false`만으로는 부족하고 Spring Modulith `MomentsAutoConfiguration`의 `@EnableScheduling` 때문에 `spring.modulith.moments.enabled: false`도 필요하다
@@ -1527,17 +1528,17 @@ public enum PgOutcomeType { APPROVED, REJECTED, UNKNOWN }
 
 | 클래스 | 하는 일 | 규격 |
 |---|---|---|
-| `JobLock` | 서버가 여러 대여도 같은 이름의 잡이 한 곳에서만 돌게 한다 | `@Component`, 의존성 `DataSource`. `boolean runExclusively(String jobName, Runnable task)` — 입력: 잡 이름, 실행할 작업. 반환: 작업을 실행했으면 `true`, 다른 서버가 락을 쥐고 있어 건너뛰었으면 `false` |
+| `JobLock` | 서버가 여러 대여도 같은 이름의 잡이 한 곳에서만 돌게 한다 | `@Component`, 의존성 `DataSource`. `boolean runExclusively(String jobName, Runnable task)` — 입력: 잡 이름, 실행할 작업. 반환: 작업을 실행했으면 `true`, 다른 서버가 락을 쥐고 있어 건너뛰었으면 `false`. `<T> Optional<T> callExclusively(String name, Supplier<T> task)` — 같은 락으로 작업 결과를 돌려준다. 락을 못 잡으면 `Optional.empty()`. `runExclusively`는 `callExclusively(jobName, () -> { task.run(); return true; }).isPresent()`다 |
 | `JobRunner` | 잡 한 번의 실행을 감싼다: 로그에 추적 ID·잡 이름을 붙이고, 락 안에서 작업을 돌리고, 건수·시간을 남기고, 예외를 삼킨다 | `@Component`, 의존성 `JobLock`. `void run(String jobName, Supplier<Integer> task)` — `task`는 **처리한 건수**를 돌려준다 |
 | `common.config.SchedulingConfig` | `@Scheduled`를 켠다. 테스트 중에는 스케줄러가 끼어들지 않도록 프로퍼티로 끈다 | `@Configuration @EnableScheduling @ConditionalOnProperty(prefix = "myroutine.scheduling", name = "enabled", havingValue = "true", matchIfMissing = true)` — `myroutine.scheduling.enabled`가 `false`이면 이 설정이 등록되지 않아 `@Scheduled`가 동작하지 않는다(생략하면 켜진다) |
 
-`JobLock.runExclusively` 순서 — `Runnable`은 값을 돌려주지 못하므로 처리 건수는 `JobRunner`가 따로 받는다(아래 2번)
-1. `try (Connection c = dataSource.getConnection())` — 이 커넥션은 **락 전용**이다. 작업(`task.run()`)은 풀에서 다른 커넥션을 꺼내 쓰므로 `c`를 작업에 넘기지 않는다(잡이 도는 동안 풀의 커넥션 한 개가 락에 묶인다)
-2. `PreparedStatement`로 `SELECT pg_try_advisory_lock(hashtext(?))`를 실행한다(파라미터 `"job:" + jobName`). `ResultSet.getBoolean(1)`이 false면 다른 서버가 쥐고 있으므로 작업을 실행하지 않고 `return false`
-3. `try { task.run(); } finally { c로 SELECT pg_advisory_unlock(hashtext(?)) }` → `return true`
+`JobLock.callExclusively` 순서 — `runExclusively`도 이 순서를 탄다. `Runnable`은 값을 돌려주지 못하므로 잡의 처리 건수는 `JobRunner`가 따로 받는다(아래 2번)
+1. `try (Connection c = dataSource.getConnection())` — 이 커넥션은 **락 전용**이다. 작업(`task.get()`)은 풀에서 다른 커넥션을 꺼내 쓰므로 `c`를 작업에 넘기지 않는다(잡이 도는 동안 풀의 커넥션 한 개가 락에 묶인다)
+2. `PreparedStatement`로 `SELECT pg_try_advisory_lock(hashtext(?))`를 실행한다(파라미터 `"job:" + name`). `ResultSet.getBoolean(1)`이 false면 다른 서버가 쥐고 있으므로 작업을 실행하지 않고 `return Optional.empty()`
+3. `try { return Optional.of(task.get()); } finally { c로 SELECT pg_advisory_unlock(hashtext(?)) }`
 - **unlock을 빼먹으면** 커넥션이 풀로 돌아가도 락이 남는다(세션 레벨 락은 커넥션이 닫힐 때까지 유지). 그래서 finally에서 반드시 푼다.
 - **unlock은 락을 잡은 같은 커넥션 `c`로 한다.** 세션 락은 잡은 세션의 것이라 다른 커넥션에서 풀면 `false`만 돌아오고 락은 남는다.
-- `SQLException`은 체크 예외인데 시그니처에 `throws`가 없다. 잡아서 `RuntimeException("job lock failed: " + jobName, e)`로 감싸 던진다. `JobRunner`가 어떤 예외든 로그로 남기고 삼키므로 전용 예외 타입은 두지 않는다.
+- `SQLException`은 체크 예외인데 시그니처에 `throws`가 없다. 잡아서 `RuntimeException("job lock failed: " + name, e)`로 감싸 던진다. `JobRunner`가 어떤 예외든 로그로 남기고 삼키므로 전용 예외 타입은 두지 않는다.
 
 `JobRunner.run` 순서
 1. `MDC.put(TraceIds.MDC_KEY, TraceIds.newId())`, `MDC.put("job", jobName)` — 요청이 없는 스케줄 스레드에서도 로그에 `traceId`가 찍히게 한다(`org.slf4j.MDC`, `TraceIds`는 `common.web`)
