@@ -1,6 +1,7 @@
 package com.myroutine.order.application;
 
 import com.myroutine.common.error.BusinessException;
+import com.myroutine.common.job.JobLock;
 import com.myroutine.common.model.Money;
 import com.myroutine.order.domain.Order;
 import com.myroutine.order.domain.OrderErrorCode;
@@ -31,6 +32,7 @@ public class OrderReconcileService {
     private final OrderPaymentApplier orderPaymentApplier;
     private final TransactionTemplate tx;
     private final Clock clock;
+    private final JobLock jobLock;
 
     public int reconcileBatch() {
         Instant now = clock.instant();
@@ -52,6 +54,13 @@ public class OrderReconcileService {
     }
 
     public OrderStatus reconcileOne(UUID orderId) {
+        Optional<OrderStatus> orderStatus = jobLock.callExclusively("reconcile-order:" + orderId, () -> reconcileLocked(orderId));
+        return orderStatus.orElseGet(() -> orderRepository.findById(orderId)
+                .map(Order::getStatus)
+                .orElseThrow(() -> new BusinessException(OrderErrorCode.ORDER_NOT_FOUND)));
+    }
+
+    private OrderStatus reconcileLocked(UUID orderId) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BusinessException(OrderErrorCode.ORDER_NOT_FOUND));
         OrderStatus current = order.getStatus();
