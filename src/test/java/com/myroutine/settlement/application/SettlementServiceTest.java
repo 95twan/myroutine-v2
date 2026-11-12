@@ -317,5 +317,6 @@ class SettlementServiceTest extends IntegrationTestSupport {
 
         assertThat(testFixtures.settlementSnapshotOf(shopId, YearMonth.of(2026, 9), 1).grossAmount()).isEqualTo(15000);
         assertThat(testFixtures.settlementSnapshotOf(shopId, YearMonth.of(2026, 9), 1).itemCount()).isEqualTo(2);
+        assertThat(testFixtures.settlementSnapshotOf(shopId, YearMonth.of(2026, 9), 1).items()).hasSize(2);
     }
 }
