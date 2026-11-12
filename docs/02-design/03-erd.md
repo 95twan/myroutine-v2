@@ -1,5 +1,6 @@
 # 03. ERD (Stage 1)
 
+> 2026-11-13: `settlement.seq`(같은 가게·기간의 정산 회차)를 더하고 유니크 키를 `(shop_id, period_start, seq)`로 바꿨다. 정산 실행은 기간 끝 전의 미정산 품목을 모두 넣는다(서브 SUB-18)
 > 2026-11-09: `refund.close_reason`(관리자 종결 사유)을 더했다. `reject_reason`은 판매자 거절 사유만 담는다(서브 SUB-17)
 > 2026-10-31: `member.banned_at`(제재 시각)을 더했다(로드맵 4-4)
 > 2026-10-29: Redis `auth:signup-verified`·`auth:oauth-signup` 키에 토큰 원문 대신 SHA-256 해시를 넣는다(로드맵 Part 4 공통 규칙 T)
@@ -341,9 +342,10 @@ erDiagram
   }
   settlement {
     uuid id PK
-    uuid shop_id "UK(shop_id, period_start)"
+    uuid shop_id "UK(shop_id, period_start, seq)"
     date period_start
     date period_end
+    int seq "같은 가게·기간의 회차, 1부터. CHECK seq >= 1"
     bigint gross_amount
     int fee_rate_bp "수수료 basis point (500 = 5%)"
     bigint fee_amount
@@ -358,7 +360,7 @@ erDiagram
   }
 ```
 - `order.order-line-confirmed` 이벤트 소비 → `settlement_item` 적재 (`order_line_id` unique로 멱등). `shop_order_id`·`product_name`·`quantity`는 이벤트가 실어 온 주문 품목 값이다.
-- 정산 실행: 가게 ID keyset 순회 → 가게별 한 트랜잭션에서 `settlement` 생성 + 해당 기간 미정산 item에 `settlement_id` 설정 (BAT-02 offset 누락 문제 제거).
+- 정산 실행: 가게 ID keyset 순회 → 가게별 한 트랜잭션에서 `settlement`(`seq` = 그 가게·기간의 마지막 회차 + 1) 생성 + 기간 끝(`confirmed_at < 기간 끝`) 전의 미정산 item에 `settlement_id` 설정 (BAT-02 offset 누락 문제 제거). 기간 시작 조건이 없어, 정산 뒤 적재된 전달 품목은 그 기간을 다시 실행하면 다음 회차로, 아니면 다음 달 정산으로 들어간다. 정기 정산과 관리자 실행은 같은 advisory lock(`job:settlement`)으로 한 번에 하나만 돈다.
 - 지급: `PayoutGateway`(은행 송금 Mock) 호출, 멱등 키 = settlementId. 트랜잭션 밖에서 호출하고 결과를 기록한다(외부 송금 원칙, As-Is WAL-02 교훈).
 - 인덱스: `settlement_item(shop_id, confirmed_at) WHERE settlement_id IS NULL` (부분 인덱스).
 

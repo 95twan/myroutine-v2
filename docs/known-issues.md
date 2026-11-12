@@ -22,7 +22,6 @@
 
 | 항목 | 상태 | 문제 | 근거 | 위치 | 고치는 방향 |
 |---|---|---|---|---|---|
-| 정산이 끝난 뒤 적재된 전월 품목 | 확인됨 | 정산(매월 5일 03:00) 뒤에 적재된 전월 품목은 그 정산에도 다음 달 정산 기간에도 들어가지 않아 `settlement_id`가 NULL로 남는다. 관리자 수동 실행도 그 가게·기간의 정산이 이미 있어 `insertIfAbsent`가 0을 돌려주고 건너뛴다. 판매자는 그 금액을 받지 못하고, `SettlementWithdrawalPrecondition`이 `PENDING_SETTLEMENT`를 돌려줘 탈퇴도 계속 막힌다. 정산 consumer 처리가 DLT로 갔다가 그 달 정산 뒤에 `AdminDltService.replay`로 처리되거나, 발행이 실패해 `DEAD`가 된 `order-line-confirmed`를 그 뒤에 `AdminOutboxService.retry`로 다시 보낼 때 생긴다 | INV-07(정산되지 않은 구매확정 품목이 남지 않는다). 3-4a 완료 확인 3번이 품목이 남는 동작을 확인한다 | `JpaSettlementItemRepository.findShopIdsToSettle`·`assign`, `SettlementService.settleShop`, `SettlementWithdrawalPrecondition` | [SUB-18](04-sub/settlement-late-items.md)에서 그 기간의 다음 회차 또는 다음 달 정산으로 넣는다 |
 | PG에서 취소된 결제를 승인으로 읽음 | 추론 | PG 조회 결과의 `CANCELED`·`PARTIAL_CANCELED`를 `APPROVED`로 매핑한다. 우리 쪽이 `UNKNOWN`인 결제가 토스 관리자 화면 등 밖에서 이미 취소됐으면 대사가 결제를 `APPROVED`, 주문을 `PAID`로 닫아 판매자가 발송한다. 드러나는 지표가 없어 토스 관리자 화면과 대조해야 안다 | 2-6 대사의 PG 조회 결과 처리 | `TossClient.queryByOrderId` | 고치지 않는다(`v1.0.0`에 안고 감) |
 
 ## 2. 위험도 중

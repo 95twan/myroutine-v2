@@ -504,7 +504,7 @@ class OrderLineConfirmedConsumer {
 | 일반 수정 충돌 | `@Version` 낙관적 락 → 409 | 상품 수정, 구독 수정 |
 | 잔액처럼 한 행에 연산 여러 개 | `SELECT ... FOR UPDATE` | 지갑 |
 | 같은 회원의 연속 요청 직렬화 | `pg_advisory_xact_lock(hashtext(:key))` (트랜잭션 끝나면 해제) | 가게 개설·폐업 |
-| 스케줄 작업 중복 실행 방지 | 전용 커넥션에서 `pg_try_advisory_lock` → 작업 → `pg_advisory_unlock` (세션 레벨) | 만료 잡, 대사 잡, Outbox 릴레이, 정산 |
+| 스케줄 작업 중복 실행 방지 | 전용 커넥션에서 `pg_try_advisory_lock` → 작업 → `pg_advisory_unlock` (세션 레벨). 정산은 정기 실행이 `pg_advisory_lock`으로 락을 기다리고, 관리자 실행은 못 잡으면 409 | 만료 잡, 대사 잡, Outbox 릴레이, 정산 |
 | 중복 처리 방지 (최후 방어선) | UNIQUE 제약 + `INSERT ... ON CONFLICT DO NOTHING` | 재고 이력, 정산 item, processed_message |
 | 여러 행을 잠글 때 | **항상 같은 순서**(ID 오름차순) | 여러 상품 예약 |
 
