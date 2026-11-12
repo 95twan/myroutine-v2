@@ -104,7 +104,7 @@ ALTER TABLE settlement.settlement ADD CONSTRAINT ck_settlement_seq CHECK (seq >=
 - DB(`settlementSnapshotOf(shopId, YearMonth.of(2026, 10))`): `grossAmount()` = 12500, `itemCount()` = 2.
 
 **12. 2회차를 만들어도 1회차는 바뀌지 않는다** — 준비와 동작은 3번과 같다.
-- DB(`settlementSnapshotOf(shopId, YearMonth.of(2026, 9), 1)`): `grossAmount()` = 15000, `itemCount()` = 2, `items()`가 `hasSize(2)`. `grossAmount`·`itemCount`는 정산할 때 저장한 값이라 2회차가 1회차의 품목을 가져가도 그대로이므로, 1회차에 붙은 품목은 `items()`로 확인한다.
+- DB(`settlementSnapshotOf(shopId, YearMonth.of(2026, 9), 1)`): `grossAmount()` = 15000, `itemCount()` = 2, `items()`가 `hasSize(2)`.
 
 #### `common/job/JobLockTest`
 
@@ -117,7 +117,7 @@ ALTER TABLE settlement.settlement ADD CONSTRAINT ck_settlement_seq CHECK (seq >=
 **같은 기간의 정산은 회차로 구분된다** — 준비: 판매자 1명과 가게 1개, 그 가게에 9월 15일 확정 품목 2개 → `settlementService.run(YearMonth.of(2026, 9))` → 같은 확정 시각의 품목 하나를 더 넣고 `run(YearMonth.of(2026, 9))`을 다시. 동작: 판매자가 `GET /api/shops/{shopId}/settlements`.
 - 응답(andExpect): 상태 200, `$.items[0].seq` = 2, `$.items[1].seq` = 1.
 
-**정산이 실행 중이면 관리자 실행을 거부한다** — 준비: 판매자 1명과 가게 1개, 그 가게에 9월 15일 확정 품목 2개(`insertSettlementItems(List.of(shopId), 2, 7500, 확정 시각)`), 관리자 토큰(`runByAdmin`과 같은 방법). `JobLock`을 주입받아 `CountDownLatch entered = new CountDownLatch(1)`, `CountDownLatch release = new CountDownLatch(1)`, `CompletableFuture<Boolean> holder = CompletableFuture.supplyAsync(() -> jobLock.runExclusively("settlement", () -> { entered.countDown(); try { release.await(5, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); } }))` → `entered.await(5, TimeUnit.SECONDS)`. 다른 연결이 정산 락을 쥔 상태다. 동작: 관리자 토큰으로 `POST /admin/api/settlements/run?period=2026-09`. 확인 뒤 `release.countDown()`과 `holder.get(10, TimeUnit.SECONDS)`로 락을 푼다.
+**정산이 실행 중이면 관리자 실행을 거부한다** — 준비: 판매자 1명과 가게 1개, 그 가게에 9월 15일 확정 품목 2개(`insertSettlementItems(List.of(shopId), 2, 7500, 확정 시각)`), 관리자 토큰(`runByAdmin`과 같은 방법). `JobLock`을 주입받아 `CountDownLatch entered = new CountDownLatch(1)`, `CountDownLatch release = new CountDownLatch(1)`, `CompletableFuture<Boolean> holder = CompletableFuture.supplyAsync(() -> jobLock.runExclusively("settlement", () -> { entered.countDown(); try { release.await(5, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); } }))` → `entered.await(5, TimeUnit.SECONDS)`. 동작: 관리자 토큰으로 `POST /admin/api/settlements/run?period=2026-09`. 확인 뒤 `release.countDown()`과 `holder.get(10, TimeUnit.SECONDS)`로 락을 푼다.
 - 응답(andExpect): 상태 409, `$.code` = `SETTLEMENT_RUN_IN_PROGRESS`.
 - DB(`countOf("settlement.settlement")`): 0.
 
