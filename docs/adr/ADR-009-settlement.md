@@ -9,9 +9,10 @@
 ## 결정
 1. `settlement` 모듈을 따로 두고 정산 데이터(`settlement_item`, `settlement`)를 소유한다.
 2. 정산 대상은 `order-line-confirmed` 이벤트로 적재한다(`order_line_id` UK로 멱등). 주문 데이터를 직접 읽지 않는다.
-3. 배치는 **가게 ID keyset 순회**로 한다. 가게별 한 트랜잭션에서 `settlement` INSERT(UK shop_id+기간) + 미정산 item에 `settlement_id` 할당 + 할당된 행 기준으로 합계를 계산한다.
+3. 배치는 **가게 ID keyset 순회**로 한다. 가게별 한 트랜잭션에서 `settlement` INSERT(UK shop_id+기간+회차) + 기간 끝 전의 미정산 item에 `settlement_id` 할당 + 할당된 행 기준으로 합계를 계산한다.
 4. 지급은 정산 트랜잭션과 분리한다. 지급 연동(`PayoutGateway`, 은행 송금 Mock)을 **트랜잭션 밖에서** 멱등 키 = settlementId로 호출하고 결과를 기록한다. 실패하면 PAYOUT_FAILED로 두고 다음 실행에서 재시도한다. (2026-10-02: 예치금 제거로 wallet 입금 → 지급 Mock으로 변경)
-5. Spring Batch 없이 시작한다. 100만 건 10분 목표를 못 맞추면 가게 범위 파티셔닝 병렬 처리를 도입한다(그때 Spring Batch Partitioner 검토).
+5. 정기 정산과 관리자 수동 실행은 같은 advisory lock(`job:settlement`)으로 한 번에 하나만 돈다. 관리자 실행은 락을 못 잡으면 409로 끝내고, 정기 정산은 락을 기다렸다가 돈다.
+6. Spring Batch 없이 시작한다. 100만 건 10분 목표를 못 맞추면 가게 범위 파티셔닝 병렬 처리를 도입한다(그때 Spring Batch Partitioner 검토).
 
 ## 고려한 대안
 | 대안 | 기각 이유 |
@@ -21,7 +22,8 @@
 | Spring Batch로 시작 | 메타 테이블·잡 구성 비용 대비 Stage 1 규모에서 이점이 적음. 필요가 측정되면 도입 |
 
 ## 결과
-- 재실행해도 같은 가게·기간은 UK 충돌로 건너뛰므로 중복 정산이 0이다(FR-STL-04).
+- 재실행해도 이미 정산된 품목은 `settlement_id`가 있어 다시 정산되지 않는다(FR-STL-04).
+- 정산 뒤 적재된 품목(DLT 리플레이, `DEAD` outbox 재발행)은 그 기간을 다시 실행하면 다음 회차로, 실행하지 않으면 다음 달 정산으로 정산된다. 다음 달 정산에 들어가면 그 정산의 기간과 품목의 확정일이 어긋난다.
 - "구매확정됐는데 정산 item이 없는" 경우(이벤트 처리 지연·실패)를 점검 쿼리로 탐지한다 → 정산 실행 전에 consumer lag 0을 확인한다.
 
 ## 면접 연결 ([면접 질문](../references/notes/interview-questions.md) 1.6 배치 관련)

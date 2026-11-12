@@ -29,12 +29,12 @@ public interface JpaSettlementItemRepository extends SettlementItemRepository {
             value = """
                     SELECT DISTINCT shop_id
                     FROM settlement.settlement_item
-                    WHERE confirmed_at >= :from AND confirmed_at < :to AND settlement_id IS NULL AND shop_id > :afterShopId
+                    WHERE confirmed_at < :to AND settlement_id IS NULL AND shop_id > :afterShopId
                     ORDER BY shop_id
                     LIMIT :limit
                     """
     )
-    List<UUID> findShopIdsToSettle(Instant from, Instant to, UUID afterShopId, int limit);
+    List<UUID> findShopIdsToSettle(Instant to, UUID afterShopId, int limit);
 
     @Modifying
     @Query(
@@ -42,10 +42,10 @@ public interface JpaSettlementItemRepository extends SettlementItemRepository {
             value = """
                     UPDATE settlement.settlement_item
                     SET settlement_id = :settlementId, updated_at = :now
-                    WHERE shop_id = :shopId AND confirmed_at >= :from AND confirmed_at < :to AND settlement_id IS NULL
+                    WHERE shop_id = :shopId AND confirmed_at < :to AND settlement_id IS NULL
                     """
     )
-    void assign(UUID settlementId, UUID shopId, Instant from, Instant to, Instant now);
+    void assign(UUID settlementId, UUID shopId, Instant to, Instant now);
 
     @Query(
             nativeQuery = true,

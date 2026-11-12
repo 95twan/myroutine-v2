@@ -15,6 +15,7 @@ import java.util.function.Supplier;
 @RequiredArgsConstructor
 public class JobLock {
     private static final String LOCK_SQL = "SELECT pg_try_advisory_lock(hashtext(?))";
+    private static final String WAIT_LOCK_SQL = "SELECT pg_advisory_lock(hashtext(?))";
     private static final String UNLOCK_SQL = "SELECT pg_advisory_unlock(hashtext(?))";
     private final DataSource dataSource;
 
@@ -23,6 +24,19 @@ public class JobLock {
             task.run();
             return true;
         }).isPresent();
+    }
+
+    public void runWaiting(String jobName, Runnable task) {
+        try (Connection c = dataSource.getConnection()) {
+            waitLock(c, jobName);
+            try {
+                task.run();
+            } finally {
+                executeLockSql(c, UNLOCK_SQL, jobName);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("job lock failed: " + jobName, e);
+        }
     }
 
     public <T> Optional<T> callExclusively(String name, Supplier<T> task) {
@@ -44,6 +58,13 @@ public class JobLock {
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() && rs.getBoolean(1);
             }
+        }
+    }
+
+    private void waitLock(Connection c, String jobName) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(WAIT_LOCK_SQL)) {
+            ps.setString(1, "job:" + jobName);
+            ps.execute();   // 락을 잡을 때까지 여기서 멈춘다. 결과(void)는 읽지 않는다
         }
     }
 

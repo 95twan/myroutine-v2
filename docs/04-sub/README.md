@@ -123,5 +123,4 @@
 | SUB-9 | D | ADR-012 단계 개요를 구체화할 문서의 파일 이름. 권장은 `docs/04-sub/k3s.md`다 | 이 문서 표 | 확정 |
 | SUB-11 | D | 러너 ServiceAccount의 네임스페이스 한정 RBAC | ADR-012 결정 5항(CD) | Role/RoleBinding 작성·검증 |
 | SUB-1·SUB-3 | A | `pg_call_seconds`에 빌링 호출(`issueBillingKey`·`billingCharge`)을 포함할지와 `operation` 값 | 구독 "Part 6에 더할 것" 2) | 사용자 결정 |
-| SUB-18 | A | 2회차 이상 정산의 지급 알림을 구분할지. 지금 문구로는 같은 기간의 지급 알림이 두 번 온다. 구분하면 `SettlementPaidEvent`에 `seq`를 더하고 제목에 회차를 넣는다 | SUB-18 5) 응답, 3-5 알림 매핑의 `settlement-paid` 행 | 사용자 결정 |
 | SUB-5·SUB-6 | A | `openai_call_seconds`의 `operation`·`result` 라벨 값. ADR-010의 이 Timer를 대시보드·알림 어디에도 쓰지 않는다 | 위 "Part 6에 더할 것" | 사용자 결정(권장: 소문자 메서드명) |

@@ -19,12 +19,12 @@ public interface JpaSettlementRepository extends JpaRepository<Settlement, UUID>
     @Query(
             nativeQuery = true,
             value = """
-                    INSERT INTO settlement.settlement (id, shop_id, period_start, period_end, fee_rate_bp, status, version, created_at, updated_at)
-                    VALUES (:id, :shopId, :start, :end, :bp, 'CALCULATED', 0, :now, :now)
-                    ON CONFLICT ON CONSTRAINT uk_settlement_shop_period DO NOTHING
+                    INSERT INTO settlement.settlement (id, shop_id, period_start, period_end, seq, fee_rate_bp, status, version, created_at, updated_at)
+                    VALUES (:id, :shopId, :start, :end, :seq, :bp, 'CALCULATED', 0, :now, :now)
+                    ON CONFLICT ON CONSTRAINT uk_settlement_shop_period_seq DO NOTHING
                     """
     )
-    int insertIfAbsent(UUID id, UUID shopId, LocalDate start, LocalDate end, int bp, Instant now);
+    int insertIfAbsent(UUID id, UUID shopId, LocalDate start, LocalDate end, int seq, int bp, Instant now);
 
     @Query("""
             SELECT s.id
@@ -72,4 +72,13 @@ public interface JpaSettlementRepository extends JpaRepository<Settlement, UUID>
             order by s.createdAt, s.id
             """)
     List<Settlement> findByStatusNextPage(SettlementStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit);
+
+    @Query(
+            nativeQuery = true,
+            value = """
+                    SELECT COALESCE(MAX(seq), 0) + 1
+                    FROM settlement.settlement
+                    WHERE shop_id = :shopId AND period_start = :start
+                    """)
+    int nextSeq(UUID shopId, LocalDate start);
 }

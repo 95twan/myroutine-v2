@@ -3,6 +3,7 @@ package com.myroutine.settlement.application;
 import com.myroutine.common.config.BusinessProperties;
 import com.myroutine.common.error.BusinessException;
 import com.myroutine.common.error.CommonErrorCode;
+import com.myroutine.common.job.JobLock;
 import com.myroutine.common.model.Ids;
 import com.myroutine.common.model.Money;
 import com.myroutine.common.outbox.OutboxPublisher;
@@ -20,6 +21,7 @@ import java.time.Instant;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @Slf4j
@@ -34,21 +36,25 @@ public class SettlementService {
     private final TransactionTemplate tx;
     private final PayoutGateway payoutGateway;
     private final OutboxPublisher publisher;
+    private final JobLock jobLock;
 
     public SettlementRunResult runManually(YearMonth month) {
         YearMonth current = YearMonth.now(clock.withZone(businessProperties.businessZone()));
         if (!month.isBefore(current)) {
             throw new BusinessException(CommonErrorCode.INVALID_REQUEST, Map.of("period", "끝난 달만 실행할 수 있습니다."));
         }
-        return run(month);
+        Optional<SettlementRunResult> result = jobLock.callExclusively("settlement", () -> run(month));
+        if (result.isEmpty()) {
+            throw new BusinessException(SettlementErrorCode.SETTLEMENT_RUN_IN_PROGRESS);
+        }
+        return result.get();
     }
 
     public SettlementRunResult run(YearMonth month) {
         SettlementPeriod period = SettlementPeriod.of(month);
-        Instant from = period.fromInclusive(businessProperties.businessZone());
         Instant to = period.toExclusive(businessProperties.businessZone());
         UUID after = UUID.fromString("00000000-0000-0000-0000-000000000000");
-        List<UUID> ids = settlementItemRepository.findShopIdsToSettle(from, to, after, 500);
+        List<UUID> ids = settlementItemRepository.findShopIdsToSettle(to, after, 500);
         int settledShops = 0;
         while (!ids.isEmpty()) {
             for (UUID id : ids) {
@@ -60,7 +66,7 @@ public class SettlementService {
                 }
             }
             after = ids.getLast();
-            ids = settlementItemRepository.findShopIdsToSettle(from, to, after, 500);
+            ids = settlementItemRepository.findShopIdsToSettle(to, after, 500);
         }
         PayoutSummary payout = payoutAll();
         return new SettlementRunResult(settledShops, payout.paid(), payout.payoutFailed());
@@ -69,11 +75,13 @@ public class SettlementService {
     public boolean settleShop(UUID shopId, SettlementPeriod period) {
         UUID settlementId = Ids.newId();
         Instant now = clock.instant();
+        int seq = settlementRepository.nextSeq(shopId, period.start());
         int count = settlementRepository.insertIfAbsent(
                 settlementId,
                 shopId,
                 period.start(),
                 period.end(),
+                seq,
                 settlementProperties.feeRateBp(),
                 now
         );
@@ -83,7 +91,6 @@ public class SettlementService {
         settlementItemRepository.assign(
                 settlementId,
                 shopId,
-                period.fromInclusive(businessProperties.businessZone()),
                 period.toExclusive(businessProperties.businessZone()),
                 now
         );

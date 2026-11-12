@@ -22,6 +22,6 @@ public class SettlementJob {
     @Scheduled(cron = "0 0 3 5 * *", zone = "Asia/Seoul")
     public void run() {
         YearMonth lastMonth = YearMonth.now(clock.withZone(properties.businessZone())).minusMonths(1);
-        jobRunner.run("settlement", () -> settlementService.run(lastMonth).settledShops());
+        jobRunner.runWaiting("settlement", () -> settlementService.run(lastMonth).settledShops());
     }
 }

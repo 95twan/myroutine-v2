@@ -34,4 +34,22 @@ public class JobRunner {
             MDC.remove("job");
         }
     }
+
+    public void runWaiting(String jobName, Supplier<Integer> task) {
+        MDC.put(TraceIds.MDC_KEY, TraceIds.newId());
+        MDC.put("job", jobName);
+        try {
+            long start = System.nanoTime();
+            AtomicInteger count = new AtomicInteger();
+            jobLock.runWaiting(jobName, () -> count.set(task.get()));
+            if (count.get() > 0) {
+                log.info("job {} processed {} in {}ms", jobName, count.get(), (System.nanoTime() - start) / 1_000_000);
+            }
+        } catch (Exception e) {
+            log.error("job {} failed", jobName, e);
+        } finally {
+            MDC.remove(TraceIds.MDC_KEY);
+            MDC.remove("job");
+        }
+    }
 }

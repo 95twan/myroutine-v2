@@ -1,6 +1,7 @@
 # Part 6. 관측 · 운영 · 마무리
 
-> 버전 0.42 · 2026-11-12 · 6-3 `reconcileOne`은 주문마다 advisory lock을 잡아 같은 주문의 대사가 동시에 돌지 않게 하고, 락을 못 잡으면 기다리지 않고 지금 상태를 돌려준다([SUB-19](../04-sub/reconcile-concurrency.md))
+> 버전 0.43 · 2026-11-13 · 6-3 정산 수동 실행은 정기 정산과 같은 락을 잡고 실행 중이면 409 `SETTLEMENT_RUN_IN_PROGRESS`를 돌려준다. 관리자 정산 항목에 회차 `seq`(서브 SUB-18)
+> 0.42 · 2026-11-12 · 6-3 `reconcileOne`은 주문마다 advisory lock을 잡아 같은 주문의 대사가 동시에 돌지 않게 하고, 락을 못 잡으면 기다리지 않고 지금 상태를 돌려준다([SUB-19](../04-sub/reconcile-concurrency.md))
 > 0.41 · 2026-11-06 · 6-5는 `v0.6.0`을 따로 찍지 않고 `v1.0.0`으로 릴리스한다. Stage 1.5 준비를 빼고(k3s는 서브 SUB-9~SUB-13) 알려진 한계 네 건을 Release 노트에 적는다
 > 0.40 · 2026-11-05 · 6-3 즉시 대사는 주문이 30초 안에 바뀌었으면 PG를 조회하지 않고 현재 상태를 돌려준다(진행 중인 승인 요청을 실패로 확정하지 않게). 구매자 취소 환불을 종결해도 반품 요청은 막히지 않는다
 > 0.39 · 2026-11-05 · 6-3 환불 종결 API `POST /admin/api/refunds/{id}/close`(`FAILED → REJECTED`)를 더하고, `FAILED` 환불을 활성 환불로 본다(발송 가드·`uk_refund_order_line_active`·구매자 재취소는 인덱스 위반 409)
@@ -1206,7 +1207,7 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 - `FAILED` 환불은 활성 환불이다. 품목당 하나만 두고(`uk_refund_order_line_active`에 `FAILED`를 더한다), 가게주문 발송을 막고(`REFUND_IN_PROGRESS`), 같은 품목의 구매자 재취소는 인덱스 위반이 막는다(409 `DUPLICATE_RESOURCE`). 풀리는 길은 재시도(`COMPLETED`)와 종결(`REJECTED`)뿐이다. 이렇게 하지 않으면 `FAILED` 환불이 있는 품목이 발송되거나 구매자가 새 환불을 만들어, 재시도할 때 `SHIPPED` 품목의 PG 취소가 성공하거나 활성 환불 둘이 인덱스에 걸린다.
 - DLT 재처리는 같은 메시지를 **원래 토픽으로 다시 보내는 것**이다. consumer가 `InboxGuard`로 멱등이라 두 번 재처리해도 결과는 한 번이다.
 - 지급에 실패한 정산은 `GET /admin/api/settlements?status=PAYOUT_FAILED`로 보고, 끝난 달로 `POST /admin/api/settlements/run`을 다시 불러 재지급한다. `run`의 `payoutAll`이 기간과 상관없이 `PAYOUT_FAILED`를 모두 다시 지급하고, 이미 정산한 달이면 새 정산은 만들지 않는다. 별도 재지급 API는 두지 않는다.
-- 정산 수동 실행은 **끝난 달만** 받는다. 이번 달로 실행하면 그 시점까지의 품목으로 가게의 정산 행이 생기고, 그달에 나중에 확정된 품목은 다음 실행에서 `insertIfAbsent`가 0행(`uk_settlement_shop_period`)이라 건너뛰어 영구히 정산되지 않는다.
+- 정산 수동 실행은 **끝난 달만** 받는다. 이번 달로 실행하면 그 시점까지의 품목만으로 정산이 만들어져 지급되고, 그달에 나중에 확정된 품목은 다음 회차 정산으로 쪼개져 월 1회 정산(POL-12)과 어긋난다.
 
 ### 할 일
 
@@ -1229,7 +1230,7 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 | `POST /admin/api/refunds/{id}/retry` | 200 `RefundResponse`(`COMPLETED`), 202 `RefundResponse`(`APPROVED`, PG 결과가 불확실해 복구 잡이 마무리한다), 다시 실패하면 502 `PG_ERROR` | 404 `REFUND_NOT_FOUND` | 409 `INVALID_STATE_TRANSITION`(`FAILED`가 아님), 동시 요청은 409 `CONFLICT_RETRY` |
 | `POST /admin/api/refunds/{id}/close` | 200 `RefundResponse`(`REJECTED`) | 404 `REFUND_NOT_FOUND` | 409 `INVALID_STATE_TRANSITION`(`FAILED`가 아님) |
 | `POST /admin/api/notifications/{id}/retry` | 204 | 404 `NOT_FOUND` | 409 `INVALID_STATE_TRANSITION`(`FAILED`가 아님) |
-| `POST /admin/api/settlements/run?period=` | 200 `SettlementRunResult` | 해당 없음 | 400 `INVALID_REQUEST`(`details.period`, 끝나지 않은 달) |
+| `POST /admin/api/settlements/run?period=` | 200 `SettlementRunResult` | 해당 없음 | 400 `INVALID_REQUEST`(`details.period`, 끝나지 않은 달), 409 `SETTLEMENT_RUN_IN_PROGRESS`(정기 정산이나 다른 관리자 실행이 도는 중) |
 
 환불 재시도의 200·202·502는 구매자 품목 취소(`POST /api/orders/{id}/lines/{lineId}/cancel`)와 같은 약속이다. 재시도가 다시 실패하는 것은 정상 흐름이라 500이 아니다.
 
@@ -1348,9 +1349,9 @@ Gauge·Counter 값은 모두 주입받은 `registry`에서 읽는다(위 "확인
 
 | 클래스 | 규격 |
 |---|---|
-| `SettlementService` (기존 수정) | `public SettlementRunResult runManually(YearMonth month)`를 더한다. `month.isBefore(YearMonth.now(clock.withZone(businessProperties.businessZone())))`가 아니면 `BusinessException(CommonErrorCode.INVALID_REQUEST, Map.of("period", "끝난 달만 실행할 수 있습니다."))`, 맞으면 `run(month)`. `run` 자체에 넣지 않는다. `SettlementJob`은 전월만 부르고, 6-4 시나리오는 이번 달 품목으로 `run`을 직접 부른다 |
+| `SettlementService` (기존 수정) | `public SettlementRunResult runManually(YearMonth month)`를 더한다. `month.isBefore(YearMonth.now(clock.withZone(businessProperties.businessZone())))`가 아니면 `BusinessException(CommonErrorCode.INVALID_REQUEST, Map.of("period", "끝난 달만 실행할 수 있습니다."))`, 맞으면 `jobLock.callExclusively("settlement", () -> run(month))`를 부르고 비어 있으면 `BusinessException(SettlementErrorCode.SETTLEMENT_RUN_IN_PROGRESS)`(SUB-18). 검사와 락은 `run` 자체에 넣지 않는다. `SettlementJob`은 전월만 부르고, 6-4 시나리오는 이번 달 품목으로 `run`을 직접 부른다 |
 | `SettlementRepository`·`JpaSettlementRepository` (기존 수정) | `findByStatusFirstPage(SettlementStatus status, Limit limit)`, `findByStatusNextPage(SettlementStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit)`을 더한다 |
-| `SettlementQueryService` (기존 수정) | `@Transactional(readOnly = true) CursorPage<AdminSettlementResult> getForAdmin(SettlementStatus status, String cursor, int size)`(`AdminSettlementResult(UUID id, UUID shopId, String shopName, LocalDate periodStart, LocalDate periodEnd, long netAmount, int payoutAttempts, String lastError, Instant updatedAt)`). 한 쪽의 `shopId`로 `shopApi.getShopNames`를 한 번 불러 이름을 붙인다 |
+| `SettlementQueryService` (기존 수정) | `@Transactional(readOnly = true) CursorPage<AdminSettlementResult> getForAdmin(SettlementStatus status, String cursor, int size)`(`AdminSettlementResult(UUID id, UUID shopId, String shopName, LocalDate periodStart, LocalDate periodEnd, int seq, long netAmount, int payoutAttempts, String lastError, Instant updatedAt)`). 한 쪽의 `shopId`로 `shopApi.getShopNames`를 한 번 불러 이름을 붙인다 |
 | `ShopApi`·`ShopApiImpl` (shop, 기존 수정) | `Map<UUID, String> getShopNames(Collection<UUID> shopIds)`를 더한다. `shopRepository.findAllByIdIn`으로 읽는다. `requireActiveShops`는 활성 가게만 받는데, 폐업한 가게에도 지급 실패 정산이 있을 수 있어서 상태로 거르지 않는다. settlement는 이미 `shop::api`에 의존한다 |
 
 **8) 테스트 보조** — `src/test/`

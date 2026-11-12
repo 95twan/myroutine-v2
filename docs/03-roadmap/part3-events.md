@@ -1,6 +1,7 @@
 # Part 3. 이벤트
 
-> 버전 0.76 · 2026-10-28 · 3-6 탈퇴 닉네임을 `탈퇴-{memberId에서 하이픈을 뺀 32자의 뒤 17자}`로 바꿨다(ID가 UUIDv7이라 앞 8자는 약 65초 단위로만 달라 같은 시간대에 가입한 회원끼리 `uk_member_nickname`을 어긴다)
+> 버전 0.77 · 2026-11-13 · 3-4 정산 대상에서 기간 시작 조건을 빼고 정산에 회차 `seq`를 두어, 정산 뒤 적재된 품목은 그 기간을 다시 실행하면 다음 회차로, 아니면 다음 달 정산으로 들어간다. 관리자 실행은 정기 정산과 같은 락을 잡고 실행 중이면 409 `SETTLEMENT_RUN_IN_PROGRESS`, 정기 정산은 락을 기다린다(서브 SUB-18)
+> 0.76 · 2026-10-28 · 3-6 탈퇴 닉네임을 `탈퇴-{memberId에서 하이픈을 뺀 32자의 뒤 17자}`로 바꿨다(ID가 UUIDv7이라 앞 8자는 약 65초 단위로만 달라 같은 시간대에 가입한 회원끼리 `uk_member_nickname`을 어긴다)
 > 0.73 · 2026-10-27 · 3-6 장바구니 삭제를 항목 일괄 삭제로 바꿨다(`CartItemRepository.deleteAllByCartId`, 항목 수와 상관없이 쿼리 3번). 환불 조회는 `refund.order_id`로만 잇는다
 > 0.72 · 2026-10-27 · 3-6 진행 중 환불의 상태 집합을 `REQUESTED`·`APPROVED`·`PG_CANCELLED`로 정했고, 구매자 진행 중 조회·settlement 탈퇴 조건 조회의 메서드 이름·시그니처와 배송지 일괄 삭제 메서드를 정했다
 > 0.71 · 2026-10-27 · 3-5 `dispatchBatch`의 try/catch 범위를 3-4 `payoutAll`과 같게 정했다: 안쪽 `try`는 `send`만, 바깥 `try`는 알림 한 건 전체를 감싼다
@@ -72,6 +73,7 @@
 |---|---|---|---|---|
 | `SHOP_HAS_ACTIVE_ORDERS` | 422 | 진행 중인 주문이 있어 폐업할 수 없습니다. | `OrderErrorCode` | 3-2 |
 | `SETTLEMENT_NOT_FOUND` | 404 | 정산 내역을 찾을 수 없습니다. | `SettlementErrorCode` | 3-4 |
+| `SETTLEMENT_RUN_IN_PROGRESS` | 409 | 정산이 실행 중입니다. | `SettlementErrorCode` | SUB-18 |
 | `MEMBER_HAS_ACTIVE_RESOURCES` | 422 | 탈퇴할 수 없는 상태입니다. (details.reasons) | `MemberErrorCode` | 3-6 |
 
 ### S. 모듈 의존 (Part 3 끝 기준, Part 2 표에 추가·변경된 것만)
@@ -1175,14 +1177,14 @@ order 클래스 공통 준비: 판매자 `seller@test.com`(`signup` → `sellerI
 - 정산 주기: 매월 5일 03:00(Asia/Seoul)에 **전월** 구매확정분(POL-12). 기간은 업무 날짜 기준 전월 1일 00:00 ~ 당월 1일 00:00(미포함).
 - 수수료: 500bp(5%), 설정 `myroutine.settlement.fee-rate-bp: 500`. 원 미만 내림(OPEN-06): `fee = gross * bp / 10000` (정수 나눗셈)
 - 정산액 0원인 정산은 입금 없이 PAID.
-- 정산 실행 뒤에 늦게 도착한 전월 품목은 그 정산에 들어가지 않는다 → 다음 달 정산 기간에 맞지 않으므로 남는다. 정산 전에 consumer 지연이 없는지 확인하는 것을 운영 절차로 둔다(ADR-009). 남은 품목은 Part 6 점검 대상. 남은 품목을 그 기간의 다음 회차 또는 다음 달 정산으로 넣는 일은 [SUB-18](../04-sub/settlement-late-items.md)에서 한다.
-- 관리자 수동 실행: `POST /admin/api/settlements/run?period=2026-09` (ADMIN 역할). 관리자 계정은 DB에서 `role`을 `ADMIN`으로 직접 바꿔 만든다.
+- 정산 실행 뒤에 늦게 적재된 전월 품목은 그 기간을 다시 실행하면 다음 회차(`seq`) 정산으로, 실행하지 않으면 다음 달 정산으로 들어간다([SUB-18](../04-sub/settlement-late-items.md)). 정산 전에 consumer 지연이 없는지 확인하는 것을 운영 절차로 둔다(ADR-009).
+- 관리자 수동 실행: `POST /admin/api/settlements/run?period=2026-09` (ADMIN 역할). 관리자 계정은 DB에서 `role`을 `ADMIN`으로 직접 바꿔 만든다. 관리자 실행과 정기 정산은 같은 락(`job:settlement`)으로 한 번에 하나만 돌고, 관리자 실행은 락을 못 잡으면 409 `SETTLEMENT_RUN_IN_PROGRESS`, 정기 정산은 락을 기다린다(SUB-18).
 
 ### 할 일 (3-4a)
 
 **흐름 한눈에**
 1. **적재**: 구매확정(3-3)이 `order-line-confirmed`를 내면 settlement의 consumer가 품목 한 건을 `settlement_item`에 쌓는다(`settlement_id`는 NULL = 아직 정산 전).
-2. **정산**: 매월 5일 03:00에 `SettlementJob`이 `SettlementService.run(전월)`을 부른다. 미정산 품목이 있는 가게마다 `settleShop`이 `settlement` 행을 만들고, 그 기간의 품목에 정산 ID를 붙이고(`assign`), 붙은 품목의 합계로 수수료·정산액을 계산한다(`CALCULATED`).
+2. **정산**: 매월 5일 03:00에 `SettlementJob`이 `SettlementService.run(전월)`을 부른다. 미정산 품목이 있는 가게마다 `settleShop`이 `settlement` 행을 만들고, 기간 끝 전의 미정산 품목에 정산 ID를 붙이고(`assign`), 붙은 품목의 합계로 수수료·정산액을 계산한다(`CALCULATED`).
 3. **지급**(3-4b): 이어서 `payoutAll()`이 `CALCULATED`·`PAYOUT_FAILED` 정산마다 `PayoutGateway`로 송금하고 `PAID` + `settlement-paid` 이벤트를 낸다.
 
 **구현 순서**: ① 1) 마이그레이션 → ② 설정: 2) `common.config`, 5)의 `SettlementProperties`·`SettlementConfig`, `settlement/package-info.java` → 도메인: 3) `settlement.domain` → 저장소: 4)의 `JpaSettlementItemRepository`·`JpaSettlementRepository` → 서비스·consumer: 5)의 `SettlementItemService`·`SettlementRunResult`·`SettlementService`, 4)의 `OrderEventConsumer` → 잡: 4)의 `SettlementJob` → ③ 정산 대상 JDBC 적재 헬퍼 → 테스트(`SettlementStatusTest` → `SettlementPeriodTest` → `SettlementItemConsumerTest` → `SettlementServiceTest`).
@@ -1194,8 +1196,9 @@ order 클래스 공통 준비: 판매자 `seller@test.com`(`signup` → `sellerI
 | 컬럼 | 타입 | NULL | 제약 |
 |---|---|---|---|
 | id | uuid | X | `pk_settlement` |
-| shop_id | uuid | X | `uk_settlement_shop_period (shop_id, period_start)` |
+| shop_id | uuid | X | `uk_settlement_shop_period_seq (shop_id, period_start, seq)` |
 | period_start, period_end | date | X | period_end는 포함(말일) |
+| seq | int | X | 같은 가게·기간의 회차, `ck_settlement_seq`: `seq >= 1`(SUB-18) |
 | gross_amount, fee_amount, net_amount | bigint | X | DEFAULT 0, `ck_settlement_net`: `net_amount = gross_amount - fee_amount` |
 | fee_rate_bp | int | X | |
 | item_count | int | X | DEFAULT 0 |
@@ -1245,24 +1248,23 @@ order 클래스 공통 준비: 판매자 `seller@test.com`(`signup` → `sellerI
 
 | 메서드 | 하는 일 |
 |---|---|
-| (생성) | 엔티티를 `save`하지 않고 `SettlementRepository.insertIfAbsent`(native INSERT)로 만든다 — 같은 가게·기간이 이미 있으면 예외가 아니라 0행으로 알려 주기 위해서다. 그 뒤 `findById`로 읽어 아래 메서드를 쓴다 |
+| (생성) | 엔티티를 `save`하지 않고 `SettlementRepository.insertIfAbsent`(native INSERT)로 만든다 — 같은 가게·기간·회차가 이미 있으면 예외가 아니라 0행으로 알려 주기 위해서다. 그 뒤 `findById`로 읽어 아래 메서드를 쓴다 |
 | `calculate(Money gross, int bp, int itemCount)` | `grossAmount = gross`, `feeRateBp = bp`, `itemCount`를 기록하고 `feeAmount`는 정책의 수수료 식으로(12,345원·500bp면 617), `netAmount = gross - feeAmount` |
 | `markPaid(String payoutReference, Instant now)` | `status.transitTo(PAID)`, `payoutReference`, `paidAt = now`. 0원 정산은 `payoutReference`에 `null` |
 | `markPayoutFailed(String error)` | `status.transitTo(PAYOUT_FAILED)`, `lastError = error`. `payoutAttempts`를 1 올린다(실패 전이와 시도 횟수가 한 메서드에서 같이 바뀐다. `markPaid`는 올리지 않는다) |
 
 **`SettlementPeriod`** — "2026년 9월 정산"이 어느 날짜·시각 구간인지를 한곳에서 계산한다. 시간대를 잘못 쓰면 경계(8/31 23:59 대 9/1 00:00)의 품목이 다른 달로 간다.
 - `static SettlementPeriod of(YearMonth month)`: `start = month.atDay(1)`, `end = month.atEndOfMonth()`(말일, **포함**. `period_end` 컬럼도 포함이다)
-- `Instant fromInclusive(ZoneId zone)`: `start.atStartOfDay(zone).toInstant()` — 시작 시각(포함)
-- `Instant toExclusive(ZoneId zone)`: `end.plusDays(1).atStartOfDay(zone).toInstant()` — 다음 달 1일 00:00(미포함). 쿼리는 `confirmed_at >= from AND confirmed_at < to`
-- 2026-09, `Asia/Seoul` → `2026-08-31T15:00:00Z` ~ `2026-09-30T15:00:00Z`(완료 확인 `SettlementPeriodTest`). 순수 계산이라 단위 테스트로 검증한다.
+- `Instant toExclusive(ZoneId zone)`: `end.plusDays(1).atStartOfDay(zone).toInstant()` — 다음 달 1일 00:00(미포함). 쿼리는 `confirmed_at < to`이고 기간 시작 조건이 없어 지난 기간에 남은 품목도 들어간다(SUB-18)
+- 2026-09, `Asia/Seoul` → `toExclusive` = `2026-09-30T15:00:00Z`(완료 확인 `SettlementPeriodTest`). 순수 계산이라 단위 테스트로 검증한다.
 
 **`SettlementItemRepository`** — domain 인터페이스 + infrastructure의 Spring Data 인터페이스에 native `@Query`(Part 2와 같은 방식). 조회 API용 목록 메서드는 3-4b에서 더한다.
 
 | 메서드 | 의미 | 입력 → 반환 |
 |---|---|---|
 | native `void insertIgnoringConflict(...)` | 구매확정 품목 한 건을 적재한다. `order_line_id` unique(`uk_settlement_item_order_line`, INV-07)와 충돌하면 `ON CONFLICT ON CONSTRAINT ... DO NOTHING`으로 조용히 건너뛴다 | `id`(`Ids.newId()`), `orderLineId`, `shopId`, `orderId`, `productId`, `amount`, `confirmedAt`, 시각 → 없음 |
-| `List<UUID> findShopIdsToSettle(Instant from, Instant to, UUID afterShopId, int limit)` | 기간 내 **미정산** 품목이 있는 가게 ID를 `afterShopId` 다음부터 오름차순으로 `limit`개 | → 가게 ID 목록(비면 끝) |
-| `void assign(UUID settlementId, UUID shopId, Instant from, Instant to, Instant now)` | 그 가게의 기간 내 미정산 품목에 이번 정산 ID를 붙인다. 품목 수는 `sumBySettlementId`가 센다 | → 없음 |
+| `List<UUID> findShopIdsToSettle(Instant to, UUID afterShopId, int limit)` | 기간 끝 전의 **미정산** 품목이 있는 가게 ID를 `afterShopId` 다음부터 오름차순으로 `limit`개 | → 가게 ID 목록(비면 끝) |
+| `void assign(UUID settlementId, UUID shopId, Instant to, Instant now)` | 그 가게의 기간 끝 전 미정산 품목에 이번 정산 ID를 붙인다. 품목 수는 `sumBySettlementId`가 센다 | → 없음 |
 | `SettlementSum sumBySettlementId(UUID settlementId)` | 이 정산 ID가 붙은 품목의 합계와 건수 | → `SettlementSum`(`getGrossAmount()`, `getItemCount()`) |
 
 - `sumBySettlementId`는 인터페이스 프로젝션으로 받는다(`SettlementSum`이 인터페이스인 이유다. native 쿼리는 `select new`를 쓸 수 없고, record 매핑은 확인되지 않아 별칭으로 매핑되는 인터페이스 프로젝션을 쓴다). SQL은 `SELECT COALESCE(SUM(amount), 0)::bigint AS "grossAmount", COUNT(*)::int AS "itemCount" FROM settlement.settlement_item WHERE settlement_id = :settlementId`다. PostgreSQL에서 `SUM(bigint)`은 `numeric`, `COUNT(*)`는 `bigint`라서 `::bigint`·`::int`로 캐스팅하고, 별칭은 따옴표로 감싸야 대소문자가 유지돼 getter 이름(`getGrossAmount` ↔ `grossAmount`)과 맞는다. 매핑이 틀리면 `SettlementServiceTest` 1번(합계 15000·건수 2)이 실패한다.
@@ -1271,7 +1273,8 @@ order 클래스 공통 준비: 판매자 `seller@test.com`(`signup` → `sellerI
 
 | 메서드 | 의미 | 입력 → 반환 |
 |---|---|---|
-| native `int insertIfAbsent(UUID id, UUID shopId, LocalDate start, LocalDate end, int bp, Instant now)` | 그 가게·기간의 정산 행을 만든다. `uk_settlement_shop_period`와 충돌하면 `ON CONFLICT ON CONSTRAINT ... DO NOTHING` | → 1(내가 만듦) / 0(이미 있음 = 이 기간은 이미 정산됨) |
+| native `int nextSeq(UUID shopId, LocalDate start)` | `SELECT COALESCE(MAX(seq), 0) + 1 FROM settlement.settlement WHERE shop_id = :shopId AND period_start = :start`(SUB-18) | → 다음 회차(첫 정산은 1) |
+| native `int insertIfAbsent(UUID id, UUID shopId, LocalDate start, LocalDate end, int seq, int bp, Instant now)` | 그 가게·기간·회차의 정산 행을 만든다. `uk_settlement_shop_period_seq`와 충돌하면 `ON CONFLICT ON CONSTRAINT ... DO NOTHING` | → 1(내가 만듦) / 0(같은 회차가 이미 있음) |
 | `Optional<Settlement> findById(UUID id)` | 정산 읽기 | |
 | `List<UUID> findIdsToPay(Collection<SettlementStatus> statuses, UUID afterId, Limit limit)` | 지급할 정산 ID를 `afterId` 다음부터 `limit`개 (`org.springframework.data.domain.Limit`) | → ID 목록 |
 
@@ -1280,11 +1283,11 @@ order 클래스 공통 준비: 판매자 `seller@test.com`(`signup` → `sellerI
 ```sql
 -- findShopIdsToSettle: 미정산 품목이 있는 가게 ID를 keyset으로
 SELECT DISTINCT shop_id FROM settlement.settlement_item
- WHERE settlement_id IS NULL AND confirmed_at >= :from AND confirmed_at < :to AND shop_id > :afterShopId
+ WHERE settlement_id IS NULL AND confirmed_at < :to AND shop_id > :afterShopId
  ORDER BY shop_id LIMIT :limit
 -- assign: 이번 정산 ID를 붙인다
 UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at = :now
- WHERE shop_id = :shopId AND settlement_id IS NULL AND confirmed_at >= :from AND confirmed_at < :to
+ WHERE shop_id = :shopId AND settlement_id IS NULL AND confirmed_at < :to
 ```
 - 첫 페이지의 `afterShopId`는 `'00000000-0000-0000-0000-000000000000'`
 
@@ -1295,7 +1298,7 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 | `JpaSettlementItemRepository` | `SettlementItemRepository`의 구현(Spring Data 인터페이스가 domain 인터페이스를 상속, native `@Query`, Part 2와 같은 방식). `settlement_item`에는 엔티티가 없어 `JpaRepository<엔티티, UUID>`를 상속할 수 없으므로 `@RepositoryDefinition(domainClass = Settlement.class, idClass = UUID.class)`를 붙여 저장소로 등록한다(`Repository`를 상속하거나 이 어노테이션이 없으면 Spring Data가 스캔하지 않아 빈이 없다. 메서드가 모두 `@Query`라서 `domainClass`는 형식상 값이다) |
 | `JpaSettlementRepository` | `SettlementRepository`의 구현 |
 | `OrderEventConsumer` | `order-line-confirmed`를 받는 `@KafkaListener` 어댑터. 의존성 `EventEnvelopes`, `InboxGuard`, `SettlementItemService`. 동작은 표 아래 |
-| `SettlementJob` | `@Scheduled(cron = "0 0 3 5 * *", zone = "Asia/Seoul")` → `jobRunner.run("settlement", () -> service.run(전월).settledShops())`. `전월`은 `YearMonth.now(clock.withZone(businessZone)).minusMonths(1)`처럼 업무 시간대 기준 현재 월에서 한 달을 뺀 값이다(`JobRunner.run`은 `Supplier<Integer>`를 받아 `settledShops()`를 처리 건수로 로그에 남긴다) |
+| `SettlementJob` | `@Scheduled(cron = "0 0 3 5 * *", zone = "Asia/Seoul")` → `jobRunner.runWaiting("settlement", () -> service.run(전월).settledShops())`(락을 못 잡으면 건너뛰지 않고 기다린다, SUB-18). `전월`은 `YearMonth.now(clock.withZone(businessZone)).minusMonths(1)`처럼 업무 시간대 기준 현재 월에서 한 달을 뺀 값이다(`JobRunner.run`은 `Supplier<Integer>`를 받아 `settledShops()`를 처리 건수로 로그에 남긴다) |
 
 - 적재 consumer 동작: `OrderEventConsumer`의 `@KafkaListener(topics = OrderTopics.ORDER_LINE_CONFIRMED, groupId = "settlement")` 메서드가 `parse(message, OrderLineConfirmedEvent.class)` → `inboxGuard.runOnce("settlement.order-line-confirmed", typed.envelope(), () -> itemService.register(typed.payload()))`.
 
@@ -1319,13 +1322,13 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 **정산 실행** — `SettlementService`의 동작.
 
 `public SettlementRunResult run(YearMonth month)` — `month`는 **정산 대상 월**이다(9월 구매확정분이면 `2026-09`). `SettlementJob`과 관리자 API가 부른다. `settledShops`는 이번 실행에서 정산을 새로 만든 가게 수다
-1. `period = SettlementPeriod.of(month)`, `from = period.fromInclusive(zone)`, `to = period.toExclusive(zone)` (`zone = businessProperties.businessZone()`)
-2. keyset 루프: `after`는 `00000000-0000-0000-0000-000000000000`에서 시작 → `shopIds = findShopIdsToSettle(from, to, after, 500)` → 비면 종료 → 각 가게 `try { created = tx.execute(s -> settleShop(shopId, period)) } catch (Exception e) { log }` → `created`가 `true`일 때만 `settledShops`를 올린다 → `after = 마지막 shopId`. 한 가게가 실패해도 `after`는 계속 전진시켜야 한다(안 그러면 같은 가게를 영원히 반복한다). 실패한 가게는 커밋된 것이 없어서 다음 실행(수동 실행 포함)이 다시 처리한다.
+1. `period = SettlementPeriod.of(month)`, `to = period.toExclusive(zone)` (`zone = businessProperties.businessZone()`)
+2. keyset 루프: `after`는 `00000000-0000-0000-0000-000000000000`에서 시작 → `shopIds = findShopIdsToSettle(to, after, 500)` → 비면 종료 → 각 가게 `try { created = tx.execute(s -> settleShop(shopId, period)) } catch (Exception e) { log }` → `created`가 `true`일 때만 `settledShops`를 올린다 → `after = 마지막 shopId`. 한 가게가 실패해도 `after`는 계속 전진시켜야 한다(안 그러면 같은 가게를 영원히 반복한다). 실패한 가게는 커밋된 것이 없어서 다음 실행(수동 실행 포함)이 다시 처리한다.
 3. `new SettlementRunResult(settledShops, 0, 0)`을 돌려준다(지급이 없어 `paid`·`payoutFailed`는 0)
 
 `boolean settleShop(shopId, period)` — 가게 하나의 정산을 만들고, 새로 만들었으면 `true`, 이미 있어 건너뛰었으면 `false`를 돌려준다. **한 트랜잭션**(`tx.execute` 안에서 호출. 같은 클래스 안에서 부르므로 `@Transactional`이 아니라 `TransactionTemplate`이 경계다)
-1. `id = Ids.newId()`, `insertIfAbsent(id, shopId, period.start(), period.end(), properties.feeRateBp(), now)` → 0이면 `return false`(이미 이 기간 정산이 있음. 그 경우 `assign`을 하지 않으므로 이미 끝난 정산에 품목이 더 붙지 않는다)
-2. `assign(id, shopId, from, to, now)` — 기간 내 미정산 품목에 `id`를 붙인다. 이 UPDATE가 끝나면 이 품목들은 다른 정산에 못 들어간다.
+1. `id = Ids.newId()`, `seq = nextSeq(shopId, period.start())`, `insertIfAbsent(id, shopId, period.start(), period.end(), seq, properties.feeRateBp(), now)` → 0이면 `return false`(같은 회차가 이미 있음. 그 경우 `assign`을 하지 않으므로 이미 끝난 정산에 품목이 더 붙지 않는다)
+2. `assign(id, shopId, to, now)` — 기간 끝 전의 미정산 품목에 `id`를 붙인다. 이 UPDATE가 끝나면 이 품목들은 다른 정산에 못 들어간다.
 3. `sum = sumBySettlementId(id)` — 이번 정산 ID가 **붙은** 품목으로 합계를 낸다(조건으로 다시 찾지 않으므로 2와 3 사이에 새 품목이 들어와도 숫자가 어긋나지 않는다)
 4. `settlement = findById(id)` → `settlement.calculate(Money.of(sum.getGrossAmount()), properties.feeRateBp(), sum.getItemCount())` → fee·net 계산, CALCULATED. 저장은 커밋 때 더티 체킹이다. `Settlement`의 금액 필드(`grossAmount`·`feeAmount`·`netAmount`)는 `Order.totalAmount`처럼 `Money`(컬럼은 bigint, `MoneyConverter`)이고 프로젝션의 합계는 `long`이라 `Money.of(...)`로 감싼다
 5. `return true`
@@ -1366,7 +1369,6 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 
 **1. 정산 기간의 경계 시각** — 동작: `SettlementPeriod period = SettlementPeriod.of(YearMonth.of(2026, 9))`, `ZoneId zone = ZoneId.of("Asia/Seoul")`.
 - 반환값(`SettlementPeriod`): `period.start()` = `LocalDate.of(2026, 9, 1)`, `period.end()` = `LocalDate.of(2026, 9, 30)`.
-- 반환값(`SettlementPeriod`): `period.fromInclusive(zone)` = `Instant.parse("2026-08-31T15:00:00Z")`.
 - 반환값(`SettlementPeriod`): `period.toExclusive(zone)` = `Instant.parse("2026-09-30T15:00:00Z")`.
 
 **2. 수수료는 원 미만 내림** — 준비: `Settlement settlement = BeanUtils.instantiateClass(Settlement.class)`(`org.springframework.beans.BeanUtils`). 동작: `settlement.calculate(Money.of(gross), bp, itemCount)`. 값은 `getGrossAmount().amount()`·`getFeeAmount().amount()`·`getNetAmount().amount()`(`Money`), `getFeeRateBp()`, `getItemCount()`로 읽는다.
@@ -1406,10 +1408,9 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 - DB(`countOf("settlement.settlement")`): 첫 `run` 뒤 3.
 - DB(`settlementSnapshotOf(shopId)`): 세 가게의 값을 첫 `run` 뒤에 `List`로 모아 두고(`before`) 둘째 `run` 뒤에 다시 모으면(`after`) `after`가 `before`와 같다(`isEqualTo`).
 
-**3. 정산 뒤에 늦게 도착한 전월 품목은 들어가지 않는다** — 준비: 가게 1곳 × 품목 2개(각 7,500원) → `run`. 이어서 같은 가게의 9월 15일 확정 품목을 `insertSettlementItem(shopId, 7500, 위 확정 시각)`으로 하나 더 넣는다(`lateLineId`). 동작: `run`을 다시(결과를 `second`로 받는다).
-- 반환값(`second.settledShops()`): 0.
-- DB(`settlementSnapshotOf(shopId)`): 다시 한 `run` 뒤에도 첫 `run` 뒤와 같은 정산 1건, `grossAmount()` = 15000, `itemCount()` = 2.
-- DB(`settlementItemSnapshotOf(lateLineId)`): `settlementId()`가 `isNull()`.
+**3. 정산 뒤 늦게 적재된 품목은 같은 달을 다시 실행하면 2회차로 정산된다** — 준비: 가게 1곳 × 품목 2개(각 7,500원) → `run`. 이어서 같은 가게의 9월 15일 확정 품목을 `insertSettlementItem(shopId, 7500, 위 확정 시각)`으로 하나 더 넣는다. 동작: `run`을 다시(결과를 `second`로 받는다). 다음 달 정산과 1회차 불변은 [SUB-18 완료 확인](../04-sub/settlement-late-items.md)이 확인한다.
+- 반환값(`second.settledShops()`): 1.
+- DB(`settlementSnapshotOf(shopId, YearMonth.of(2026, 9), 2)`): `grossAmount()` = 7500, `itemCount()` = 1.
 
 **4. 기간 경계** — 준비: 가게 1곳에 품목 4개를 `insertSettlementItem`으로 넣는다.
 

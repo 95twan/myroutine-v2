@@ -10,9 +10,9 @@ import java.util.UUID;
 public interface SettlementItemRepository {
     void insertIgnoringConflict(UUID id, UUID orderLineId, UUID shopId, UUID orderId, UUID shopOrderId, UUID productId, String productName, int quantity, long amount, Instant confirmedAt, Instant now);
 
-    List<UUID> findShopIdsToSettle(Instant from, Instant to, UUID afterShopId, int limit);
+    List<UUID> findShopIdsToSettle(Instant to, UUID afterShopId, int limit);
 
-    void assign(UUID settlementId, UUID shopId, Instant from, Instant to, Instant now);
+    void assign(UUID settlementId, UUID shopId, Instant to, Instant now);
 
     SettlementSum sumBySettlementId(UUID settlementId);
 

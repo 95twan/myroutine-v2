@@ -721,9 +721,10 @@ public class TestFixtures {
 
     public SettlementSnapshot settlementSnapshotOf(UUID shopId, YearMonth month) {
         List<SettlementSnapshot> snapshots = jdbcTemplate.query("""
-                        SELECT id, period_start, period_end, status, gross_amount, fee_amount, net_amount, fee_rate_bp, item_count, payout_attempts, payout_reference, last_error, paid_at
+                        SELECT id, period_start, period_end, seq, status, gross_amount, fee_amount, net_amount, fee_rate_bp, item_count, payout_attempts, payout_reference, last_error, paid_at
                         FROM settlement.settlement
                         WHERE shop_id = ? AND period_start = ?
+                        ORDER BY seq
                         """,
                 (rs, rowNum) -> {
                     Instant paidAt = rs.getTimestamp("paid_at") != null ? rs.getTimestamp("paid_at").toInstant() : null;
@@ -731,7 +732,8 @@ public class TestFixtures {
                     List<ItemState> items = jdbcTemplate.query("""
                                     SELECT order_line_id, amount, confirmed_at
                                     FROM settlement.settlement_item
-                                    WHERE settlement_id = ? ORDER BY confirmed_at, order_line_id
+                                    WHERE settlement_id = ?
+                                    ORDER BY confirmed_at, order_line_id
                                     """,
                             (r, n) -> new ItemState(
                                     r.getObject("order_line_id", UUID.class),
@@ -743,6 +745,7 @@ public class TestFixtures {
                             settlementId,
                             rs.getDate("period_start").toLocalDate(),
                             rs.getDate("period_end").toLocalDate(),
+                            rs.getInt("seq"),
                             rs.getString("status"),
                             rs.getString("payout_reference"),
                             rs.getString("last_error"),
@@ -766,11 +769,11 @@ public class TestFixtures {
         return snapshots.getFirst();
     }
 
-    public SettlementSnapshot settlementSnapshotOf(UUID shopId) {
+    public SettlementSnapshot settlementSnapshotOf(UUID shopId, YearMonth month, int seq) {
         List<SettlementSnapshot> snapshots = jdbcTemplate.query("""
-                        SELECT id, period_start, period_end, status, gross_amount, fee_amount, net_amount, fee_rate_bp, item_count, payout_attempts, payout_reference, last_error, paid_at
+                        SELECT id, period_start, period_end, seq, status, gross_amount, fee_amount, net_amount, fee_rate_bp, item_count, payout_attempts, payout_reference, last_error, paid_at
                         FROM settlement.settlement
-                        WHERE shop_id = ?
+                        WHERE shop_id = ? AND period_start = ? AND seq = ?
                         """,
                 (rs, rowNum) -> {
                     Instant paidAt = rs.getTimestamp("paid_at") != null ? rs.getTimestamp("paid_at").toInstant() : null;
@@ -778,7 +781,8 @@ public class TestFixtures {
                     List<ItemState> items = jdbcTemplate.query("""
                                     SELECT order_line_id, amount, confirmed_at
                                     FROM settlement.settlement_item
-                                    WHERE settlement_id = ? ORDER BY confirmed_at, order_line_id
+                                    WHERE settlement_id = ?
+                                    ORDER BY confirmed_at, order_line_id
                                     """,
                             (r, n) -> new ItemState(
                                     r.getObject("order_line_id", UUID.class),
@@ -790,6 +794,56 @@ public class TestFixtures {
                             settlementId,
                             rs.getDate("period_start").toLocalDate(),
                             rs.getDate("period_end").toLocalDate(),
+                            rs.getInt("seq"),
+                            rs.getString("status"),
+                            rs.getString("payout_reference"),
+                            rs.getString("last_error"),
+                            rs.getLong("gross_amount"),
+                            rs.getLong("fee_amount"),
+                            rs.getLong("net_amount"),
+                            rs.getInt("fee_rate_bp"),
+                            rs.getInt("item_count"),
+                            rs.getInt("payout_attempts"),
+                            paidAt,
+                            items
+                    );
+                },
+                shopId, month.atDay(1), seq
+        );
+
+        if (snapshots.isEmpty()) {
+            return null;
+        }
+
+        return snapshots.getFirst();
+    }
+
+    public SettlementSnapshot settlementSnapshotOf(UUID shopId) {
+        List<SettlementSnapshot> snapshots = jdbcTemplate.query("""
+                        SELECT id, period_start, period_end, seq, status, gross_amount, fee_amount, net_amount, fee_rate_bp, item_count, payout_attempts, payout_reference, last_error, paid_at
+                        FROM settlement.settlement
+                        WHERE shop_id = ?
+                        """,
+                (rs, rowNum) -> {
+                    Instant paidAt = rs.getTimestamp("paid_at") != null ? rs.getTimestamp("paid_at").toInstant() : null;
+                    UUID settlementId = rs.getObject("id", UUID.class);
+                    List<ItemState> items = jdbcTemplate.query("""
+                                    SELECT order_line_id, amount, confirmed_at
+                                    FROM settlement.settlement_item
+                                    WHERE settlement_id = ?
+                                    ORDER BY confirmed_at, order_line_id
+                                    """,
+                            (r, n) -> new ItemState(
+                                    r.getObject("order_line_id", UUID.class),
+                                    r.getLong("amount"),
+                                    r.getTimestamp("confirmed_at").toInstant()
+                            ),
+                            settlementId);
+                    return new SettlementSnapshot(
+                            settlementId,
+                            rs.getDate("period_start").toLocalDate(),
+                            rs.getDate("period_end").toLocalDate(),
+                            rs.getInt("seq"),
                             rs.getString("status"),
                             rs.getString("payout_reference"),
                             rs.getString("last_error"),
