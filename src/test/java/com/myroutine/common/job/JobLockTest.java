@@ -8,7 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.List;
-import java.util.concurrent.Callable;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -42,7 +43,9 @@ class JobLockTest extends IntegrationTestSupport {
     @Test
     @DisplayName("작업이 예외를 던져도 락이 풀려 다음 호출은 작업을 실행한다.")
     void runExclusivelyReleasesLockWhenTaskThrows() {
-        assertThatThrownBy(() -> jobLock.runExclusively("job", () -> { throw new RuntimeException(); }))
+        assertThatThrownBy(() -> jobLock.runExclusively("job", () -> {
+            throw new RuntimeException();
+        }))
                 .isInstanceOf(RuntimeException.class);
 
         Integer held = jdbcTemplate.queryForObject(
@@ -61,12 +64,12 @@ class JobLockTest extends IntegrationTestSupport {
     void runExclusivelyDoesNotBlockDifferentJobName() throws InterruptedException {
 
         Callable<Boolean> task1 = () -> jobLock.runExclusively("job1", () -> {
-                    try {
-                        Thread.sleep(500);   // 락을 쥔 채로 다른 스레드가 시도할 시간을 준다
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                });
+            try {
+                Thread.sleep(500);   // 락을 쥔 채로 다른 스레드가 시도할 시간을 준다
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
         Callable<Boolean> task2 = () -> jobLock.runExclusively("job2", () -> {
             try {
                 Thread.sleep(500);   // 락을 쥔 채로 다른 스레드가 시도할 시간을 준다
@@ -79,5 +82,38 @@ class JobLockTest extends IntegrationTestSupport {
 
         assertThat(results).allMatch(ConcurrencyRunner.Result::ok);
         assertThat(results.stream().filter(ConcurrencyRunner.Result::value).count()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("기다리는 실행은 다른 실행이 락을 풀면 작업을 실행한다.")
+    void runWaitingRunsAfterLockReleased() throws Exception {
+        // Given
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicBoolean ran = new AtomicBoolean(false);
+        CompletableFuture<Boolean> holder = CompletableFuture.supplyAsync(() ->
+                jobLock.runExclusively("job", () -> {
+                    entered.countDown();
+                    try {
+                        release.await(5, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                })
+        );
+
+        entered.await(5, TimeUnit.SECONDS);
+
+        // When & Then
+        CompletableFuture<Void> waiter = CompletableFuture.runAsync(() -> jobLock.runWaiting("job", () -> ran.set(true)));
+        assertThatThrownBy(() -> waiter.get(300, TimeUnit.MILLISECONDS))
+                .isInstanceOf(TimeoutException.class);
+        assertThat(ran.get()).isFalse();
+
+        release.countDown();
+
+        holder.get(10, TimeUnit.SECONDS);
+        waiter.get(10, TimeUnit.SECONDS);
+        assertThat(ran.get()).isTrue();
     }
 }
