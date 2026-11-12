@@ -4,7 +4,8 @@ import com.myroutine.common.error.ErrorCode;
 import org.springframework.http.HttpStatus;
 
 public enum SettlementErrorCode implements ErrorCode {
-    SETTLEMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "정산 내역을 찾을 수 없습니다.");
+    SETTLEMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "정산 내역을 찾을 수 없습니다."),
+    SETTLEMENT_RUN_IN_PROGRESS(HttpStatus.CONFLICT, "정산이 실행 중입니다.");
 
     private final HttpStatus status;
     private final String message;

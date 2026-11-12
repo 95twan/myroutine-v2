@@ -9,6 +9,7 @@ public record SettlementSnapshot(
         UUID id,
         LocalDate periodStart,
         LocalDate periodEnd,
+        int seq,
         String status,
         String payoutReference,
         String lastError,

@@ -30,6 +30,9 @@ public class Settlement extends BaseTimeEntity {
     @Column(name = "period_end", nullable = false)
     private LocalDate periodEnd;
 
+    @Column(name = "seq", nullable = false)
+    private int seq;
+
     @Column(name = "gross_amount", nullable = false)
     private Money grossAmount;
 

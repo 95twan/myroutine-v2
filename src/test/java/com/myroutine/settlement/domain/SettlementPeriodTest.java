@@ -28,13 +28,11 @@ class SettlementPeriodTest {
         // When
         LocalDate start = period.start();
         LocalDate end = period.end();
-        Instant from = period.fromInclusive(zone);
         Instant to = period.toExclusive(zone);
 
         // Then
         assertThat(start).isEqualTo(LocalDate.of(2026, 10, 1));
         assertThat(end).isEqualTo(LocalDate.of(2026, 10, 31));
-        assertThat(from).isEqualTo(Instant.parse("2026-09-30T15:00:00Z"));
         assertThat(to).isEqualTo(Instant.parse("2026-10-31T15:00:00Z"));
 
     }

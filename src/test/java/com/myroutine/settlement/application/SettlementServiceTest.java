@@ -95,8 +95,8 @@ class SettlementServiceTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("정산 뒤에 늦게 도착한 전월 품목은 정산에 넣지 않는다.")
-    void lateItemIsNotIncluded() {
+    @DisplayName("정산 뒤 늦게 적재된 품목은 같은 달을 다시 실행하면 2회차로 정산한다.")
+    void lateItemIsSettledInNextSeq() {
         // Given
         UUID shopId = Ids.newId();
         testFixtures.insertSettlementItems(List.of(shopId), 2, 7500, Instant.parse("2026-09-15T03:00:00Z"));
@@ -104,14 +104,13 @@ class SettlementServiceTest extends IntegrationTestSupport {
         // When & Then
         settlementService.run(YearMonth.of(2026, 9));
 
-        UUID lastLineId = testFixtures.insertSettlementItem(shopId, 7500, Instant.parse("2026-09-15T03:00:00Z"));
+        testFixtures.insertSettlementItem(shopId, 7500, Instant.parse("2026-09-15T03:00:00Z"));
 
         SettlementRunResult second = settlementService.run(YearMonth.of(2026, 9));
 
-        assertThat(second.settledShops()).isEqualTo(0);
-        assertThat(testFixtures.settlementSnapshotOf(shopId).grossAmount()).isEqualTo(15000);
-        assertThat(testFixtures.settlementSnapshotOf(shopId).itemCount()).isEqualTo(2);
-        assertThat(testFixtures.settlementItemSnapshotOf(lastLineId).settlementId()).isNull();
+        assertThat(second.settledShops()).isEqualTo(1);
+        assertThat(testFixtures.settlementSnapshotOf(shopId, YearMonth.of(2026, 9), 2).grossAmount()).isEqualTo(7500);
+        assertThat(testFixtures.settlementSnapshotOf(shopId, YearMonth.of(2026, 9), 2).itemCount()).isEqualTo(1);
     }
 
     @Test
@@ -154,7 +153,7 @@ class SettlementServiceTest extends IntegrationTestSupport {
         UUID badShopId = jdbcTemplate.queryForObject("SELECT shop_id FROM settlement.settlement_item ORDER BY shop_id LIMIT 1", UUID.class);
         willThrow(new RuntimeException("test"))
                 .given(settlementRepository)
-                .insertIfAbsent(any(), eq(badShopId), any(), any(), anyInt(), any());
+                .insertIfAbsent(any(), eq(badShopId), any(), any(), anyInt(), anyInt(), any());
 
         // When & Then
         SettlementRunResult result = settlementService.run(YearMonth.of(2026, 9));
@@ -283,5 +282,40 @@ class SettlementServiceTest extends IntegrationTestSupport {
         List<PayoutCall> calls = payoutGateway.calls();
         assertThat(calls).hasSize(2);
         assertThat(calls.get(0).settlementId()).isEqualTo(calls.get(1).settlementId());
+    }
+
+    @Test
+    @DisplayName("늦게 적재된 품목은 다음 달 정산에 넣는다.")
+    void lateItemIsSettledInNextMonth() {
+        // Given
+        UUID shopId = Ids.newId();
+        testFixtures.insertSettlementItems(List.of(shopId), 2, 7500, Instant.parse("2026-09-15T03:00:00Z"));
+        settlementService.run(YearMonth.of(2026, 9));
+
+        testFixtures.insertSettlementItem(shopId, 7500, Instant.parse("2026-09-15T03:00:00Z"));
+        testFixtures.insertSettlementItem(shopId, 5000, Instant.parse("2026-10-15T03:00:00Z"));
+
+        // When & Then
+        settlementService.run(YearMonth.of(2026, 10));
+
+        assertThat(testFixtures.settlementSnapshotOf(shopId, YearMonth.of(2026, 10)).grossAmount()).isEqualTo(12500);
+        assertThat(testFixtures.settlementSnapshotOf(shopId, YearMonth.of(2026, 10)).itemCount()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("2회차를 만들어도 1회차는 바꾸지 않는다.")
+    void secondSeqDoesNotChangeFirstSeq() {
+        // Given
+        UUID shopId = Ids.newId();
+        testFixtures.insertSettlementItems(List.of(shopId), 2, 7500, Instant.parse("2026-09-15T03:00:00Z"));
+        settlementService.run(YearMonth.of(2026, 9));
+
+        testFixtures.insertSettlementItem(shopId, 7500, Instant.parse("2026-09-15T03:00:00Z"));
+
+        // When & Then
+        settlementService.run(YearMonth.of(2026, 9));
+
+        assertThat(testFixtures.settlementSnapshotOf(shopId, YearMonth.of(2026, 9), 1).grossAmount()).isEqualTo(15000);
+        assertThat(testFixtures.settlementSnapshotOf(shopId, YearMonth.of(2026, 9), 1).itemCount()).isEqualTo(2);
     }
 }

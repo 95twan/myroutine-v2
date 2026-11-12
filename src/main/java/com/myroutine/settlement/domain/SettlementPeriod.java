@@ -13,10 +13,6 @@ public record SettlementPeriod(
         return new SettlementPeriod(month.atDay(1), month.atEndOfMonth());
     }
 
-    public Instant fromInclusive(ZoneId zone) {
-        return start.atStartOfDay(zone).toInstant();
-    }
-
     public Instant toExclusive(ZoneId zone) {
         return end.plusDays(1).atStartOfDay(zone).toInstant();
     }

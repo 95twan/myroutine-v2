@@ -10,7 +10,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface SettlementRepository {
-    int insertIfAbsent(UUID id, UUID shopId, LocalDate start, LocalDate end, int bp, Instant now);
+    int insertIfAbsent(UUID id, UUID shopId, LocalDate start, LocalDate end, int seq, int bp, Instant now);
 
     Optional<Settlement> findById(UUID id);
 
@@ -25,4 +25,6 @@ public interface SettlementRepository {
     List<Settlement> findByStatusFirstPage(SettlementStatus status, Limit limit);
 
     List<Settlement> findByStatusNextPage(SettlementStatus status, Instant cursorCreatedAt, UUID cursorId, Limit limit);
+
+    int nextSeq(UUID shopId, LocalDate start);
 }

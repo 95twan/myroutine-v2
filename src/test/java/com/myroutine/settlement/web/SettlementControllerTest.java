@@ -1,6 +1,7 @@
 package com.myroutine.settlement.web;
 
 import com.jayway.jsonpath.JsonPath;
+import com.myroutine.common.job.JobLock;
 import com.myroutine.common.model.Ids;
 import com.myroutine.settlement.application.SettlementService;
 import com.myroutine.support.IntegrationTestSupport;
@@ -16,6 +17,9 @@ import java.time.Instant;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.*;
@@ -30,12 +34,14 @@ class SettlementControllerTest extends IntegrationTestSupport {
     private final MockMvc mockMvc;
     private final TestFixtures testFixtures;
     private final SettlementService settlementService;
+    private final JobLock jobLock;
 
     @Autowired
-    public SettlementControllerTest(MockMvc mockMvc, TestFixtures testFixtures, SettlementService settlementService) {
+    public SettlementControllerTest(MockMvc mockMvc, TestFixtures testFixtures, SettlementService settlementService, JobLock jobLock) {
         this.mockMvc = mockMvc;
         this.testFixtures = testFixtures;
         this.settlementService = settlementService;
+        this.jobLock = jobLock;
     }
 
     @Test
@@ -329,5 +335,72 @@ class SettlementControllerTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.items.items").value(hasSize(1)))
                 .andExpect(jsonPath("$.items.items[0].orderLineId").value(orderLine3Id.toString()))
                 .andExpect(jsonPath("$.items.nextCursor").value(nullValue()));
+    }
+
+    @Test
+    @DisplayName("같은 기간의 정산을 회차로 구분해 조회한다.")
+    void getSettlementsDistinguishedBySeq() throws Exception {
+        // Given
+        UUID sellerId = testFixtures.signup("seller@test.com");
+        String token = testFixtures.login("seller@test.com");
+        UUID shopId = testFixtures.openShop(sellerId, "1111111111");
+
+        Instant confirmedAt = Instant.parse("2026-09-15T03:00:00Z");
+        testFixtures.insertSettlementItem(shopId, 7500, confirmedAt);
+        testFixtures.insertSettlementItem(shopId, 7500, confirmedAt);
+        settlementService.run(YearMonth.of(2026, 9));
+
+        testFixtures.insertSettlementItem(shopId, 7500, confirmedAt);
+        settlementService.run(YearMonth.of(2026, 9));
+
+        // When & Then
+        mockMvc.perform(get("/api/shops/{shopId}/settlements", shopId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].seq").value(2))
+                .andExpect(jsonPath("$.items[1].seq").value(1));
+    }
+
+    @Test
+    @DisplayName("정산이 실행 중일 때 관리자가 정산을 수동 실행하면 실패한다. (409 SETTLEMENT_RUN_IN_PROGRESS)")
+    void runWhileRunningFails() throws Exception {
+        // Given
+        UUID sellerId = testFixtures.signup("seller@test.com");
+        UUID shopId = testFixtures.openShop(sellerId, "1111111111");
+
+        Instant confirmedAt = Instant.parse("2026-09-15T03:00:00Z");
+        testFixtures.insertSettlementItem(shopId, 7500, confirmedAt);
+        testFixtures.insertSettlementItem(shopId, 7500, confirmedAt);
+
+        UUID adminId = testFixtures.signup("admin@test.com");
+        testFixtures.changeRole(adminId, "ADMIN");
+        String token = testFixtures.login("admin@test.com");
+
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CompletableFuture<Boolean> holder = CompletableFuture.supplyAsync(() ->
+                jobLock.runExclusively("settlement", () -> {
+                    entered.countDown();
+                    try {
+                        release.await(5, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                })
+        );
+
+        entered.await(5, TimeUnit.SECONDS);
+
+        // When & Then
+        mockMvc.perform(post("/admin/api/settlements/run")
+                        .param("period", "2026-09")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SETTLEMENT_RUN_IN_PROGRESS"));
+
+        assertThat(testFixtures.countOf("settlement.settlement")).isEqualTo(0);
+
+        release.countDown();
+        holder.get(10, TimeUnit.SECONDS);
     }
 }
