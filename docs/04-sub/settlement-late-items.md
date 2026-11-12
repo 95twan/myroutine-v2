@@ -104,7 +104,7 @@ ALTER TABLE settlement.settlement ADD CONSTRAINT ck_settlement_seq CHECK (seq >=
 - DB(`settlementSnapshotOf(shopId, YearMonth.of(2026, 10))`): `grossAmount()` = 12500, `itemCount()` = 2.
 
 **12. 2회차를 만들어도 1회차는 바뀌지 않는다** — 준비와 동작은 3번과 같다.
-- DB(`settlementSnapshotOf(shopId, YearMonth.of(2026, 9), 1)`): `grossAmount()` = 15000, `itemCount()` = 2.
+- DB(`settlementSnapshotOf(shopId, YearMonth.of(2026, 9), 1)`): `grossAmount()` = 15000, `itemCount()` = 2, `items()`가 `hasSize(2)`. `grossAmount`·`itemCount`는 정산할 때 저장한 값이라 2회차가 1회차의 품목을 가져가도 그대로이므로, 1회차에 붙은 품목은 `items()`로 확인한다.
 
 #### `common/job/JobLockTest`
 
