@@ -336,4 +336,28 @@ class NotificationFlowTest extends IntegrationTestSupport {
         assertThat(n.status()).isEqualTo("FAILED");
         assertThat(mailSender.sent()).hasSize(5);
     }
+
+    @Test
+    @DisplayName("리플레이된 이벤트의 알림은 이벤트가 일어난 시각을 저장한다.")
+    void replayedEventKeepsOccurredAt() {
+        fail("구현 필요");
+    }
+
+    @Test
+    @DisplayName("24시간이 지난 진행 알림은 보내지 않고 EXPIRED로 바꾼다.")
+    void expiredProgressNotificationIsNotSent() {
+        fail("구현 필요");
+    }
+
+    @Test
+    @DisplayName("24시간이 지나지 않은 진행 알림은 보낸다.")
+    void progressNotificationWithin24HoursIsSent() {
+        fail("구현 필요");
+    }
+
+    @Test
+    @DisplayName("24시간이 지난 환불 알림은 보낸다.")
+    void refundNotificationAfter24HoursIsSent() {
+        fail("구현 필요");
+    }
 }
