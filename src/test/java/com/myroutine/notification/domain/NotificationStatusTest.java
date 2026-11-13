@@ -33,6 +33,7 @@ class NotificationStatusTest {
         return Stream.of(
                 Arguments.of(NotificationStatus.PENDING, NotificationStatus.SENT),
                 Arguments.of(NotificationStatus.PENDING, NotificationStatus.FAILED),
+                Arguments.of(NotificationStatus.PENDING, NotificationStatus.EXPIRED),
                 Arguments.of(NotificationStatus.FAILED, NotificationStatus.PENDING)
         );
     }

@@ -49,6 +49,9 @@ public class Notification extends BaseTimeEntity {
     @Column(name = "status", nullable = false)
     private NotificationStatus status;
 
+    @Column(name = "occurred_at", nullable = false)
+    private Instant occurredAt;
+
     @Column(name = "attempts", nullable = false)
     private int attempts;
 
@@ -78,5 +81,13 @@ public class Notification extends BaseTimeEntity {
         } else {
             this.nextAttemptAt = now.plus(Duration.ofMinutes(RETRY_DELAY));
         }
+    }
+
+    public boolean isExpired(Instant now) {
+        return this.type.getValidity() != null && now.isAfter(this.occurredAt.plus(this.type.getValidity()));
+    }
+
+    public void markExpired() {
+        this.status = this.status.transitTo(NotificationStatus.EXPIRED);
     }
 }

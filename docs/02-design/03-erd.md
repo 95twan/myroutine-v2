@@ -1,5 +1,6 @@
 # 03. ERD (Stage 1)
 
+> 2026-11-14: `notification.occurred_at`(이벤트가 일어난 시각)과 상태 `EXPIRED`를 더했다(서브 SUB-21)
 > 2026-11-13: `settlement.seq`(같은 가게·기간의 정산 회차)를 더하고 유니크 키를 `(shop_id, period_start, seq)`로 바꿨다. 정산 실행은 기간 끝 전의 미정산 품목을 모두 넣는다(서브 SUB-18)
 > 2026-11-09: `refund.close_reason`(관리자 종결 사유)을 더했다. `reject_reason`은 판매자 거절 사유만 담는다(서브 SUB-17)
 > 2026-10-31: `member.banned_at`(제재 시각)을 더했다(로드맵 4-4)
@@ -431,7 +432,8 @@ erDiagram
     varchar title
     text body "생성 시점에 문구 확정"
     varchar dedup_key UK "이벤트ID:수신자ID:종류"
-    varchar status "PENDING, SENT, FAILED"
+    timestamptz occurred_at "이벤트 봉투 occurredAt, 만료 기준"
+    varchar status "PENDING, SENT, FAILED, EXPIRED"
     int attempts
     text last_error
     timestamptz next_attempt_at

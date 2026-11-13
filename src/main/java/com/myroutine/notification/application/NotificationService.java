@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -32,7 +33,7 @@ public class NotificationService {
     private final Clock clock;
 
     @Transactional
-    public void enqueue(UUID eventId, List<NotificationDraft> drafts) {
+    public void enqueue(UUID eventId, Instant occurredAt, List<NotificationDraft> drafts) {
         for (NotificationDraft draft : drafts) {
             UUID memberId;
             String recipient;
@@ -59,6 +60,7 @@ public class NotificationService {
                     draft.title(),
                     draft.body(),
                     eventId + ":" + recipientId + ":" + draft.type(),
+                    occurredAt,
                     clock.instant()
             );
         }

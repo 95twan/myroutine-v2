@@ -17,12 +17,12 @@ public interface JpaNotificationRepository extends JpaRepository<Notification, U
     @Query(
             nativeQuery = true,
             value = """
-                    INSERT INTO notification.notification (id, member_id, type, recipient, title, body, dedup_key, status, next_attempt_at, version, created_at, updated_at)
-                    VALUES (:id, :memberId, :type, :recipient, :title, :body, :dedupKey, 'PENDING', :now, 0, :now, :now)
+                    INSERT INTO notification.notification (id, member_id, type, recipient, title, body, dedup_key, status, next_attempt_at, version, occurred_at, created_at, updated_at)
+                    VALUES (:id, :memberId, :type, :recipient, :title, :body, :dedupKey, 'PENDING', :now, 0, :occurredAt, :now, :now)
                     ON CONFLICT ON CONSTRAINT uk_notification_dedup_key DO NOTHING
                     """
     )
-    int insertIfAbsent(UUID id, UUID memberId, String type, String recipient, String title, String body, String dedupKey, Instant now);
+    int insertIfAbsent(UUID id, UUID memberId, String type, String recipient, String title, String body, String dedupKey, Instant occurredAt, Instant now);
 
     @Query("""
             select n

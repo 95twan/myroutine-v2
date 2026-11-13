@@ -12,6 +12,7 @@ public record NotificationRow(
         String status,
         String lastError,
         String dedupKey,
+        Instant occurredAt,
         int attempts,
         Instant sentAt,
         Instant nextAttemptAt,

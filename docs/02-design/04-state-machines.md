@@ -1,5 +1,6 @@
 # 04. 상태머신
 
+> 2026-11-14: 알림에 끝 상태 `EXPIRED`(`PENDING → EXPIRED`, 유효 시간이 지난 알림)를 더했다(서브 SUB-21)
 > 2026-11-05: 환불에 관리자 종결 `FAILED → REJECTED`를 더하고 `FAILED`를 활성 환불로 정했다(발송·구매자 재취소를 막는다, 로드맵 6-3)
 > 2026-10-19: 엔티티 사이의 상태 조합과 도달 경로는 [10-state-combinations](10-state-combinations.md)로 모았다(전이는 이 문서, 조합은 그 문서)
 > 2026-10-13: 주문의 `PAYMENT_FAILED`·`EXPIRED`·`CANCELLED`는 "끝난 원인", 가게주문·품목의 `CANCELLED`는 원인과 무관한 "이행하지 않음"임을 핵심 규칙에 적었다
@@ -187,7 +188,7 @@ stateDiagram-v2
 | product | ON_SALE, HIDDEN, DISCONTINUED | ON_SALE⇄HIDDEN, 둘 다 → DISCONTINUED(종결) |
 | settlement | CALCULATED, PAID, PAYOUT_FAILED | CALCULATED→PAID / PAYOUT_FAILED→PAID(재시도) |
 | outbox_event | READY, PROCESSING, SENT, DEAD | READY→PROCESSING(선점, locked_until)→SENT / 실패 시 READY(10초 뒤 재시도) / 10번 실패하면 DEAD(관리 API로 READY 복귀, 6-3). locked_until 경과한 PROCESSING은 READY로 회수 |
-| notification | PENDING, SENT, FAILED | 실패하면 5분 뒤 재시도, 5번 실패하면 FAILED(관리 API로 PENDING 복귀, 6-3) |
+| notification | PENDING, SENT, FAILED, EXPIRED | 실패하면 5분 뒤 재시도, 5번 실패하면 FAILED(관리 API로 PENDING 복귀, 6-3). 발송 전에 종류별 유효 시간이 지났으면 PENDING→EXPIRED(끝 상태, 서브 SUB-21) |
 | payment_cancel | REQUESTED, DONE, FAILED, UNKNOWN | REQUESTED·UNKNOWN → DONE·FAILED·UNKNOWN(PG 취소 결과, 조건부 UPDATE). 같은 멱등 키로 다시 부르면 DONE·FAILED는 저장된 결과를 돌려준다 |
 | idempotency_key | PROCESSING, COMPLETED | 요청을 처리하는 동안 PROCESSING, 2xx 응답이면 COMPLETED(응답 저장). 실패 응답이나 예외면 행을 지워 같은 키로 다시 시도할 수 있다. 만료(24시간)된 키는 다시 쓰일 때 지운다 |
 | inquiry | OPEN, ANSWERED | OPEN→ANSWERED(관리자 답변, 행 잠금). 답변 전에만 작성자가 수정·삭제한다 |

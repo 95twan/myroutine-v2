@@ -149,8 +149,8 @@ class LogFlowTest extends IntegrationTestSupport {
         UUID notificationId = Ids.newId();
         jdbcTemplate.update("""
                         INSERT INTO notification.notification
-                            (id, member_id, type, channel, recipient, title, body, dedup_key, status, attempts, next_attempt_at, version, created_at, updated_at)
-                        VALUES (?, ?, 'ORDER_PAID', 'EMAIL', 'buyer@test.com', 't', 'b', ?, 'PENDING', 0, now() - interval '1 hour', 0, now(), now())
+                            (id, member_id, type, channel, recipient, title, body, dedup_key, occurred_at, status, attempts, next_attempt_at, version, created_at, updated_at)
+                        VALUES (?, ?, 'ORDER_PAID', 'EMAIL', 'buyer@test.com', 't', 'b', ?, now(), 'PENDING', 0, now() - interval '1 hour', 0, now(), now())
                         """,
                 notificationId, Ids.newId(), "log-flow-" + notificationId);
 
