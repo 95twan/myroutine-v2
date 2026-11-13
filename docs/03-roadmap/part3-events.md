@@ -1,6 +1,7 @@
 # Part 3. 이벤트
 
-> 버전 0.77 · 2026-11-13 · 3-4 정산 대상에서 기간 시작 조건을 빼고 정산에 회차 `seq`를 두어, 정산 뒤 적재된 품목은 그 기간을 다시 실행하면 다음 회차로, 아니면 다음 달 정산으로 들어간다. 관리자 실행은 정기 정산과 같은 락을 잡고 실행 중이면 409 `SETTLEMENT_RUN_IN_PROGRESS`, 정기 정산은 락을 기다린다(서브 SUB-18)
+> 버전 0.78 · 2026-11-14 · 3-5 알림에 이벤트가 일어난 시각 `occurred_at`과 상태 `EXPIRED`를 더했다. 발송 잡은 종류별 유효 시간(진행 알림 24시간, 환불·정산 지급·제재는 만료 없음)이 지난 알림을 보내지 않고 `EXPIRED`로 바꾼다(서브 SUB-21)
+> 0.77 · 2026-11-13 · 3-4 정산 대상에서 기간 시작 조건을 빼고 정산에 회차 `seq`를 두어, 정산 뒤 적재된 품목은 그 기간을 다시 실행하면 다음 회차로, 아니면 다음 달 정산으로 들어간다. 관리자 실행은 정기 정산과 같은 락을 잡고 실행 중이면 409 `SETTLEMENT_RUN_IN_PROGRESS`, 정기 정산은 락을 기다린다(서브 SUB-18)
 > 0.76 · 2026-10-28 · 3-6 탈퇴 닉네임을 `탈퇴-{memberId에서 하이픈을 뺀 32자의 뒤 17자}`로 바꿨다(ID가 UUIDv7이라 앞 8자는 약 65초 단위로만 달라 같은 시간대에 가입한 회원끼리 `uk_member_nickname`을 어긴다)
 > 0.73 · 2026-10-27 · 3-6 장바구니 삭제를 항목 일괄 삭제로 바꿨다(`CartItemRepository.deleteAllByCartId`, 항목 수와 상관없이 쿼리 3번). 환불 조회는 `refund.order_id`로만 잇는다
 > 0.72 · 2026-10-27 · 3-6 진행 중 환불의 상태 집합을 `REQUESTED`·`APPROVED`·`PG_CANCELLED`로 정했고, 구매자 진행 중 조회·settlement 탈퇴 조건 조회의 메서드 이름·시그니처와 배송지 일괄 삭제 메서드를 정했다
@@ -1623,6 +1624,7 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 **정책 (이 단계에서 정함)**
 - 채널은 이메일만. 수신 주소는 알림 생성 시점의 이메일을 저장한다. 회원 알림은 회원의 이메일, 가게 알림(새 주문, 정산 지급)은 가게의 이메일(`shop.shop.email`)이다.
 - 발송 재시도: 실패하면 **5분 뒤** 다시, **5번 실패하면 FAILED**. FAILED 재처리 API는 Part 6.
+- 만료: 이벤트가 일어난 시각(봉투 `occurredAt`)에서 종류별 유효 시간이 지난 알림은 보내지 않고 `EXPIRED`로 바꾼다. 진행 알림(`WELCOME`, `ORDER_PAID`, `SHOP_ORDER_RECEIVED`, `ORDER_CLOSED`, `SHIPPED`, `DELIVERED`)은 24시간, 돈·계정 알림(`REFUNDED`, `SETTLEMENT_PAID`, `BANNED`)은 만료 없음([서브 SUB-21](../04-sub/notification-expiry.md)).
 - 같은 이벤트·같은 수신자·같은 종류의 알림은 1건(`dedup_key`).
 
 **흐름 한눈에**
@@ -1647,7 +1649,8 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 | title | varchar(200) | X | |
 | body | text | X | |
 | dedup_key | varchar(200) | X | `uk_notification_dedup_key` (값의 형식은 8) `enqueue` 3번) |
-| status | varchar(20) | X | `ck_notification_status`: `IN ('PENDING','SENT','FAILED')` |
+| occurred_at | timestamptz | X | 이벤트 봉투의 `occurredAt`. 만료 판단의 기준 |
+| status | varchar(20) | X | `ck_notification_status`: `IN ('PENDING','SENT','FAILED','EXPIRED')` |
 | attempts | int | X | DEFAULT 0 |
 | last_error | varchar(500) | O | |
 | next_attempt_at | timestamptz | X | |
@@ -1698,11 +1701,11 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 
 | 클래스 | 규격 |
 |---|---|
-| `NotificationType` | 알림 종류 enum(`type` 컬럼 값): `WELCOME, ORDER_PAID, SHOP_ORDER_RECEIVED, ORDER_CLOSED, SHIPPED, DELIVERED, REFUNDED, SETTLEMENT_PAID` (서브 구독에서 구독 관련, 4-4에서 `BANNED` 추가) |
+| `NotificationType` | 알림 종류 enum(`type` 컬럼 값): `WELCOME, ORDER_PAID, SHOP_ORDER_RECEIVED, ORDER_CLOSED, SHIPPED, DELIVERED, REFUNDED, SETTLEMENT_PAID` (서브 구독에서 구독 관련, 4-4에서 `BANNED` 추가). 생성자 인자 `Duration validity`(getter `getValidity()`)가 유효 시간이고 `null`이면 만료 없음이다. 값은 위 정책의 "만료" |
 | `NotificationDraft` | "보낼 알림 초안" `record (UUID memberId, UUID shopId, NotificationType type, String title, String body)`. 수신 대상은 둘 중 **정확히 하나**만 채운다: 회원 알림이면 `memberId`(`shopId`는 null), 가게 알림이면 `shopId`(`memberId`는 null). 수신 주소는 아직 없다(저장할 때 조회). 만드는 곳에서 헷갈리지 않게 `toMember(...)`·`toShop(...)` 같은 정적 팩터리를 두는 것을 권한다 |
-| `NotificationStatus` | 상태 enum. 허용 전이: `PENDING → {SENT, FAILED}`, `FAILED → {PENDING}`(관리 API의 재시도, 6-3), `SENT → {}`. 상태머신 문서([04-state-machines 9절](../02-design/04-state-machines.md))와 같다. `ShopStatus`처럼 `transitTo(to)`가 허용 밖이면 `INVALID_STATE_TRANSITION`(409). `FAILED → PENDING`은 6-3이 native `UPDATE ... WHERE status = 'FAILED'`로 하므로 이 단계에서는 엔티티가 부르지 않는다(개발 가이드 5.4: 엔티티 경로가 있는 상태는 CAS와 함께 써도 전이표를 둔다) |
-| `Notification` | `BaseTimeEntity`를 상속하고 1)의 컬럼을 매핑한다(`version`은 `@Version`). `markSent(Instant now)`: `status = status.transitTo(SENT)`, `sentAt = now`. `markFailed(String error, Instant now)`: `attempts++`, `lastError`는 `error`를 500자로 자른 값, `attempts >= 5`이면 `status = status.transitTo(FAILED)`, 아니면 `nextAttemptAt = now + 5분`(`PENDING` 유지). 5회·5분은 이 클래스의 상수다 |
-| `NotificationRepository` | `int insertIfAbsent(UUID id, UUID memberId, String type, String recipient, String title, String body, String dedupKey, Instant now)`(native `INSERT ... ON CONFLICT ON CONSTRAINT uk_notification_dedup_key DO NOTHING`. 삽입된 행 수를 돌려주고 0이면 이미 있던 알림이다. `type`은 `NotificationType.name()`을 문자열로 넘긴다. native 쿼리라 `@Enumerated` 매핑이 적용되지 않는다), `List<Notification> findDue(Instant now, Limit limit)`(JPQL: `status = PENDING and nextAttemptAt <= :now order by nextAttemptAt`), `Optional<Notification> findById(UUID id)` |
+| `NotificationStatus` | 상태 enum. 허용 전이: `PENDING → {SENT, FAILED, EXPIRED}`, `FAILED → {PENDING}`(관리 API의 재시도, 6-3), `SENT → {}`, `EXPIRED → {}`. 상태머신 문서([04-state-machines 9절](../02-design/04-state-machines.md))와 같다. `ShopStatus`처럼 `transitTo(to)`가 허용 밖이면 `INVALID_STATE_TRANSITION`(409). `FAILED → PENDING`은 6-3이 native `UPDATE ... WHERE status = 'FAILED'`로 하므로 이 단계에서는 엔티티가 부르지 않는다(개발 가이드 5.4: 엔티티 경로가 있는 상태는 CAS와 함께 써도 전이표를 둔다) |
+| `Notification` | `BaseTimeEntity`를 상속하고 1)의 컬럼을 매핑한다(`version`은 `@Version`). `markSent(Instant now)`: `status = status.transitTo(SENT)`, `sentAt = now`. `markFailed(String error, Instant now)`: `attempts++`, `lastError`는 `error`를 500자로 자른 값, `attempts >= 5`이면 `status = status.transitTo(FAILED)`, 아니면 `nextAttemptAt = now + 5분`(`PENDING` 유지). 5회·5분은 이 클래스의 상수다. `isExpired(Instant now)`: `type.getValidity() != null && now.isAfter(occurredAt.plus(type.getValidity()))`. `markExpired()`: `status = status.transitTo(EXPIRED)` |
+| `NotificationRepository` | `int insertIfAbsent(UUID id, UUID memberId, String type, String recipient, String title, String body, String dedupKey, Instant occurredAt, Instant now)`(native `INSERT ... ON CONFLICT ON CONSTRAINT uk_notification_dedup_key DO NOTHING`. 삽입된 행 수를 돌려주고 0이면 이미 있던 알림이다. `type`은 `NotificationType.name()`을 문자열로 넘긴다. native 쿼리라 `@Enumerated` 매핑이 적용되지 않는다), `List<Notification> findDue(Instant now, Limit limit)`(JPQL: `status = PENDING and nextAttemptAt <= :now order by nextAttemptAt`), `Optional<Notification> findById(UUID id)` |
 
 **7) notification.infrastructure**
 
@@ -1716,14 +1719,14 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 1. `typed = envelopes.parse(message, OrderPaidEvent.class)`
 2. `inboxGuard.runOnce("notification.order-paid", typed.envelope(), () -> { ... })` 안에서
    1. `drafts = composer.compose(typed.payload())`
-   2. `notificationService.enqueue(typed.envelope().eventId(), drafts)`
+   2. `notificationService.enqueue(typed.envelope().eventId(), typed.envelope().occurredAt(), drafts)`
 
 **8) notification.application**
 
 | 클래스 | 메서드 |
 |---|---|
 | `NotificationComposer` | `@Component`. 이벤트 record → `List<NotificationDraft>`로 바꾸는 **순수 변환**(DB·다른 모듈 조회를 하지 않는다). 이벤트마다 오버로드 하나씩(예: `compose(MemberRegisteredEvent e)`, `compose(OrderPaidEvent e)` — 인자는 권장안). `order-paid`는 구매자 draft 1개와 `e.shopOrders()`의 가게주문마다 가게 draft 1개(`shopId` = `so.shopId()`)를 만든다. 가게 주인·이메일 조회는 `enqueue`가 한다. 매핑은 아래 표. 단위 테스트 대상(`NotificationComposerTest`) |
-| `NotificationService` | `@Service`. **초안을 `notification` 행으로 저장**한다. `@Transactional void enqueue(UUID eventId, List<NotificationDraft> drafts)`. 동작은 아래 |
+| `NotificationService` | `@Service`. **초안을 `notification` 행으로 저장**한다. `@Transactional void enqueue(UUID eventId, Instant occurredAt, List<NotificationDraft> drafts)`. 동작은 아래 |
 | `NotificationDispatcher` | `@Component`, `@Transactional` 없음. **PENDING 알림을 실제로 보내는 곳**. `public int dispatchBatch()` → 이번에 SENT로 바꾼 건수. 동작은 아래 |
 
 이벤트 → 알림 매핑 (`NotificationComposer`)
@@ -1746,12 +1749,12 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
    - 회원 알림(`memberId`가 있음): `MemberContact contact = memberApi.getContact(draft.memberId())`. `!contact.active()`(탈퇴 회원)면 그 draft는 건너뛴다. `member_id` = `draft.memberId()`, `recipient` = `contact.email()`, 수신 대상 id = `draft.memberId()`
    - 가게 알림(`shopId`가 있음): `ShopContact contact = shopApi.getContact(draft.shopId())`. `member_id` = `contact.ownerId()`, `recipient` = `contact.email()`, 수신 대상 id = `draft.shopId()`. 탈퇴 검사는 하지 않는다(운영 중인 가게나 미정산이 있으면 탈퇴할 수 없다)
 2. 해석한 `member_id`·`recipient`·수신 대상 id로 다음 단계에 들어간다
-3. `notificationRepository.insertIfAbsent(Ids.newId(), memberId, draft.type().name(), recipient, draft.title(), draft.body(), eventId + ":" + 수신 대상 id + ":" + draft.type(), now)`. `now`는 `Instant.now(clock)`이다. 이 값이 `next_attempt_at`·`created_at`·`updated_at`에 들어가고(native INSERT라 JPA 감사가 동작하지 않는다), `status = 'PENDING'`, `version = 0`은 쿼리에 고정한다
+3. `notificationRepository.insertIfAbsent(Ids.newId(), memberId, draft.type().name(), recipient, draft.title(), draft.body(), eventId + ":" + 수신 대상 id + ":" + draft.type(), occurredAt, now)`. `now`는 `Instant.now(clock)`이다. 이 값이 `next_attempt_at`·`created_at`·`updated_at`에 들어가고(native INSERT라 JPA 감사가 동작하지 않는다), `status = 'PENDING'`, `version = 0`은 쿼리에 고정한다
 - 수신 대상이 `shopId`라 한 판매자의 가게가 둘이어도 키가 달라 **가게마다 1건**씩 간다. 같은 이벤트를 두 번 받는 경우는 `InboxGuard`가 `enqueue` 앞에서 막고, 키는 한 이벤트에서 같은 수신 대상·같은 종류의 알림이 두 번 저장되는 일을 DB에서 막는다.
 
 `dispatchBatch` 순서 — 클래스에 `@Transactional`을 붙이지 않고 `TransactionTemplate`으로 구간을 나눈다(외부 호출인 메일 발송을 트랜잭션 밖에서 하려고, 공통 규칙 K)
 1. `notificationRepository.findDue(now, Limit.of(100))` — 보낼 알림 최대 100건 읽기(잡 락으로 한 인스턴스만 실행)
-2. 각 알림마다(알림 한 건 전체를 바깥 `try`/`catch`로 감싸 한 건의 예외가 나머지를 막지 않게 한다. 바깥 `catch`는 `log.error`만 남긴다): **트랜잭션 밖에서** 안쪽 `try`로 `send`만 감싸 `mailSender.send(notification.recipient(), title, body)`
+2. 각 알림마다(알림 한 건 전체를 바깥 `try`/`catch`로 감싸 한 건의 예외가 나머지를 막지 않게 한다. 바깥 `catch`는 `log.error`만 남긴다): 먼저 `notification.isExpired(now)`이면 짧은 트랜잭션으로 `findById`로 다시 읽어 `markExpired()`하고 `log.info("notification expired notificationId={} type={} occurredAt={}", ...)`를 남긴 뒤 다음 알림으로 넘어간다(발송 건수에 세지 않는다). 아니면 **트랜잭션 밖에서** 안쪽 `try`로 `send`만 감싸 `mailSender.send(notification.recipient(), title, body)`
    - 성공: 짧은 트랜잭션으로 `findById`로 다시 읽어 `markSent(now)`
    - 실패(`send`가 예외, 안쪽 `catch`): 짧은 트랜잭션으로 `findById`로 다시 읽어 `markFailed(error, now)`(`error`는 `e.getMessage()`, 없으면 `e.toString()`) 후 다음 알림으로 넘어간다
 3. 발송 성공 건수 반환
@@ -1780,12 +1783,12 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 - 알림 개수는 `notificationRows().size()`이고, 이벤트별 개수는 `dedupKey()`가 `eventId + ":"`로 시작하는 행을 `stream().filter`로 센다.
 - 알림이 만들어졌는지 기다릴 때는 `Eventually.await(Duration.ofSeconds(5), ...)` 안에서 `notificationRows().size()`를 읽는다.
 
-#### `notification/domain/NotificationStatusTest` (순수 JUnit, `@ParameterizedTest`로 3×3 = 9쌍)
+#### `notification/domain/NotificationStatusTest` (순수 JUnit, `@ParameterizedTest`로 4×4 = 16쌍)
 
 | 케이스 | 확인할 것 |
 |---|---|
-| 허용 3쌍: `PENDING→SENT`, `PENDING→FAILED`, `FAILED→PENDING` | `from.transitTo(to)`의 반환값이 `to`다 |
-| 허용 밖 6쌍: `PENDING→PENDING`, `SENT→PENDING`, `SENT→SENT`, `SENT→FAILED`, `FAILED→SENT`, `FAILED→FAILED` | `BusinessException`이 던져지고 `getErrorCode()` = `CommonErrorCode.INVALID_STATE_TRANSITION` |
+| 허용 4쌍: `PENDING→SENT`, `PENDING→FAILED`, `PENDING→EXPIRED`, `FAILED→PENDING` | `from.transitTo(to)`의 반환값이 `to`다 |
+| 허용 밖 12쌍: 16쌍에서 허용 4쌍을 뺀 것 | `BusinessException`이 던져지고 `getErrorCode()` = `CommonErrorCode.INVALID_STATE_TRANSITION` |
 
 #### `notification/application/NotificationComposerTest`
 

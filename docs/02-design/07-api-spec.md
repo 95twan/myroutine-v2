@@ -1,6 +1,7 @@
 # 07. API 명세 (Stage 1)
 
 > 엔드포인트 목록과 핵심 API의 요청·응답 계약. 필드 단위 상세는 구현 시 springdoc(OpenAPI)로 생성하고, 이 문서와 어긋나면 이 문서를 갱신한다.
+> 2026-11-14 · 알림 목록 `status`에 `EXPIRED`(유효 시간이 지나 보내지 않은 알림, 서브 SUB-21)
 > 2026-11-13 · 정산 응답과 관리자 정산 항목에 회차 `seq`. 정산 수동 실행은 정산이 실행 중이면 409 `SETTLEMENT_RUN_IN_PROGRESS`, 같은 달을 다시 실행하면 정산 뒤 적재된 품목을 다음 회차로 정산한다(서브 SUB-18)
 > 2026-11-09 · 판매자 상품 상세 `GET /api/shops/{shopId}/products/{id}`(상태와 관계없이), 실패 환불 항목에 `pgOrderId`·`buyerEmail`, 구매자 주문 상세의 환불에 판매자 거절 사유 `rejectReason`. 관리자 종결 사유는 구매자에게 내보내지 않는다(서브 SUB-17)
 > 2026-11-05 · 환불 종결 `POST /admin/api/refunds/{id}/close`(`FAILED → REJECTED`), `FAILED` 환불이 있으면 발송을 409 `REFUND_IN_PROGRESS`로, 같은 품목의 구매자 재취소를 409 `DUPLICATE_RESOURCE`로 막는다(로드맵 6-3)
@@ -196,7 +197,7 @@
 | POST | `/admin/api/search/reindex` | 무중단 재색인 (alias swap). 서브 SUB-7에서 만든다 | FR-SRC-02 |
 | POST | `/admin/api/settlements/run?period=2026-09` | 정산 수동 실행 (멱등). 끝난 달만 받고 아니면 400 `INVALID_REQUEST`. 정산이 실행 중이면 기다리지 않고 409 `SETTLEMENT_RUN_IN_PROGRESS`. 그 기간 정산 뒤 적재된 품목이 있으면 다음 회차 정산을 만든다. `PAYOUT_FAILED` 정산도 다시 지급한다 | FR-STL-04 |
 | GET | `/admin/api/settlements?status=PAYOUT_FAILED` | 지급 실패 정산. 항목 `{id, shopId, shopName, periodStart, periodEnd, seq, netAmount, payoutAttempts, lastError, updatedAt}`, 오래된 순 | FR-STL-04 |
-| GET/POST | `/admin/api/notifications?status=FAILED` · `/{id}/retry` | 실패 알림 재처리. 항목 `{id, memberId, type, recipient, title, attempts, lastError, createdAt, updatedAt}`. 재시도 204, 없으면 404 `NOT_FOUND`, `FAILED`가 아니면 409 `INVALID_STATE_TRANSITION` | FR-NTF-02 |
+| GET/POST | `/admin/api/notifications?status=FAILED` · `/{id}/retry` | 실패 알림 재처리. `status`는 `PENDING`·`SENT`·`FAILED`·`EXPIRED`. 항목 `{id, memberId, type, recipient, title, attempts, lastError, createdAt, updatedAt}`. 재시도 204, 없으면 404 `NOT_FOUND`, `FAILED`가 아니면 409 `INVALID_STATE_TRANSITION` | FR-NTF-02 |
 
 ## 3. 핵심 API 계약
 

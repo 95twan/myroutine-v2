@@ -28,17 +28,17 @@
 
 ### 정책
 
-- 유효 시간은 **24시간**이고, 기준 시각은 이벤트 봉투의 `occurredAt`이다. 발송할 때 `now`가 `occurredAt + 24시간`보다 뒤면 만료다.
+- 유효 시간은 알림 종류(`NotificationType`)마다 정하고, 기준 시각은 이벤트 봉투의 `occurredAt`이다. 발송할 때 `now`가 `occurredAt + 유효 시간`보다 뒤면 만료다. 한 이벤트가 받는 사람별로 다른 종류를 만들고(`order-paid` → `ORDER_PAID`·`SHOP_ORDER_RECEIVED`) 알림 행에는 종류만 남으므로, 이벤트가 아니라 종류에 둔다.
 - 늦으면 지금 상태와 어긋나는 진행 알림만 만료된다. 돈·계정에 관한 알림은 늦어도 여전히 맞는 사실이라 보낸다.
 
-| 만료됨 | 만료되지 않음 |
+| 유효 시간 24시간 | 만료 없음 |
 |---|---|
 | `WELCOME`, `ORDER_PAID`, `SHOP_ORDER_RECEIVED`, `ORDER_CLOSED`, `SHIPPED`, `DELIVERED` | `REFUNDED`, `SETTLEMENT_PAID`, `BANNED` |
 
 - 만료는 발송 직전에 판단한다. 알림 행은 그대로 만들고(행을 만들지 않으면 관리자 목록에서도 사라진다), 발송 잡이 `PENDING → EXPIRED`로 바꾸고 메일을 보내지 않는다. 그래서 위 네 경로가 한 규칙으로 막힌다.
 - `EXPIRED`는 끝 상태다. 관리자 재시도(`FAILED → PENDING`)는 지금처럼 204로 받지만, 만료된 진행 알림이면 다음 발송이 `EXPIRED`로 바꾼다.
 - 만료된 알림은 기존 관리 API `GET /admin/api/notifications?status=EXPIRED`로 본다. `status`가 `NotificationStatus` enum이라 API 코드는 바꾸지 않는다.
-- 서브 구독(SUB-3·SUB-4)이 알림 종류를 더할 때 종류마다 만료 여부를 정한다. 아래 `NotificationType`의 생성자 인자라서 정하지 않으면 컴파일되지 않는다.
+- 서브 구독(SUB-3·SUB-4)이 알림 종류를 더할 때 종류마다 유효 시간을 정한다. 아래 `NotificationType`의 생성자 인자라서 정하지 않으면 컴파일되지 않는다.
 
 ### 고른 방법
 
@@ -66,9 +66,9 @@ ALTER TABLE notification.notification ADD CONSTRAINT ck_notification_status CHEC
 
 | 클래스 | 규격 |
 |---|---|
-| `NotificationType` | 생성자 인자 `boolean expires`와 `public boolean expires()`를 더한다. 값은 위 "정책"의 표대로 `WELCOME(true)`, `ORDER_PAID(true)`, `SHOP_ORDER_RECEIVED(true)`, `ORDER_CLOSED(true)`, `SHIPPED(true)`, `DELIVERED(true)`, `REFUNDED(false)`, `SETTLEMENT_PAID(false)`, `BANNED(false)` |
+| `NotificationType` | 생성자 인자 `Duration validity`와 getter `getValidity()`를 더한다. `null`이면 만료 없음이다. 값은 위 "정책"의 표대로 `WELCOME`·`ORDER_PAID`·`SHOP_ORDER_RECEIVED`·`ORDER_CLOSED`·`SHIPPED`·`DELIVERED`는 `Duration.ofHours(24)`, `REFUNDED`·`SETTLEMENT_PAID`·`BANNED`는 `null` |
 | `NotificationStatus` | `EXPIRED`를 더한다. 허용 전이에 `PENDING → EXPIRED`를 더하고, `EXPIRED → {}`(끝 상태)다. 전이는 `PENDING → {SENT, FAILED, EXPIRED}`, `FAILED → {PENDING}`이 된다 |
-| `Notification` | 필드 `Instant occurredAt`(`occurred_at`, `nullable = false`)과 상수 `VALIDITY = Duration.ofHours(24)`를 더한다. `boolean isExpired(Instant now)`: `type.expires() && now.isAfter(occurredAt.plus(VALIDITY))`. `void markExpired()`: `status = status.transitTo(EXPIRED)` |
+| `Notification` | 필드 `Instant occurredAt`(`occurred_at`, `nullable = false`)을 더한다. `boolean isExpired(Instant now)`: `type.getValidity() != null && now.isAfter(occurredAt.plus(type.getValidity()))`. `void markExpired()`: `status = status.transitTo(EXPIRED)` |
 | `NotificationRepository` | `insertIfAbsent`에 `Instant occurredAt`을 `dedupKey` 뒤에 더한다: `insertIfAbsent(UUID id, UUID memberId, String type, String recipient, String title, String body, String dedupKey, Instant occurredAt, Instant now)`. native INSERT의 컬럼 목록과 `VALUES`에 `occurred_at`·`:occurredAt`을 더한다 |
 
 **3) notification.application**
@@ -113,14 +113,14 @@ ALTER TABLE notification.notification ADD CONSTRAINT ck_notification_status CHEC
 **9. 리플레이된 이벤트의 알림은 이벤트가 일어난 시각을 저장한다** — 준비: `memberId = signup("welcome@test.com")`, `occurredAt = Instant.now().minus(Duration.ofHours(25)).truncatedTo(ChronoUnit.MICROS)`. 동작: `TestKafka.send(MemberTopics.MEMBER_REGISTERED, memberId.toString(), Ids.newId(), occurredAt, new MemberRegisteredEvent(memberId, "welcome@test.com", "nick"))`.
 - DB(`Eventually` 안에서 `notificationRowsOf(memberId)`): 1개이고 `occurredAt()` = `occurredAt`.
 
-**10. 24시간이 지난 진행 알림은 보내지 않고 `EXPIRED`로 바꾼다** — 준비: 9번의 준비와 동작까지 하고 `Eventually` 안에서 `notificationRowsOf(memberId)`가 1개(`WELCOME`, `PENDING`)가 될 때까지 기다린다. 동작: `notificationDispatcher.dispatchBatch()`.
+**10. 24시간이 지난 진행 알림은 보내지 않고 `EXPIRED`로 바꾼다** — 준비: 9번의 준비와 동작까지 하고 `Eventually` 안에서 `notificationRowsOf(memberId)`가 1개(`WELCOME`, `PENDING`)가 될 때까지 기다린다. 동작: `dispatcher.dispatchBatch()`(클래스에 이미 있는 `NotificationDispatcher` 필드).
 - DB(`notificationRowsOf(memberId).get(0)`): `status()` = `EXPIRED`.
 - 가짜 메일(`fakeMailSender.sent()`): `isEmpty()`.
 
-**11. 24시간이 지나지 않은 진행 알림은 보낸다** — 준비: 10번의 준비와 같고 `occurredAt`만 `Instant.now().minus(Duration.ofHours(23))`이다. 동작: `notificationDispatcher.dispatchBatch()`.
+**11. 24시간이 지나지 않은 진행 알림은 보낸다** — 준비: 10번의 준비와 같고 `occurredAt`만 `Instant.now().minus(Duration.ofHours(23))`이다. 동작: `dispatcher.dispatchBatch()`(클래스에 이미 있는 `NotificationDispatcher` 필드).
 - DB(`notificationRowsOf(memberId).get(0)`): `status()` = `SENT`.
 
-**12. 24시간이 지난 환불 알림은 보낸다** — 준비: `buyerId = signup("buyer@test.com")`, `orderId = Ids.newId()`, `occurredAt = Instant.now().minus(Duration.ofHours(25))`. `TestKafka.send(OrderTopics.ORDER_LINE_REFUNDED, orderId.toString(), Ids.newId(), occurredAt, new OrderLineRefundedEvent(Ids.newId(), Ids.newId(), orderId, buyerId, 1000))` → `Eventually` 안에서 `notificationRowsOf(buyerId)`가 1개(`REFUNDED`, `PENDING`). 동작: `notificationDispatcher.dispatchBatch()`.
+**12. 24시간이 지난 환불 알림은 보낸다** — 준비: `buyerId = signup("buyer@test.com")`, `orderId = Ids.newId()`, `occurredAt = Instant.now().minus(Duration.ofHours(25))`. `TestKafka.send(OrderTopics.ORDER_LINE_REFUNDED, orderId.toString(), Ids.newId(), occurredAt, new OrderLineRefundedEvent(Ids.newId(), Ids.newId(), orderId, buyerId, 1000))` → `Eventually` 안에서 `notificationRowsOf(buyerId)`가 1개(`REFUNDED`, `PENDING`). 동작: `dispatcher.dispatchBatch()`(클래스에 이미 있는 `NotificationDispatcher` 필드).
 - DB(`notificationRowsOf(buyerId).get(0)`): `status()` = `SENT`.
 
 ### 문서 반영
