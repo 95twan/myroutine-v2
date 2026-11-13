@@ -79,7 +79,11 @@ public class TestKafka {
     }
 
     public int send(String topic, String key, UUID eventId, Object event) throws ExecutionException, InterruptedException, TimeoutException {
-        EventEnvelope envelope = new EventEnvelope(eventId, event.getClass().getSimpleName(), Instant.now(), UUID.fromString(key), null, objectMapper.valueToTree(event));
+        return send(topic, key, eventId, Instant.now(), event);
+    }
+
+    public int send(String topic, String key, UUID eventId, Instant occurredAt, Object event) throws ExecutionException, InterruptedException, TimeoutException {
+        EventEnvelope envelope = new EventEnvelope(eventId, event.getClass().getSimpleName(), occurredAt, UUID.fromString(key), null, objectMapper.valueToTree(event));
         String json = objectMapper.writeValueAsString(envelope);
         SendResult<String, String> result = kafkaTemplate.send(topic, key, json).get(5, TimeUnit.SECONDS);
         return result.getRecordMetadata().partition();

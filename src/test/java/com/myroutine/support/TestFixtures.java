@@ -915,7 +915,7 @@ public class TestFixtures {
 
     public List<NotificationRow> notificationRowsOf(UUID memberId) {
         return jdbcTemplate.query("""
-                        SELECT member_id, type, channel, recipient, title, status, attempts, last_error, dedup_key, sent_at, next_attempt_at, version
+                        SELECT member_id, type, channel, recipient, title, status, attempts, last_error, dedup_key, occurred_at, sent_at, next_attempt_at, version
                         FROM notification.notification
                         WHERE member_id = ?
                         ORDER BY created_at, id
@@ -931,6 +931,7 @@ public class TestFixtures {
                             rs.getString("status"),
                             rs.getString("last_error"),
                             rs.getString("dedup_key"),
+                            rs.getTimestamp("occurred_at").toInstant(),
                             rs.getInt("attempts"),
                             sentAt,
                             rs.getTimestamp("next_attempt_at").toInstant(),
@@ -951,7 +952,7 @@ public class TestFixtures {
 
     public List<NotificationRow> notificationRows() {
         return jdbcTemplate.query("""
-                        SELECT member_id, type, channel, recipient, title, status, attempts, last_error, dedup_key, sent_at, next_attempt_at, version
+                        SELECT member_id, type, channel, recipient, title, status, attempts, last_error, dedup_key, occurred_at, sent_at, next_attempt_at, version
                         FROM notification.notification
                         ORDER BY created_at, id
                         """,
@@ -966,6 +967,7 @@ public class TestFixtures {
                             rs.getString("status"),
                             rs.getString("last_error"),
                             rs.getString("dedup_key"),
+                            rs.getTimestamp("occurred_at").toInstant(),
                             rs.getInt("attempts"),
                             sentAt,
                             rs.getTimestamp("next_attempt_at").toInstant(),

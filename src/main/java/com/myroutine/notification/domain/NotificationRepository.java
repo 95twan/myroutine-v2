@@ -8,7 +8,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface NotificationRepository {
-    int insertIfAbsent(UUID id, UUID memberId, String type, String recipient, String title, String body, String dedupKey, Instant now);
+    int insertIfAbsent(UUID id, UUID memberId, String type, String recipient, String title, String body, String dedupKey, Instant occurredAt, Instant now);
 
     List<Notification> findDue(Instant now, Limit limit);
 

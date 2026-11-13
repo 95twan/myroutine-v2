@@ -2,10 +2,9 @@ package com.myroutine.notification.application;
 
 import com.myroutine.common.model.Ids;
 import com.myroutine.common.outbox.OutboxRelay;
-import com.myroutine.order.api.event.OrderPaidEvent;
-import com.myroutine.order.api.event.OrderTopics;
-import com.myroutine.order.api.event.PaidLine;
-import com.myroutine.order.api.event.PaidShopOrder;
+import com.myroutine.member.api.event.MemberRegisteredEvent;
+import com.myroutine.member.api.event.MemberTopics;
+import com.myroutine.order.api.event.*;
 import com.myroutine.order.application.CheckoutResult;
 import com.myroutine.support.*;
 import org.junit.jupiter.api.DisplayName;
@@ -16,12 +15,13 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.times;
 
@@ -34,12 +34,13 @@ class NotificationFlowTest extends IntegrationTestSupport {
     private final FakeMailSender mailSender;
     private final JdbcTemplate jdbcTemplate;
     private final TestKafka testKafka;
+    private final NotificationDispatcher notificationDispatcher;
 
     @MockitoSpyBean
     private NotificationService notificationService;
 
     @Autowired
-    public NotificationFlowTest(TestFixtures testFixtures, OutboxRelay relay, OutboxAssert outboxAssert, NotificationDispatcher dispatcher, FakeMailSender mailSender, JdbcTemplate jdbcTemplate, TestKafka testKafka) {
+    public NotificationFlowTest(TestFixtures testFixtures, OutboxRelay relay, OutboxAssert outboxAssert, NotificationDispatcher dispatcher, FakeMailSender mailSender, JdbcTemplate jdbcTemplate, TestKafka testKafka, NotificationDispatcher notificationDispatcher) {
         this.testFixtures = testFixtures;
         this.relay = relay;
         this.outboxAssert = outboxAssert;
@@ -47,6 +48,7 @@ class NotificationFlowTest extends IntegrationTestSupport {
         this.mailSender = mailSender;
         this.jdbcTemplate = jdbcTemplate;
         this.testKafka = testKafka;
+        this.notificationDispatcher = notificationDispatcher;
     }
 
     @Test
@@ -144,7 +146,7 @@ class NotificationFlowTest extends IntegrationTestSupport {
 
         UUID event1Id = outboxAssert.rows(OrderTopics.ORDER_PAID).getFirst().id();
         assertThat(testFixtures.notificationRows()).filteredOn(row -> row.dedupKey().startsWith(event1Id.toString())).hasSize(3);
-        then(notificationService).should(times(1)).enqueue(eq(event1Id), anyList());
+        then(notificationService).should(times(1)).enqueue(eq(event1Id), any(Instant.class), anyList());
     }
 
     @Test
@@ -339,25 +341,87 @@ class NotificationFlowTest extends IntegrationTestSupport {
 
     @Test
     @DisplayName("리플레이된 이벤트의 알림은 이벤트가 일어난 시각을 저장한다.")
-    void replayedEventKeepsOccurredAt() {
-        fail("구현 필요");
+    void replayedEventKeepsOccurredAt() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("welcome@test.com");
+        Instant occurredAt = Instant.now().minus(Duration.ofHours(25)).truncatedTo(ChronoUnit.MICROS);
+        MemberRegisteredEvent event = new MemberRegisteredEvent(memberId, "welcome@test.com", "welcome");
+
+        // When
+        testKafka.send(MemberTopics.MEMBER_REGISTERED, memberId.toString(), Ids.newId(), occurredAt, event);
+
+        // Then
+        Eventually.await(Duration.ofSeconds(3), () -> {
+            assertThat(testFixtures.notificationRowsOf(memberId)).hasSize(1);
+            assertThat(testFixtures.notificationRowsOf(memberId).getFirst().occurredAt()).isEqualTo(occurredAt);
+        });
     }
 
     @Test
     @DisplayName("24시간이 지난 진행 알림은 보내지 않고 EXPIRED로 바꾼다.")
-    void expiredProgressNotificationIsNotSent() {
-        fail("구현 필요");
+    void expiredProgressNotificationIsNotSent() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("welcome@test.com");
+        Instant occurredAt = Instant.now().minus(Duration.ofHours(25)).truncatedTo(ChronoUnit.MICROS);
+        MemberRegisteredEvent event = new MemberRegisteredEvent(memberId, "welcome@test.com", "welcome");
+
+        testKafka.send(MemberTopics.MEMBER_REGISTERED, memberId.toString(), Ids.newId(), occurredAt, event);
+
+        Eventually.await(Duration.ofSeconds(3), () -> {
+            assertThat(testFixtures.notificationRowsOf(memberId)).hasSize(1);
+            assertThat(testFixtures.notificationRowsOf(memberId).getFirst().status()).isEqualTo("PENDING");
+            assertThat(testFixtures.notificationRowsOf(memberId).getFirst().type()).isEqualTo("WELCOME");
+        });
+        // When
+        notificationDispatcher.dispatchBatch();
+
+        // Then
+        assertThat(testFixtures.notificationRowsOf(memberId).getFirst().status()).isEqualTo("EXPIRED");
+        assertThat(mailSender.sent()).isEmpty();
     }
 
     @Test
     @DisplayName("24시간이 지나지 않은 진행 알림은 보낸다.")
-    void progressNotificationWithin24HoursIsSent() {
-        fail("구현 필요");
+    void progressNotificationWithin24HoursIsSent() throws Exception {
+        // Given
+        UUID memberId = testFixtures.signup("welcome@test.com");
+        Instant occurredAt = Instant.now().minus(Duration.ofHours(23)).truncatedTo(ChronoUnit.MICROS);
+        MemberRegisteredEvent event = new MemberRegisteredEvent(memberId, "welcome@test.com", "welcome");
+
+        testKafka.send(MemberTopics.MEMBER_REGISTERED, memberId.toString(), Ids.newId(), occurredAt, event);
+
+        Eventually.await(Duration.ofSeconds(3), () -> {
+            assertThat(testFixtures.notificationRowsOf(memberId)).hasSize(1);
+            assertThat(testFixtures.notificationRowsOf(memberId).getFirst().status()).isEqualTo("PENDING");
+            assertThat(testFixtures.notificationRowsOf(memberId).getFirst().type()).isEqualTo("WELCOME");
+        });
+        // When
+        notificationDispatcher.dispatchBatch();
+
+        // Then
+        assertThat(testFixtures.notificationRowsOf(memberId).getFirst().status()).isEqualTo("SENT");
     }
 
     @Test
     @DisplayName("24시간이 지난 환불 알림은 보낸다.")
-    void refundNotificationAfter24HoursIsSent() {
-        fail("구현 필요");
+    void refundNotificationAfter24HoursIsSent() throws Exception {
+        // Given
+        UUID buyerId = testFixtures.signup("buyer@test.com");
+        UUID orderId = Ids.newId();
+        Instant occurredAt = Instant.now().minus(Duration.ofHours(25)).truncatedTo(ChronoUnit.MICROS);
+        OrderLineRefundedEvent event = new OrderLineRefundedEvent(Ids.newId(), Ids.newId(), orderId, buyerId, 1000);
+
+        testKafka.send(OrderTopics.ORDER_LINE_REFUNDED, orderId.toString(), Ids.newId(), occurredAt, event);
+        Eventually.await(Duration.ofSeconds(5), () -> {
+            assertThat(testFixtures.notificationRowsOf(buyerId)).hasSize(1);
+            assertThat(testFixtures.notificationRowsOf(buyerId).getFirst().status()).isEqualTo("PENDING");
+            assertThat(testFixtures.notificationRowsOf(buyerId).getFirst().type()).isEqualTo("REFUNDED");
+        });
+
+        // When
+        notificationDispatcher.dispatchBatch();
+
+        // Then
+        assertThat(testFixtures.notificationRowsOf(buyerId).getFirst().status()).isEqualTo("SENT");
     }
 }

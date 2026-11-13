@@ -7,10 +7,10 @@ import java.util.Map;
 import java.util.Set;
 
 public enum NotificationStatus {
-    PENDING, SENT, FAILED;
+    PENDING, SENT, FAILED, EXPIRED;
 
     private static final Map<NotificationStatus, Set<NotificationStatus>> ALLOWED = Map.of(
-            PENDING, Set.of(SENT, FAILED),
+            PENDING, Set.of(SENT, FAILED, EXPIRED),
             FAILED, Set.of(PENDING)
     );
 

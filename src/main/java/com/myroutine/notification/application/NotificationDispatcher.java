@@ -29,6 +29,13 @@ public class NotificationDispatcher {
         int count = 0;
         for (Notification notification : notifications) {
             try {
+                if (notification.isExpired(now)) {
+                    tx.executeWithoutResult(_ -> {
+                        notificationRepository.findById(notification.getId()).orElseThrow().markExpired();
+                    });
+                    log.info("notification expired notificationId={} type={} occurredAt={}", notification.getId(), notification.getType(), notification.getOccurredAt());
+                    continue;
+                }
                 try {
                     mailSender.send(notification.getRecipient(), notification.getTitle(), notification.getBody());
                 } catch (Exception e) {

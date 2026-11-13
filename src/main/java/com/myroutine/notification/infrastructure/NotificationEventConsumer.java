@@ -31,7 +31,7 @@ public class NotificationEventConsumer {
         TypedEnvelope<MemberRegisteredEvent> typed = envelopes.parse(message, MemberRegisteredEvent.class);
         inboxGuard.runOnce("notification.member-registered", typed.envelope(), () -> {
             List<NotificationDraft> drafts = composer.compose(typed.payload());
-            notificationService.enqueue(typed.envelope().eventId(), drafts);
+            notificationService.enqueue(typed.envelope().eventId(), typed.envelope().occurredAt(), drafts);
         });
     }
 
@@ -40,7 +40,7 @@ public class NotificationEventConsumer {
         TypedEnvelope<OrderPaidEvent> typed = envelopes.parse(message, OrderPaidEvent.class);
         inboxGuard.runOnce("notification.order-paid", typed.envelope(), () -> {
             List<NotificationDraft> drafts = composer.compose(typed.payload());
-            notificationService.enqueue(typed.envelope().eventId(), drafts);
+            notificationService.enqueue(typed.envelope().eventId(), typed.envelope().occurredAt(), drafts);
         });
     }
 
@@ -49,7 +49,7 @@ public class NotificationEventConsumer {
         TypedEnvelope<OrderExpiredEvent> typed = envelopes.parse(message, OrderExpiredEvent.class);
         inboxGuard.runOnce("notification.order-expired", typed.envelope(), () -> {
             List<NotificationDraft> drafts = composer.compose(typed.payload());
-            notificationService.enqueue(typed.envelope().eventId(), drafts);
+            notificationService.enqueue(typed.envelope().eventId(), typed.envelope().occurredAt(), drafts);
         });
     }
 
@@ -58,7 +58,7 @@ public class NotificationEventConsumer {
         TypedEnvelope<ShopOrderShippedEvent> typed = envelopes.parse(message, ShopOrderShippedEvent.class);
         inboxGuard.runOnce("notification.shop-order-shipped", typed.envelope(), () -> {
             List<NotificationDraft> drafts = composer.compose(typed.payload());
-            notificationService.enqueue(typed.envelope().eventId(), drafts);
+            notificationService.enqueue(typed.envelope().eventId(), typed.envelope().occurredAt(), drafts);
         });
     }
 
@@ -67,7 +67,7 @@ public class NotificationEventConsumer {
         TypedEnvelope<ShopOrderDeliveredEvent> typed = envelopes.parse(message, ShopOrderDeliveredEvent.class);
         inboxGuard.runOnce("notification.shop-order-delivered", typed.envelope(), () -> {
             List<NotificationDraft> drafts = composer.compose(typed.payload());
-            notificationService.enqueue(typed.envelope().eventId(), drafts);
+            notificationService.enqueue(typed.envelope().eventId(), typed.envelope().occurredAt(), drafts);
         });
     }
 
@@ -76,7 +76,7 @@ public class NotificationEventConsumer {
         TypedEnvelope<OrderLineRefundedEvent> typed = envelopes.parse(message, OrderLineRefundedEvent.class);
         inboxGuard.runOnce("notification.order-line-refunded", typed.envelope(), () -> {
             List<NotificationDraft> drafts = composer.compose(typed.payload());
-            notificationService.enqueue(typed.envelope().eventId(), drafts);
+            notificationService.enqueue(typed.envelope().eventId(), typed.envelope().occurredAt(), drafts);
         });
     }
 
@@ -85,7 +85,7 @@ public class NotificationEventConsumer {
         TypedEnvelope<SettlementPaidEvent> typed = envelopes.parse(message, SettlementPaidEvent.class);
         inboxGuard.runOnce("notification.settlement-paid", typed.envelope(), () -> {
             List<NotificationDraft> drafts = composer.compose(typed.payload());
-            notificationService.enqueue(typed.envelope().eventId(), drafts);
+            notificationService.enqueue(typed.envelope().eventId(), typed.envelope().occurredAt(), drafts);
         });
     }
 
@@ -94,7 +94,7 @@ public class NotificationEventConsumer {
         TypedEnvelope<MemberBannedEvent> typed = envelopes.parse(message, MemberBannedEvent.class);
         inboxGuard.runOnce("notification.member-banned", typed.envelope(), () -> {
             List<NotificationDraft> drafts = composer.compose(typed.payload());
-            notificationService.enqueue(typed.envelope().eventId(), drafts);
+            notificationService.enqueue(typed.envelope().eventId(), typed.envelope().occurredAt(), drafts);
         });
     }
 }

@@ -135,10 +135,10 @@ class AdminNotificationTest extends IntegrationTestSupport {
     private void insertNotification(UUID id, UUID memberId, String status) {
         Timestamp now = Timestamp.from(Instant.now());
         jdbcTemplate.update("""
-                        INSERT INTO notification.notification (id, member_id, type, channel, recipient, title, body, dedup_key, status, attempts, last_error, next_attempt_at, version, created_at, updated_at)
-                        VALUES (?, ?, 'ORDER_PAID', 'EMAIL', 'buyer@test.com', 't', 'b', ?, ?, 5, 'smtp down', ?, 0, ?, ?)
+                        INSERT INTO notification.notification (id, member_id, type, channel, recipient, title, body, dedup_key, occurred_at, status, attempts, last_error, next_attempt_at, version, created_at, updated_at)
+                        VALUES (?, ?, 'ORDER_PAID', 'EMAIL', 'buyer@test.com', 't', 'b', ?, ?, ?, 5, 'smtp down', ?, 0, ?, ?)
                         """,
-                id, memberId, "dedup-" + id, status, Timestamp.from(Instant.now().minus(1, ChronoUnit.HOURS)), now, now);
+                id, memberId, "dedup-" + id, now, status, Timestamp.from(Instant.now().minus(1, ChronoUnit.HOURS)), now, now);
     }
 
     @Test
