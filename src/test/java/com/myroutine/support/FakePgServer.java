@@ -76,6 +76,21 @@ public class FakePgServer {
         approved.put(pgOrderId, new ApprovedPayment(paymentKey, pgOrderId, amount, approvedAt, 0));
     }
 
+    // 토스 관리자 화면처럼 우리 앱 밖에서 취소한 것을 흉내 낸다. 요청으로 기록하지 않아야 앱이 보낸 취소와 섞이지 않는다
+    public void cancelOutside(String paymentKey, long cancelAmount) {
+        ApprovedPayment payment = approved.values().stream()
+                .filter(p -> p.paymentKey().equals(paymentKey))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("승인 기록이 없습니다. paymentKey=" + paymentKey));
+        approved.put(payment.orderId(), new ApprovedPayment(
+                payment.paymentKey(),
+                payment.orderId(),
+                payment.amount(),
+                payment.approvedAt(),
+                payment.canceledAmount() + cancelAmount
+        ));
+    }
+
     private void handle(HttpExchange exchange) throws IOException {
         // 1. 요청을 읽어 기록한다
         String path = exchange.getRequestURI().getPath();

@@ -488,10 +488,15 @@ public class TestFixtures {
                 "SELECT status FROM orders.refund WHERE order_id = ? ORDER BY created_at, id", String.class, orderId);
 
         List<OrderSnapshot.PaymentState> payments = jdbcTemplate.query(
-                "SELECT id, amount, cancelled_amount, status, payment_key, method, approved_at, reconcile_attempts FROM payment.payment WHERE order_id = ?",
+                "SELECT id, amount, cancelled_amount, status, failure_code, payment_key, method, approved_at, reconcile_attempts FROM payment.payment WHERE order_id = ?",
                 (rs, rowNum) -> new OrderSnapshot.PaymentState(
-                        rs.getLong("amount"), rs.getLong("cancelled_amount"), rs.getString("status"), rs.getString("payment_key"),
-                        rs.getObject("id", UUID.class), rs.getString("method"),
+                        rs.getLong("amount"),
+                        rs.getLong("cancelled_amount"),
+                        rs.getString("status"),
+                        rs.getString("failure_code"),
+                        rs.getString("payment_key"),
+                        rs.getObject("id", UUID.class),
+                        rs.getString("method"),
                         rs.getTimestamp("approved_at") == null ? null : rs.getTimestamp("approved_at").toInstant(),
                         rs.getInt("reconcile_attempts")),
                 orderId);
