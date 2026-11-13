@@ -148,4 +148,34 @@ public class TossClientTest extends IntegrationTestSupport {
         assertThat(result).isInstanceOf(PgResult.Rejected.class);
         assertThat(((PgResult.Rejected) result).code()).isEqualTo("NOT_FOUND_PAYMENT");
     }
+
+    @Test
+    @DisplayName("밖에서 전액 취소된 주문을 조회하면 Rejected(CANCELED)로 분류한다.")
+    void queryCanceledOutsideOrder() {
+        // Given
+        tossClient.confirm(Ids.newId(), "pk_1", "order-1", Money.of(1000));
+        pg.cancelOutside("pk_1", 1000);
+
+        // When
+        PgResult result = tossClient.queryByOrderId(Ids.newId(), "order-1");
+
+        // Then
+        assertThat(result).isInstanceOf(PgResult.Rejected.class);
+        assertThat(((PgResult.Rejected) result).code()).isEqualTo("CANCELED");
+    }
+
+    @Test
+    @DisplayName("밖에서 부분 취소된 주문을 조회하면 Unknown(PARTIAL_CANCELED)로 분류한다.")
+    void queryPartialCanceledOutsideOrder() {
+        // Given
+        tossClient.confirm(Ids.newId(), "pk_1", "order-1", Money.of(1000));
+        pg.cancelOutside("pk_1", 400);
+
+        // When
+        PgResult result = tossClient.queryByOrderId(Ids.newId(), "order-1");
+
+        // Then
+        assertThat(result).isInstanceOf(PgResult.Unknown.class);
+        assertThat(((PgResult.Unknown) result).reason()).isEqualTo("PARTIAL_CANCELED");
+    }
 }

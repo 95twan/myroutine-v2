@@ -82,8 +82,9 @@ public class TossClient {
                             return new PgResult.Unknown(null);
                         }
                         return switch (r.status()) {
-                            case "DONE", "PARTIAL_CANCELED", "CANCELED" -> approved(r);
-                            case "ABORTED", "EXPIRED" -> new PgResult.Rejected(r.status(), r.status());
+                            case "DONE" -> approved(r);
+                            case "ABORTED", "EXPIRED", "CANCELED" -> new PgResult.Rejected(r.status(), r.status());
+                            case "PARTIAL_CANCELED" -> new PgResult.Unknown(r.status());
                             default -> new PgResult.Unknown(r.status());
                         };
                     }));

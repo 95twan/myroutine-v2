@@ -618,4 +618,61 @@ class OrderReconcileServiceTest extends IntegrationTestSupport {
         // Then
         assertThat(testFixtures.snapshotOf(orderId).status()).isEqualTo("PAYMENT_FAILED");
     }
+
+    @Test
+    @DisplayName("밖에서 전액 취소된 결제는 대사로 주문이 PAYMENT_FAILED가 된다.")
+    void reconcileCanceledOutside() {
+        // Given
+        UUID memberId = testFixtures.signup("test@test.com");
+        UUID shopId = testFixtures.openShop(memberId, "1111111111");
+        UUID productId = testFixtures.registerProduct(memberId, shopId, 1000, 100);
+
+        UUID buyerId = testFixtures.signup("buyer@test.com");
+        CheckoutResult order = testFixtures.createPendingOrder(buyerId, productId);
+
+        pg.on("/v1/payments/confirm", Behavior.delay(1000));
+        UUID orderId = testFixtures.confirmPayment(buyerId, order.orderId()).orderId();
+
+        testFixtures.setOrderUpdatedAt(orderId, Instant.now().minusSeconds(60));
+        String paymentKey = testFixtures.snapshotOf(orderId).payment().paymentKey();
+        pg.cancelOutside(paymentKey, 1000);
+
+        // When
+        OrderStatus orderStatus = orderReconcileService.reconcileOne(orderId);
+
+        // Then
+        assertThat(orderStatus).isEqualTo(OrderStatus.PAYMENT_FAILED);
+        assertThat(testFixtures.snapshotOf(orderId).status()).isEqualTo("PAYMENT_FAILED");
+        assertThat(testFixtures.snapshotOf(orderId).payment().status()).isEqualTo("FAILED");
+        assertThat(testFixtures.snapshotOf(orderId).payment().failureCode()).isEqualTo("CANCELED");
+
+        assertThat(pg.requests("/v1/payments/" + paymentKey + "/cancel")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("밖에서 부분 취소된 결제는 대사로 주문을 닫지 않는다.")
+    void reconcilePartialCanceledOutside() {
+        // Given
+        UUID memberId = testFixtures.signup("test@test.com");
+        UUID shopId = testFixtures.openShop(memberId, "1111111111");
+        UUID productId = testFixtures.registerProduct(memberId, shopId, 1000, 100);
+
+        UUID buyerId = testFixtures.signup("buyer@test.com");
+        CheckoutResult order = testFixtures.createPendingOrder(buyerId, productId);
+
+        pg.on("/v1/payments/confirm", Behavior.delay(1000));
+        UUID orderId = testFixtures.confirmPayment(buyerId, order.orderId()).orderId();
+
+        testFixtures.setOrderUpdatedAt(orderId, Instant.now().minusSeconds(60));
+        String paymentKey = testFixtures.snapshotOf(orderId).payment().paymentKey();
+        pg.cancelOutside(paymentKey, 400);
+
+        // When
+        OrderStatus orderStatus = orderReconcileService.reconcileOne(orderId);
+
+        // Then
+        assertThat(orderStatus).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+        assertThat(testFixtures.snapshotOf(orderId).payment().status()).isEqualTo("UNKNOWN");
+        assertThat(pg.requests("/v1/payments/" + paymentKey + "/cancel")).isEmpty();
+    }
 }

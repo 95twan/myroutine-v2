@@ -33,7 +33,7 @@ public record OrderSnapshot(
     public record LineState(String status, long refundedAmount, Instant confirmedAt) {
     }
 
-    public record PaymentState(long amount, long cancelledAmount, String status, String paymentKey,
+    public record PaymentState(long amount, long cancelledAmount, String status, String failureCode, String paymentKey,
                                UUID id, String method, Instant approvedAt, int reconcileAttempts) {
     }
 }

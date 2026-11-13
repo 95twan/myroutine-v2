@@ -1,6 +1,7 @@
 # Part 2. 주문과 돈
 
-> 버전 0.132 · 2026-11-12 · 2-5 `JobLock`에 작업 결과를 돌려주는 `callExclusively`를 더하고 `runExclusively`가 그것을 부르게 했다([SUB-19](../04-sub/reconcile-concurrency.md))
+> 버전 0.133 · 2026-11-13 · 2-3 조회 분류에서 `CANCELED`는 `Rejected`, `PARTIAL_CANCELED`는 `Unknown`으로 바꿔 밖에서 취소된 결제를 승인으로 읽지 않는다([SUB-20](../04-sub/pg-external-cancel.md))
+> 0.132 · 2026-11-12 · 2-5 `JobLock`에 작업 결과를 돌려주는 `callExclusively`를 더하고 `runExclusively`가 그것을 부르게 했다([SUB-19](../04-sub/reconcile-concurrency.md))
 > 0.131 · 2026-11-05 · 2-9 반품 재요청 금지는 `RETURN` 환불의 `REJECTED`만 본다(6-3 종결로 `REJECTED`가 된 구매자 취소 환불은 반품을 막지 않는다)
 > 0.130 · 2026-10-27
 > 0.122 · 2026-10-20 · 확인 필요 3건을 확정했다: 2-5 `JobLock`은 `RuntimeException`으로 감싼다, 2-8a `findByShopOrderIdForUpdate`는 `for no key update of o1_0`으로 주문 행만 잠근다, 2-8a `RefundResponse` 필드
@@ -970,7 +971,7 @@ public sealed interface PgResult permits PgResult.Approved, PgResult.Rejected, P
    - 읽었으면 `onSuccess`에 넘긴 결과를 반환한다. 작업별 규칙(`status`는 본문의 값):
      - 승인: `"DONE"` → `Approved`, 그 외 → `Unknown(status)`
      - 취소: `"CANCELED"`·`"PARTIAL_CANCELED"` → `Approved`, 그 외 → `Unknown(status)`
-     - 조회: `"DONE"`·`"PARTIAL_CANCELED"`·`"CANCELED"` → `Approved`, `"ABORTED"`·`"EXPIRED"` → `Rejected(status, status)`, 그 외(`READY`, `IN_PROGRESS`) → `Unknown(status)`
+     - 조회: `"DONE"` → `Approved`, `"CANCELED"`·`"ABORTED"`·`"EXPIRED"` → `Rejected(status, status)`, 그 외(`PARTIAL_CANCELED`, `READY`, `IN_PROGRESS`) → `Unknown(status)`. 취소와 달리 `CANCELED`를 `Approved`로 보지 않는다. 조회는 대사가 결과를 모르는 결제에만 부르므로, 여기서 읽는 취소는 우리 앱 밖(토스 상점관리자 등)에서 한 것이다
    - `Approved`는 `TossPaymentResponse`의 `paymentKey`·`totalAmount`·`balanceAmount`·`method`와 `approvedAt.toInstant()`(`OffsetDateTime` → `Instant`)로 만든다. **`approvedAt`이 `null`이면 `Approved`를 만들지 않고 `Unknown("INVALID_BODY")`** — `toInstant()`의 `NullPointerException`이 예외로 새어 나가면 "값으로 분류"하는 설계가 깨진다
 3. **4xx**이면 `res.bodyTo(TossErrorResponse.class)`로 본문을 읽는다.
    - 파싱에 실패하거나 `bodyTo`가 `null`을 돌려주면 `Unknown("INVALID_BODY")` — 코드를 읽을 수 없는 4xx는 거절로 단정하지 않는다
@@ -1056,6 +1057,7 @@ JDK `HttpServer`로 Toss 대신 응답하는 테스트용 서버다. 테스트�
 - `List<RecordedRequest> requests(String pathPrefix)`: `path`가 접두어로 시작하는 요청만 복사해 돌려준다
 - `void reset()`: `behaviors`·`requests`·`approved`·`idempotent`를 모두 비운다
 - `void markApproved(String pgOrderId, String paymentKey, long amount, Instant approvedAt)`: `approved`에 `canceledAmount = 0`으로 넣는다. 테스트에서 "PG에는 이미 승인된 상태"를 만든다
+- `void cancelOutside(String paymentKey, long cancelAmount)`: `approved`에서 `paymentKey`가 같은 승인 기록을 찾아 `canceledAmount`에 `cancelAmount`를 더한다(없으면 `IllegalStateException`). 요청으로 기록하지 않는다. 테스트에서 "우리 앱 밖에서 취소된 상태"를 만든다([SUB-20](../04-sub/pg-external-cancel.md))
 - `private void handle(HttpExchange exchange) throws IOException`: 요청 하나를 처리한다. `com.sun.net.httpserver.HttpHandler`의 메서드와 같은 모양이라 `fake::handle`로 등록한다. `exchange`가 요청과 응답을 함께 담은 객체다. 내용은 아래 처리 순서 전부다
 - `private StoredResponse ok(ApprovedPayment p)`: 200 + 결제 객체 JSON. 필드는 `paymentKey`=`p.paymentKey`, `orderId`=`p.orderId`, `status`(`p.canceledAmount`가 0이면 `"DONE"`, `p.amount`와 같으면 `"CANCELED"`, 그 외 `"PARTIAL_CANCELED"`), `totalAmount`=`p.amount`, `balanceAmount`=`p.amount - p.canceledAmount`, `method`=`"카드"`, `approvedAt`=`OffsetDateTime.ofInstant(p.approvedAt, ZoneOffset.ofHours(9)).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)`(예: `2026-10-14T17:36:22+09:00`). `Map`을 `mapper.writeValueAsString`으로 JSON 문자열로 만든다
 - `private StoredResponse notFound()`: 404 + `{"code":"NOT_FOUND_PAYMENT","message":"..."}`
