@@ -377,6 +377,6 @@ class CloseShopTest extends IntegrationTestSupport {
         assertThat(testFixtures.processedCountOf("member.shop-closed", eventId1)).isEqualTo(1);
 
         then(productDiscontinueService).should(times(2)).discontinueAllByShop(shop1Id);
-        then(memberRoleService).should(times(2)).revokeSellerIfNoActiveShop(sellerId);
+        then(memberRoleService).should(times(2)).syncSellerRole(sellerId);
     }
 }
