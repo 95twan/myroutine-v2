@@ -28,6 +28,8 @@ spring:
   datasource:
     hikari:
       maximum-pool-size: 10
+      minimum-idle: 1
+      idle-timeout: 10000
   jpa:
     properties:
       hibernate:
