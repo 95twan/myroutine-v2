@@ -1,6 +1,7 @@
 # 10. 상태 조합 — 어떤 상태끼리 함께 있을 수 있고, 어떻게 거기 도달하는가
 
-> 버전 0.6 · 2026-11-06 · 7절 4·5·6·9번은 코드를 고치지 않고 `v1.0.0`에 안고 가기로 해 8절 알려진 한계로 옮겼다
+> 버전 0.7 · 2026-11-14 · `member.role`의 SELLER·USER를 개설·폐업 이벤트 모두에서 활성 가게 수로 맞춘다(서브 SUB-22)
+> 0.6 · 2026-11-06 · 7절 4·5·6·9번은 코드를 고치지 않고 `v1.0.0`에 안고 가기로 해 8절 알려진 한계로 옮겼다
 > 0.5 · 2026-11-05 · 6-3에서 `FAILED` 환불을 활성으로 보고(발송·구매자 재취소를 막는다) 관리자 종결 `FAILED → REJECTED`를 더하기로 해 7절 1·3번을 지웠다
 > 0.4 · 2026-10-20 · 2-10 규격이 `confirmLine`·`autoConfirm`에서 `recalculateShopOrder`를 부르게 정했다
 > 0.3 · 2026-10-19 · 반품 환불 `FAILED` 때 품목 상태를 정했다(로드맵 0.98)
@@ -156,7 +157,7 @@ DB는 이 조합을 막지 않는다. `ck_orders_status`, `ck_shop_order_status`
 | `product.status` | `ON_SALE` ⇄ `HIDDEN`, 둘 다 → `DISCONTINUED`(종결) (`product/domain/ProductStatus.java:13-15`) | 모두. `PATCH .../status`로 전이 | 코드 |
 | `shop.status` | `ACTIVE` → `CLOSED` (`shop/domain/ShopStatus.java:13`) | 모두. `CloseShopService.close`로 `CLOSED` | 코드 |
 | `member.status` | `ACTIVE` → `BANNED`/`WITHDRAWN`, `BANNED` → `ACTIVE` (`member/domain/MemberStatus.java:15-17`) | `ACTIVE`, `WITHDRAWN`. 탈퇴(3-6, `WithdrawService`)는 구현됐고 제재(`BANNED`)는 4-4에서 구현한다. 가입은 항상 `ACTIVE` + `USER` | 코드 |
-| `member.role` | `USER`, `SELLER`, `ADMIN` | `USER`, `SELLER`(가게 개설 이벤트로 `MemberRoleService.grantSeller`, 활성 가게가 없어지면 회수), `ADMIN`(DB에서 직접 지정). `/admin/**`는 `hasRole("ADMIN")`이 막는다 | 코드 |
+| `member.role` | `USER`, `SELLER`, `ADMIN` | `USER`, `SELLER`(가게 개설·폐업 이벤트마다 `MemberRoleService.syncSellerRole`이 회원 행을 잠그고 활성 가게 수로 맞춘다. 1개 이상이면 `SELLER`, 0개면 `USER`), `ADMIN`(DB에서 직접 지정). `/admin/**`는 `hasRole("ADMIN")`이 막는다 | 코드 |
 | `member_address.is_default` | 회원당 0개 또는 1개(`uk_member_address_default` 부분 유니크) | 첫 주소는 자동 기본. 기본 주소를 삭제하거나 해제하면 0개 | 코드 |
 | `idempotency_key.status` | `PROCESSING` → `COMPLETED`. 2xx가 아니거나 예외면 행을 지운다 | 모두. 서버가 죽으면 `PROCESSING`이 만료(24시간)까지 남는다는 것은 추론 | 코드 |
 

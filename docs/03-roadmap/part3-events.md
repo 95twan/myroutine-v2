@@ -1,6 +1,7 @@
 # Part 3. 이벤트
 
-> 버전 0.78 · 2026-11-14 · 3-5 알림에 이벤트가 일어난 시각 `occurred_at`과 상태 `EXPIRED`를 더했다. 발송 잡은 종류별 유효 시간(진행 알림 24시간, 환불·정산 지급·제재는 만료 없음)이 지난 알림을 보내지 않고 `EXPIRED`로 바꾼다(서브 SUB-21)
+> 버전 0.79 · 2026-11-14 · 3-2에서 `grantSeller`·`revokeSellerIfNoActiveShop`을 `syncSellerRole` 하나로 합쳤다. 개설·폐업 이벤트 모두 회원 행을 잠근 뒤 그 시점의 활성 가게 수로 SELLER·USER를 맞춘다(서브 SUB-22)
+> 0.78 · 2026-11-14 · 3-5 알림에 이벤트가 일어난 시각 `occurred_at`과 상태 `EXPIRED`를 더했다. 발송 잡은 종류별 유효 시간(진행 알림 24시간, 환불·정산 지급·제재는 만료 없음)이 지난 알림을 보내지 않고 `EXPIRED`로 바꾼다(서브 SUB-21)
 > 0.77 · 2026-11-13 · 3-4 정산 대상에서 기간 시작 조건을 빼고 정산에 회차 `seq`를 두어, 정산 뒤 적재된 품목은 그 기간을 다시 실행하면 다음 회차로, 아니면 다음 달 정산으로 들어간다. 관리자 실행은 정기 정산과 같은 락을 잡고 실행 중이면 409 `SETTLEMENT_RUN_IN_PROGRESS`, 정기 정산은 락을 기다린다(서브 SUB-18)
 > 0.76 · 2026-10-28 · 3-6 탈퇴 닉네임을 `탈퇴-{memberId에서 하이픈을 뺀 32자의 뒤 17자}`로 바꿨다(ID가 UUIDv7이라 앞 8자는 약 65초 단위로만 달라 같은 시간대에 가입한 회원끼리 `uk_member_nickname`을 어긴다)
 > 0.73 · 2026-10-27 · 3-6 장바구니 삭제를 항목 일괄 삭제로 바꿨다(`CartItemRepository.deleteAllByCartId`, 항목 수와 상관없이 쿼리 3번). 환불 조회는 `refund.order_id`로만 잇는다
@@ -559,7 +560,7 @@ void onShopOpened(String message) {
 
 ### 할 일
 
-**구현 순서**: ① 1) 마이그레이션 → 2) `InboxGuard` → ② 3) `KafkaConfig` → ③ 13)의 `onShopOpened`에 `InboxGuard` 적용 → ④ 폐업: 4)~9) shop(`ShopClosePrecondition`이 있어야 order 구현체를 만든다) → 10)~12) order → 14) `MemberRoleService.revokeSellerIfNoActiveShop` → 13)의 `onShopClosed` → 15)~17) product → 테스트(`InboxGuardTest` → `KafkaDltTest` → `CloseShopTest`).
+**구현 순서**: ① 1) 마이그레이션 → 2) `InboxGuard` → ② 3) `KafkaConfig` → ③ 13)의 `onShopOpened`에 `InboxGuard` 적용 → ④ 폐업: 4)~9) shop(`ShopClosePrecondition`이 있어야 order 구현체를 만든다) → 10)~12) order → 14) `MemberRoleService.syncSellerRole` → 13)의 `onShopClosed` → 15)~17) product → 테스트(`InboxGuardTest` → `KafkaDltTest` → `CloseShopTest`).
 
 폐업 구현물의 이름은 권장안이고 쓰다 바꿔도 된다. 저장소 구조는 Part 2와 같다(인터페이스는 `domain`, `@Query` 구현은 `infrastructure`의 `Jpa...Repository`).
 
@@ -606,7 +607,7 @@ void onShopOpened(String message) {
 | 클래스 | 규격 |
 |---|---|
 | `ShopClosePrecondition` | `void check(UUID shopId)` — 조건을 어기면 `BusinessException`을 던지고 통과하면 아무 일도 없다. shop은 스프링이 주입하는 `List<ShopClosePrecondition>`을 돌며 확인만 하고, 구현체가 하나도 없으면 목록이 비어 모두 통과한다 |
-| `ShopApi.countActiveShops` | `int (UUID memberId)` — 그 회원 소유의 **ACTIVE** 가게 수. SELLER 회수 판단(`MemberRoleService.revokeSellerIfNoActiveShop`)과 3-6 탈퇴 조건이 쓴다 |
+| `ShopApi.countActiveShops` | `int (UUID memberId)` — 그 회원 소유의 **ACTIVE** 가게 수. SELLER 판단(`MemberRoleService.syncSellerRole`)과 3-6 탈퇴 조건이 쓴다 |
 | `ShopApi.getOwnerId` | `UUID (UUID shopId)` — 가게 주인의 memberId. 가게가 없으면 `SHOP_NOT_FOUND`. `shopRepository.findById`로 읽는다. 3-5에서 `getContact(shopId)`로 대체한다 |
 | `ShopApi.getShopIdsByOwner` | `List<UUID> (UUID memberId)` — 그 회원 소유의 가게 ID 전부(**CLOSED 포함**). 기존 `ShopRepository.findAllByMemberIdOrderByCreatedAtDesc`로 가능. 3-6 탈퇴 전 미정산 확인이 쓴다 |
 
@@ -665,16 +666,18 @@ void onShopOpened(String message) {
 
 | 클래스 | 규격 |
 |---|---|
-| `MemberShopEventConsumer.onShopOpened` | 3-1의 `EventContext.run(...)`을 `inboxGuard.runOnce("member.shop-opened", typed.envelope(), () -> roleService.grantSeller(typed.payload().memberId()))`로 바꾼다(`typed = envelopes.parse(...)`는 그대로). 의존성에 `InboxGuard`를 더한다 |
-| `MemberShopEventConsumer.onShopClosed` | `@KafkaListener(topics = ShopTopics.SHOP_CLOSED, groupId = "member")` → `inboxGuard.runOnce("member.shop-closed", ...)` → `MemberRoleService.revokeSellerIfNoActiveShop` |
+| `MemberShopEventConsumer.onShopOpened` | 3-1의 `EventContext.run(...)`을 `inboxGuard.runOnce("member.shop-opened", typed.envelope(), () -> roleService.syncSellerRole(typed.payload().memberId()))`로 바꾼다(`typed = envelopes.parse(...)`는 그대로). 의존성에 `InboxGuard`를 더한다 |
+| `MemberShopEventConsumer.onShopClosed` | `@KafkaListener(topics = ShopTopics.SHOP_CLOSED, groupId = "member")` → `inboxGuard.runOnce("member.shop-closed", ...)` → `MemberRoleService.syncSellerRole` |
 
 **14) member.application**
 
 | 클래스 | 메서드 |
 |---|---|
-| `MemberRoleService` | `@Transactional void revokeSellerIfNoActiveShop(UUID memberId)`(의존성에 `ShopApi`를 더한다): ① 회원 조회(없으면 `log.warn` 후 return) ② `shopApi.countActiveShops(memberId)`를 **처리하는 시점에** 조회 ③ 0이면 `member.demoteToUser()` |
+| `MemberRoleService` | 3-1의 `grantSeller`를 지우고 `@Transactional void syncSellerRole(UUID memberId)`로 바꾼다(의존성에 `ShopApi`를 더한다). 개설·폐업 consumer가 모두 이 메서드를 부른다. ① `memberRepository.findByIdForUpdate(memberId)`로 회원 행을 잠그며 읽는다(없으면 `log.warn` 후 return) ② `shopApi.countActiveShops(memberId)`를 **처리하는 시점에** 조회 ③ 0보다 크면 `member.promoteToSeller()`, 0이면 `member.demoteToUser()`. 두 도메인 메서드는 ADMIN을 바꾸지 않는다 |
 
-- 이벤트에 "남은 가게 수"를 담지 않는 이유: 같은 회원의 가게 2개가 동시에 폐업되면 각 이벤트가 만들어질 때의 "남은 수"는 서로 모르는 값이라 둘 다 1이 되어 SELLER가 안 회수될 수 있다. 처리 시점에 다시 세면 마지막 이벤트는 항상 0을 본다. 두 consumer가 동시에 같은 회원을 바꾸다 낙관적 락 충돌이 나면 재시도 대상이라 다음 시도에서 해소된다
+- 이벤트 종류가 아니라 가게 수로 정하는 이유: `shop-opened`과 `shop-closed`는 토픽이 달라 같은 가게라도 처리 순서가 보장되지 않는다(공통 규칙 P의 "키" 행). 개설 처리가 DLT로 갔다가 가게가 폐업된 뒤 리플레이되면, inbox 행도 실패 때 함께 롤백됐으므로 처음 본 이벤트로 처리된다. 이때 가게 수를 보지 않고 SELLER로 올리면 활성 가게 0개인 SELLER가 남는다.
+- 이벤트에 "남은 가게 수"를 담지 않는 이유: 같은 회원의 가게 2개가 동시에 폐업되면 각 이벤트가 만들어질 때의 "남은 수"는 서로 모르는 값이라 둘 다 1이 되어 SELLER가 안 회수될 수 있다. 처리 시점에 다시 세면 마지막 이벤트는 항상 0을 본다.
+- 가게 수를 세기 **전에** 회원 행을 잠그는 이유: 회원이 가게 A를 폐업하고 곧바로 가게 B를 열 때, A의 폐업 처리가 가게 수 0을 읽은 뒤 커밋하기 전에 B의 개설 처리가 오면, 잠금이 없을 때 B의 처리는 회원을 SELLER로 읽고 바뀐 필드가 없어 아무것도 쓰지 않는다. 그 뒤 A의 처리가 USER로 커밋해 활성 가게가 있는 USER가 남는다. 잠그면 B의 처리는 A의 커밋을 기다렸다가 USER를 읽고, 그다음에 세는 가게 수에 B가 들어 있어 SELLER로 바꾼다(READ COMMITTED는 문장마다 그때까지 커밋된 데이터를 본다). 가게 수를 먼저 세고 잠그면 기다리기 전에 센 값으로 쓰게 되어 막지 못한다
 
 **15) product.domain**
 
@@ -763,16 +766,30 @@ void onShopOpened(String message) {
 - Kafka(`TestKafka.messages("test.always-fail.v1.dlt", key)`): `Eventually`(3초) 안에서 정확히 1개, 그 `value()` = `{not-json`.
 - 반환값(`AlwaysFailListener.attempts(key)`): 위 DLT 메시지가 보인 뒤 1.
 
-#### `member/application/MemberRoleServiceTest`에 추가 (3-1의 클래스에 더한다)
+#### `member/application/MemberRoleServiceTest` (3-1의 클래스를 다시 쓴다)
 
-동작은 `memberRoleService.revokeSellerIfNoActiveShop(memberId)`. 가게는 `openShop`, 폐업은 `closeShop(shopId)`(JDBC로 CLOSED). 역할은 `changeRole`로 맞추고 `memberSnapshotOf(memberId).role()`로 읽는다.
+3-1의 `grantSeller` 케이스를 지우고 아래로 다시 쓴다. 동작은 `memberRoleService.syncSellerRole(memberId)`, 역할은 `testFixtures.memberSnapshotOf(memberId).role()`로 읽는다. 준비의 회원은 `testFixtures.signup("test@test.com")`이고, 가게는 `openShop`, 폐업은 `closeShop(shopId)`(JDBC로 CLOSED), 역할은 `changeRole`로 맞춘다. `openShop`은 outbox 행만 남기고 테스트는 예약 작업이 꺼져 있어 릴레이되지 않으므로, 준비 중에 역할이 바뀌지 않는다.
 
-| 준비 | 확인할 것 |
-|---|---|
-| 역할 `SELLER`, ACTIVE 가게 0개(가게 1개를 `closeShop`) | DB(`memberSnapshotOf(memberId)`): `role()` = `USER` |
-| 역할 `SELLER`, ACTIVE 가게 1개(가게 2개 중 1개만 `closeShop`) | DB(`memberSnapshotOf(memberId)`): `role()` = `SELLER` 그대로 |
-| 역할 `ADMIN`, ACTIVE 가게 0개 | DB(`memberSnapshotOf(memberId)`): `role()` = `ADMIN` 그대로 |
-| 없는 회원(`Ids.newId()`) | 반환값: 예외 없이 끝난다 |
+| 케이스 | 준비 | 확인할 것 |
+|---|---|---|
+| 1. ACTIVE 가게가 있는 USER 회원은 SELLER가 된다 | `openShop(memberId, "1111111111")` | DB(`memberSnapshotOf(memberId)`): `role()` = `SELLER` |
+| 2. ACTIVE 가게가 없는 SELLER 회원은 USER가 된다 | `openShop` → `closeShop(shopId)` → `changeRole(memberId, "SELLER")` | DB: `role()` = `USER` |
+| 3. ACTIVE 가게가 남은 SELLER 회원은 SELLER 그대로 둔다 | 가게 2개 `openShop`(`"1111111111"`·`"2222222222"`) → 첫 가게 `closeShop` → `changeRole(memberId, "SELLER")` | DB: `role()` = `SELLER` |
+| 4. ADMIN 회원은 ACTIVE 가게가 있어도 ADMIN 그대로 둔다 | `openShop` → `changeRole(memberId, "ADMIN")` | DB: `role()` = `ADMIN` |
+| 5. ADMIN 회원은 ACTIVE 가게가 없어도 ADMIN 그대로 둔다 | `openShop` → `closeShop(shopId)` → `changeRole(memberId, "ADMIN")` | DB: `role()` = `ADMIN` |
+| 6. 없는 회원이면 예외 없이 끝난다 | 없음. 동작은 `syncSellerRole(Ids.newId())` | 반환값: 예외 없이 끝난다 |
+
+**7. 폐업 처리가 커밋하기 전에 다른 가게의 개설 처리가 와도 SELLER로 끝난다** — 테스트 클래스에 `@MockitoSpyBean ShopApi shopApi` 필드를 더한다. 스텁하지 않은 1\~6번은 실제 메서드를 쓴다.
+
+준비: `shopAId = openShop(memberId, "1111111111")` → `changeRole(memberId, "SELLER")` → `closeShop(shopAId)`. `AtomicBoolean pauseOnce = new AtomicBoolean(true)`, `CountDownLatch entered = new CountDownLatch(1)`, `CountDownLatch release = new CountDownLatch(1)`와 `willAnswer(inv -> { Object count = inv.callRealMethod(); if (pauseOnce.getAndSet(false)) { entered.countDown(); release.await(5, TimeUnit.SECONDS); } return count; }).given(shopApi).countActiveShops(memberId)` → `CompletableFuture<Void> closing = CompletableFuture.runAsync(() -> memberRoleService.syncSellerRole(memberId))` → `entered.await(5, TimeUnit.SECONDS)` → `openShop(memberId, "2222222222")`. 가게 A의 폐업 처리가 가게 수 0을 읽은 채, 커밋하기 전에 멈추고, 그동안 가게 B가 커밋된다.
+
+동작: `CompletableFuture<Void> opening = CompletableFuture.runAsync(() -> memberRoleService.syncSellerRole(memberId))` → `opening.get(1, TimeUnit.SECONDS)`(`TimeoutException`은 무시) → `release.countDown()` → `closing.get(10, TimeUnit.SECONDS)` → `opening.get(10, TimeUnit.SECONDS)`. 잠금이 없으면 B의 개설 처리는 1초 안에 아무것도 쓰지 않고 끝나고, 잠금이 있으면 폐업 처리의 잠금을 기다리므로 1초 제한 뒤 폐업 처리를 풀어 준다.
+- DB(`memberSnapshotOf(memberId)`): `role()` = `SELLER`.
+
+#### `shop/application/ShopOpenedFlowTest`에 추가 (3-1의 클래스에 더한다)
+
+**4. 폐업한 가게의 개설 이벤트가 늦게 처리되어도 SELLER를 주지 않는다** — 준비: `sellerId = signup("seller@test.com")`, `shopId = openShop(sellerId, "1111111111")`, `closeShop(shopId)`, `eventId = Ids.newId()`. DLT 리플레이처럼 폐업 뒤에 개설 이벤트가 처음 처리되는 상황이다. 동작: `testKafka.send(ShopTopics.SHOP_OPENED, shopId.toString(), eventId, new ShopOpenedEvent(shopId, sellerId))` → `Eventually.await(Duration.ofSeconds(10), ...)` 안에서 `processedCountOf("member.shop-opened", eventId)` = 1이 될 때까지 기다린다.
+- DB(`memberSnapshotOf(sellerId)`): `role()` = `USER`.
 
 #### `shop/web/CloseShopTest`
 
@@ -830,7 +847,7 @@ void onShopOpened(String message) {
 **7. 같은 shop-closed 이벤트를 두 번 소비** — 준비: 가게 A를 JDBC로 폐업 상태로 만든다(`closeShop(shopA)`). `@MockitoSpyBean ProductDiscontinueService`, `@MockitoSpyBean MemberRoleService`. 동작: `eventId1`로 `TestKafka.send(ShopTopics.SHOP_CLOSED, shopA.toString(), eventId1, new ShopClosedEvent(shopA, sellerId))`를 두 번 보내고, 이어서 센티널로 `eventId2`를 같은 키로 한 번 더 보낸다.
 - DB(`processedCountOf("product.shop-closed", eventId2)`·`processedCountOf("member.shop-closed", eventId2)`): `Eventually`(10초) 안에서 각각 1.
 - DB(`processedCountOf("product.shop-closed", eventId1)`·`processedCountOf("member.shop-closed", eventId1)`): 위 센티널 처리 신호가 나온 뒤 각각 1.
-- 반환값(Mockito `verify(스파이, times(2))`): 센티널 처리 신호가 나온 뒤, 스파이 `ProductDiscontinueService`의 `discontinueAllByShop(shopA)` 호출이 정확히 2번, 스파이 `MemberRoleService`의 `revokeSellerIfNoActiveShop(sellerId)` 호출이 정확히 2번.
+- 반환값(Mockito `verify(스파이, times(2))`): 센티널 처리 신호가 나온 뒤, 스파이 `ProductDiscontinueService`의 `discontinueAllByShop(shopA)` 호출이 정확히 2번, 스파이 `MemberRoleService`의 `syncSellerRole(sellerId)` 호출이 정확히 2번.
 
 **추가 항목**
 - 같은 회원의 가게 개설·폐업을 `pg_advisory_xact_lock(hashtext('shop-member:' + memberId))`로 줄 세우기 — SELLER 판단은 consumer 재조회로 이미 안전하므로, 줄 세우기는 "동시에 열고 닫는" 이상한 요청을 막는 용도

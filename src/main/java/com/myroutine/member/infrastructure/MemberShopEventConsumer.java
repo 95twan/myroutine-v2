@@ -22,7 +22,7 @@ public class MemberShopEventConsumer {
     public void onShopOpened(String message) {
         TypedEnvelope<ShopOpenedEvent> typed = envelopes.parse(message, ShopOpenedEvent.class);
         inboxGuard.runOnce("member.shop-opened", typed.envelope(), () -> {
-            memberRoleService.grantSeller(typed.payload().memberId());
+            memberRoleService.syncSellerRole(typed.payload().memberId());
         });
     }
 
@@ -30,7 +30,7 @@ public class MemberShopEventConsumer {
     public void onShopClosed(String message) {
         TypedEnvelope<ShopClosedEvent> typed = envelopes.parse(message, ShopClosedEvent.class);
         inboxGuard.runOnce("member.shop-closed", typed.envelope(), () -> {
-            memberRoleService.revokeSellerIfNoActiveShop(typed.payload().memberId());
+            memberRoleService.syncSellerRole(typed.payload().memberId());
         });
     }
 }

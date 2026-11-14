@@ -19,24 +19,16 @@ public class MemberRoleService {
     private final ShopApi shopApi;
 
     @Transactional
-    public void grantSeller(UUID memberId) {
-        Optional<Member> member = memberRepository.findById(memberId);
-        if (member.isEmpty()) {
-            log.warn("회원을 찾을 수 없습니다. memberId={}", memberId);
-            return;
-        }
-        member.get().promoteToSeller();
-    }
-
-    @Transactional
-    public void revokeSellerIfNoActiveShop(UUID memberId) {
-        Optional<Member> member = memberRepository.findById(memberId);
+    public void syncSellerRole(UUID memberId) {
+        Optional<Member> member = memberRepository.findByIdForUpdate(memberId);
         if (member.isEmpty()) {
             log.warn("회원을 찾을 수 없습니다. memberId={}", memberId);
             return;
         }
         int count = shopApi.countActiveShops(memberId);
-        if (count == 0) {
+        if (count > 0) {
+            member.get().promoteToSeller();
+        } else {
             member.get().demoteToUser();
         }
     }

@@ -4,6 +4,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.myroutine.common.error.BusinessException;
 import com.myroutine.common.model.Ids;
 import com.myroutine.common.outbox.OutboxRelay;
+import com.myroutine.shop.api.event.ShopOpenedEvent;
 import com.myroutine.shop.api.event.ShopTopics;
 import com.myroutine.shop.domain.ShopErrorCode;
 import com.myroutine.shop.web.OpenShopRequest;
@@ -135,5 +136,22 @@ class ShopOpenedFlowTest extends IntegrationTestSupport {
         List<ReceivedMessage> messages = testKafka.messages(ShopTopics.SHOP_OPENED, shopId);
         assertThat(messages).hasSize(1);
         assertThat(messages.get(0).envelope().traceId()).isEqualTo(traceId);
+    }
+
+    @Test
+    @DisplayName("폐업한 가게의 개설 이벤트가 늦게 처리되어도 SELLER를 주지 않는다.")
+    void lateShopOpenedEventForClosedShopKeepsUser() throws Exception {
+        // Given
+        UUID sellerId = testFixtures.signup("seller@test.com");
+        UUID shopId = testFixtures.openShop(sellerId, "1111111111");
+        testFixtures.closeShop(shopId);
+        UUID eventId = Ids.newId();
+
+        // When
+        testKafka.send(ShopTopics.SHOP_OPENED, shopId.toString(), eventId, new ShopOpenedEvent(shopId, sellerId));
+        Eventually.await(Duration.ofSeconds(10), () -> assertThat(testFixtures.processedCountOf("member.shop-opened", eventId)).isEqualTo(1));
+
+        // Then
+        assertThat(testFixtures.memberSnapshotOf(sellerId).role()).isEqualTo("USER");
     }
 }
