@@ -166,4 +166,22 @@ public interface JpaOrderRepository extends JpaRepository<Order, UUID>, OrderRep
             where ol.id in :lineIds
             """)
     List<OrderLine> findLinesByIdIn(Collection<UUID> lineIds);
+
+    @Query("""
+            select o.id
+            from Order o
+            where o.memberId = :memberId
+            and o.status in :statuses
+            """)
+    List<UUID> findIdsByMemberIdAndStatusIn(UUID memberId, Collection<OrderStatus> statuses);
+
+    @Query("""
+            select o.createdAt
+            from Order o
+            where o.memberId = :memberId
+            and o.status in :statuses
+            and o.createdAt > :since
+            order by o.createdAt desc
+            """)
+    List<Instant> findRecentCreatedAts(UUID memberId, Collection<OrderStatus> statuses, Instant since);
 }

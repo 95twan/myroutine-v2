@@ -53,6 +53,10 @@ public class TestFixtures {
     private final ConfirmPurchaseService confirmPurchaseService;
     private final ObjectMapper objectMapper;
 
+    public void setOrderCreatedAt(UUID orderId, Instant createdAt) {
+        jdbcTemplate.update("UPDATE orders.orders SET created_at = ? WHERE id = ?", Timestamp.from(createdAt), orderId);
+    }
+
     public List<InquirySnapshot> inquiriesOf(UUID memberId) {
         List<UUID> ids = jdbcTemplate.queryForList(
                 "SELECT id FROM member.inquiry WHERE member_id = ? ORDER BY created_at", UUID.class, memberId);
