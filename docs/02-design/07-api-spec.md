@@ -1,6 +1,7 @@
 # 07. API 명세 (Stage 1)
 
 > 엔드포인트 목록과 핵심 API의 요청·응답 계약. 필드 단위 상세는 구현 시 springdoc(OpenAPI)로 생성하고, 이 문서와 어긋나면 이 문서를 갱신한다.
+> 2026-11-16 · 체크아웃은 결제 대기 주문이 많으면 409 `PENDING_ORDER_LIMIT_EXCEEDED`, 최근 24시간에 결제되지 않은 주문이 많으면 429 `UNPAID_ORDER_LIMIT_EXCEEDED`(서브 SUB-23)
 > 2026-11-14 · 알림 목록 `status`에 `EXPIRED`(유효 시간이 지나 보내지 않은 알림, 서브 SUB-21)
 > 2026-11-13 · 정산 응답과 관리자 정산 항목에 회차 `seq`. 정산 수동 실행은 정산이 실행 중이면 409 `SETTLEMENT_RUN_IN_PROGRESS`, 같은 달을 다시 실행하면 정산 뒤 적재된 품목을 다음 회차로 정산한다(서브 SUB-18)
 > 2026-11-09 · 판매자 상품 상세 `GET /api/shops/{shopId}/products/{id}`(상태와 관계없이), 실패 환불 항목에 `pgOrderId`·`buyerEmail`, 구매자 주문 상세의 환불에 판매자 거절 사유 `rejectReason`. 관리자 종결 사유는 구매자에게 내보내지 않는다(서브 SUB-17)
@@ -61,10 +62,12 @@
 | 409 | `IDEMPOTENCY_IN_PROGRESS`, `CONFLICT_RETRY`, `INVALID_STATE_TRANSITION` | 경합, 상태 |
 | 409 | `ORDER_EXPIRED`, `ORDER_ALREADY_PAID` | 결제 승인 시 주문 상태 불일치 |
 | 409 | `REFUND_IN_PROGRESS` | 진행 중 환불(`FAILED` 포함)이 있는 가게주문 발송 시도 |
+| 409 | `PENDING_ORDER_LIMIT_EXCEEDED` | 결제 대기·결제 중 주문이 상한(3건)에 닿은 체크아웃(서브 SUB-23) |
 | 422 | `OUT_OF_STOCK`, `PRODUCT_NOT_ON_SALE`, `SHOP_NOT_ACTIVE`, `AMOUNT_MISMATCH`, `IDEMPOTENCY_KEY_REUSED` | 비즈니스 규칙 |
 | 422 | `SHOP_HAS_ACTIVE_ORDERS`, `MEMBER_HAS_ACTIVE_RESOURCES`, `PRODUCT_NOT_SUBSCRIBABLE`(서브 SUB-2), `OWN_SHOP_PRODUCT` | 폐업·탈퇴·구독 조건 |
 | 402 | `PAYMENT_FAILED` | PG 명확한 거절 |
 | 429 | `RATE_LIMITED` | 인증코드 발송 등. `details.retryAfterSeconds`(다시 보낼 수 있을 때까지 남은 초) |
+| 429 | `UNPAID_ORDER_LIMIT_EXCEEDED` | 최근 24시간에 만든 주문 중 결제되지 않은 주문이 5건인 체크아웃. `details.retryAfterSeconds`(서브 SUB-23) |
 | 502 | `PG_ERROR` | PG 취소 명확한 실패 |
 | 500 | `INTERNAL_ERROR` | 예상하지 못한 서버 오류 (내부 정보 비노출) |
 
@@ -228,7 +231,7 @@ Idempotency-Key: 7c9e...
   ]
 }
 ```
-에러: 422 `OUT_OF_STOCK`(details.productIds), `PRODUCT_NOT_ON_SALE`, `SHOP_NOT_ACTIVE`, `OWN_SHOP_PRODUCT` / 404 `CART_ITEM_NOT_FOUND`(남의 항목 포함).
+에러: 422 `OUT_OF_STOCK`(details.productIds), `PRODUCT_NOT_ON_SALE`, `SHOP_NOT_ACTIVE`, `OWN_SHOP_PRODUCT` / 404 `CART_ITEM_NOT_FOUND`(남의 항목 포함) / 409 `PENDING_ORDER_LIMIT_EXCEEDED`(details.orderIds: 결제 대기·결제 중 주문 ID) / 429 `UNPAID_ORDER_LIMIT_EXCEEDED`(details.retryAfterSeconds). 두 제한은 상품을 확인하기 전에 검사한다.
 
 ### 3.2 POST /api/orders/{id}/payment/confirm
 ```json
