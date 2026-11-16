@@ -61,7 +61,7 @@
 |---|---|
 | `OrderErrorCode` | `PENDING_ORDER_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "결제 대기 중인 주문이 많습니다. 결제를 마치거나 취소한 뒤, 또는 잠시 뒤 다시 시도해 주세요.")`, `UNPAID_ORDER_LIMIT_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS, "결제하지 않은 주문이 많아 잠시 주문할 수 없습니다.")`를 더한다 |
 | `CartRepository` | `Optional<Cart> findByMemberIdForUpdate(UUID memberId)` |
-| `OrderRepository` | `List<UUID> findIdsByMemberIdAndStatusIn(UUID memberId, Collection<OrderStatus> statuses)`, `List<Instant> findRecentCreatedAts(UUID memberId, Collection<OrderStatus> statuses, Instant since, Limit limit)` |
+| `OrderRepository` | `List<UUID> findIdsByMemberIdAndStatusIn(UUID memberId, Collection<OrderStatus> statuses)`, `List<Instant> findRecentCreatedAts(UUID memberId, Collection<OrderStatus> statuses, Instant since)` |
 
 **2) order.infrastructure**
 
@@ -83,7 +83,7 @@
 |---|---|
 | ① | `cartRepository.findByMemberIdForUpdate(memberId)`로 장바구니를 잠그며 읽는다. 없으면 지금처럼 404 `CART_ITEM_NOT_FOUND` |
 | ② | `findIdsByMemberIdAndStatusIn(memberId, List.of(PENDING_PAYMENT, PAYMENT_IN_PROGRESS))`의 크기가 `maxPendingOrders` 이상이면 `BusinessException(PENDING_ORDER_LIMIT_EXCEEDED, Map.of("orderIds", 그 목록))` |
-| ③ | `now = clock.instant()`. `findRecentCreatedAts(memberId, List.of(PENDING_PAYMENT, PAYMENT_IN_PROGRESS, EXPIRED, CANCELLED, PAYMENT_FAILED), now.minus(unpaidWindow), Limit.of(unpaidLimit))`의 크기가 `unpaidLimit`이면 `BusinessException(UNPAID_ORDER_LIMIT_EXCEEDED, Map.of("retryAfterSeconds", 초))`. 초는 마지막 원소(최근 `unpaidLimit`번째 주문의 `createdAt`)에 `unpaidWindow`를 더한 시각까지 남은 초이고, 1보다 작으면 1이다. 그 주문이 창에서 빠지면 남는 건수가 `unpaidLimit - 1`이 된다 |
+| ③ | `now = clock.instant()`. `findRecentCreatedAts(memberId, List.of(PENDING_PAYMENT, PAYMENT_IN_PROGRESS, EXPIRED, CANCELLED, PAYMENT_FAILED), now.minus(unpaidWindow))`의 크기가 `unpaidLimit` 이상이면 `BusinessException(UNPAID_ORDER_LIMIT_EXCEEDED, Map.of("retryAfterSeconds", 초))`. 초는 `long` 값 `Duration.between(now, 목록.get(unpaidLimit - 1).plus(unpaidWindow)).getSeconds()`이고, 1보다 작으면 1이다. `get(unpaidLimit - 1)`은 최근 `unpaidLimit`번째 주문의 `createdAt`이고, 여기에 `unpaidWindow`를 더한 `Instant`가 그 주문이 창에서 빠지는 시각이다. 이 시각을 그대로 넣으면 응답에 문자열로 나간다. 그 주문이 창에서 빠지면 남는 건수가 `unpaidLimit - 1`이 된다 |
 
 ①을 ②보다 먼저 해야 동시 요청이 막힌다. 두 요청이 같은 회원의 장바구니 행을 잠그려 하면 뒤 요청은 앞 요청이 커밋할 때까지 기다린다. Postgres의 기본 격리 수준(READ COMMITTED)은 문장마다 그때까지 커밋된 데이터를 보므로, 뒤 요청의 ②는 앞 요청이 만든 주문을 센다. ②·③은 상품·가게를 읽기 전에 해서 거절할 요청이 재고 행을 잠그지 않게 한다. 지금 `checkout` 뒤쪽의 `Instant now = clock.instant()`는 ③의 `now`를 쓴다.
 
@@ -97,7 +97,7 @@
 
 #### `order/web/CheckoutLimitTest`
 
-모든 케이스의 공통 준비는 판매자(`signup("seller@test.com")` → `openShop` → `registerProduct(sellerId, shopId, 1000, 100)`)와 구매자(`signup("buyer@test.com")`, `login`)다. 동작은 구매자 토큰과 새 `Idempotency-Key`로 `POST /api/orders/checkout`이고, 요청은 `addToCart(buyerId, productId, 1)`로 담은 항목과 `address(buyerId)`다. 준비의 주문은 `createPendingOrder(buyerId, productId)`로 만든다(같은 장바구니 항목의 수량이 1씩 늘어난다).
+모든 케이스의 공통 준비는 판매자(`signup("seller@test.com")` → `openShop` → `registerProduct(sellerId, shopId, 1000, 100)`)와 구매자(`signup("buyer@test.com")`, `login`)다. 동작은 구매자 토큰과 새 `Idempotency-Key`로 `POST /api/orders/checkout`이고, 요청은 `addToCart(buyerId, productId, 1)`로 담은 항목과 `address(buyerId)`다. 준비의 주문은 `createPendingOrder(buyerId, productId)`로 만든다(같은 장바구니 항목의 수량이 1씩 늘어난다). "구매자의 주문 수"는 `jdbcTemplate.queryForObject("SELECT count(*) FROM orders.orders WHERE member_id = ?", Integer.class, buyerId)`다(`CheckoutIdempotencyConcurrencyTest`와 같다).
 
 | 케이스 | 준비 | 확인할 것 |
 |---|---|---|
