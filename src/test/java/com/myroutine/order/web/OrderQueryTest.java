@@ -48,14 +48,12 @@ class OrderQueryTest extends IntegrationTestSupport {
 
         UUID buyerId = testFixtures.signup("buyer@test.com");
         String token = testFixtures.login("buyer@test.com");
-        UUID addressId = testFixtures.address(buyerId);
-        UUID cartItemId = testFixtures.addToCart(buyerId, productId, 2);
         List<UUID> orderIds = List.of(
-                testFixtures.checkout(buyerId, List.of(cartItemId), addressId).orderId(),
-                testFixtures.checkout(buyerId, List.of(cartItemId), addressId).orderId(),
-                testFixtures.checkout(buyerId, List.of(cartItemId), addressId).orderId(),
-                testFixtures.checkout(buyerId, List.of(cartItemId), addressId).orderId(),
-                testFixtures.checkout(buyerId, List.of(cartItemId), addressId).orderId()
+                testFixtures.createPaidOrder(buyerId, productId),
+                testFixtures.createPaidOrder(buyerId, productId),
+                testFixtures.createPaidOrder(buyerId, productId),
+                testFixtures.createPaidOrder(buyerId, productId),
+                testFixtures.createPaidOrder(buyerId, productId)
         );
 
         UUID otherId = testFixtures.signup("other@test.com");
@@ -75,7 +73,7 @@ class OrderQueryTest extends IntegrationTestSupport {
         List<String> ids = JsonPath.read(body, "$.items[*].orderId");
         String nextCursor = JsonPath.read(body, "$.nextCursor");
 
-        testFixtures.checkout(buyerId, List.of(cartItemId), addressId);
+        testFixtures.createPaidOrder(buyerId, productId);
 
         while (nextCursor != null) {
             result = mockMvc.perform(get("/api/orders")

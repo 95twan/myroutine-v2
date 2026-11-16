@@ -56,4 +56,8 @@ public interface OrderRepository {
     long countByStatusAndUpdatedAtBefore(OrderStatus status, Instant before);
 
     List<OrderLine> findLinesByIdIn(Collection<UUID> lineIds);
+
+    List<UUID> findIdsByMemberIdAndStatusIn(UUID memberId, Collection<OrderStatus> statuses);
+
+    List<Instant> findRecentCreatedAts(UUID memberId, Collection<OrderStatus> statuses, Instant since);
 }

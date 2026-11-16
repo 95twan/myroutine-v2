@@ -79,6 +79,9 @@ myroutine:
     max-upload-bytes: 5242880
   order:
     payment-ttl: 15m
+    max-pending-orders: 3
+    unpaid-limit: 5
+    unpaid-window: 24h
   toss:
     base-url: https://api.tosspayments.com
     secret-key: ${TOSS_SECRET_KEY}

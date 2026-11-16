@@ -1,6 +1,7 @@
 # 서브: 구독
 
-> 버전 0.31 · 2026-10-31 · 로드맵의 옛 Part 5를 서브로 옮겼다(파일은 `03-roadmap/part5-subscription.md`에서 이동, 단계 ID는 5-1\~5-4에서 SUB-1\~SUB-4로): Stage 1 뒤에 하고 `v1.x.0`으로 릴리스한다. Part 6에서 뺀 구독 점검(로그 점검, 빌링 호출 지표, INV-08, E2E S5·S7)을 "Part 6에 더할 것"으로 옮겼다
+> 버전 0.32 · 2026-11-16 · SUB-3: 체크아웃의 재고 점유 제한(SUB-23) 두 조회에 `type = NORMAL` 조건을 더해 구독 회차 주문을 세지 않는다
+> 0.31 · 2026-10-31 · 로드맵의 옛 Part 5를 서브로 옮겼다(파일은 `03-roadmap/part5-subscription.md`에서 이동, 단계 ID는 5-1\~5-4에서 SUB-1\~SUB-4로): Stage 1 뒤에 하고 `v1.x.0`으로 릴리스한다. Part 6에서 뺀 구독 점검(로그 점검, 빌링 호출 지표, INV-08, E2E S5·S7)을 "Part 6에 더할 것"으로 옮겼다
 > 0.30 · 2026-10-28 · SUB-2 구독 신청에서 이메일 인증 확인(`@RequireVerifiedEmail`)을 뺐다. 4-2부터 가입 전에 이메일을 인증해 모든 회원이 인증된 이메일을 가진다
 > 0.29 · 2026-10-27
 > 0.13 · 2026-10-16 · 쓰지 않는 요소와 억지 재사용 경로를 걷어냈다. `PaymentApi.getActiveBillingKey`(반환 `BillingKeyInfo`)를 반환 없는 `verifyActiveBillingKey`로 바꾸고 record를 지웠다. `TossBillingResponse.customerKey`와 `Subscription.isActiveLike()`를 뺐다. SKIPPED 회차는 `insertIfAbsent`에 `failureReason` 인자를 더해 한 번의 INSERT로 만들고 `recordSkipReason`·추가 조회·UPDATE를 없앴다(같은 날 다른 실행이 먼저 만든 경우의 종료도 적었다). 구독 회차 주문의 결제 시작은 2-4 `startPayment` CAS 대신 `Order.markPaymentInProgress()`로 바꿨다(`SubscriptionCycleService`의 `OrderRepository` 의존 제거)
@@ -795,6 +796,7 @@ SUB-3의 "오늘 실행 대상" 조회와 SUB-4의 판매자 목록 조회는 �
 | `OrderPlacer` (`@Component`) | `Order place(PlaceOrderCommand command)` |
 | `CheckoutService` (기존 수정) | 상품·가게·배송지 확인 뒤 그 부분 대신 `orderPlacer.place(new PlaceOrderCommand(memberId, NORMAL, lines, address))`를 부른다. 체크아웃은 장바구니를 건드리지 않으므로 `CheckoutService`에 남길 장바구니 처리는 없다 |
 | `OrderPaymentApplier.complete` (기존 수정, 2-4) | 장바구니 차감(`cartService.deductOrdered`)에 `order.getType() == NORMAL` 조건을 더한다. 구독 회차 주문이 구매자의 장바구니를 건드리면 안 된다 |
+| `JpaOrderRepository.findIdsByMemberIdAndStatusIn`·`findRecentCreatedAts` (기존 수정, [SUB-23](stock-hold-abuse.md)) | 두 쿼리에 `and o.type = NORMAL` 조건을 더한다. 회차 주문은 체크아웃 없이 잡이 만들고 결제 실패로 `PAYMENT_FAILED`가 될 수 있어, 세면 구독자가 회차 결제 실패만으로 체크아웃이 막힌다 |
 
 `OrderPlacer` — **"주문 저장 + 재고 예약"만 하는 작은 컴포넌트.** 불러 주는 쪽은 `CheckoutService`(트랜잭션 안)와 `SubscriptionCycleService.runDue`의 트랜잭션 1이다. 의존성은 `OrderRepository`, `ProductApi`, `Clock`, `OrderProperties`(`paymentTtl`)다. 상품·가게·배송지 확인은 하지 않는다(호출자가 이미 했다).
 - `place`: 주문을 저장하고 재고를 예약한다. **호출자의 트랜잭션 안에서** 실행된다(자기 트랜잭션을 열지 않는다). 명령 → 저장된 `Order`(PENDING_PAYMENT)

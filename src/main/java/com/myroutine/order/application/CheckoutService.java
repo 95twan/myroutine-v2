@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.function.Function;
@@ -24,6 +25,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class CheckoutService {
 
+    public static final List<OrderStatus> PENDING_ORDER_STATUSES = List.of(OrderStatus.PENDING_PAYMENT, OrderStatus.PAYMENT_IN_PROGRESS);
+    public static final List<OrderStatus> UNPAID_ORDER_STATUSES = List.of(OrderStatus.PENDING_PAYMENT, OrderStatus.PAYMENT_IN_PROGRESS, OrderStatus.EXPIRED, OrderStatus.CANCELLED, OrderStatus.PAYMENT_FAILED);
     private final ProductApi productApi;
     private final ShopApi shopApi;
     private final MemberApi memberApi;
@@ -37,9 +40,22 @@ public class CheckoutService {
 
     @Transactional
     public CheckoutResult checkout(UUID memberId, CheckoutCommand command) {
-        Cart cart = cartRepository.findByMemberId(memberId).orElseThrow(
+        Cart cart = cartRepository.findByMemberIdForUpdate(memberId).orElseThrow(
                 () -> new BusinessException(OrderErrorCode.CART_ITEM_NOT_FOUND)
         );
+
+        List<UUID> pendingOrders = orderRepository.findIdsByMemberIdAndStatusIn(memberId, PENDING_ORDER_STATUSES);
+        if (pendingOrders.size() >= orderProperties.maxPendingOrders()) {
+            throw new BusinessException(OrderErrorCode.PENDING_ORDER_LIMIT_EXCEEDED, Map.of("orderIds", pendingOrders));
+        }
+
+        Instant now = clock.instant();
+        List<Instant> unpaidOrders = orderRepository.findRecentCreatedAts(memberId, UNPAID_ORDER_STATUSES, now.minus(orderProperties.unpaidWindow()));
+        if (unpaidOrders.size() >= orderProperties.unpaidLimit()) {
+            long seconds = Duration.between(now, unpaidOrders.get(orderProperties.unpaidLimit() - 1).plus(orderProperties.unpaidWindow())).getSeconds();
+            throw new BusinessException(OrderErrorCode.UNPAID_ORDER_LIMIT_EXCEEDED, Map.of("retryAfterSeconds", seconds < 1 ? 1 : seconds));
+        }
+
         Set<UUID> cartItemIds = new HashSet<>(command.cartItemIds());
         List<CartItem> cartItems = cartItemRepository.findAllByIdInAndCartId(cartItemIds, cart.getId());
         if (cartItems.size() != cartItemIds.size()) {
@@ -93,7 +109,6 @@ public class CheckoutService {
                 addressInfo.address2()
         );
 
-        Instant now = clock.instant();
 
         Order order = Order.checkout(
                 memberId,

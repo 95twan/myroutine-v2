@@ -2,11 +2,14 @@ package com.myroutine.order.infrastructure;
 
 import com.myroutine.order.domain.Cart;
 import com.myroutine.order.domain.CartRepository;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface JpaCartRepository extends JpaRepository<Cart, UUID>, CartRepository {
@@ -20,4 +23,12 @@ public interface JpaCartRepository extends JpaRepository<Cart, UUID>, CartReposi
                     """
     )
     int insertIfAbsent(UUID id, UUID memberId, Instant now);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT c
+            FROM Cart c
+            WHERE c.memberId = :memberId
+            """)
+    Optional<Cart> findByMemberIdForUpdate(UUID memberId);
 }
