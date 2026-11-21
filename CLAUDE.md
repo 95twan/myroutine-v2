@@ -54,12 +54,12 @@
 | `docs/00-as-is/` | 원 프로젝트 분석, 결함 54건 (재설계 근거) |
 | `docs/01-requirements/` | 요구사항, 정책(POL), 불변식(INV) |
 | `docs/02-design/` | 아키텍처 진화, Stage 1 구조, ERD, 상태머신, 이벤트, 시퀀스, API |
-| `docs/adr/` | 설계 결정 기록 ADR-001~014 |
+| `docs/adr/` | 설계 결정 기록 ADR-001~015 |
 | `docs/development-guide.md` | 코딩 규칙 + **리뷰 기준(§18 체크리스트, §19 금지 패턴)** |
 | `docs/git-policy.md` | Git Flow, 커밋·PR 규칙 |
 | `docs/03-roadmap/` | Part 1~6 단계별 구현 로드맵, 미결 정책 OPEN-xx |
 | `docs/known-issues.md` | 알려진 문제와 한계(위험도·상태별, 고치지 않기로 한 것 포함). Release 노트의 알려진 한계는 여기서 고른다 |
-| `docs/04-sub/` | 서브: 로드맵에서 뺀 구독(SUB-1~SUB-4)·취향 추천(SUB-5)·월간 리뷰 요약(SUB-6)·무중단 재색인(SUB-7)·로그 보강(SUB-8)·k3s 전환(SUB-9\~SUB-13)과 Stage 2에서 남긴 개선(SUB-14\~SUB-16), 응답 보완(SUB-17), 늦게 적재된 정산 품목(SUB-18), 대사의 동시 실행(SUB-19), PG 밖에서 취소된 결제의 대사(SUB-20), 때 지난 알림(SUB-21), SELLER 역할 맞추기(SUB-22), 재고 점유 남용(SUB-23), Redis 장애 대응(SUB-24\~SUB-29). Stage 1 뒤에 한다 |
+| `docs/04-sub/` | 서브: 로드맵에서 뺀 구독(SUB-1~SUB-4)·취향 추천(SUB-5)·월간 리뷰 요약(SUB-6)·무중단 재색인(SUB-7)·로그 보강(SUB-8)·k3s 전환(SUB-9\~SUB-13)과 Stage 2에서 남긴 개선(SUB-14\~SUB-16), 응답 보완(SUB-17), 늦게 적재된 정산 품목(SUB-18), 대사의 동시 실행(SUB-19), PG 밖에서 취소된 결제의 대사(SUB-20), 때 지난 알림(SUB-21), SELLER 역할 맞추기(SUB-22), 재고 점유 남용(SUB-23), Redis 장애 대응(SUB-24), 세션 인증 전환(SUB-25). Stage 1 뒤에 한다 |
 | `docs/retrospectives/` | Stage 1·2 회고. 이력서 초안 `resume-bullets.md`는 로컬에만 두고 커밋하지 않는다(`.git/info/exclude`) |
 | `docs/references/` | 원 프로젝트에서 가져온 본인 노트·실험·Saga 설계 (수정하지 않음) |
 

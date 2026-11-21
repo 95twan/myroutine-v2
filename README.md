@@ -200,7 +200,7 @@ flowchart LR
 | [00-as-is](docs/00-as-is/README.md) | 원 팀 프로젝트 분석과 결함 54건 (재설계의 근거) |
 | [01-requirements](docs/01-requirements/README.md) | 요구사항, 정책, 정합성 불변식 |
 | [02-design](docs/02-design/README.md) | 아키텍처 진화, 모듈 구조, ERD, 상태머신, 이벤트, 시퀀스, API |
-| [adr](docs/adr/) | 설계 결정 기록 ADR-001~014 |
+| [adr](docs/adr/) | 설계 결정 기록 ADR-001~015 |
 | [development-guide](docs/development-guide.md) | 코딩 규칙과 리뷰 기준 |
 | [git-policy](docs/git-policy.md) | 브랜치, 커밋, PR, 릴리스 규칙 |
 | [03-roadmap](docs/03-roadmap/README.md) | 단계별 구현 로드맵과 완료 확인 |

@@ -1,6 +1,8 @@
 # 서브
 
-> 버전 0.13 · 2026-11-20 · Redis 장애 대응 SUB-24~SUB-29를 더했다. Redis를 쓸 수 없을 때 로그인한 요청·로그인·로그아웃·비밀번호 변경·제재·탈퇴는 진행하고 가입·토큰 갱신·비밀번호 재설정은 503으로 막으며, 로그인 실패 횟수를 DB로, 세션 삭제를 커밋 뒤로 옮기고, 세션에 토큰 버전을 넣고, Redis 저장을 끈다
+> 버전 0.15 · 2026-11-22 · JWT를 DB 세션으로 바꾸는 세션 인증 전환을 SUB-25로 더하고, Redis 장애 대응에서 JWT를 전제로 한 세 단계와 AOF 켜기를 지웠다(Redis는 RDB 스냅샷 그대로)
+> 0.14 · 2026-11-21 · Redis 장애 대응에서 로그인 실패 횟수를 DB로 옮기는 단계를 뺐다(장애 중 이메일 로그인은 503). 단계를 SUB-24~SUB-28로 당겼다. Redis 저장을 끄지 않고 AOF를 켠다(SUB-28)
+> 0.13 · 2026-11-20 · Redis 장애 대응 SUB-24~SUB-29를 더했다. Redis를 쓸 수 없을 때 로그인한 요청·로그인·로그아웃·비밀번호 변경·제재·탈퇴는 진행하고 가입·토큰 갱신·비밀번호 재설정은 503으로 막으며, 로그인 실패 횟수를 DB로, 세션 삭제를 커밋 뒤로 옮기고, 세션에 토큰 버전을 넣고, Redis 저장을 끈다
 > 0.12 · 2026-11-15 · 체크아웃이 결제 대기 주문 수와 최근 24시간에 만든 주문 중 결제되지 않은 주문 수로 거절하게 하는 SUB-23을 더했다
 > 0.11 · 2026-11-14 · 가게 개설·폐업 처리가 회원 행을 잠근 뒤 활성 가게 수로 SELLER·USER를 맞추게 하는 SUB-22를 더했다
 > 0.10 · 2026-11-13 · 일어난 지 24시간이 지난 진행 알림을 보내지 않고 `EXPIRED`로 남기는 SUB-21을 더했다
@@ -14,9 +16,9 @@
 > 0.2 · 2026-11-02 · 로드맵의 옛 5-3 무중단 재색인을 옮겨 왔다(단계 ID SUB-7)
 > 0.1 · 2026-10-31 · 로드맵에서 구독(옛 Part 5), 취향 추천(옛 6-4), 월간 리뷰 요약(옛 6-5)을 빼서 옮겨 오고 단계 ID를 SUB-1~SUB-6으로 붙였다
 
-[로드맵](../03-roadmap/README.md)(Part 1\~6, Stage 1 `v1.0.0`)에서 뺀 기능이다. Stage 1 뒤 여유가 있을 때 하고, 시기는 그때 정한다. Stage 2의 선행 조건이 아니다. Stage 2에서 하지 않은 개선(SUB-14\~SUB-16), 화면을 붙이며 드러난 응답 빈칸(SUB-17), consumer 점검에서 드러난 정산 빈 곳(SUB-18), 대사의 동시 실행(SUB-19), PG 밖에서 취소된 결제의 대사(SUB-20), 때 지난 알림(SUB-21), SELLER 역할 맞추기(SUB-22), 재고 점유 남용(SUB-23), Redis 장애 대응(SUB-24\~SUB-29)도 여기에 둔다.
+[로드맵](../03-roadmap/README.md)(Part 1\~6, Stage 1 `v1.0.0`)에서 뺀 기능이다. Stage 1 뒤 여유가 있을 때 하고, 시기는 그때 정한다. Stage 2의 선행 조건이 아니다. Stage 2에서 하지 않은 개선(SUB-14\~SUB-16), 화면을 붙이며 드러난 응답 빈칸(SUB-17), consumer 점검에서 드러난 정산 빈 곳(SUB-18), 대사의 동시 실행(SUB-19), PG 밖에서 취소된 결제의 대사(SUB-20), 때 지난 알림(SUB-21), SELLER 역할 맞추기(SUB-22), 재고 점유 남용(SUB-23), Redis 장애 대응(SUB-24), 세션 인증 전환(SUB-25)도 여기에 둔다.
 
-단계 ID는 로드맵 단계(`Part-번호`)와 겹치지 않게 `SUB-1`~`SUB-29`로 붙인다.
+단계 ID는 로드맵 단계(`Part-번호`)와 겹치지 않게 `SUB-1`~`SUB-25`로 붙인다.
 
 | 기능 | 단계 | 문서 | 요구사항 |
 |---|---|---|---|
@@ -34,7 +36,8 @@
 | 때 지난 알림 | SUB-21 | [때 지난 알림](notification-expiry.md) | FR-NTF-01 |
 | SELLER 역할 맞추기 | SUB-22 | [SELLER 역할 맞추기](seller-role-sync.md) | FR-SHOP-01·03, INV-09 |
 | 재고 점유 남용 | SUB-23 | [재고 점유 남용](stock-hold-abuse.md) | FR-ORD-02 |
-| Redis 장애 대응 | SUB-24 Redis 타임아웃·503 응답·헬스체크, SUB-25 장애 중 인증 확인, SUB-26 로그인 실패 횟수를 DB로, SUB-27 세션의 토큰 버전, SUB-28 장애 중 로그인·로그아웃·비밀번호 변경·제재·탈퇴, SUB-29 Redis 저장 끄기 | [Redis 장애 대응](redis-outage.md) | FR-MEM-04·09, NFR-REL-05 |
+| Redis 장애 대응 | SUB-24 Redis 타임아웃·503 응답·헬스체크 | [Redis 장애 대응](redis-outage.md) | FR-MEM-09, NFR-REL-05 |
+| 세션 인증 전환 | SUB-25 | [세션 인증](session-auth.md) | FR-MEM-03·04 |
 
 ## 진행 방식
 
@@ -134,12 +137,3 @@
 | SUB-11 | D | 러너 ServiceAccount의 네임스페이스 한정 RBAC | ADR-012 결정 5항(CD) | Role/RoleBinding 작성·검증 |
 | SUB-1·SUB-3 | A | `pg_call_seconds`에 빌링 호출(`issueBillingKey`·`billingCharge`)을 포함할지와 `operation` 값 | 구독 "Part 6에 더할 것" 2) | 사용자 결정 |
 | SUB-5·SUB-6 | A | `openai_call_seconds`의 `operation`·`result` 라벨 값. ADR-010의 이 Timer를 대시보드·알림 어디에도 쓰지 않는다 | 위 "Part 6에 더할 것" | 사용자 결정(권장: 소문자 메서드명) |
-| SUB-24 | B | Redis 프로세스가 내려가 연결이 거절될 때 명령이 바로 실패하는지, 재연결을 기다리며 명령 타임아웃(1초)까지 기다리는지(Lettuce `ClientOptions`의 연결 끊김 동작). 어느 쪽이든 1초 안에 끝난다 | 공통 "Redis를 쓸 수 없음"의 예외 | 로컬에서 Redis를 멈추고 요청해 확인 |
-| SUB-24 | B | 일시정지(`docker pause`)한 Redis에 명령이 `QueryTimeoutException`으로 실패하고, `unpause` 뒤 같은 연결로 다시 동작하는지 | 공통 "장애를 흉내 내는 방법" | 테스트 실행으로 확인 |
-| SUB-24 | D | 503 코드를 common의 `SERVICE_UNAVAILABLE`로 둘지(대안: member의 인증 전용 코드. JWT 필터처럼 인증 밖에서도 Redis를 부르므로 common에 둔다) | SUB-24 할 일 2 | 확정 |
-| SUB-25 | D | `TokenVersionProvider`를 `isCurrent(memberId, tokenVersion)`로 바꿀지(대안: `currentVersion`을 두고 필터가 비교한 뒤 크면 다시 읽기 메서드를 부름) | SUB-25 할 일 1 | 확정 |
-| SUB-26 | B | 동시에 온 `INSERT ... ON CONFLICT DO UPDATE ... WHERE`가 행을 잠근 뒤 최신 행으로 `WHERE`를 다시 평가해, 비밀번호 확인이 5번을 넘지 않는지 | SUB-26 할 일 2 | `LoginLockConcurrencyTest`가 DB 구현으로 통과하는지 |
-| SUB-26 | D | 저장소를 `JdbcTemplate`으로 쓸지(대안: JPA 엔티티 + native query. 한 문장 upsert와 `RETURNING`을 쓰려면 `JdbcTemplate`이 단순하다), `recordAttempt`를 `REQUIRES_NEW`로, 정리 작업을 매시 정각 `JobRunner`로 둘지 | SUB-26 할 일 2·4 | 확정 |
-| SUB-27 | D | `findMemberId`를 `find`(`SessionInfo` 반환)로 바꾸고, 세션 버전 바꾸기를 Lua(`update-session-version.lua`)로 둘지 | SUB-27 할 일 1·2 | 확정 |
-| SUB-28 | D | 커밋 뒤 작업을 `TokenVersionService.revokeAll`·`revokeAllExcept`에 모을지(대안: 서비스마다 `afterCommit`을 등록. 다섯 곳이 같은 일을 해서 한 곳에 둔다), 한 기기 로그아웃의 "새 트랜잭션"을 `TransactionTemplate`으로 열지 | SUB-28 할 일 1·2 | 확정 |
-| SUB-28 | D | Redis를 쓸 수 없을 때 진행하는 판단을 application 서비스에 둘지(대안: `Redis*` 구현이 예외를 잡아 기본값을 돌려줌. 이러면 서비스만 봐서는 실패해도 진행한다는 것이 보이지 않는다) | SUB-28 할 일 2·3 | 확정 |
