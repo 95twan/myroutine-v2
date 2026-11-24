@@ -30,7 +30,7 @@
 ## 결과
 - 로그인한 요청마다 DB 조회 1번(세션과 회원을 기본키·유니크 인덱스로 조인), 세션당 하루 최대 1번 `UPDATE`가 생기고, 그때마다 커넥션 풀(31)의 연결을 잠깐 쓴다. 만료된 행은 정리 작업이 지운다. Redis 조회는 없어진다. 비용은 [서브 SUB-16](../04-sub/stage2-leftovers.md)의 S-04로 JWT 때와 비교해 잰다(NFR-PERF-04). 기준(헤더 있음과 없음의 p95 차이 10ms 미만)을 넘거나 커넥션 풀 대기가 생기면 Redis 캐시를 더한다.
 - Redis 장애는 로그인한 요청과 로그아웃·비밀번호 변경·제재·탈퇴에 영향을 주지 않는다. Redis는 로그인 실패 횟수, 이메일 인증 코드, 가입 인증·소셜 가입 토큰에만 남는다.
-- tokenVersion(`member.token_version`), refresh 토큰과 `/api/auth/refresh`, `REFRESH_REUSED`, JWT 서명 키(`JWT_SECRET`)가 없어진다. 배포하면 모든 사용자가 한 번 다시 로그인한다.
+- tokenVersion, refresh 토큰과 `/api/auth/refresh`, `REFRESH_REUSED`, JWT 서명 키(`JWT_SECRET`)가 없어진다. `member.token_version` 컬럼은 롤백할 수 있게 남겼다가 다음 배포에서 지운다([ADR-011](ADR-011-ops-practice-environment.md) 결정 7). 배포하면 모든 사용자가 한 번 다시 로그인한다.
 - 토큰을 JS가 들고 있으므로 XSS로 탈취될 수 있는 점은 JWT 때와 같다. 탈취된 토큰은 비밀번호 변경이나 전체 로그아웃으로 바로 끊을 수 있다.
 
 ## 면접 연결
