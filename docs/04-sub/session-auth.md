@@ -62,13 +62,9 @@ CREATE INDEX idx_auth_session_member ON member.auth_session (member_id);
 CREATE INDEX idx_auth_session_expires_at ON member.auth_session (expires_at);
 ```
 
-`V{yyyyMMddHHmm}__member_drop_token_version.sql`
+`member_id` 인덱스는 회원 단위 삭제가, `expires_at` 인덱스는 정리 작업이 쓴다.
 
-```sql
-ALTER TABLE member.member DROP COLUMN token_version;
-```
-
-`member_id` 인덱스는 회원 단위 삭제가, `expires_at` 인덱스는 정리 작업이 쓴다. `token_version` 삭제는 운영 DB의 컬럼을 지우는 변경이라 배포 전에 한 번 더 확인한다. 값은 버전 카운터뿐이라 잃어도 되는 데이터다.
+`member.token_version` 컬럼은 이 단계에서 지우지 않는다. 롤백은 이미지만 되돌리므로 이전 앱(JWT)이 새 스키마에서 떠야 하고, 컬럼 삭제는 "코드 전환 → 삭제"의 두 배포로 나눈다([ADR-011](../adr/ADR-011-ops-practice-environment.md) 결정 7). `Member`에서 필드만 빼고, 컬럼은 `NOT NULL DEFAULT 0`이라 새 앱이 회원을 저장해도 기본값이 들어간다. 삭제는 "머지한 뒤"를 따른다.
 
 **2) member.domain**
 
@@ -197,12 +193,12 @@ ALTER TABLE member.member DROP COLUMN token_version;
 | 문서 | 고칠 곳 |
 |---|---|
 | [API 명세](../02-design/07-api-spec.md) | 1절 인증 줄(`Bearer {token}`), 401 코드에서 `REFRESH_REUSED`, `/api/auth/refresh` 행, 가입·로그인·소셜 로그인의 응답, 비밀번호 변경 204 |
-| [ERD](../02-design/03-erd.md) | `auth_session` 추가, `member.token_version` 삭제 |
+| [ERD](../02-design/03-erd.md) | `auth_session` 추가, `member.token_version`은 쓰지 않음(다음 배포에서 삭제) |
 | [시퀀스](../02-design/06-sequences.md) | 9절 "인증: 토큰 갱신 · 즉시 무효화" |
 | [요구사항](../01-requirements/README.md) | FR-MEM-03(access·refresh 발급과 회전)을 세션 발급과 마지막 사용 뒤 7일 만료로, FR-MEM-04를 세션 삭제로 |
 | [로드맵 4-1·4-4](../03-roadmap/part4-auth.md) | 4-1(refresh 회전)·4-4(tokenVersion)의 머리에 "SUB-25가 세션으로 바꿨다" 한 줄 |
 | [Redis 장애 대응](redis-outage.md) | 공통 "지금 Redis를 쓰는 곳"에서 세션·토큰 버전 키 |
-| [알려진 문제](../known-issues.md) | 세션·토큰 버전 행을 지운다 |
+| [알려진 문제](../known-issues.md) | 세션·토큰 버전 행을 지운다. 3.4에 "쓰지 않는 컬럼 `member.token_version`"(확인됨, 다음 배포에서 삭제)을 더하고, 컬럼을 지우면 그 행도 지운다 |
 | [서브 SUB-8](log-coverage.md) | "JWT 거부 사유"를 세션 인증 실패 사유(없음·만료·회원 상태)로 |
 | `README.md`, `CLAUDE.md` | 인증 설명 |
 
@@ -210,7 +206,8 @@ ALTER TABLE member.member DROP COLUMN token_version;
 
 ### 머지한 뒤
 
-[SUB-16](stage2-leftovers.md)의 S-04로 이 단계 앞(JWT)과 뒤(DB 세션)의 인증 비용을 재고, 그 결과로 세션 앞에 Redis 캐시를 둘지 정한다(같은 문서 "S-04와 세션 캐시").
+- 이 단계를 배포해 JWT로 돌아갈 일이 없다고 확인되면, 다음 배포에 `V{yyyyMMddHHmm}__member_drop_token_version.sql`(`ALTER TABLE member.member DROP COLUMN token_version;`)을 따로 넣는다. 운영 DB의 컬럼을 지우는 변경이라 배포 전에 한 번 더 확인한다. 값은 버전 카운터뿐이라 잃어도 되는 데이터다.
+- [SUB-16](stage2-leftovers.md)의 S-04로 이 단계 앞(JWT)과 뒤(DB 세션)의 인증 비용을 재고, 그 결과로 세션 앞에 Redis 캐시를 둘지 정한다(같은 문서 "S-04와 세션 캐시").
 
 **리뷰 때 물어볼 것**
 
