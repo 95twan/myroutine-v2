@@ -3,6 +3,8 @@ package com.myroutine.common.error;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
@@ -136,6 +138,14 @@ public class GlobalExceptionHandler {
         }
         errorCode = CommonErrorCode.INTERNAL_ERROR;
         response = ErrorResponse.of(errorCode, Map.of());
+        log.error("{}\nunexpected error", response, e);
+        return ResponseEntity.status(errorCode.status()).body(response);
+    }
+
+    @ExceptionHandler({RedisConnectionFailureException.class, QueryTimeoutException.class})
+    public ResponseEntity<ErrorResponse> handleRedisTimeoutException(Exception e) {
+        ErrorCode errorCode = CommonErrorCode.SERVICE_UNAVAILABLE;
+        ErrorResponse response = ErrorResponse.of(errorCode, Map.of());
         log.error("{}\nunexpected error", response, e);
         return ResponseEntity.status(errorCode.status()).body(response);
     }
