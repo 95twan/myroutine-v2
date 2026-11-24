@@ -17,6 +17,10 @@ spring:
     scheduling:
       pool:
         size: 11
+  data:
+    redis:
+      timeout: 1s
+      connect-timeout: 1s
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
@@ -54,6 +58,8 @@ management:
         http.server.requests: true
   health:
     elasticsearch:
+      enabled: false
+    redis:
       enabled: false
 
 myroutine:

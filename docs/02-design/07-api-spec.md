@@ -1,6 +1,7 @@
 # 07. API 명세 (Stage 1)
 
 > 엔드포인트 목록과 핵심 API의 요청·응답 계약. 필드 단위 상세는 구현 시 springdoc(OpenAPI)로 생성하고, 이 문서와 어긋나면 이 문서를 갱신한다.
+> 2026-11-24 · Redis를 쓸 수 없으면(연결 실패, 명령 타임아웃 1초) 503 `SERVICE_UNAVAILABLE`(서브 SUB-24)
 > 2026-11-16 · 체크아웃은 결제 대기 주문이 많으면 409 `PENDING_ORDER_LIMIT_EXCEEDED`, 최근 24시간에 결제되지 않은 주문이 많으면 429 `UNPAID_ORDER_LIMIT_EXCEEDED`(서브 SUB-23)
 > 2026-11-14 · 알림 목록 `status`에 `EXPIRED`(유효 시간이 지나 보내지 않은 알림, 서브 SUB-21)
 > 2026-11-13 · 정산 응답과 관리자 정산 항목에 회차 `seq`. 정산 수동 실행은 정산이 실행 중이면 409 `SETTLEMENT_RUN_IN_PROGRESS`, 같은 달을 다시 실행하면 정산 뒤 적재된 품목을 다음 회차로 정산한다(서브 SUB-18)
@@ -59,6 +60,7 @@
 | 422 | `REVIEW_NOT_ALLOWED` | 구매확정하지 않은 품목의 리뷰 |
 | 502 | `OAUTH_PROVIDER_ERROR` | 소셜 제공자 호출 실패 |
 | 503 | `SEARCH_UNAVAILABLE` | 검색 엔진(ES) 장애 |
+| 503 | `SERVICE_UNAVAILABLE` | Redis를 쓸 수 없음(연결 실패, 명령 타임아웃 1초). 어떤 요청이 막히는지는 [서브 Redis 장애 대응](../04-sub/redis-outage.md) 정책 |
 | 409 | `IDEMPOTENCY_IN_PROGRESS`, `CONFLICT_RETRY`, `INVALID_STATE_TRANSITION` | 경합, 상태 |
 | 409 | `ORDER_EXPIRED`, `ORDER_ALREADY_PAID` | 결제 승인 시 주문 상태 불일치 |
 | 409 | `REFUND_IN_PROGRESS` | 진행 중 환불(`FAILED` 포함)이 있는 가게주문 발송 시도 |
