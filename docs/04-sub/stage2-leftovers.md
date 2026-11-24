@@ -40,12 +40,12 @@ S-07은 시드 상품을 ES에도 넣어야 한다(방법은 [아키텍처 진�
 
 ### S-04와 세션 캐시
 
-S-04는 [SUB-25](session-auth.md)(JWT를 DB 세션으로 바꿈) 앞뒤를 같은 방법으로 재서 비교하고, 그 결과로 세션 앞에 Redis 캐시를 둘지 정한다([ADR-015](../adr/ADR-015-session-auth.md) 고려한 대안).
+S-04는 [SUB-25](session-auth.md)(세션을 Redis에서 DB로 옮기고, 요청마다 Redis 토큰 버전 대신 DB 세션을 확인) 앞뒤를 같은 방법으로 재서 비교하고, 그 결과로 세션 앞에 Redis 캐시를 둘지 정한다([ADR-015](../adr/ADR-015-session-auth.md) 고려한 대안).
 
 | 측정 | 앱 | 요청마다 인증이 하는 일 |
 |---|---|---|
-| JWT | 스냅샷 `seed_s2-3`의 앱(`d0ab28f`) | 서명 검증 + Redis `auth:token-version` 조회 |
-| DB 세션 | 같은 스냅샷에 SUB-25가 머지된 커밋을 `workflow_dispatch`로 배포 | `member.auth_session`과 `member.member` 조인 조회 |
+| Redis 토큰 버전 | 스냅샷 `seed_s2-3`의 앱(`d0ab28f`) | JWT 서명 검증 + Redis `auth:token-version` 조회 |
+| DB 세션 | 같은 스냅샷에 SUB-25가 머지된 커밋을 `workflow_dispatch`로 배포 | JWT 서명 검증 + `member.auth_session`과 `member.member` 조인 조회 |
 
 - 두 앱은 인증 말고도 다른 커밋이 다르므로, 앱마다 헤더 없음과 있음을 번갈아 재고 그 차이(인증 비용)끼리 비교한다.
 - 토큰은 `setup()`에서 시드 회원 100명으로 로그인해 VU마다 하나씩 쓴다. 토큰 하나를 모두가 쓰면 같은 세션 행만 읽어 실제보다 유리하게 나온다.
