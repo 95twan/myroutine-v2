@@ -1619,6 +1619,7 @@ UPDATE settlement.settlement_item SET settlement_id = :settlementId, updated_at 
 
 **7. 역할을 바꾸기 전에 받은 토큰은 거부** — 준비: 5번과 같은 미정산 품목. 회원 `admin@test.com`을 `signup`으로 가입해 `adminId`를 받고 `login("admin@test.com")`으로 `oldToken`을 받은 뒤 `changeRole(adminId, "ADMIN")`. 동작: `oldToken`으로 `POST /admin/api/settlements/run?period=2026-09`.
 - 응답(andExpect): 상태 403, `$.code` = `FORBIDDEN`.
+- [서브 SUB-25](../04-sub/session-auth.md)부터는 역할을 회원 행에서 읽어 이 토큰도 통과한다.
 
 **리뷰 때 물어볼 것**
 - offset 페이징으로 상태를 바꾸며 읽으면 왜 누락되나? (원 프로젝트에서 실제로 있던 결함)

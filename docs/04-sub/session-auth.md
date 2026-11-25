@@ -36,7 +36,7 @@
 | 전체 로그아웃(`?all=true`) | 그 회원의 모든 세션 | `LogoutService` |
 | 비밀번호 변경 | 그 요청의 세션을 뺀 그 회원의 세션 | `PasswordService.change` |
 | 비밀번호 재설정 확인, 제재, 탈퇴 | 그 회원의 모든 세션. 제재·탈퇴는 회원 상태로도 막히지만, 제재를 풀었을 때 옛 세션이 살아나지 않게 지운다 | 각 서비스 |
-| refresh 재사용, 갱신할 때 회원이 없거나 로그인할 수 없음 | 그 세션 | 예외를 던져도 삭제가 남도록 트랜잭션 밖(할 일 4)) |
+| refresh 재사용, 갱신할 때 회원이 없거나 로그인할 수 없음 | 그 세션 | 삭제를 커밋한 뒤 예외를 던진다(할 일 4)) |
 
 - 만료된 세션은 매일 04:00(Asia/Seoul)에 정리 작업이 지운다.
 - 절대 만료는 두지 않는다. refresh를 쓸 때마다 7일이 다시 시작된다.
@@ -84,11 +84,11 @@ CREATE INDEX idx_auth_session_expires_at ON member.auth_session (expires_at);
 | `Optional<ActiveSession> findActive(UUID sessionId, Instant now)` | `select new ...ActiveSession(s.memberId, m.role) from Session s join Member m on m.id = s.memberId where s.id = :sessionId and s.expiresAt > :now and m.status = MemberStatus.ACTIVE` |
 | `int rotate(UUID sessionId, String expectedHash, String newHash, Instant expiresAt)` | `@Modifying @Transactional`. `update Session s set s.refreshHash = :newHash, s.expiresAt = :expiresAt where s.id = :sessionId and s.refreshHash = :expectedHash` |
 | `int deleteBySessionId(UUID sessionId)` | `@Modifying @Transactional`. `delete from Session s where s.id = :sessionId` |
-| `int deleteAllByMemberId(UUID memberId)` | `@Modifying @Transactional`. `delete from Session s where s.memberId = :memberId` |
-| `int deleteAllByMemberIdExcept(UUID memberId, UUID keepSessionId)` | `@Modifying @Transactional`. `delete from Session s where s.memberId = :memberId and s.id <> :keepSessionId` |
-| `int deleteExpired(Instant now)` | `@Modifying @Transactional`. `delete from Session s where s.expiresAt <= :now` |
+| `int deleteAllByMemberId(UUID memberId)` | `@Modifying`. `delete from Session s where s.memberId = :memberId` |
+| `int deleteAllByMemberIdExcept(UUID memberId, UUID keepSessionId)` | `@Modifying`. `delete from Session s where s.memberId = :memberId and s.id <> :keepSessionId` |
+| `int deleteExpired(Instant now)` | `@Modifying`. `delete from Session s where s.expiresAt <= :now` |
 
-- 바꾸는 메서드에 `@Transactional`을 다는 이유: 호출하는 서비스에 트랜잭션이 있으면 그 안에서 함께 커밋·롤백되고, `TokenRefreshService`처럼 트랜잭션 없이 부르면 각자 바로 커밋된다.
+- `@Modifying` 쿼리는 트랜잭션 없이 부르면 실패한다. `rotate`와 `deleteBySessionId`는 트랜잭션 없는 `TokenRefreshService`(할 일 4))가 부르고, 단계마다 쿼리 하나라 저장소 메서드에 `@Transactional`을 단다. 서비스의 트랜잭션 안에서 부르면 그 트랜잭션에 합류한다. 나머지는 늘 `@Transactional` 서비스 안에서 불러 달지 않는다.
 - 삭제는 한 문장으로 지우는 `@Query` 벌크 삭제다. 메서드 이름으로 만든 삭제(쿼리 없는 `deleteAllBy...`)는 행을 읽은 뒤 하나씩 지운다.
 
 **3) member.infrastructure**
@@ -104,11 +104,12 @@ CREATE INDEX idx_auth_session_expires_at ON member.auth_session (expires_at);
 | 클래스 | 규격 |
 |---|---|
 | `TokenIssuer.issueNewSession` | `sessionId = Ids.newId()` → `RefreshToken.generate(sessionId)` → `sessionRepository.save(Session.open(sessionId, member.getId(), refreshToken.secretHash(), clock.instant(), properties.refreshTokenTtl()))` → `jwtProvider.issue(member.getId(), sessionId)`. 부르는 쪽에 트랜잭션이 있으면 그 안에서 저장된다 |
-| `TokenIssuer.reissue`, `reissueAccess` | `jwtProvider.issue(member.getId(), sessionId)`로 바꾼다 |
-| `SessionVerificationService` | `SessionVerifier` 구현(5). `Optional<AuthClaims> verify(UUID sessionId, UUID memberId)`, 트랜잭션 없음. `findActive(sessionId, clock.instant())`가 비었거나 결과의 `memberId`가 다르면 빈 값, 아니면 `new AuthClaims(sessionId, memberId, role.name())` |
-| `TokenRefreshService.refresh` | 트랜잭션 없음(삭제 뒤 예외를 던져도 삭제가 롤백되지 않게). ① `RefreshToken.parse` ② `findById(sessionId)`가 없거나 `expiresAt`이 지났으면 `UNAUTHORIZED` ③ 새 `RefreshToken`으로 `rotate(sessionId, 보낸 해시, 새 해시, now + refreshTokenTtl)`가 0이면 `deleteBySessionId` 후 `REFRESH_REUSED` ④ 회원이 없으면 `deleteBySessionId` 후 `UNAUTHORIZED`, `verifyCanLogin`이 실패하면 `deleteBySessionId` 후 그 예외 ⑤ `tokenIssuer.reissue` |
+| `LoginService.login` | `@Transactional(readOnly = true)`를 `@Transactional`로 바꾼다. 세션 행을 저장하는데, 읽기 전용 트랜잭션 안에서는 Hibernate가 flush하지 않아 행이 남지 않는다. 가입·소셜 가입은 이미 `@Transactional`이고, 소셜 로그인(`OAuthLoginService.login`)은 트랜잭션이 없어 `save`가 자기 트랜잭션으로 저장한다 |
+| `TokenIssuer.reissue`, `reissueAccessToken` | `jwtProvider.issue(member.getId(), sessionId)`로 바꾼다. `reissueAccess`는 `reissueAccessToken`으로 이름을 바꾼다 |
+| `SessionVerificationService` | 5) 표의 `common.security.SessionVerifier`를 구현한다(지금의 `RedisTokenVersionProvider`가 `TokenVersionProvider`를 구현하는 것과 같은 모양). `Optional<AuthClaims> verify(UUID sessionId, UUID memberId)`. 필터가 요청마다 부르는 조회 한 번이라 트랜잭션을 열지 않는다. `findActive(sessionId, clock.instant())`가 비었거나 결과의 `memberId`가 다르면 빈 값, 아니면 `new AuthClaims(sessionId, memberId, role.name())` |
+| `TokenRefreshService.refresh` | 메서드에 `@Transactional`을 달지 않는다. 한 트랜잭션 안에서 세션을 지우고 예외를 던지면 삭제까지 롤백되기 때문이다. `rotate`·`deleteBySessionId`가 저장소의 `@Transactional`로 각각 커밋되고, 예외는 그 뒤에 던진다. ① `RefreshToken.parse` ② `findById(sessionId)`가 없거나 `expiresAt`이 지났으면 `UNAUTHORIZED` ③ 새 `RefreshToken`으로 `rotate(sessionId, 보낸 해시, 새 해시, now + refreshTokenTtl)`가 0이면 `deleteBySessionId` 후 `REFRESH_REUSED` ④ 회원이 없으면 `deleteBySessionId` 후 `UNAUTHORIZED`, `verifyCanLogin`이 실패하면 `deleteBySessionId` 후 그 예외 ⑤ `tokenIssuer.reissue` |
 | `LogoutService` | `@Transactional logout(memberId, sessionId, all)`: `all`이면 `deleteAllByMemberId(memberId)`, 아니면 `deleteBySessionId(sessionId)`. `MemberRepository`·`TokenVersionService` 의존을 뺀다 |
-| `PasswordService.change` | `tokenVersionService.bump` + `sessionStore.deleteAllOfExcept`를 `deleteAllByMemberIdExcept(memberId, sessionId)`로. 응답은 지금처럼 `reissueAccess` |
+| `PasswordService.change` | `tokenVersionService.bump` + `sessionStore.deleteAllOfExcept`를 `deleteAllByMemberIdExcept(memberId, sessionId)`로. 응답은 지금처럼 `reissueAccessToken` |
 | `PasswordService.confirmReset`, `AdminMemberService.ban`, `WithdrawService.withdraw` | `tokenVersionService.bump` + `sessionStore.deleteAllOf`를 `deleteAllByMemberId(memberId)`로 |
 | `SessionCleanupService` | `@Transactional int deleteExpired()`: `sessionRepository.deleteExpired(clock.instant())` |
 | `TokenVersionService` | 지운다 |
@@ -165,14 +166,15 @@ CREATE INDEX idx_auth_session_expires_at ON member.auth_session (expires_at);
 
 | 테스트 | 바꿀 것 |
 |---|---|
-| `TokenRefreshTest` | `sessionSnapshotOf`·`sessionIdsOf`·`memberSessionsTtlOf`를 `sessionRowsOf`로. "Redis에 refresh 원문을 저장하지 않는다"는 새 1번과 겹쳐 지운다. "회원의 세션 목록 만료도 연장된다"는 세션 목록 키가 없어져 지운다. "같은 access로 로그아웃을 두 번 해도 204"는 로그아웃한 access가 거부되므로 "로그아웃한 access로 다시 로그아웃하면 401"로 바꾼다 |
-| `TokenRevocationTest` | 토큰 버전 대신 세션 삭제로 끊긴다. "전체 로그아웃이 아닌 로그아웃은 토큰 버전을 올리지 않는다"는 "로그아웃은 다른 기기의 세션을 남긴다"로. 비밀번호 변경 케이스의 "새 토큰은 통과한다"는 그대로 |
+| `TokenRefreshTest` | `sessionSnapshotOf`·`sessionIdsOf`·`memberSessionsTtlOf`를 `sessionRowsOf`로. "Redis에 refresh 원문을 저장하지 않는다"는 새 1번과 겹쳐 지운다. "회원의 세션 목록 만료도 연장된다"는 세션 목록 키가 없어져 지운다. "같은 access로 로그아웃을 두 번 해도 204"는 지운다. 로그아웃한 access가 거부되는 것은 새 2번이 확인한다. 실패 케이스에서 `redisTemplate.keys("*")`가 그대로인지 보는 확인은 지운다(갱신이 Redis를 쓰지 않는다) |
+| `TokenRevocationTest` | `tokenVersionSnapshotOf`와 `jwtProvider.parse(...).tokenVersion()` 확인을 지운다. 끊겼는지는 각 케이스의 401 요청이 확인한다. 제재 케이스의 세션 목록 확인(`sessionIdsOf`)은 `AdminMemberTest`가 제재 뒤 세션 삭제를 확인하므로 지운다. "전체 로그아웃이 아닌 로그아웃은 토큰 버전을 올리지 않는다"는 지운다(다른 기기의 세션이 남는 것은 `TokenRefreshTest` "로그아웃하면 현재 기기의 세션만 폐기된다"가 확인한다). 비밀번호 변경 케이스는 둘로 나눈다: "비밀번호를 변경하면 다른 기기의 access가 거부된다. (401)"(`accessTokenB`), "비밀번호를 변경한 기기는 응답의 새 access로 인증한다."(`newAccess` 200). 바꾼 기기는 세션이 남으므로 그 기기의 기존 access(`accessTokenA`)도 통과한다 |
 | `RefreshConcurrencyTest` | `sessionSnapshotOf(sid).exists()`를 `sessionRowsOf`에 그 `sid`가 없는지로 |
 | `TokenVersionServiceTest`, `RedisTokenVersionProviderTest` | 지운다 |
 | `JwtProviderTest` | `issue(memberId, sessionId)`로 바꾸고, `role`·`tv` 클레임 케이스를 `sid` 없음 케이스로 |
 | `MemberControllerTest` "만료된 토큰" | `jwtProvider.issue(memberId, Ids.newId())`로 |
 | `OAuthLoginTest` | `jwtProvider.parse(accessToken).get().role()` 확인을 지운다(역할은 회원 행에서 읽는다) |
 | `PasswordTest`, `AdminMemberTest`, `LoginLockTest` | Redis 세션 헬퍼를 `sessionRowsOf`로 |
+| `SettlementControllerTest` "관리자가 정산을 수동 실행한다." | 역할을 바꾸기 전에 받은 `oldToken`이 403인지 보는 마지막 요청과 `oldToken` 준비를 지운다. 역할을 회원 행에서 읽으므로 그 access도 이제 통과한다(새 5번이 확인한다) |
 | `common/error/RedisUnavailableTest` | 바꿀 것 없음 |
 
 ### 문서 반영
@@ -186,6 +188,7 @@ CREATE INDEX idx_auth_session_expires_at ON member.auth_session (expires_at);
 | [시퀀스](../02-design/06-sequences.md) | 9절 "인증: 토큰 갱신 · 즉시 무효화" |
 | [요구사항](../01-requirements/README.md) | FR-MEM-04를 세션 삭제로 |
 | [로드맵 4-1·4-4](../03-roadmap/part4-auth.md) | 4-1(Redis 세션)·4-4(tokenVersion)의 머리에 "SUB-25가 세션을 DB로 옮겼다" 한 줄 |
+| [로드맵 3-4b](../03-roadmap/part3-events.md) | 완료 확인 7번 "역할을 바꾸기 전에 받은 토큰은 거부"에 "SUB-25부터는 역할을 회원 행에서 읽어 통과한다" 한 줄 |
 | [Redis 장애 대응](redis-outage.md) | 공통 "지금 Redis를 쓰는 곳"에서 세션·토큰 버전 키 |
 | [알려진 문제](../known-issues.md) | 세션·토큰 버전 행을 지운다. 3.4에 "쓰지 않는 컬럼 `member.token_version`"(확인됨, 다음 배포에서 삭제)을 더하고, 컬럼을 지우면 그 행도 지운다 |
 | [서브 SUB-8](log-coverage.md) | "JWT 거부 사유"에 세션 없음·만료·회원 상태를 더하고 토큰 버전 불일치를 뺀다 |

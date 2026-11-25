@@ -243,6 +243,8 @@ WHERE shop_id = :shopId AND settlement_id IS NULL
 
 ## 4-1. Redis · refresh 토큰 회전 · 로그아웃 (M)
 
+> [서브 SUB-25](../04-sub/session-auth.md)가 refresh 세션을 Redis에서 DB `member.auth_session`으로 옮겼다.
+
 **목표**: Access 토큰을 15분으로 줄이고, refresh 토큰으로 갱신한다. refresh는 쓸 때마다 바뀌고, 이미 쓴 refresh가 다시 오면 탈취로 보고 그 세션을 끊는다.
 
 **왜 지금**: 1-4에서 남겨둔 한계(로그아웃 불가, 1시간 만료)를 해결한다. 서버가 상태(세션)를 가져야 하므로 Redis가 등장한다.
@@ -1370,6 +1372,8 @@ return 0
 ---
 
 ## 4-4. 즉시 차단(tokenVersion) · 관리자 제재 · 로그인 실패 잠금 (M)
+
+> [서브 SUB-25](../04-sub/session-auth.md)가 tokenVersion을 지우고, 세션 행 삭제와 요청마다의 세션·회원 상태 확인으로 바꿨다.
 
 **목표**: 제재·탈퇴·전체 로그아웃·비밀번호 변경 시 기존 Access 토큰이 바로 막힌다. 관리자가 회원을 제재·해제한다. 비밀번호를 5번 틀리면 15분 잠긴다.
 

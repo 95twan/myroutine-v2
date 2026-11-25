@@ -1,5 +1,6 @@
 # 03. ERD (Stage 1)
 
+> 2026-11-25: refresh 세션을 Redis에서 `member.auth_session`으로 옮기고 `member.token_version`을 쓰지 않는다(다음 배포에서 삭제, 서브 SUB-25)
 > 2026-11-14: `notification.occurred_at`(이벤트가 일어난 시각)과 상태 `EXPIRED`를 더했다(서브 SUB-21)
 > 2026-11-13: `settlement.seq`(같은 가게·기간의 정산 회차)를 더하고 유니크 키를 `(shop_id, period_start, seq)`로 바꿨다. 정산 실행은 기간 끝 전의 미정산 품목을 모두 넣는다(서브 SUB-18)
 > 2026-11-09: `refund.close_reason`(관리자 종결 사유)을 더했다. `reject_reason`은 판매자 거절 사유만 담는다(서브 SUB-17)
@@ -31,6 +32,7 @@
 erDiagram
   member ||--o{ social_account : has
   member ||--o{ member_address : has
+  member ||--o{ auth_session : has
   member ||--o{ inquiry : writes
   inquiry ||--o| inquiry_answer : has
   member {
@@ -42,11 +44,18 @@ erDiagram
     varchar password_hash "BCrypt, OAuth 전용 회원은 null"
     varchar status "ACTIVE, BANNED, WITHDRAWN"
     varchar role "USER, SELLER, ADMIN (하나)"
-    int token_version "토큰 즉시 무효화"
+    int token_version "쓰지 않음, 다음 배포에서 삭제 (SUB-25)"
     varchar ban_reason "제재 사유 (4-4)"
     timestamptz banned_at "제재 시각 (4-4)"
     timestamptz withdrawn_at
     bigint version
+  }
+  auth_session {
+    uuid id PK "refresh 토큰의 sid"
+    uuid member_id FK
+    varchar refresh_hash "SHA-256 hex, 갱신마다 교체"
+    timestamptz expires_at "갱신마다 지금 + 7일"
+    timestamptz created_at
   }
   social_account {
     uuid id PK
@@ -81,7 +90,7 @@ erDiagram
     text content
   }
 ```
-Redis(키·TTL의 기준은 [로드맵 Part 4 공통 규칙 T](../03-roadmap/part4-auth.md)): `auth:session:{sessionId}`(memberId, refreshHash — 세션 하나가 곧 refresh family), `auth:member-sessions:{memberId}`, `auth:email-code:{purpose}:{email}`(코드 해시, 시도 횟수, TTL 5분), `auth:email-cooldown:{email}`(60초), `auth:email-hourly:{email}`(1시간), `auth:signup-verified:{tokenHash}`(인증을 통과한 이메일, TTL 30분), `auth:oauth-signup:{tokenHash}`, `auth:token-version:{memberId}`, `auth:login-fail:{email}`(연속 실패 횟수, TTL 15분).
+Redis(키·TTL의 기준은 [로드맵 Part 4 공통 규칙 T](../03-roadmap/part4-auth.md)): `auth:email-code:{purpose}:{email}`(코드 해시, 시도 횟수, TTL 5분), `auth:email-cooldown:{email}`(60초), `auth:email-hourly:{email}`(1시간), `auth:signup-verified:{tokenHash}`(인증을 통과한 이메일, TTL 30분), `auth:oauth-signup:{tokenHash}`, `auth:login-fail:{email}`(연속 실패 횟수, TTL 15분).
 - 한 회원은 비밀번호(`password_hash`)와 소셜 계정(`social_account`)을 함께 가질 수 있다. 둘 다 없는 회원은 없다.
 - 가입할 때 이메일을 인증하므로 미인증 회원은 없다(FR-MEM-09).
 
