@@ -19,7 +19,7 @@
 | 파티션 | 토픽당 3 |
 | 봉투 | `eventId(UUIDv7, outbox 행 ID), eventType, occurredAt, aggregateId, traceId, payload`. 순서가 중요한 consumer용 버전은 payload에 둔다(예: `ProductUpsertedEvent.version`) |
 | 전달 보장 | at-least-once. consumer는 `processed_message(consumer, eventId)`로 멱등 처리한다 (INV-10). 검색 색인(`product-upserted`)만 inbox 대신 ES 외부 버전(`version`)으로 오래되거나 중복된 이벤트를 무시한다 |
-| 재시도 | consumer별 지수 백오프(1초 → 2초 → 4초) 3회 → `{topic}.dlt`. DLT는 관리 API로 조회·재처리, 적재 시 알림. 토픽 보존은 브로커 기본값(7일)이라 DLT도 7일 뒤 사라진다([알려진 문제](../known-issues.md) 2절) |
+| 재시도 | consumer별 지수 백오프(1초 → 2초 → 4초) 3회 → `{topic}.dlt`. DLT는 관리 API로 조회·재처리, 적재 시 알림. 토픽 보존은 브로커 기본값(7일)이라 DLT도 7일 뒤 사라진다([알려진 문제](../known-issues.md) 1.2) |
 | 순서 의존 | 순서가 중요한 consumer는 payload의 `version`(집계 버전)을 보고 오래된 이벤트를 무시 |
 | 추적 | 봉투의 `traceId`를 consumer가 MDC에 복원 → Kibana에서 traceId로 전체 흐름 검색 (NFR-OBS-01, ADR-010) |
 

@@ -167,7 +167,7 @@
 |---|---|---|---|---|
 | POST | `/api/billing-keys` | U | 빌링키 발급 (authKey 교환, 서브 SUB-1) | FR-PAY-07 |
 | GET/DELETE | `/api/billing-keys[/{id}]` | O | 조회·삭제 (서브 SUB-1) | FR-PAY-07 |
-| GET | `/api/payments` | U | 결제·취소 내역. 만드는 단계가 없다([알려진 문제](../known-issues.md) 3.6) | FR-PAY-08 |
+| GET | `/api/payments` | U | 결제·취소 내역. 만드는 단계가 없다([알려진 문제](../known-issues.md) 2.4) | FR-PAY-08 |
 
 ### settlement
 | Method | Path | 권한 | 설명 | 요구사항 |
