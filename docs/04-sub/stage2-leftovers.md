@@ -47,7 +47,7 @@ S-04는 [SUB-25](session-auth.md) 앞뒤의 인증 비용을 같은 VM, 같은 �
 | Redis 토큰 버전 | SUB-24 머지 커밋 `d1d9519fb2de01e5c474623b339614e9b781303a` | JWT 서명 검증 + Redis `auth:token-version` GET 1번 |
 | DB 세션 | SUB-25 머지 커밋 `af9df616a214686d011c65b2d182e1e0779f5212` | JWT 서명 검증 + `member.auth_session`과 `member.member` 조인 조회 1번 |
 
-- 두 커밋은 인증 말고는 코드가 같다. 지금 운영 VM의 데이터에서 `workflow_dispatch`로 차례로 배포해 잰다. SUB-24 앱은 SUB-25가 남긴 `member.token_version` 컬럼으로 그대로 뜨고, 이미 적용된 SUB-25 마이그레이션은 Flyway 기본값(`ignoreMigrationPatterns` = `*:future`, `flyway-core` 12.4.0 `FlywayModel`)이 무시한다.
+- 두 커밋은 인증 말고는 코드가 같다. 지금 운영 VM의 데이터에서 `workflow_dispatch`로 차례로 배포해 잰다. SUB-24 앱은 SUB-25가 남긴 `member.token_version` 컬럼으로 그대로 뜨고, 이미 적용된 SUB-25 마이그레이션은 Flyway 기본값(`ignoreMigrationPatterns` = `*:future`, `flyway-core` 12.4.0 `FlywayModel`)이 무시한다. 컬럼을 지운 뒤(`V202611251814__member_drop_token_version.sql`)에는 SUB-24 앱의 `Member.tokenVersion`이 `ddl-auto: validate`에 걸려 뜨지 않으므로, 이 비교를 다시 하려면 컬럼이 남은 스냅샷(`seed_s2-3`)에서 SUB-24부터 잰다.
 - 캐시를 붙인 SUB-25에서 캐시가 맞는 요청은 Redis GET 1번이라 SUB-24와 같은 모양이다. 그래서 두 앱의 인증 비용 차이가 캐시로 얻을 수 있는 몫의 상한이다.
 - 앱마다 배포 직후 헤더 없음과 있음으로 30초씩 데운 뒤, 헤더 없음과 있음을 번갈아 두 번씩 재고(없음, 있음, 없음, 있음), 헤더 있음과 없음의 p95 차이를 인증 비용으로 본다. 두 분포의 p95 차이이지 요청별 비용의 p95는 아니다. 같은 조건 두 번의 p95가 인증 비용만큼 흔들리면 한 쌍을 더 잰다.
 - 토큰은 `setup()`에서 k6 회원 `k6-co-1`~`k6-co-100`으로 로그인해 VU마다 하나씩 쓴다. 토큰 하나를 모두가 쓰면 같은 세션 행만 읽어 실제보다 유리하게 나온다. 로그인과 토큰 확인(`GET /api/members/me` 200)이 하나라도 실패하면 측정 전에 멈춘다.

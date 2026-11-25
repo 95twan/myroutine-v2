@@ -183,7 +183,7 @@ stateDiagram-v2
 
 | 대상 | 상태 | 전이 |
 |---|---|---|
-| member | ACTIVE, BANNED, WITHDRAWN | ACTIVE⇄BANNED(관리자), ACTIVE→WITHDRAWN(탈퇴, 조건 충족 시). BANNED·WITHDRAWN 전이 시 token_version 증가 |
+| member | ACTIVE, BANNED, WITHDRAWN | ACTIVE⇄BANNED(관리자), ACTIVE→WITHDRAWN(탈퇴, 조건 충족 시). BANNED·WITHDRAWN 전이 시 그 회원의 세션을 모두 지운다 |
 | shop | ACTIVE, CLOSED | ACTIVE→CLOSED(폐업 조건 충족 시) |
 | product | ON_SALE, HIDDEN, DISCONTINUED | ON_SALE⇄HIDDEN, 둘 다 → DISCONTINUED(종결) |
 | settlement | CALCULATED, PAID, PAYOUT_FAILED | CALCULATED→PAID / PAYOUT_FAILED→PAID(재시도) |
