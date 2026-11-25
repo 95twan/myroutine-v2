@@ -22,8 +22,7 @@ import java.util.UUID;
 public class AdminMemberService {
 
     private final MemberRepository memberRepository;
-    private final TokenVersionService tokenVersionService;
-    private final SessionStore sessionStore;
+    private final SessionRepository sessionRepository;
     private final OutboxPublisher outboxPublisher;
     private final Clock clock;
 
@@ -61,8 +60,7 @@ public class AdminMemberService {
         );
 
         member.ban(reason, clock.instant());
-        tokenVersionService.bump(member);
-        sessionStore.deleteAllOf(member.getId());
+        sessionRepository.deleteAllByMemberId(member.getId());
         outboxPublisher.publish(MemberTopics.MEMBER_BANNED, "MEMBER", memberId, new MemberBannedEvent(memberId, reason));
     }
 

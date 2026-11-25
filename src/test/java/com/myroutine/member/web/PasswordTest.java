@@ -4,10 +4,7 @@ import com.myroutine.common.security.JwtProvider;
 import com.myroutine.member.application.TokenResult;
 import com.myroutine.member.domain.EmailCodePurpose;
 import com.myroutine.member.domain.RefreshToken;
-import com.myroutine.support.FakeMailSender;
-import com.myroutine.support.IntegrationTestSupport;
-import com.myroutine.support.MemberSnapshot;
-import com.myroutine.support.TestFixtures;
+import com.myroutine.support.*;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import tools.jackson.databind.ObjectMapper;
 
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -92,7 +90,6 @@ class PasswordTest extends IntegrationTestSupport {
 
         TokenResult token2 = testFixtures.loginTokens("member1@test.com");
         String refresh2 = token2.refreshToken();
-        UUID sid2 = RefreshToken.parse(refresh2).sessionId();
 
         ChangePasswordRequest request = new ChangePasswordRequest("pass1234", "newpass5678");
 
@@ -114,9 +111,9 @@ class PasswordTest extends IntegrationTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(member1Id.toString()));
 
-        assertThat(testFixtures.sessionSnapshotOf(sid1).exists()).isTrue();
-        assertThat(testFixtures.sessionSnapshotOf(sid2).exists()).isFalse();
-        assertThat(testFixtures.sessionIdsOf(member1Id)).containsExactly(sid1);
+        assertThat(testFixtures.sessionRowsOf(member1Id))
+                .extracting(SessionRow::id)
+                .containsExactly(sid1);
 
         mockMvc.perform(post("/api/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -153,7 +150,8 @@ class PasswordTest extends IntegrationTestSupport {
 
         MemberSnapshot s = testFixtures.memberSnapshotOf(memberId);
         assertThat(s.passwordHash()).isEqualTo(before);
-        assertThat(testFixtures.sessionSnapshotOf(sidA).exists()).isTrue();
+        List<SessionRow> sessions = testFixtures.sessionRowsOf(memberId);
+        assertThat(sessions).anyMatch(session -> session.id().equals(sidA));
     }
 
     @Test
@@ -299,9 +297,9 @@ class PasswordTest extends IntegrationTestSupport {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNoContent());
 
-        assertThat(testFixtures.sessionSnapshotOf(sidA).exists()).isFalse();
-        assertThat(testFixtures.sessionSnapshotOf(sidB).exists()).isFalse();
-        assertThat(testFixtures.sessionIdsOf(memberId)).isEmpty();
+        List<SessionRow> sessions = testFixtures.sessionRowsOf(memberId);
+        assertThat(sessions).isEmpty();
+
         assertThat(testFixtures.emailAuthSnapshotOf(EmailCodePurpose.RESET_PASSWORD, "pw@test.com").codeExists()).isFalse();
 
         mockMvc.perform(post("/api/auth/login")
@@ -377,7 +375,8 @@ class PasswordTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.code").value("EMAIL_CODE_INVALID"));
 
         assertThat(testFixtures.memberSnapshotOf(memberId).passwordHash()).isEqualTo(before);
-        assertThat(testFixtures.sessionSnapshotOf(sidA).exists()).isTrue();
-        assertThat(testFixtures.sessionSnapshotOf(sidB).exists()).isTrue();
+        List<SessionRow> sessions = testFixtures.sessionRowsOf(memberId);
+        assertThat(sessions).anyMatch(session -> session.id().equals(sidA));
+        assertThat(sessions).anyMatch(session -> session.id().equals(sidB));
     }
 }

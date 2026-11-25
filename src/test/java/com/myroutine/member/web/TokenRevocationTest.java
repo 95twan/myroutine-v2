@@ -1,12 +1,10 @@
 package com.myroutine.member.web;
 
 import com.jayway.jsonpath.JsonPath;
-import com.myroutine.common.security.JwtProvider;
 import com.myroutine.member.application.TokenResult;
 import com.myroutine.support.FakeMailSender;
 import com.myroutine.support.IntegrationTestSupport;
 import com.myroutine.support.TestFixtures;
-import com.myroutine.support.TokenVersionSnapshot;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,7 +16,6 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -28,15 +25,13 @@ class TokenRevocationTest extends IntegrationTestSupport {
 
     private final MockMvc mockMvc;
     private final TestFixtures testFixtures;
-    private final JwtProvider jwtProvider;
     private final ObjectMapper objectMapper;
     private final FakeMailSender mailSender;
 
     @Autowired
-    public TokenRevocationTest(MockMvc mockMvc, TestFixtures testFixtures, JwtProvider jwtProvider, ObjectMapper objectMapper, FakeMailSender mailSender) {
+    public TokenRevocationTest(MockMvc mockMvc, TestFixtures testFixtures, ObjectMapper objectMapper, FakeMailSender mailSender) {
         this.mockMvc = mockMvc;
         this.testFixtures = testFixtures;
-        this.jwtProvider = jwtProvider;
         this.objectMapper = objectMapper;
         this.mailSender = mailSender;
     }
@@ -66,13 +61,6 @@ class TokenRevocationTest extends IntegrationTestSupport {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
 
-        TokenVersionSnapshot v = testFixtures.tokenVersionSnapshotOf(targetId);
-        assertThat(v.db()).isEqualTo(1);
-        assertThat(v.redis()).isEqualTo(1);
-        assertThat(v.redisTtlSeconds()).isBetween(80000L, 86400L);
-
-        assertThat(testFixtures.sessionIdsOf(targetId)).isEmpty();
-
         mockMvc.perform(get("/api/members/me")
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk());
@@ -82,7 +70,7 @@ class TokenRevocationTest extends IntegrationTestSupport {
     @DisplayName("전체 로그아웃하면 기존 access 토큰이 모두 거부된다.")
     void logoutAllRejectsExistingAccessTokens() throws Exception {
         // Given
-        UUID targetId = testFixtures.signup("target@test.com");
+        testFixtures.signup("target@test.com");
         TokenResult tokenA = testFixtures.loginTokens("target@test.com");
         String accessTokenA = tokenA.accessToken();
 
@@ -105,12 +93,7 @@ class TokenRevocationTest extends IntegrationTestSupport {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
 
-        TokenVersionSnapshot v = testFixtures.tokenVersionSnapshotOf(targetId);
-        assertThat(v.db()).isEqualTo(1);
-        assertThat(v.redis()).isEqualTo(1);
-
         String newToken = testFixtures.login("target@test.com");
-        assertThat(jwtProvider.parse(newToken).get().tokenVersion()).isEqualTo(1);
 
         mockMvc.perform(get("/api/members/me")
                         .header("Authorization", "Bearer " + newToken))
@@ -118,52 +101,57 @@ class TokenRevocationTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("비밀번호를 변경하면 기존 access 토큰이 거부되고 새 토큰은 통과한다.")
-    void changePasswordRejectsExistingAccessTokens() throws Exception {
+    @DisplayName("비밀번호를 변경하면 다른 기기의 access가 거부된다. (401)")
+    void changePasswordRejectsAccessOfOtherDevice() throws Exception {
         // Given
-        UUID targetId = testFixtures.signup("target@test.com");
+        testFixtures.signup("target@test.com");
         TokenResult tokenA = testFixtures.loginTokens("target@test.com");
         String accessTokenA = tokenA.accessToken();
 
         TokenResult tokenB = testFixtures.loginTokens("target@test.com");
         String accessTokenB = tokenB.accessToken();
 
-        ChangePasswordRequest request = new ChangePasswordRequest("pass1234", "newpass5678");
+        // When & Then
+        mockMvc.perform(patch("/api/members/me/password")
+                        .header("Authorization", "Bearer " + accessTokenA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ChangePasswordRequest("pass1234", "newpass5678"))))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        mockMvc.perform(get("/api/members/me")
+                        .header("Authorization", "Bearer " + accessTokenB))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("비밀번호를 변경한 기기는 응답의 새 access로 인증한다.")
+    void changedDeviceAuthenticatesWithNewAccess() throws Exception {
+        // Given
+        testFixtures.signup("target@test.com");
+        TokenResult tokenA = testFixtures.loginTokens("target@test.com");
+        String accessTokenA = tokenA.accessToken();
 
         // When & Then
         MvcResult result = mockMvc.perform(patch("/api/members/me/password")
                         .header("Authorization", "Bearer " + accessTokenA)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
+                        .content(objectMapper.writeValueAsString(new ChangePasswordRequest("pass1234", "newpass5678"))))
                 .andExpect(status().isOk())
                 .andReturn();
 
         String newAccess = JsonPath.read(result.getResponse().getContentAsString(), "$.accessToken");
 
         mockMvc.perform(get("/api/members/me")
-                        .header("Authorization", "Bearer " + accessTokenA))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
-
-        mockMvc.perform(get("/api/members/me")
-                        .header("Authorization", "Bearer " + accessTokenB))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
-
-        mockMvc.perform(get("/api/members/me")
                         .header("Authorization", "Bearer " + newAccess))
                 .andExpect(status().isOk());
-
-        assertThat(jwtProvider.parse(newAccess).get().tokenVersion()).isEqualTo(1);
-        assertThat(testFixtures.tokenVersionSnapshotOf(targetId).db()).isEqualTo(1);
-        assertThat(testFixtures.tokenVersionSnapshotOf(targetId).redis()).isEqualTo(1);
     }
 
     @Test
     @DisplayName("회원 탈퇴하면 기존 access 토큰이 거부된다.")
     void withdrawRejectsExistingAccessToken() throws Exception {
         // Given
-        UUID leaveId = testFixtures.signup("leave@test.com");
+        testFixtures.signup("leave@test.com");
         TokenResult tokenA = testFixtures.loginTokens("leave@test.com");
         String accessTokenA = tokenA.accessToken();
 
@@ -177,32 +165,13 @@ class TokenRevocationTest extends IntegrationTestSupport {
                         .header("Authorization", "Bearer " + accessTokenA))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
-
-        assertThat(testFixtures.tokenVersionSnapshotOf(leaveId).db()).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("전체 로그아웃이 아닌 로그아웃은 토큰 버전을 올리지 않는다.")
-    void logoutWithoutAllKeepsTokenVersion() throws Exception {
-        // Given
-        UUID otherId = testFixtures.signup("other@test.com");
-        String accessToken = testFixtures.login("other@test.com");
-
-
-        // When & Then
-        mockMvc.perform(post("/api/auth/logout")
-                        .header("Authorization", "Bearer " + accessToken)
-                        .param("all", "false"))
-                .andExpect(status().isNoContent());
-
-        assertThat(testFixtures.tokenVersionSnapshotOf(otherId).db()).isEqualTo(0);
     }
 
     @Test
     @DisplayName("비밀번호를 재설정하면 기존 access 토큰이 거부된다.")
     void resetPasswordRejectsExistingAccessToken() throws Exception {
         // Given
-        UUID targetId = testFixtures.signup("target@test.com");
+        testFixtures.signup("target@test.com");
         TokenResult tokenA = testFixtures.loginTokens("target@test.com");
         String accessTokenA = tokenA.accessToken();
 
@@ -231,9 +200,6 @@ class TokenRevocationTest extends IntegrationTestSupport {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNoContent());
-
-        assertThat(testFixtures.tokenVersionSnapshotOf(targetId).db()).isEqualTo(2);
-        assertThat(testFixtures.tokenVersionSnapshotOf(targetId).redis()).isEqualTo(2);
 
         mockMvc.perform(get("/api/members/me")
                         .header("Authorization", "Bearer " + newAccess))

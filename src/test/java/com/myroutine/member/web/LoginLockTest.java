@@ -172,7 +172,7 @@ class LoginLockTest extends IntegrationTestSupport {
         // Given
         UUID lockId = testFixtures.signup("lock@test.com");
 
-        int before = testFixtures.sessionIdsOf(lockId).size();
+        int before = testFixtures.sessionRowsOf(lockId).size();
 
         givenLoginFailures(5);
 
@@ -184,7 +184,7 @@ class LoginLockTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.code").value("ACCOUNT_LOCKED"));
 
         assertThat(testFixtures.redisStringOf(K).value()).isEqualTo("5");
-        assertThat(testFixtures.sessionIdsOf(lockId).size()).isEqualTo(before);
+        assertThat(testFixtures.sessionRowsOf(lockId).size()).isEqualTo(before);
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -219,7 +219,7 @@ class LoginLockTest extends IntegrationTestSupport {
     @DisplayName("로그인 실패 응답에 남은 횟수가 담긴다.")
     void failureResponseHasRemainingAttempts() throws Exception {
         // Given
-        UUID lockId = testFixtures.signup("lock@test.com");
+        testFixtures.signup("lock@test.com");
 
         // When & Then
         for (int i = 1; i <= 4; i++) {

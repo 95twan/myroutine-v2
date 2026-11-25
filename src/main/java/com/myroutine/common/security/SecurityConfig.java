@@ -26,7 +26,7 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             JwtProvider jwtProvider,
-            TokenVersionProvider tokenVersionProvider,
+            SessionVerifier sessionVerifier,
             RestAuthenticationEntryPoint entryPoint,
             RestAccessDeniedHandler deniedHandler
     ) throws Exception {
@@ -51,7 +51,7 @@ public class SecurityConfig {
                         .authenticationEntryPoint(entryPoint)
                         .accessDeniedHandler(deniedHandler)
                 )
-                .addFilterBefore(new JwtAuthenticationFilter(jwtProvider, tokenVersionProvider), UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(new JwtAuthenticationFilter(jwtProvider, sessionVerifier), UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 
