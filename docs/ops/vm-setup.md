@@ -285,8 +285,8 @@ sudo bash -c 'cd /home/runner/actions-runner && ./svc.sh status'
    UPDATE member.member SET role = 'ADMIN' WHERE email = '관리자@이메일' RETURNING id, email, role;
    ```
    한 행이 `ADMIN`으로 나오면 된다. 0행이면 이메일이 틀린 것이다. `\q`로 나온다.
-4. **그 계정으로 다시 로그인한다.** 역할은 토큰에 담기므로 바꾸기 전에 받은 토큰은 계속 `USER`다. 토큰 버전(`token_version`)은 올릴 필요가 없다.
-- 확인: 새 토큰으로 `GET /admin/api/members`가 200이면 된다(403이면 아직 `USER` 토큰이다).
+4. **다시 로그인할 필요는 없다.** 인증 필터가 요청마다 DB에서 역할을 읽으므로, 바꾸기 전에 받은 토큰도 다음 요청부터 `ADMIN`이다.
+- 확인: 그 계정의 토큰으로 `GET /admin/api/members`가 200이면 된다(403이면 역할이 바뀌지 않은 것이다).
 
 ## 9. 이후: 쿠버네티스로 가게 되면
 

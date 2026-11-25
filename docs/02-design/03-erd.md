@@ -1,5 +1,6 @@
 # 03. ERD (Stage 1)
 
+> 2026-11-25: 쓰지 않는 `member.token_version` 컬럼을 지웠다(서브 SUB-25)
 > 2026-11-25: refresh 세션을 Redis에서 `member.auth_session`으로 옮기고 `member.token_version`을 쓰지 않는다(다음 배포에서 삭제, 서브 SUB-25)
 > 2026-11-14: `notification.occurred_at`(이벤트가 일어난 시각)과 상태 `EXPIRED`를 더했다(서브 SUB-21)
 > 2026-11-13: `settlement.seq`(같은 가게·기간의 정산 회차)를 더하고 유니크 키를 `(shop_id, period_start, seq)`로 바꿨다. 정산 실행은 기간 끝 전의 미정산 품목을 모두 넣는다(서브 SUB-18)
@@ -44,7 +45,6 @@ erDiagram
     varchar password_hash "BCrypt, OAuth 전용 회원은 null"
     varchar status "ACTIVE, BANNED, WITHDRAWN"
     varchar role "USER, SELLER, ADMIN (하나)"
-    int token_version "쓰지 않음, 다음 배포에서 삭제 (SUB-25)"
     varchar ban_reason "제재 사유 (4-4)"
     timestamptz banned_at "제재 시각 (4-4)"
     timestamptz withdrawn_at

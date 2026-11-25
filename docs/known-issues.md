@@ -88,7 +88,6 @@
 | `StoredKey.updatedAt` | SELECT·매핑만 하고 읽는 곳이 없다 | `updatedAt()` 접근 0건 | `IdempotencyRepository`, `StoredKey` | 레코드 필드와 SELECT 컬럼 삭제. 컬럼은 갱신 감사용으로 둘지 정한다 |
 | `shop.closed_at` | 쓰기만 하고 읽지 않는다 | 응답·쿼리·이벤트 어디에도 없다 | `Shop.closedAt`, `V202610061735__shop_create_shop.sql` | 컬럼 삭제 또는 폐업 시각을 응답·정산에 쓸 요구를 문서에 올린다 |
 | `PgResult.Approved.totalAmount`·`balanceAmount`, `PgResult.Rejected.message`, `TossProperties.clientKey` | 2-3에서 정의했지만 읽는 곳이 없다. `PgOutcome`은 `method`·`approvedAt`·`code`만 옮긴다 | `TossClient`가 만들기만 한다 | `PgResult`, `TossPaymentResponse`, `TossProperties` | 삭제할지 정한다 |
-| 쓰지 않는 컬럼 `member.token_version` | SUB-25가 토큰 버전을 지워 읽고 쓰는 곳이 없다. 롤백할 때 이전 앱이 뜨도록 남겼다 | [ADR-011](adr/ADR-011-ops-practice-environment.md) 결정 7 | `member.member` | 다음 배포의 마이그레이션에서 지운다([서브 SUB-25](04-sub/session-auth.md) "머지한 뒤") |
 
 ### 3.5 성능·중복 처리
 
