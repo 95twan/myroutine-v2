@@ -485,4 +485,4 @@ erDiagram
   }
 ```
 - 같은 키 동시 요청: `idempotency_key` INSERT 충돌 → PROCESSING이면 409, COMPLETED면 저장된 응답 반환. requestHash가 다르면 422.
-- Outbox 정리 잡은 아직 없어 `SENT` 행이 계속 쌓인다([알려진 문제](../known-issues.md) 3.3).
+- Outbox 정리 잡은 아직 없어 `SENT` 행이 계속 쌓인다([알려진 문제](../known-issues.md) 1.3).

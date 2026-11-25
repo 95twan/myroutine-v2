@@ -190,7 +190,7 @@ CREATE INDEX idx_auth_session_expires_at ON member.auth_session (expires_at);
 | [로드맵 4-1·4-4](../03-roadmap/part4-auth.md) | 4-1(Redis 세션)·4-4(tokenVersion)의 머리에 "SUB-25가 세션을 DB로 옮겼다" 한 줄 |
 | [로드맵 3-4b](../03-roadmap/part3-events.md) | 완료 확인 7번 "역할을 바꾸기 전에 받은 토큰은 거부"에 "SUB-25부터는 역할을 회원 행에서 읽어 통과한다" 한 줄 |
 | [Redis 장애 대응](redis-outage.md) | 공통 "지금 Redis를 쓰는 곳"에서 세션·토큰 버전 키 |
-| [알려진 문제](../known-issues.md) | 세션·토큰 버전 행을 지운다. 3.4에 "쓰지 않는 컬럼 `member.token_version`"(확인됨, 다음 배포에서 삭제)을 더하고, 컬럼을 지우면 그 행도 지운다 |
+| [알려진 문제](../known-issues.md) | 세션·토큰 버전 행을 지운다. 2.2에 "쓰지 않는 컬럼 `member.token_version`"(확인됨, 다음 배포에서 삭제)을 더하고, 컬럼을 지우면 그 행도 지운다 |
 | [서브 SUB-8](log-coverage.md) | "JWT 거부 사유"에 세션 없음·만료·회원 상태를 더하고 토큰 버전 불일치를 뺀다 |
 
 ### 머지한 뒤
