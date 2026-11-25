@@ -17,7 +17,7 @@
 |---|---|---|---|
 | 1 | `NotificationDispatcher.dispatchBatch`의 안쪽 `catch (Exception e)` | `markFailed`로 DB에만 기록하고 `continue`한다. 성공은 `notification sent`를 찍는데 실패는 한 줄도 없다 | 메일 서버가 죽어 알림이 전부 실패해도 Kibana에는 아무것도 남지 않는다. DB를 직접 봐야 안다 |
 | 2 | 도메인 상태 전이(주문 결제 완료, 환불 완료, 정산 생성, 품목 취소 등) | `http` 한 줄과 `event handled` 로그로 추정해야 한다. 상태를 바꾼 사실을 직접 남기는 곳은 `AutoConfirmService`·`OrderExpirationService`(각 한 줄)와 대사·환불 복구뿐이다 | 이벤트를 내지 않는 전이는 어떤 로그에도 안 나와, "이 주문이 언제 왜 PAID가 됐나"를 로그로 답할 수 없다 |
-| 3 | `JwtProvider.parse`의 `catch (JwtException \| IllegalArgumentException e)` | `Optional.empty()`만 돌려주고 `JwtAuthenticationFilter`에도 로그가 없다. 401 status만 `http` 로그에 남는다 | 만료, 변조, 토큰 버전 불일치를 구분할 수 없어 로그인 실패 급증의 원인을 못 찾는다 |
+| 3 | `JwtProvider.parse`의 `catch (JwtException \| IllegalArgumentException e)` | `Optional.empty()`만 돌려주고 `JwtAuthenticationFilter`에도 로그가 없다. 401 status만 `http` 로그에 남는다 | 만료, 변조, 세션 없음·만료, 회원 상태(`SessionVerificationService.verify`도 빈 값만 돌려준다)를 구분할 수 없어 로그인 실패 급증의 원인을 못 찾는다 |
 
 ### 할 일
 

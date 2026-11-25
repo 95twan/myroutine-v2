@@ -213,7 +213,6 @@ class SettlementControllerTest extends IntegrationTestSupport {
         testFixtures.insertSettlementItems(List.of(shop1Id), 2, 7500, confirmedAt);
 
         UUID adminId = testFixtures.signup("admin@test.com");
-        String oldToken = testFixtures.login("admin@test.com");
         testFixtures.changeRole(adminId, "ADMIN");
         String token = testFixtures.login("admin@test.com");
 
@@ -227,12 +226,6 @@ class SettlementControllerTest extends IntegrationTestSupport {
 
         assertThat(testFixtures.countOf("settlement.settlement")).isEqualTo(1);
         assertThat(testFixtures.settlementSnapshotOf(shop1Id).status()).isEqualTo("PAID");
-
-        mockMvc.perform(post("/admin/api/settlements/run")
-                        .header("Authorization", "Bearer " + oldToken)
-                        .param("period", "2026-09"))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 
     @Test

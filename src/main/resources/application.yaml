@@ -16,7 +16,7 @@ spring:
   task:
     scheduling:
       pool:
-        size: 11
+        size: 12
   data:
     redis:
       timeout: 1s

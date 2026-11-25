@@ -53,6 +53,21 @@ public class TestFixtures {
     private final ConfirmPurchaseService confirmPurchaseService;
     private final ObjectMapper objectMapper;
 
+    public List<SessionRow> sessionRowsOf(UUID memberId) {
+        return jdbcTemplate.query("""
+                        SELECT id, refresh_hash, expires_at
+                        FROM member.auth_session
+                        WHERE member_id = ?
+                        ORDER BY created_at
+                        """,
+                (rs, _) -> new SessionRow(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("refresh_hash"),
+                        rs.getTimestamp("expires_at").toInstant()
+                ),
+                memberId);
+    }
+
     public void setOrderCreatedAt(UUID orderId, Instant createdAt) {
         jdbcTemplate.update("UPDATE orders.orders SET created_at = ? WHERE id = ?", Timestamp.from(createdAt), orderId);
     }
@@ -158,17 +173,6 @@ public class TestFixtures {
         UUID orderLineId = orderLineIdOf(orderId, productId);
         confirmPurchaseService.confirm(buyerId, orderId, orderLineId);
         return orderLineId;
-    }
-
-    public TokenVersionSnapshot tokenVersionSnapshotOf(UUID memberId) {
-        int tokenVersion = jdbcTemplate.queryForObject("SELECT token_version FROM member.member WHERE id = ?", Integer.class, memberId);
-        String redisTokenVersionRow = redisTemplate.opsForValue().get("auth:token-version:" + memberId);
-        Integer redisTokenVersion = null;
-        if (redisTokenVersionRow != null) {
-            redisTokenVersion = Integer.parseInt(redisTokenVersionRow);
-        }
-        long redisTtlSeconds = redisTemplate.getExpire("auth:token-version:" + memberId);
-        return new TokenVersionSnapshot(tokenVersion, redisTokenVersion, redisTtlSeconds);
     }
 
     public String adminToken(String email) {
@@ -1033,21 +1037,5 @@ public class TestFixtures {
                 Ids.newId(), orderLineId, shopId, Ids.newId(), shopOrderId, Ids.newId(), productName, quantity, amount, OffsetDateTime.ofInstant(confirmedAt, ZoneOffset.UTC)
         );
         return orderLineId;
-    }
-
-    public SessionSnapshot sessionSnapshotOf(UUID sessionId) {
-        String key = "auth:session:" + sessionId;
-        Map<Object, Object> map = redisTemplate.opsForHash().entries(key);
-        Long expire = redisTemplate.getExpire(key, TimeUnit.SECONDS);
-        return new SessionSnapshot(map.entrySet().stream().collect(Collectors.toMap(e -> (String) e.getKey(), e -> (String) e.getValue())), expire);
-    }
-
-    public long memberSessionsTtlOf(UUID memberId) {
-        return redisTemplate.getExpire("auth:member-sessions:" + memberId, TimeUnit.SECONDS);
-    }
-
-    public Set<UUID> sessionIdsOf(UUID memberId) {
-        Set<String> sessionIds = redisTemplate.opsForSet().members("auth:member-sessions:" + memberId);
-        return sessionIds.stream().map(UUID::fromString).collect(Collectors.toSet());
     }
 }

@@ -1,6 +1,7 @@
 # 07. API 명세 (Stage 1)
 
 > 엔드포인트 목록과 핵심 API의 요청·응답 계약. 필드 단위 상세는 구현 시 springdoc(OpenAPI)로 생성하고, 이 문서와 어긋나면 이 문서를 갱신한다.
+> 2026-11-25 · 로그아웃·refresh 재사용 탐지로 세션을 지우면 그 세션의 access도 바로 401, 역할 변경은 다음 요청부터 반영(서브 SUB-25)
 > 2026-11-24 · Redis를 쓸 수 없으면(연결 실패, 명령 타임아웃 1초) 503 `SERVICE_UNAVAILABLE`(서브 SUB-24)
 > 2026-11-16 · 체크아웃은 결제 대기 주문이 많으면 409 `PENDING_ORDER_LIMIT_EXCEEDED`, 최근 24시간에 결제되지 않은 주문이 많으면 429 `UNPAID_ORDER_LIMIT_EXCEEDED`(서브 SUB-23)
 > 2026-11-14 · 알림 목록 `status`에 `EXPIRED`(유효 시간이 지나 보내지 않은 알림, 서브 SUB-21)
@@ -41,7 +42,7 @@
 | 400 | `INVALID_REQUEST` | 검증 실패, JSON 형식 오류 |
 | 404 | `NOT_FOUND` | 없는 경로 |
 | 405 | `METHOD_NOT_ALLOWED` | 지원하지 않는 HTTP 메서드 |
-| 401 | `UNAUTHORIZED`(토큰 없음·틀림·만료·폐기 모두), `REFRESH_REUSED` | 인증 |
+| 401 | `UNAUTHORIZED`(토큰 없음·틀림·만료, 세션 없음·만료, 회원이 ACTIVE 아님), `REFRESH_REUSED` | 인증 |
 | 401 | `LOGIN_FAILED` | 이메일 또는 비밀번호 불일치 (어느 쪽이 틀렸는지 알려주지 않음). `details.remainingAttempts`: 잠기기까지 남은 실패 횟수(4→1) |
 | 403 | `FORBIDDEN`, `MEMBER_BANNED` | 인가, 제재. `MEMBER_BANNED`는 사유가 있으면 `details.reason` |
 | 423 | `ACCOUNT_LOCKED` | 로그인 연속 실패로 잠김. 5번째 실패부터 (details.unlockAt). 비밀번호 재설정을 확인하면 풀린다 |

@@ -21,7 +21,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtProvider jwtProvider;
-    private final TokenVersionProvider tokenVersionProvider;
+    private final SessionVerifier sessionVerifier;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
@@ -33,15 +33,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String token = authorizationHeader.substring(BEARER_PREFIX.length());
 
-        jwtProvider.parse(token).ifPresent(claims -> {
-            if (claims.tokenVersion() == tokenVersionProvider.currentVersion(claims.memberId())) {
-                UsernamePasswordAuthenticationToken authenticatedToken = UsernamePasswordAuthenticationToken.authenticated(claims, null, List.of(new SimpleGrantedAuthority("ROLE_" + claims.role())));
-                SecurityContextHolder.getContext().setAuthentication(authenticatedToken);
-                MDC.put("memberId", claims.memberId().toString());
-            }
+        jwtProvider.parse(token).flatMap(claims -> sessionVerifier.verify(claims.sessionId(), claims.memberId())).ifPresent(authClaims -> {
+            UsernamePasswordAuthenticationToken authenticatedToken = UsernamePasswordAuthenticationToken.authenticated(authClaims, null, List.of(new SimpleGrantedAuthority("ROLE_" + authClaims.role())));
+            SecurityContextHolder.getContext().setAuthentication(authenticatedToken);
+            MDC.put("memberId", authClaims.memberId().toString());
         });
 
         filterChain.doFilter(request, response);
-
     }
 }

@@ -1,5 +1,6 @@
 # 06. 핵심 시퀀스
 
+> 2026-11-25: 인증(§9)을 Redis 토큰 버전 대신 DB 세션 확인으로 다시 그렸다(서브 SUB-25)
 > 2026-10-16: 대사(§2)에서 조회한 결제는 payment 확정과 주문 처리를 별도 트랜잭션으로 그렸고 보상 앞의 승인 기록 단계를 뺐다(로드맵 2-6)
 > 2026-10-16: 대사(§2)를 결제 상태별 경로(확정 → 주문만 처리, 취소됨 → `failOrder`, 미확정 → `queryPgOutcome`)로 다시 그렸고 호출 이름을 `queryPgOutcome`으로 바꿨다(로드맵 2-6)
 > 2026-10-15: 만료 잡 조회 조건을 `expires_at <= now()`로 맞췄다(로드맵 2-5)
@@ -288,21 +289,21 @@ sequenceDiagram
 sequenceDiagram
   participant C as Client
   participant F as 인증 필터
-  participant R as Redis
+  participant D as DB
   participant M as member
-  C->>F: Bearer access (memberId, role, tv=3)
+  C->>F: Bearer access (memberId, sid)
   F->>F: 서명·만료 검증
-  F->>R: GET auth:token-version:{memberId}
-  alt tv 불일치 (제재·탈퇴·전체 로그아웃)
+  F->>D: sid의 세션(만료 전)과 회원(ACTIVE, 역할) 조회
+  alt 세션 없음·만료, 회원이 ACTIVE 아님
     F-->>C: 401 UNAUTHORIZED
   end
   C->>M: POST /api/auth/refresh (refresh)
-  M->>R: 세션 조회, refreshHash 비교
-  alt 이미 사용된 refresh (재사용)
-    M->>R: 그 세션 폐기 (세션 = family, 다른 기기 세션은 유지)
+  M->>D: refresh_hash가 보낸 해시와 같을 때만 새 해시로 교체
+  alt 0행 (이미 쓴 refresh)
+    M->>D: 그 세션 삭제 (그 sid의 access도 거부됨)
     M-->>C: 401 REFRESH_REUSED
-  else 정상
-    M->>R: 새 refresh로 교체 (회전)
-    M-->>C: 새 access + refresh
+  else 1행
+    M-->>C: 새 access + 새 refresh
   end
 ```
+로그아웃·전체 로그아웃·비밀번호 변경·재설정·제재·탈퇴는 세션 행을 지워 끊는다([ADR-015](../adr/ADR-015-session-auth.md)).

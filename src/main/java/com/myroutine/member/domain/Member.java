@@ -53,9 +53,6 @@ public class Member extends BaseTimeEntity {
     @Column(name = "withdrawn_at")
     private Instant withdrawnAt;
 
-    @Column(name = "token_version", nullable = false)
-    private int tokenVersion;
-
     @Column(name = "ban_reason")
     private String banReason;
 
@@ -137,10 +134,6 @@ public class Member extends BaseTimeEntity {
 
     public void changePassword(String encodedPassword) {
         this.passwordHash = encodedPassword;
-    }
-
-    public void increaseTokenVersion() {
-        this.tokenVersion++;
     }
 
     public void ban(String reason, Instant now) {

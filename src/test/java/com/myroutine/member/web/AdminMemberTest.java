@@ -275,8 +275,7 @@ class AdminMemberTest extends IntegrationTestSupport {
         String adminToken = testFixtures.adminToken("admin@test.com");
 
         UUID aliceId = testFixtures.signup("alice@test.com");
-        TokenResult tokenResult = testFixtures.loginTokens("alice@test.com");
-        UUID sid = RefreshToken.parse(tokenResult.refreshToken()).sessionId();
+        testFixtures.loginTokens("alice@test.com");
 
         BanRequest request = new BanRequest("운영정책 위반");
 
@@ -292,7 +291,8 @@ class AdminMemberTest extends IntegrationTestSupport {
         assertThat(m.banReason()).isEqualTo("운영정책 위반");
         assertThat(m.bannedAt()).isNotNull();
 
-        assertThat(testFixtures.sessionSnapshotOf(sid).exists()).isFalse();
+        assertThat(testFixtures.sessionRowsOf(aliceId)).isEmpty();
+
         assertThat(outboxAssert.rows(MemberTopics.MEMBER_BANNED)).hasSize(1);
         assertThat(outboxAssert.rows(MemberTopics.MEMBER_BANNED).getFirst().aggregateId()).isEqualTo(aliceId);
         assertThat(outboxAssert.rows(MemberTopics.MEMBER_BANNED).getFirst().payload().get("memberId").asString()).isEqualTo(aliceId.toString());

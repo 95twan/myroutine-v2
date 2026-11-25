@@ -21,7 +21,7 @@ public class LoginService {
     private final TokenIssuer tokenIssuer;
     private final LoginAttemptStore loginAttemptStore;
 
-    @Transactional(readOnly = true)
+    @Transactional
     public TokenResult login(LoginCommand command) {
         String email = Member.normalizeEmail(command.email());
 

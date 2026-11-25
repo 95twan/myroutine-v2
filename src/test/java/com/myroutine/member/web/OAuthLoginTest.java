@@ -90,8 +90,6 @@ class OAuthLoginTest extends IntegrationTestSupport {
         String accessToken = JsonPath.read(result2.getResponse().getContentAsString(), "$.accessToken");
         String refreshToken = JsonPath.read(result2.getResponse().getContentAsString(), "$.refreshToken");
 
-        assertThat(jwtProvider.parse(accessToken).get().role()).isEqualTo("USER");
-
         UUID memberId = testFixtures.memberIdOf("social@test.com");
         assertThat(jwtProvider.parse(accessToken).get().memberId()).isEqualTo(memberId);
 
@@ -111,8 +109,8 @@ class OAuthLoginTest extends IntegrationTestSupport {
         RedisString redisString = testFixtures.redisStringOf("auth:signup-verified:" + TestFixtures.sha256Hex(verificationToken));
         assertThat(redisString.exists()).isFalse();
 
-        SessionSnapshot ss = testFixtures.sessionSnapshotOf(RefreshToken.parse(refreshToken).sessionId());
-        assertThat(ss.memberId()).isEqualTo(memberId);
+        UUID sid = RefreshToken.parse(refreshToken).sessionId();
+        assertThat(testFixtures.sessionRowsOf(memberId)).anyMatch(session -> session.id().equals(sid));
 
         mockMvc.perform(get("/api/members/me")
                         .header("Authorization", "Bearer " + accessToken))
@@ -140,8 +138,7 @@ class OAuthLoginTest extends IntegrationTestSupport {
 
         assertThat(jwtProvider.parse(accessToken).get().memberId()).isEqualTo(memberId);
         UUID sid = RefreshToken.parse(refreshToken).sessionId();
-        assertThat(testFixtures.sessionSnapshotOf(sid).exists()).isTrue();
-        assertThat(testFixtures.sessionSnapshotOf(sid).memberId()).isEqualTo(memberId);
+        assertThat(testFixtures.sessionRowsOf(memberId)).anyMatch(session -> session.id().equals(sid));
     }
 
     @ParameterizedTest
@@ -200,6 +197,8 @@ class OAuthLoginTest extends IntegrationTestSupport {
         assertThat(jwtProvider.parse(accessToken).get().memberId()).isEqualTo(memberId);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"code\":\"x\"}", "{\"code\":\"x\",\"state\":\"\"}"})
     @DisplayName("소셜 로그인을 실패한다. (state 없음 또는 빈 문자열, INVALID_REQUEST)")
     void blankStateFails(String request) throws Exception {
         // Given
@@ -273,7 +272,7 @@ class OAuthLoginTest extends IntegrationTestSupport {
 
         testFixtures.changeStatus(memberId, "BANNED");
 
-        int before = testFixtures.sessionIdsOf(memberId).size();
+        int before = testFixtures.sessionRowsOf(memberId).size();
 
         // When & Then
         mockMvc.perform(post("/api/auth/oauth/kakao/login")
@@ -282,7 +281,7 @@ class OAuthLoginTest extends IntegrationTestSupport {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("MEMBER_BANNED"));
 
-        assertThat(testFixtures.sessionIdsOf(memberId).size()).isEqualTo(before);
+        assertThat(testFixtures.sessionRowsOf(memberId).size()).isEqualTo(before);
     }
 
     @Test
@@ -319,8 +318,6 @@ class OAuthLoginTest extends IntegrationTestSupport {
         assertThat(testFixtures.memberIdOf("typed@test.com")).isNotNull();
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"{\"code\":\"x\"}", "{\"code\":\"x\",\"state\":\"\"}"})
     @Test
     @DisplayName("탈퇴한 회원의 소셜 계정으로 다시 가입한다.")
     void withdrawnMemberSocialAccountSignsUpAgain() throws Exception {

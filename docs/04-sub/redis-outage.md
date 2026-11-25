@@ -13,17 +13,13 @@
 
 ### 지금 Redis를 쓰는 곳
 
-Redis는 member 모듈과 JWT 필터만 쓴다. 주문·결제·재고·정산·알림·검색·예약 작업·Kafka consumer는 쓰지 않는다.
+Redis는 member 모듈만 쓴다. 주문·결제·재고·정산·알림·검색·예약 작업·Kafka consumer는 쓰지 않는다.
 
 | 키 | 값의 원본 | 쓰는 곳 |
 |---|---|---|
-| `auth:token-version:{memberId}` | DB `member.token_version`의 복사본(1일 만료) | `RedisTokenVersionProvider`(JWT 필터가 토큰이 있는 요청마다 읽음), `TokenVersionService.bump`(커밋 뒤 씀) |
-| `auth:session:{sessionId}`, `auth:member-sessions:{memberId}` | Redis에만 있음 | `RedisSessionStore`: 로그인·가입의 세션 생성, 갱신의 해시 교체, 로그아웃·비밀번호 변경·재설정·제재·탈퇴의 세션 삭제 |
 | `auth:login-fail:{email}` | Redis에만 있음 | `RedisLoginAttemptStore`: 15분 안에 5번 틀리면 15분 잠금 |
 | `auth:email-code:*`, `auth:email-cooldown:{email}`, `auth:email-hourly:{email}` | Redis에만 있음 | `RedisEmailCodeStore`: 가입 인증·비밀번호 재설정 코드, 발송 간격(60초)·시간당 횟수(5번). 간격·횟수는 목적과 상관없이 이메일 하나에 같이 쌓인다 |
 | `auth:signup-verified:*`, `auth:oauth-signup:*` | Redis에만 있음 | `RedisSignupVerificationStore`, `RedisSignupTokenStore`: 가입 인증 완료 표시, 소셜 가입 토큰 |
-
-[SUB-25](session-auth.md)가 세션을 DB로 옮기면 위 표의 앞 두 줄(토큰 버전, 세션)은 없어지고 로그인 실패 횟수, 이메일 코드, 가입 인증·소셜 가입 토큰만 남는다.
 
 지금은 Redis가 응답하지 않으면 Redis를 부르는 요청이 Lettuce 기본 타임아웃(60초) 뒤 실패한다. 서비스 안의 실패는 `@Transactional`이 DB 변경을 롤백하고 500 `INTERNAL_ERROR`로 답한다. JWT 필터 안의 실패는 `GlobalExceptionHandler` 밖이라 에러 형식이 다르다. `/actuator/health`에는 Redis 지표가 들어가 있어 DOWN이 된다.
 
@@ -37,8 +33,6 @@ Redis는 member 모듈과 JWT 필터만 쓴다. 주문·결제·재고·정산·
 | 가입 인증 코드 발송·확인, 이메일 가입, 처음 오는 회원의 소셜 로그인, 소셜 가입 | 503. 코드·인증 완료 표시·가입 토큰이 Redis에만 있다 | SUB-24 |
 | 비밀번호 재설정 요청·확인 | 503. 코드·발송 간격·횟수가 Redis에만 있다 | SUB-24 |
 | `/actuator/health` | UP. Redis 지표를 뺀다 | SUB-24 |
-
-SUB-24와 SUB-25 사이에는 토큰 갱신·로그아웃·비밀번호 변경·제재·탈퇴도 Redis 세션을 써서 503이다.
 
 ### Redis 영속성
 
