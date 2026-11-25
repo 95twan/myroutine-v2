@@ -96,6 +96,7 @@
 
 | 항목 | 문제 | 근거 | 위치 | 고치는 방향 |
 |---|---|---|---|---|
+| CPU 한계 근처에서 세션 인증의 꼬리 | 인증 필터가 요청마다 DB에서 세션과 회원을 조회해 요청당 postgres CPU를 약 0.07ms 더 쓴다. VM CPU가 한계 가까이(컨테이너 약 6.9/8코어)일 때 토큰 있는 요청의 p95가 없는 요청보다 12~14ms 느렸다(요구사항 NFR-PERF-04는 10ms 미만). 보통 부하(30 VU)에서는 1.1ms다 | [SUB-16 S-04 리포트](perf/sub-16-s04-auth.md) | `SessionVerificationService.verify`, `JpaSessionRepository.findActive` | 고치지 않는다. 커넥션 풀 대기가 없고 보통 부하에서는 기준을 채운다. 운영 부하가 CPU 한계에 가까워지거나 풀 대기가 생기면 세션 캐시를 실험한다([ADR-015](adr/ADR-015-session-auth.md)) |
 | `cart` 테이블 | `member_id` 한 컬럼뿐인 껍데기인데 모든 장바구니 동작이 먼저 `cart`를 읽거나 만든다. 담기 한 번에 `cart`·`cart_item`에 문장 4개가 나가고, 마지막 select는 방금 쓴 행의 id를 얻으려는 재조회다 | `cart.id`를 참조하는 곳은 `cart_item.cart_id`뿐이다 | `V202610111013__order_create_cart.sql`, `CartService`, `CartRepository`, 체크아웃의 `findByMemberId` | `cart_item.member_id`를 직접 두고 `UK(member_id, product_id)`로 바꿔 `cart`를 없앤다. 최소한 `INSERT … RETURNING id`로 마지막 재조회만 없앤다 |
 | 첫 배송지 등록 | "기존 기본 해제" 경로(`changeDefault`)를 재사용해서, 기존 배송지가 없다는 이미 아는 사실을 다시 조회하고 같은 행을 두 번 쓴다. 문장이 4개 나간다 | `first`가 true인 순간 기본 배송지가 없음은 확정이다 | `MemberAddressService.register`, `MemberAddress.register`, 1-5 순서 | 첫 배송지는 `isDefault=true`로 바로 INSERT하고 해제 경로를 건너뛴다 |
 | 체크아웃의 `getPurchasable` 이중 호출 | 체크아웃이 `getPurchasable`을 부른 직후 `reserve` 안에서 같은 상품 ID로 같은 JOIN 조회를 한 번 더 하고 결과를 버린다 | 문서의 이유는 "조회 시점과 예약 시점 사이에 상태가 바뀔 수 있다"인데 같은 트랜잭션·READ COMMITTED라 틈이 거의 없다 | `CheckoutService`, `ProductApiImpl.reserve` | 모듈 API의 독립 호출 계약 때문이라면 "의도적 중복 조회"로 문서에 명시한다. 아니면 `reserve`는 재고 UPDATE만 하고 호출자가 `getPurchasable`을 책임진다 |
