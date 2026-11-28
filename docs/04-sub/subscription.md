@@ -1,6 +1,7 @@
 # 서브: 구독
 
-> 버전 0.32 · 2026-11-16 · SUB-3: 체크아웃의 재고 점유 제한(SUB-23) 두 조회에 `type = NORMAL` 조건을 더해 구독 회차 주문을 세지 않는다
+> 버전 0.33 · 2026-11-28 · SUB-1 빌링키 발급 분류의 불확실 코드에 `PROVIDER_ERROR`를 더했다(2-3과 같은 목록)
+> 0.32 · 2026-11-16 · SUB-3: 체크아웃의 재고 점유 제한(SUB-23) 두 조회에 `type = NORMAL` 조건을 더해 구독 회차 주문을 세지 않는다
 > 0.31 · 2026-10-31 · 로드맵의 옛 Part 5를 서브로 옮겼다(파일은 `03-roadmap/part5-subscription.md`에서 이동, 단계 ID는 5-1\~5-4에서 SUB-1\~SUB-4로): Stage 1 뒤에 하고 `v1.x.0`으로 릴리스한다. Part 6에서 뺀 구독 점검(로그 점검, 빌링 호출 지표, INV-08, E2E S5·S7)을 "Part 6에 더할 것"으로 옮겼다
 > 0.30 · 2026-10-28 · SUB-2 구독 신청에서 이메일 인증 확인(`@RequireVerifiedEmail`)을 뺐다. 4-2부터 가입 전에 이메일을 인증해 모든 회원이 인증된 이메일을 가진다
 > 0.29 · 2026-10-27
@@ -278,7 +279,7 @@
 |---|---|
 | 2xx, `billingKey`가 있음 | `Issued(billingKey, cardCompany + " " + cardNumber)` — `cardNumber`는 Toss가 이미 마스킹한 값이라 그대로 쓴다 |
 | 2xx인데 본문 파싱 실패 또는 `billingKey`가 null | `Unknown("INVALID_BODY")` (NPE가 새지 않게) |
-| 4xx | `Rejected(code)`. 단 불확실 코드(`ALREADY_PROCESSED_PAYMENT`, `ALREADY_PROCESSING_REQUEST`, `IDEMPOTENT_REQUEST_PROCESSING`. 결제가 이미 처리됐거나 처리 중이라 결과를 단정할 수 없다)는 `Unknown(code)` |
+| 4xx | `Rejected(code)`. 단 불확실 코드(`ALREADY_PROCESSED_PAYMENT`, `ALREADY_PROCESSING_REQUEST`, `IDEMPOTENT_REQUEST_PROCESSING`, `PROVIDER_ERROR`. 이미 처리됐거나 처리 중이거나 처리됐는지 알 수 없어 결과를 단정할 수 없다, 2-3)는 `Unknown(code)` |
 | 5xx, 타임아웃·연결 끊김 | `Unknown(reason)` |
 
 `billingCharge`
