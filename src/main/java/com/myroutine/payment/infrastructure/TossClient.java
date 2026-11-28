@@ -25,7 +25,7 @@ import java.util.function.Function;
 @RequiredArgsConstructor
 public class TossClient {
 
-    private static final Set<String> UNCERTAIN_CODES = Set.of("ALREADY_PROCESSED_PAYMENT", "ALREADY_PROCESSING_REQUEST", "IDEMPOTENT_REQUEST_PROCESSING");
+    private static final Set<String> UNCERTAIN_CODES = Set.of("ALREADY_PROCESSED_PAYMENT", "ALREADY_PROCESSING_REQUEST", "IDEMPOTENT_REQUEST_PROCESSING", "PROVIDER_ERROR");
 
     private final RestClient tossRestClient;
     private final MeterRegistry registry;
