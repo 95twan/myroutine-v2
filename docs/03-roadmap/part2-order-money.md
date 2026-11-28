@@ -1,6 +1,7 @@
 # Part 2. 주문과 돈
 
-> 버전 0.134 · 2026-11-16 · 2-2 알고 있는 한계 4번(재고 점유 남용)은 체크아웃이 결제 대기 주문 수와 결제되지 않은 주문 수로 거절해 막는다([SUB-23](../04-sub/stock-hold-abuse.md))
+> 버전 0.135 · 2026-11-28 · 2-3 불확실 코드에 `PROVIDER_ERROR`(400 "일시적인 오류")를 더했다. Toss의 승인·취소 API 에러 표에 있고 이때 결제가 처리됐는지 문서에 없어 거절로 단정하지 않는다
+> 0.134 · 2026-11-16 · 2-2 알고 있는 한계 4번(재고 점유 남용)은 체크아웃이 결제 대기 주문 수와 결제되지 않은 주문 수로 거절해 막는다([SUB-23](../04-sub/stock-hold-abuse.md))
 > 0.133 · 2026-11-13 · 2-3 조회 분류에서 `CANCELED`는 `Rejected`, `PARTIAL_CANCELED`는 `Unknown`으로 바꿔 밖에서 취소된 결제를 승인으로 읽지 않는다([SUB-20](../04-sub/pg-external-cancel.md))
 > 0.132 · 2026-11-12 · 2-5 `JobLock`에 작업 결과를 돌려주는 `callExclusively`를 더하고 `runExclusively`가 그것을 부르게 했다([SUB-19](../04-sub/reconcile-concurrency.md))
 > 0.131 · 2026-11-05 · 2-9 반품 재요청 금지는 `RETURN` 환불의 `REJECTED`만 본다(6-3 종결로 `REJECTED`가 된 구매자 취소 환불은 반품을 막지 않는다)
@@ -985,16 +986,18 @@ public sealed interface PgResult permits PgResult.Approved, PgResult.Rejected, P
 
 **불확실 코드** (`classify` 3번)
 
-- "불확실 코드" 목록(상수 `Set<String> UNCERTAIN_CODES`) — 4xx인데 "거절"이 아니라 "이미 처리 중·처리됨"이라 조회로 확인해야 하는 코드. Toss "API 에러 코드" 전체 목록·멱등키 문서와 대조했다(2026-10-09)
+- "불확실 코드" 목록(상수 `Set<String> UNCERTAIN_CODES`) — 4xx인데 "거절"로 단정할 수 없어(이미 처리 중·처리됨이거나, 처리됐는지 문서에 없는 일시적인 오류) 조회로 확인해야 하는 코드. Toss "API 에러 코드" 전체 목록·멱등키 문서와 대조했다(2026-10-09)
 
 | 코드 | HTTP | 뜻 |
 |---|---|---|
 | `ALREADY_PROCESSED_PAYMENT` | 400 | 이미 처리된 결제 |
 | `ALREADY_PROCESSING_REQUEST` | 400 | 이미 처리 중인 요청 |
 | `IDEMPOTENT_REQUEST_PROCESSING` | 409 | 같은 멱등키의 첫 요청이 아직 처리 중 |
+| `PROVIDER_ERROR` | 400 | 일시적인 오류. 이때 결제가 처리됐는지 문서에 없다 |
 
-- `FAILED_INTERNAL_SYSTEM_PROCESSING`, `FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING`, `UNKNOWN_ERROR` 등은 **500**이라 ①의 4번(5xx)으로 이미 `Unknown`이다(목록에 넣지 않는다). 이전 목록의 `PROVIDER_ERROR`, `UNKNOWN_PAYMENT_ERROR`는 현재 에러 목록에 없어 뺐다.
-- API별 에러 표(승인·취소·조회마다 나오는 코드)는 문서 화면에서만 보여 대조하지 못했다(확인 필요). 구현할 때 개발자센터에서 승인·취소 API의 에러 표를 한 번 보고, 위 목록에 더할 코드가 있으면 PR에 적는다(Claude가 문서에 옮긴다).
+- `FAILED_INTERNAL_SYSTEM_PROCESSING`, `FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING`, `UNKNOWN_PAYMENT_ERROR`, `UNKNOWN_ERROR` 등은 **500**이라 ①의 4번(5xx)으로 이미 `Unknown`이다(목록에 넣지 않는다).
+- 개발자센터 에러 코드의 API별 표("결제 승인"·"결제 취소")와도 대조했다. "처리 중·처리됨" 코드는 `ALREADY_PROCESSED_PAYMENT`, `ALREADY_PROCESSING_REQUEST`, `IDEMPOTENT_REQUEST_PROCESSING`뿐이고 취소 표에는 없다. `PROVIDER_ERROR`는 두 표에 400으로 있다.
+- `PROVIDER_ERROR`가 승인에서 오면 대사가 조회로 확정한다. 처리되지 않은 결제는 Toss가 `EXPIRED`로 바꿀 때까지 "결제 확인 중"으로 남고 재고가 묶인다. 취소에서 오면 환불이 `APPROVED`로 남아 복구 잡(2-8b)이 같은 키로 다시 보낸다. 같은 키로 다시 보낸 요청에 Toss가 첫 에러 응답을 그대로 돌려주는지는 확인 필요다. 돌려주면 그 환불은 `APPROVED`로 남고, 알림 `정체 Saga`(환불은 10분)로 운영자가 찾는다.
 
 **② public 메서드 3개**
 
